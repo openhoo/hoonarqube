@@ -2398,6 +2398,250 @@ namespace AliasedGuid
         );
     }
 
+    struct RuntimeQuickFixFixture {
+        _workspace: OwnedTempDir,
+        dotnet: PathBuf,
+        project: PathBuf,
+        source_path: PathBuf,
+        dll: PathBuf,
+    }
+
+    impl RuntimeQuickFixFixture {
+        fn new(label: &str, source: &str) -> Self {
+            let workspace = OwnedTempDir::new(label);
+            let project_source = r#"<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>RuntimeProgram</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+"#;
+            let project = workspace.write("src/Case/Case.csproj", project_source);
+            let source_path = workspace.write("src/Case/Program.cs", source);
+            let dotnet = env::var_os("HOONARQUBE_DOTNET")
+                .map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
+            restore_fixture_project(&dotnet, &project);
+            let dll = workspace.path().join("compiled").join("RuntimeProgram.dll");
+            Self {
+                _workspace: workspace,
+                dotnet,
+                project,
+                source_path,
+                dll,
+            }
+        }
+
+        fn native_report(&self, source: &str) -> hoonarqube_ir::FileReport {
+            crate::analyze(
+                self.source_path.clone(),
+                source,
+                CsLanguage::CSharp,
+                &AnalyzerOptions::default(),
+            )
+        }
+
+        fn build(&self, source: &str) -> PathBuf {
+            fs::write(&self.source_path, source).expect("write exact runtime fixture source");
+            let output = Command::new(&self.dotnet)
+                .arg("build")
+                .arg(&self.project)
+                .arg("--no-restore")
+                .arg("--nologo")
+                .arg("--configuration")
+                .arg("Release")
+                .arg("-t:Rebuild")
+                .arg("--output")
+                .arg(
+                    self.dll
+                        .parent()
+                        .expect("fixture DLL has an output directory"),
+                )
+                .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
+                .output()
+                .expect("dotnet SDK is required for runtime quickfix regression coverage");
+            assert!(
+                output.status.success(),
+                "building {} failed: {}\nstdout:\n{}\nstderr:\n{}",
+                self.project.display(),
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            self.dll.clone()
+        }
+
+        fn stdout(&self, source: &str) -> String {
+            let dll = self.build(source);
+            run_runtime_fixture(&self.dotnet, &dll)
+        }
+    }
+
+    fn run_runtime_fixture(dotnet: &Path, dll: &Path) -> String {
+        let output = Command::new(dotnet)
+            .arg(dll)
+            .env("DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "1")
+            .output()
+            .expect("dotnet runtime is required for quickfix regression coverage");
+        assert!(
+            output.status.success(),
+            "running {} failed: {}\nstdout:\n{}\nstderr:\n{}",
+            dll.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("runtime fixture stdout must be UTF-8")
+            .replace("\r\n", "\n")
+    }
+
+    fn runtime_rule_count(report: &hoonarqube_ir::FileReport, key: &str) -> usize {
+        report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .count()
+    }
+
+    fn project_runtime_action(
+        source: &str,
+        report: &hoonarqube_ir::FileReport,
+        key: &str,
+        action_id: &str,
+        expected_actions: usize,
+    ) -> String {
+        let actions: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .flat_map(|issue| issue.alternatives.iter())
+            .filter(|action| action.id == action_id)
+            .collect();
+        assert_eq!(
+            actions.len(),
+            expected_actions,
+            "unexpected {key} action availability for {action_id}: {:?}",
+            report.issues
+        );
+        let edits: Vec<_> = actions
+            .iter()
+            .flat_map(|action| action.fix.edits.iter())
+            .collect();
+        hoonarqube_ir::apply_fixes(source, &edits)
+            .expect("actual analyzer/planner edits must apply to their original snapshot")
+    }
+
+    fn assert_native_runtime_contract(
+        label: &str,
+        source: &str,
+        key: &str,
+        action_id: &str,
+        expected_actions: usize,
+        expected_stdout: &str,
+    ) {
+        let fixture = RuntimeQuickFixFixture::new(label, source);
+        let before = fixture.stdout(source);
+        assert_eq!(
+            before, expected_stdout,
+            "original runtime output for {label}"
+        );
+
+        let report = fixture.native_report(source);
+        assert_eq!(
+            runtime_rule_count(&report, key),
+            expected_actions,
+            "unexpected original {key} findings for {label}: {:?}",
+            report.issues
+        );
+        let projected = project_runtime_action(source, &report, key, action_id, expected_actions);
+        if expected_actions == 0 {
+            assert_eq!(
+                projected.as_bytes(),
+                source.as_bytes(),
+                "unsafe refusal must preserve every source byte for {label}"
+            );
+        } else {
+            assert_ne!(
+                projected.as_bytes(),
+                source.as_bytes(),
+                "safe action must actually change its source for {label}"
+            );
+        }
+        assert_eq!(
+            runtime_rule_count(&fixture.native_report(&projected), key),
+            0,
+            "projected source must not retain {key} for {label}"
+        );
+
+        let after = fixture.stdout(&projected);
+        assert_eq!(
+            after, before,
+            "quickfix changed runtime behavior for {label}"
+        );
+    }
+
+    #[test]
+    fn issue95_boxed_cast_refusal_and_identity_fix_preserve_int64() {
+        const UNSAFE: &str = r"using System;
+public static class Program
+{
+    public static void Main()
+    {
+        object number = (long)1;
+        Console.WriteLine(number.GetType().Name);
+    }
+}
+";
+        const SAFE: &str = r"using System;
+public static class Program
+{
+    public static void Main()
+    {
+        object number = (long)1L;
+        Console.WriteLine(number.GetType().Name);
+    }
+}
+";
+        assert_native_runtime_contract(
+            "issue95-boxed-refusal",
+            UNSAFE,
+            "csharpsquid:S1905",
+            "csharp.s1905.remove-redundant-cast",
+            0,
+            "Int64\n",
+        );
+        assert_native_runtime_contract(
+            "issue95-boxed-identity",
+            SAFE,
+            "csharpsquid:S1905",
+            "csharp.s1905.remove-redundant-cast",
+            1,
+            "Int64\n",
+        );
+    }
+
+    #[test]
+    fn issue95_unsigned_and_long_overflow_casts_are_refused_byte_identically() {
+        const SOURCE: &str = r#"using System;
+object a = unchecked((uint)4294967296U);
+object b = unchecked(4294967296U);
+object c = unchecked((long)9223372036854775808L);
+object d = unchecked(9223372036854775808L);
+foreach (object value in new[] { a, b, c, d }) Console.WriteLine($"{value.GetType().Name}:{value}");
+"#;
+        assert_native_runtime_contract(
+            "issue95-literal-boundary-overflow",
+            SOURCE,
+            "csharpsquid:S1905",
+            "csharp.s1905.remove-redundant-cast",
+            0,
+            "UInt32:0\nUInt64:4294967296\nInt64:-9223372036854775808\nUInt64:9223372036854775808\n",
+        );
+    }
+
     #[derive(Debug)]
     struct ExpectedSemanticFinding {
         case: &'static str,

@@ -1,8 +1,7 @@
-use super::support::INTEGER_TYPES;
 use crate::CsLanguage;
 use crate::cst::{
-    collect_kinds, is_error_tainted, issue, node_text, range_from_byte_offsets, range_of,
-    simple_name,
+    collect_kinds, integer_literal_natural_type, is_error_tainted, issue, node_text,
+    range_from_byte_offsets, range_of, simple_name,
 };
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -26,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             let target = simple_name(type_text);
             let value_text = node_text(value, source);
             let redundant = match value.kind() {
-                "integer_literal" => INTEGER_TYPES.contains(&target),
+                "integer_literal" => integer_literal_natural_type(value_text) == Some(target),
                 "real_literal" => match target {
                     "double" => !value_text.ends_with(['f', 'F', 'm', 'M']),
                     "float" => value_text.ends_with(['f', 'F']),
