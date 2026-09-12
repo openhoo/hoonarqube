@@ -541,7 +541,11 @@ function truthySafeTypeInfo(info) {
 function typeAcceptsFalsyPrimitive(checker, type) {
   return checker.isTypeAssignableTo(checker.getNumberLiteralType(0), type)
     || checker.isTypeAssignableTo(checker.getFalseType(), type)
-    || checker.isTypeAssignableTo(checker.getStringLiteralType(''), type);
+    || checker.isTypeAssignableTo(checker.getStringLiteralType(''), type)
+    || checker.isTypeAssignableTo(
+      checker.getBigIntLiteralType({ negative: false, base10Value: '0' }),
+      type,
+    );
 }
 
 function objectOrNullishTypeInfo(info, checker, type) {
@@ -1572,7 +1576,12 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     if (!propertySymbol || declarations.length === 0
       || declarations.some(declaration => ts.isGetAccessorDeclaration(declaration)
         || ts.isSetAccessorDeclaration(declaration))) return false;
-    return stableReference(current.expression);
+    const receiver = unwrapReference(current.expression);
+    return Boolean(receiver && (ts.isIdentifier(receiver) || receiver.kind === ts.SyntaxKind.ThisKeyword));
+  };
+  const bareIdentifierReference = node => {
+    const current = unwrapReference(node);
+    return Boolean(current && ts.isIdentifier(current));
   };
   const referenceSubject = node => {
     const current = unwrapReference(node);
@@ -1724,7 +1733,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
         }
       } else {
         const subject = referenceSubject(node.condition);
-        if (subject && sameReference(node.condition, node.whenTrue)) {
+        if (subject && bareIdentifierReference(node.condition) && sameReference(node.condition, node.whenTrue)) {
           const guard = objectOrNullishGuard(subject.node);
           if (guard.ok) {
             nullish.push({
