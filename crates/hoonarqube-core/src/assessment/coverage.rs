@@ -593,7 +593,6 @@ struct ParsedFile {
     lines: Vec<ParsedLine>,
     branches: Vec<ParsedBranch>,
     file_hash: Option<String>,
-    file_uids: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -1284,9 +1283,8 @@ impl<'a> OpenCoverParser<'a> {
                 .push("OpenCover SequencePoint requires vc".to_owned());
             return;
         };
-        let explicit_file_uid = attr_any(attrs, &["fileid", "fileuid"]).map(ToOwned::to_owned);
-        let file_uid = explicit_file_uid
-            .clone()
+        let file_uid = attr_any(attrs, &["fileid", "fileuid"])
+            .map(ToOwned::to_owned)
             .or_else(|| self.method_file_uid.clone());
         let path = if let Some(uid) = file_uid.as_deref() {
             let Some((path, _)) = self.files.get(uid) else {
@@ -1325,7 +1323,7 @@ impl<'a> OpenCoverParser<'a> {
             let file_hash = file_uid
                 .as_deref()
                 .and_then(|uid| self.files.get(uid).and_then(|(_, hash)| hash.clone()));
-            self.update_file_record(&path, file_uid.as_deref(), file_hash);
+            self.update_file_record(&path, file_hash);
             let file = self
                 .records
                 .entry(path.clone())
@@ -1362,9 +1360,8 @@ impl<'a> OpenCoverParser<'a> {
                 .push("OpenCover branch point requires vc".to_owned());
             return;
         };
-        let explicit_file_uid = attr_any(attrs, &["fileid", "fileuid"]).map(ToOwned::to_owned);
-        let file_uid = explicit_file_uid
-            .clone()
+        let file_uid = attr_any(attrs, &["fileid", "fileuid"])
+            .map(ToOwned::to_owned)
             .or_else(|| self.method_file_uid.clone());
         let path = if let Some(uid) = file_uid.as_deref() {
             let Some((path, _)) = self.files.get(uid) else {
@@ -1394,7 +1391,9 @@ impl<'a> OpenCoverParser<'a> {
             "el",
         ]
         .iter()
-        .collect::<Vec<_>>();
+        .filter_map(|key| attr(attrs, key).map(|value| format!("{key}={value}")))
+        .collect::<Vec<_>>()
+        .join("|");
         if branch_identity.is_empty() {
             self.parsed.invalid = true;
             self.diagnostics
@@ -1408,14 +1407,11 @@ impl<'a> OpenCoverParser<'a> {
                 self.method_anchor_line.map_or(line, |anchor| anchor)
             )
         });
-        let identity = format!(
-            "method={method_key}|line={line}|{}",
-            branch_identity.join("|")
-        );
+        let identity = format!("method={method_key}|line={line}|{branch_identity}");
         let file_hash = file_uid
             .as_deref()
             .and_then(|uid| self.files.get(uid).and_then(|(_, hash)| hash.clone()));
-        self.update_file_record(&path, file_uid.as_deref(), file_hash);
+        self.update_file_record(&path, file_hash);
         let file = self
             .records
             .entry(path.clone())
@@ -1452,7 +1448,7 @@ impl<'a> OpenCoverParser<'a> {
         }
     }
 
-    fn update_file_record(&mut self, path: &str, uid: Option<&str>, hash: Option<String>) {
+    fn update_file_record(&mut self, path: &str, hash: Option<String>) {
         let conflict = self.records.get(path).and_then(|record| {
             record
                 .file_hash
@@ -1463,8 +1459,7 @@ impl<'a> OpenCoverParser<'a> {
         if conflict.is_some() {
             self.parsed.invalid = true;
             self.diagnostics.push(format!(
-                "OpenCover source hashes conflict for '{}' across referenced file UIDs",
-                path
+                "OpenCover source hashes conflict for '{path}' across referenced file UIDs"
             ));
         }
         let record = self
@@ -1476,9 +1471,6 @@ impl<'a> OpenCoverParser<'a> {
             });
         if record.file_hash.is_none() {
             record.file_hash = hash;
-        }
-        if let Some(uid) = uid {
-            record.file_uids.insert(uid.to_owned());
         }
     }
 
@@ -1948,10 +1940,8 @@ mod tests {
     fn opencover_uses_referenced_uid_when_same_path_hashes_conflict() {
         let source_text = "class C { int x = 1; }\n";
         let files = [source("C.cs", source_text)];
-        let current_hash =
-            "7ef44f96f48677695ccc911eb6d82cd2084f8294b01106495f133a4b9ae6b084";
-        let stale_hash =
-            "0000000000000000000000000000000000000000000000000000000000000000";
+        let current_hash = "7ef44f96f48677695ccc911eb6d82cd2084f8294b01106495f133a4b9ae6b084";
+        let stale_hash = "0000000000000000000000000000000000000000000000000000000000000000";
         let xml = format!(
             r#"<CoverageSession><Modules><Module><Files><File uid="1" fullPath="C.cs" hash="{current_hash}"/><File uid="2" fullPath="C.cs" hash="{stale_hash}"/></Files><Classes><Class><Methods><Method><FileRef uid="2"/><SequencePoints><SequencePoint vc="1" sl="1" el="1" fileid="2"/></SequencePoints><BranchPoints><BranchPoint vc="1" sl="1" ordinal="0" fileid="2"/></BranchPoints></Method></Methods></Class></Classes></Module></Modules></CoverageSession>"#
         );
@@ -1977,10 +1967,8 @@ mod tests {
     fn opencover_stale_only_reference_uid_rejected_but_current_matching_uid_passes() {
         let source_text = "class C { int x = 1; }\n";
         let files = [source("C.cs", source_text)];
-        let current_hash =
-            "7ef44f96f48677695ccc911eb6d82cd2084f8294b01106495f133a4b9ae6b084";
-        let stale_hash =
-            "0000000000000000000000000000000000000000000000000000000000000000";
+        let current_hash = "7ef44f96f48677695ccc911eb6d82cd2084f8294b01106495f133a4b9ae6b084";
+        let stale_hash = "0000000000000000000000000000000000000000000000000000000000000000";
         let report_for = |uid: &str, hash: &str| {
             import_coverage(
                 Path::new("/repo"),
