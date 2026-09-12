@@ -83,7 +83,66 @@ Analyzer changes need bad and clean controls. Parity claims need normalized
 rule, file, message, and range evidence from the documented oracle; test counts
 alone are insufficient.
 
-Commits use Conventional Commits. Pull requests must explain compatibility,
-false-positive, security, and oracle impact. Maintainers squash-merge using the
-Conventional Commit pull request title. Catalog and lockfile changes must
-accompany their provenance.
+Commits use Conventional Commits. Pull requests must use a repository pull
+request template (see "Pull request templates and publication" below) and
+explain compatibility, false-positive, security, and oracle impact.
+Maintainers squash-merge using the Conventional Commit pull request title.
+Catalog and lockfile changes must accompany their provenance.
+
+## Pull request templates and publication
+
+Every pull request uses a repository template, whether it is opened through
+the web UI, `gh`, the API, or an agent: the
+[default template](.github/pull_request_template.md) for fixes, features,
+refactors, documentation, and maintenance, and the
+[release template](.github/PULL_REQUEST_TEMPLATE/release.md) only for
+Hooversion release publication PRs. The web UI loads the default template;
+CLI, API, and agent callers must explicitly supply the appropriate filled
+template. This requirement is enforced by review, not by GitHub itself.
+
+Fill every heading of the chosen template with concrete evidence from the
+final integrated state and explain any not-applicable item. Author a complete
+body file and publish the PR from it instead of an interactive editor:
+
+```sh
+gh pr create --body-file /path/to/filled-body.md
+```
+
+Select the release variant explicitly with `gh pr create --template
+release.md` or `?template=release.md` in the web URL; the release body is
+also published from a filled body file. After creation, read the live body
+back with `gh pr view --json body` and confirm every heading and its content
+survived publication; correct a truncated or template-default body before
+requesting review.
+
+`Closes #N` appears only for issues this PR fully resolves in its verified
+scope; partial work references the issue without closing it, and direct
+requests without an issue say so. Every fixed issue ships durable automated
+regression tests in the same PR — tests that expose the original defect
+before the fix and pass after it, with clean and boundary controls — reusing
+valid existing regression tests where they already cover the defect.
+Quickfix tests must additionally prove runtime, type, and effect
+preservation and refuse unsafe inputs. Aggregate test totals, source-code
+inspection, and mock echoes do not establish regression coverage. Assert the
+observable contract; rule-specific presence or absence is valid for detector
+bugs, but cannot prove quickfix safety. One-off smoke evidence supplements,
+never replaces, committed tests. Provide an exact issue-to-test-symbol
+mapping for every fixed issue. Verification sections
+record actual commands, results, and evidence links: the original
+reproduction plus bad and clean controls for analyzer changes, before/after
+runtime behavior and unsafe-input refusal for quickfixes, with local
+verification, pending CI, and work not executed kept separate. Do not
+fabricate, paraphrase, or pre-tick verification.
+
+Publish independently completed issue packages as their own incremental PRs
+instead of one combined PR with unfinished unrelated work. Merge only when
+authorized, every required protected check is green, and every fixed issue
+carries its committed regression coverage; repair a red required check rather
+than bypassing it, and never merge while required coverage is missing.
+Release PRs use the release template:
+pre-merge verification is complete at merge time, while post-publication
+verification (publication run, assets, digests, Cosign bundles, attestations,
+downloaded-binary qualification) stays explicitly pending until the artifacts
+exist. The Hooversion-generated release commit subject and body are preserved
+exactly at squash merge; templates govern the PR description, never the
+generated commit message.

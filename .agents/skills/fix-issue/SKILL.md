@@ -231,13 +231,14 @@ before editing. The change must:
   and cache keys where those are in scope; and
 - update every affected caller when an interface changes.
 
-Add a regression test only when a plausible future defect would fail it and a
-correct public seam exists. Write it at that seam, make it fail for the actual
-bug before the fix, then make it pass with the smallest production change.
-Assert an independently known observable result, not implementation details,
-source text, mock forwarding, or a tautological recomputation. If no correct
-seam exists, document that limitation and rely on the strongest available
-CLI/compiler/runtime smoke rather than adding a misleading shallow test.
+Every fixed issue requires durable automated regression coverage. Use an
+existing test only if it exposes the actual defect; otherwise add a test at
+the appropriate observable seam. Demonstrate failure before the fix and
+success afterward, with relevant clean and boundary controls. Assert an
+independently known result, not source-code inspection, mock forwarding, or
+a tautological recomputation. If a unit seam is unsuitable, commit an automated
+CLI/compiler/runtime regression instead. Missing meaningful regression
+coverage blocks completion; a one-off smoke run is not a substitute.
 
 For analyzer or quickfix work, the minimum proof is stronger than a unit test:
 
@@ -301,6 +302,21 @@ Commit, push, merge, and release are separate authorization boundaries:
 - If authorized to push or open/update a PR, preserve the exact tested head,
   required checks, branch protections, and evidence. Never force-push or bypass
   a failing/pending protected gate.
+- Every fixed issue commits durable automated regression tests in the same
+  PR: tests that expose the original defect pre-fix and pass post-fix, with
+  clean and boundary controls; quickfixes additionally prove runtime, type,
+  and effect preservation and refuse unsafe inputs. Reuse valid existing
+  regression tests where they already cover the defect, provide an exact
+  issue-to-test-symbol mapping. Aggregate test totals, source-code inspection,
+  and mock echoes are insufficient. Rule-specific presence/absence can prove
+  a detector correction, but cannot establish quickfix behavior preservation.
+- When opening or updating a PR, publish a complete body filled from the
+  repository templates — `.github/pull_request_template.md`, or
+  `.github/PULL_REQUEST_TEMPLATE/release.md` for release PRs — via
+  `gh pr create --body-file`, and confirm every heading by live readback
+  (`gh pr view --json body`) before requesting review. `Closes #N` only for
+  fully resolved issues; never publish a template-default body or verification
+  that was not executed.
 - Never publish a release, tag, or artifact unless separately requested.
 
 Hand the result to [`skill://work-issues`](skill://work-issues) with:
