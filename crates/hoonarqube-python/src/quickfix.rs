@@ -867,11 +867,37 @@ fn s2710(
     let Some(method_span) = function_span_containing(parsed, range) else {
         return Vec::new();
     };
+    let Some(mut renames) =
+        s2710_collect_renames(&table, param_scope, flagged, target, method_span, range)
+    else {
+        return Vec::new();
+    };
+    renames.sort_by_key(Ranged::start);
+    renames.dedup();
+    let edits = renames
+        .iter()
+        .map(|rename| text_edit(index, source, *rename, target))
+        .collect();
+    vec![alt(
+        "s2710-rename-class-parameter",
+        format!("Rename the class parameter to '{target}'."),
+        edits,
+    )]
+}
+
+fn s2710_collect_renames(
+    table: &SymbolTable,
+    param_scope: usize,
+    flagged: &str,
+    target: &str,
+    method_span: TextRange,
+    range: TextRange,
+) -> Option<Vec<TextRange>> {
     for (scope_index, scope) in table.scopes.iter().enumerate() {
-        if scope_is_within(&table, scope_index, param_scope)
+        if scope_is_within(table, scope_index, param_scope)
             && (scope.declares_global(flagged) || scope.declares_nonlocal(flagged))
         {
-            return Vec::new();
+            return None;
         }
     }
     let mut renames = vec![range];
@@ -884,34 +910,24 @@ fn s2710(
         }
         match load.target {
             Some(binding_scope) if binding_scope == param_scope => {
-                if intermediate_scope_binds(&table, load.scope, param_scope, target) {
-                    return Vec::new();
+                if intermediate_scope_binds(table, load.scope, param_scope, target) {
+                    return None;
                 }
                 renames.push(load.range);
             }
             Some(_) => {}
-            None => return Vec::new(),
+            None => return None,
         }
     }
     for load in &table.resolved_loads {
         if load.name == target
             && method_span.contains(load.range.start())
-            && post_rename_rebinds_to(&table, load.scope, param_scope, target)
+            && post_rename_rebinds_to(table, load.scope, param_scope, target)
         {
-            return Vec::new();
+            return None;
         }
     }
-    renames.sort_by_key(Ranged::start);
-    renames.dedup();
-    let edits = renames
-        .iter()
-        .map(|rename| text_edit(index, source, *rename, target))
-        .collect();
-    vec![alt(
-        "s2710-rename-class-parameter",
-        format!("Rename the class parameter to '{target}'."),
-        edits,
-    )]
+    Some(renames)
 }
 
 fn parameter_binding_at(
@@ -996,13 +1012,7 @@ fn post_rename_rebinds_to(
     false
 }
 
-fn s3923(
-    parsed: &Parsed<ModModule>,
-    issue: &Issue,
-    index: &LineIndex,
-    source: &str,
-) -> Vec<Alternative> {
-    let range = issue_range(issue, index, source);
+fn s3923_find_if(parsed: &Parsed<ModModule>, range: TextRange) -> Option<&StmtIf> {
     let mut flagged: Option<&StmtIf> = None;
     for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
         if let Stmt::If(if_stmt) = stmt
@@ -1011,7 +1021,17 @@ fn s3923(
             flagged = Some(if_stmt);
         }
     });
-    let Some(if_stmt) = flagged else {
+    flagged
+}
+
+fn s3923(
+    parsed: &Parsed<ModModule>,
+    issue: &Issue,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Alternative> {
+    let range = issue_range(issue, index, source);
+    let Some(if_stmt) = s3923_find_if(parsed, range) else {
         return Vec::new();
     };
     let [clause] = &if_stmt.elif_else_clauses[..] else {
@@ -1034,45 +1054,8 @@ fn s3923(
     }
     let stmt_start = if_stmt.start();
     let stmt_end = else_suite.end();
-    let Some(if_prefix) = indentation_prefix(source, stmt_start) else {
+    let Some(replacement) = s3923_replacement(if_stmt, source, if_suite, test) else {
         return Vec::new();
-    };
-    let body_inline = !source[stmt_start.to_usize()..if_suite.start().to_usize()].contains('\n');
-    let body_pass_only = matches!(if_stmt.body.as_slice(), [Stmt::Pass(_)]);
-    let replacement = if body_inline {
-        let mut replacement = format!("bool(({test}))");
-        if !body_pass_only {
-            for stmt in &if_stmt.body {
-                replacement.push('\n');
-                replacement.push_str(if_prefix);
-                replacement.push_str(source[stmt.range()].trim());
-            }
-        }
-        replacement
-    } else {
-        let Some(body_prefix) = indentation_prefix(source, if_suite.start()) else {
-            return Vec::new();
-        };
-        if body_pass_only {
-            format!("bool(({test}))")
-        } else {
-            let Some(extra) = body_prefix.strip_prefix(if_prefix) else {
-                return Vec::new();
-            };
-            let mut replacement = format!("bool(({test}))\n");
-            let region =
-                &source[source.line_start(if_suite.start()).to_usize()..if_suite.end().to_usize()];
-            for line in region.split_inclusive('\n') {
-                if line.trim().is_empty() {
-                    replacement.push_str(line);
-                } else if line.starts_with(body_prefix) {
-                    replacement.push_str(&line[extra.len()..]);
-                } else {
-                    replacement.push_str(line);
-                }
-            }
-            replacement
-        }
     };
     vec![alt(
         "s3923-remove-if-statement",
@@ -1084,6 +1067,46 @@ fn s3923(
             replacement,
         )],
     )]
+}
+
+fn s3923_replacement(
+    if_stmt: &StmtIf,
+    source: &str,
+    if_suite: TextRange,
+    test: &str,
+) -> Option<String> {
+    let stmt_start = if_stmt.start();
+    let if_prefix = indentation_prefix(source, stmt_start)?;
+    let body_inline = !source[stmt_start.to_usize()..if_suite.start().to_usize()].contains('\n');
+    let body_pass_only = matches!(if_stmt.body.as_slice(), [Stmt::Pass(_)]);
+    if body_inline {
+        let mut replacement = format!("bool(({test}))");
+        if !body_pass_only {
+            for stmt in &if_stmt.body {
+                replacement.push('\n');
+                replacement.push_str(if_prefix);
+                replacement.push_str(source[stmt.range()].trim());
+            }
+        }
+        return Some(replacement);
+    }
+    let body_prefix = indentation_prefix(source, if_suite.start())?;
+    if body_pass_only {
+        return Some(format!("bool(({test}))"));
+    }
+    let extra = body_prefix.strip_prefix(if_prefix)?;
+    let mut replacement = format!("bool(({test}))\n");
+    let region = &source[source.line_start(if_suite.start()).to_usize()..if_suite.end().to_usize()];
+    for line in region.split_inclusive('\n') {
+        if line.trim().is_empty() {
+            replacement.push_str(line);
+        } else if line.starts_with(body_prefix) {
+            replacement.push_str(&line[extra.len()..]);
+        } else {
+            replacement.push_str(line);
+        }
+    }
+    Some(replacement)
 }
 fn builtin_bool_is_unshadowed(parsed: &Parsed<ModModule>, source: &str) -> bool {
     let facts = collect_file_facts(parsed, source);
