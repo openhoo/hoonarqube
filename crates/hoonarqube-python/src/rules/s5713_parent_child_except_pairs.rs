@@ -466,6 +466,9 @@ impl ExceptionEnvironment {
             ("json", "JSONDecodeError") => {
                 Some(ExceptionIdentity::Known("json.JSONDecodeError".to_string()))
             }
+            ("io", "UnsupportedOperation") => Some(ExceptionIdentity::Known(
+                "io.UnsupportedOperation".to_string(),
+            )),
             ("urllib.error", "URLError") => Some(ExceptionIdentity::Known(
                 "urllib.error.URLError".to_string(),
             )),
@@ -583,7 +586,8 @@ fn is_builtin_exception(name: &str) -> bool {
 }
 
 fn is_known_exception_path(path: &str) -> bool {
-    path == "json.JSONDecodeError"
+    path == "io.UnsupportedOperation"
+        || path == "json.JSONDecodeError"
         || path == "urllib.error.URLError"
         || path
             .strip_prefix("builtins.")
@@ -613,6 +617,7 @@ fn known_exception_bases(path: &str) -> Vec<ExceptionIdentity> {
         | "builtins.UnicodeEncodeError"
         | "builtins.UnicodeTranslateError" => &["builtins.UnicodeError"],
         "builtins.UnicodeError" | "json.JSONDecodeError" => &["builtins.ValueError"],
+        "io.UnsupportedOperation" => &["builtins.OSError", "builtins.ValueError"],
         "builtins.BrokenPipeError"
         | "builtins.ConnectionAbortedError"
         | "builtins.ConnectionRefusedError"

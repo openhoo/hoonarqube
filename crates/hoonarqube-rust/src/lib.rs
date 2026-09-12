@@ -210,16 +210,6 @@ const PATTERN_RULES: &[PatternRule] = &[
         message: "Move this lint attribute away from the crate import.",
     },
     PatternRule {
-        key: "rust:S7420",
-        any: &[
-            "transmute::<_, Vec<",
-            "transmute::<Vec<",
-            "transmute::<HashMap<",
-            "transmute::<HashSet<",
-        ],
-        message: "Do not transmute collections to different element types.",
-    },
-    PatternRule {
         key: "rust:S7422",
         any: &["().hash("],
         message: "Do not hash a unit value.",
@@ -230,44 +220,14 @@ const PATTERN_RULES: &[PatternRule] = &[
         message: "Do not compare unit values.",
     },
     PatternRule {
-        key: "rust:S7424",
-        any: &["derive(Hash)", "derive(PartialEq, Hash)"],
-        message: "Derive `PartialEq` together with `Hash` instead of implementing it manually.",
-    },
-    PatternRule {
         key: "rust:S7425",
         any: &["MaybeUninit::uninit().assume_init()"],
         message: "Do not create an invalid value with `MaybeUninit`.",
     },
     PatternRule {
-        key: "rust:S7427",
-        any: &[
-            "transmute(0 as *const",
-            "transmute(0 as *mut",
-            "transmute::<usize, *",
-            "transmute::<isize, *",
-        ],
-        message: "Use a null pointer constructor instead of transmute.",
-    },
-    PatternRule {
-        key: "rust:S7429",
-        any: &[
-            "transmute(std::ptr::null",
-            "transmute(ptr::null",
-            "transmute::<usize, fn",
-            "transmute::<isize, fn",
-        ],
-        message: "Do not create a null function pointer.",
-    },
-    PatternRule {
         key: "rust:S7430",
         any: &[".splitn(0,", ".splitn(1,", ".rsplitn(0,", ".rsplitn(1,"],
         message: "Use `split` or the original string instead.",
-    },
-    PatternRule {
-        key: "rust:S7431",
-        any: &["size_of::<", "size_of_val("],
-        message: "Use the collection length to count elements.",
     },
     PatternRule {
         key: "rust:S7440",
@@ -280,16 +240,6 @@ const PATTERN_RULES: &[PatternRule] = &[
         message: "Trim the line read from standard input before using it.",
     },
     PatternRule {
-        key: "rust:S7444",
-        any: &[" + 1", "+= 1"],
-        message: "Use a checked or overflowing addition when overflow is possible.",
-    },
-    PatternRule {
-        key: "rust:S7445",
-        any: &["option_env!("],
-        message: "Use `env!` when this environment variable is required.",
-    },
-    PatternRule {
         key: "rust:S7447",
         any: &[".read(true).truncate(true)", ".append(true).truncate(true)"],
         message: "Make these file open options consistent.",
@@ -300,11 +250,6 @@ const PATTERN_RULES: &[PatternRule] = &[
         message: "Write this Unix permission as an octal literal.",
     },
     PatternRule {
-        key: "rust:S7449",
-        any: &["#[inline]", "#[inline(always)]"],
-        message: "Remove this inline attribute from a trait method without an implementation.",
-    },
-    PatternRule {
         key: "rust:S7450",
         any: &[
             ".lock();",
@@ -313,11 +258,6 @@ const PATTERN_RULES: &[PatternRule] = &[
             ".write().unwrap();",
         ],
         message: "Bind this lock guard so it is not dropped immediately.",
-    },
-    PatternRule {
-        key: "rust:S7451",
-        any: &[" % 1", " % -1"],
-        message: "Remove this remainder operation whose result is always zero.",
     },
     PatternRule {
         key: "rust:S7455",
@@ -1215,24 +1155,34 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
             anchor_line(source, contract.anchor, contract.occurrence).map(|line| (*contract, line))
         })
         .collect();
-    let matched_keys: HashSet<&str> = matched.iter().map(|(contract, _)| contract.key).collect();
-    issues.retain(|issue| !matched_keys.contains(issue.rule_key.as_str()));
-    issues.extend(matched.into_iter().map(|(contract, line)| {
-        Issue::new(
+    for (contract, line) in matched {
+        let start_line = u32_saturating(line);
+        let start_column = u32_saturating(contract.start_column);
+        let end_line = u32_saturating(line + contract.end_line_delta);
+        let end_column = u32_saturating(contract.end_column);
+        issues.retain(|issue| {
+            let same_rule = issue.rule_key == contract.key;
+            let starts_within_anchor =
+                issue.range.start.line == start_line && issue.range.start.column >= start_column;
+            let reaches_anchor_end = issue.range.end.line > end_line
+                || issue.range.end.line == end_line && issue.range.end.column >= end_column;
+            !(same_rule && starts_within_anchor && reaches_anchor_end)
+        });
+        issues.push(Issue::new(
             contract.key,
             contract.message,
             Range {
                 start: Pos {
-                    line: u32_saturating(line),
+                    line: start_line,
                     column: u32_saturating(contract.start_column),
                 },
                 end: Pos {
-                    line: u32_saturating(line + contract.end_line_delta),
+                    line: end_line,
                     column: u32_saturating(contract.end_column),
                 },
             },
-        )
-    }));
+        ));
+    }
 }
 
 fn anchor_line(source: &str, anchor: &str, occurrence: usize) -> Option<usize> {
@@ -1345,7 +1295,6 @@ fn pattern_guard(key: &str, source: &str, line: &str) -> bool {
         }
         "rust:S7417" => source.contains("impl PartialOrd for"),
         "rust:S7418" => line.contains("#[deny(") || line.contains("#[forbid("),
-        "rust:S7424" => source.contains("impl PartialEq for"),
         "rust:S7425" => !source.contains("[MaybeUninit<"),
         "rust:S7440" => {
             source.contains("self.to_string()")
@@ -1353,8 +1302,6 @@ fn pattern_guard(key: &str, source: &str, line: &str) -> bool {
                 || source.contains("format!(\"{}\", self)")
         }
         "rust:S7441" => !source.contains(".trim()") && !source.contains(".trim_end()"),
-        "rust:S7444" => overflow_comparison_regex().is_match(line),
-        "rust:S7449" => source.contains("trait ") && !line.contains('{'),
         "rust:S7450" => line.trim_start().starts_with("let _ ="),
         "rust:S7455" => line.contains("for ") && line.contains(".next()"),
         "rust:S7459" => source.contains("Vec::with_capacity") && source.contains(".set_len("),
@@ -1394,7 +1341,7 @@ fn check_whole_file(
     check_infinite_iterators(root, source, issues);
     check_mutable_return(source, code, issues);
     check_float_loop_counter(source, code, issues);
-    check_redundant_casts(source, code, issues);
+    check_redundant_casts(root, source, code, issues);
     check_numeric_suffixes(source, code, issues);
     check_unit_sort_closure(source, code, issues);
     check_string_to_string(source, code, issues);
@@ -1407,7 +1354,8 @@ fn check_whole_file(
     check_almost_swap(source, code, issues);
     check_panicking_unwrap(root, source, code, issues);
     check_eager_transmute(root, source, issues);
-    check_overflow_addition(source, code, issues);
+    check_overflow_addition(root, source, issues);
+    check_semantic_rust_rules(root, source, issues);
     check_partial_io_calls(root, source, code, issues);
     check_inverted_saturating_subtractions(root, source, code, issues);
     check_lowercase_match_arms(source, uncommented, issues);
@@ -1425,12 +1373,7 @@ fn check_node(
     }
     match node.kind() {
         "function_item" => check_function(node, source, options, issues),
-        "empty_statement" => issues.push(node_issue(
-            "rust:S1116",
-            "Remove this empty statement.",
-            node,
-            source,
-        )),
+        "empty_statement" => check_empty_statement(node, source, issues),
         "assignment_expression" => check_assignment(node, source, issues),
         "binary_expression" => check_binary(node, source, issues),
         "if_expression" => check_if(node, source, issues),
@@ -1518,6 +1461,143 @@ fn file_allows_clippy_lint(node: Node<'_>, code: &str, lint_name: &str) -> bool 
     }
     false
 }
+fn check_empty_statement(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let Some(mut owner) = previous_code_sibling(node) else {
+        issues.push(node_issue(
+            "rust:S1116",
+            "Remove this empty statement.",
+            node,
+            source,
+        ));
+        return;
+    };
+    if owner.kind() == "expression_statement" {
+        let Some(value) = owner.named_child(0) else {
+            return;
+        };
+        owner = value;
+    }
+    if matches!(owner.kind(), "macro_invocation" | "macro_definition") {
+        return;
+    }
+    if matches!(owner.kind(), "while_expression" | "for_expression") {
+        issues.push(node_issue(
+            "rust:S1116",
+            "Remove this empty statement.",
+            node,
+            source,
+        ));
+        return;
+    }
+    if (matches!(
+        owner.kind(),
+        "if_expression" | "match_expression" | "block" | "unsafe_block"
+    ) && statement_value_is_unit(owner, source))
+        || !matches!(
+            owner.kind(),
+            "if_expression" | "match_expression" | "block" | "unsafe_block" | "loop_expression"
+        )
+    {
+        issues.push(node_issue(
+            "rust:S1116",
+            "Remove this empty statement.",
+            node,
+            source,
+        ));
+    }
+}
+
+fn previous_code_sibling(node: Node<'_>) -> Option<Node<'_>> {
+    let mut sibling = node.prev_named_sibling();
+    while sibling
+        .is_some_and(|candidate| matches!(candidate.kind(), "line_comment" | "block_comment"))
+    {
+        sibling = sibling.and_then(|candidate| candidate.prev_named_sibling());
+    }
+    sibling
+}
+
+fn statement_expression_is_unit(node: Node<'_>, source: &str) -> bool {
+    if node.kind() == "expression_statement" {
+        return text(node, source).trim_end().ends_with(';')
+            || node
+                .named_child(0)
+                .is_some_and(|value| statement_value_is_unit(value, source));
+    }
+    statement_value_is_unit(node, source)
+}
+
+fn statement_value_is_unit(node: Node<'_>, source: &str) -> bool {
+    if matches!(
+        node.kind(),
+        "unit_expression" | "while_expression" | "for_expression"
+    ) {
+        return true;
+    }
+    if matches!(node.kind(), "block" | "unsafe_block") {
+        let body = node.child_by_field_name("body").unwrap_or(node);
+        let mut last = None;
+        let mut cursor = body.walk();
+        for child in body.named_children(&mut cursor) {
+            if !matches!(child.kind(), "line_comment" | "block_comment") {
+                last = Some(child);
+            }
+        }
+        return last.is_none_or(|child| match child.kind() {
+            "expression_statement" => statement_expression_is_unit(child, source),
+            "let_declaration" | "return_expression" => true,
+            _ => statement_value_is_unit(child, source),
+        });
+    }
+    if node.kind() == "else_clause" {
+        return node
+            .named_child(0)
+            .is_some_and(|value| statement_value_is_unit(value, source));
+    }
+    if node.kind() == "if_expression" {
+        return node
+            .child_by_field_name("alternative")
+            .is_none_or(|alternative| {
+                node.child_by_field_name("consequence")
+                    .is_some_and(|value| statement_value_is_unit(value, source))
+                    && statement_value_is_unit(alternative, source)
+            });
+    }
+    node.kind() == "match_expression" && match_value_is_unit(node, source)
+}
+
+fn match_value_is_unit(node: Node<'_>, source: &str) -> bool {
+    let Some(body) = node.child_by_field_name("body") else {
+        return false;
+    };
+    let mut cursor = body.walk();
+    let mut has_arm = false;
+    let mut all_unit = true;
+    for arm in body
+        .named_children(&mut cursor)
+        .filter(|arm| arm.kind() == "match_arm")
+    {
+        has_arm = true;
+        let Some(value) = arm.named_child(arm.named_child_count().saturating_sub(1)) else {
+            return false;
+        };
+        // A non-diverging unit arm constrains every arm of a well-typed match
+        // to unit, including arms whose value comes from a call or `?`.
+        if value.kind() == "unit_expression" || empty_unit_block(value) {
+            return true;
+        }
+        all_unit &= statement_expression_is_unit(value, source);
+    }
+    has_arm && all_unit
+}
+
+fn empty_unit_block(node: Node<'_>) -> bool {
+    let mut cursor = node.walk();
+    node.kind() == "block"
+        && node
+            .named_children(&mut cursor)
+            .all(|child| matches!(child.kind(), "line_comment" | "block_comment"))
+}
 
 fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut Vec<Issue>) {
     let import = text(node, source).trim();
@@ -1531,6 +1611,11 @@ fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut 
     {
         return;
     }
+    let path = import[..start].trim().trim_start_matches("use").trim();
+    let target = path.rsplit("::").next().unwrap_or_default();
+    if enum_glob_target(node, path, target, source) {
+        return;
+    }
     issues.push(offset_issue(
         "rust:S2208",
         "Replace this wildcard import with explicit imports.",
@@ -1538,6 +1623,51 @@ fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut 
         node.start_byte() + start + 2,
         node.start_byte() + start + 3,
     ));
+}
+
+fn enum_glob_target(node: Node<'_>, path: &str, target: &str, source: &str) -> bool {
+    let mut root = node;
+    let mut modules = Vec::new();
+    while let Some(parent) = root.parent() {
+        if parent.kind() == "mod_item"
+            && let Some(name) = parent.child_by_field_name("name")
+        {
+            modules.push(text(name, source).trim());
+        }
+        root = parent;
+    }
+    modules.reverse();
+    let mut relative = path.trim();
+    if let Some(absolute) = relative
+        .strip_prefix("crate::")
+        .or_else(|| relative.strip_prefix("::"))
+    {
+        modules.clear();
+        relative = absolute;
+    } else if let Some(local) = relative.strip_prefix("self::") {
+        relative = local;
+    } else {
+        while let Some(parent) = relative.strip_prefix("super::") {
+            if modules.pop().is_none() {
+                return false;
+            }
+            relative = parent;
+        }
+    }
+    modules.push(relative);
+    let import_identity = modules.join("::");
+    let mut found = false;
+    walk_valid(root, &mut |item| {
+        if item.kind() == "enum_item"
+            && item.child_by_field_name("name").is_some_and(|name| {
+                text(name, source).trim() == target
+                    && module_type_identity(item, target, source) == import_identity
+            })
+        {
+            found = true;
+        }
+    });
+    found
 }
 
 fn is_test_glob_import(node: Node<'_>, source: &str, code: &str, import: &str) -> bool {
@@ -3028,7 +3158,7 @@ fn check_float_loop_counter(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_redundant_casts(source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_redundant_casts(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
     for captures in repeated_cast_regex().captures_iter(scan) {
         let same = captures.name("first").map(|value| value.as_str())
             == captures.name("second").map(|value| value.as_str());
@@ -3043,15 +3173,150 @@ fn check_redundant_casts(source: &str, scan: &str, issues: &mut Vec<Issue>) {
             ));
         }
     }
-    for full in length_cast_regex().find_iter(scan) {
-        issues.push(offset_issue(
+    walk_valid(root, &mut |node| {
+        if node.kind() != "type_cast_expression"
+            || node
+                .child_by_field_name("type")
+                .is_none_or(|ty| text(ty, source).trim() != "usize")
+            || !known_usize_len_receiver(node, source)
+        {
+            return;
+        }
+        issues.push(node_issue(
             "rust:S4325",
             "Remove this redundant cast.",
+            node,
             source,
-            full.start(),
-            full.end(),
         ));
+    });
+}
+
+fn known_usize_len_receiver(cast: Node<'_>, source: &str) -> bool {
+    let Some(value) = cast.child_by_field_name("value") else {
+        return false;
+    };
+    let Some(function) = value
+        .child_by_field_name("function")
+        .filter(|f| f.kind() == "field_expression")
+    else {
+        return false;
+    };
+    if function
+        .child_by_field_name("field")
+        .is_none_or(|field| text(field, source).trim() != "len")
+    {
+        return false;
     }
+    let Some(receiver) = function
+        .child_by_field_name("value")
+        .filter(|v| v.kind() == "identifier")
+    else {
+        return false;
+    };
+    let name = text(receiver, source).trim();
+    let Some(owner) = enclosing_function(receiver) else {
+        return false;
+    };
+    let Some(parameters) = owner.child_by_field_name("parameters") else {
+        return false;
+    };
+    let mut cursor = parameters.walk();
+    let parameter_match = parameters.named_children(&mut cursor).any(|parameter| {
+        parameter
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| text(pattern, source).trim_start_matches("mut ").trim() == name)
+            && parameter
+                .child_by_field_name("type")
+                .is_some_and(|type_node| {
+                    let ty = normalized(text(type_node, source));
+                    let base = ty
+                        .trim_start_matches('&')
+                        .split('<')
+                        .next()
+                        .unwrap_or(ty.as_str());
+                    let standard = ty == "&str"
+                        || ty.contains("&[")
+                        || ty.starts_with("Vec<")
+                        || ty == "String"
+                        || ty.starts_with("&String")
+                        || ty.starts_with("&Vec<");
+                    standard
+                        && !(matches!(base, "String" | "Vec")
+                            && user_type_declared(type_node, base, source))
+                })
+    });
+    if !parameter_match {
+        return false;
+    }
+    let Some(mut scope) = enclosing_block(receiver) else {
+        return false;
+    };
+    loop {
+        if !matches!(
+            latest_binding_value(scope, receiver, name, owner, source),
+            BindingState::NotFound
+        ) {
+            return false;
+        }
+        let mut parent = scope.parent();
+        while parent.is_some_and(|candidate| candidate.kind() != "block") {
+            parent = parent.and_then(|candidate| candidate.parent());
+        }
+        scope = match parent {
+            Some(parent) => parent,
+            None => break,
+        };
+    }
+    true
+}
+
+fn user_type_declared(node: Node<'_>, name: &str, source: &str) -> bool {
+    let wanted_scope = type_scope_identity(node, source);
+    let mut root = node;
+    while let Some(parent) = root.parent() {
+        root = parent;
+    }
+    let mut found = false;
+    walk_valid(root, &mut |candidate| {
+        if matches!(
+            candidate.kind(),
+            "struct_item" | "enum_item" | "type_item" | "trait_item"
+        ) && candidate
+            .child_by_field_name("name")
+            .is_some_and(|item_name| text(item_name, source).trim() == name)
+            && {
+                let candidate_scope = type_scope_identity(candidate, source);
+                candidate_scope.is_empty()
+                    || wanted_scope == candidate_scope
+                    || wanted_scope.starts_with(&format!("{candidate_scope}::"))
+            }
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn type_scope_identity(node: Node<'_>, source: &str) -> String {
+    let mut scopes = Vec::new();
+    let mut parent = node.parent();
+    while let Some(current) = parent {
+        if matches!(current.kind(), "mod_item" | "function_item")
+            && current
+                .child_by_field_name("name")
+                .is_some_and(|name| !text(name, source).trim().is_empty())
+        {
+            scopes.push(
+                current
+                    .child_by_field_name("name")
+                    .map(|name| text(name, source).trim().to_string())
+                    .unwrap_or_default(),
+            );
+        }
+        parent = current.parent();
+    }
+    scopes.reverse();
+    scopes.join("::")
 }
 
 fn check_numeric_suffixes(source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -3099,18 +3364,44 @@ fn check_string_to_string(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_missing_array_commas(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_missing_array_commas(root: Node<'_>, source: &str, _scan: &str, issues: &mut Vec<Issue>) {
     walk_valid(root, &mut |node| {
         if node.kind() != "array_expression" {
             return;
         }
-        for full in missing_comma_regex().find_iter(text(node, scan)) {
+        let mut cursor = node.walk();
+        for element in node.named_children(&mut cursor) {
+            if element.kind() != "binary_expression" {
+                continue;
+            }
+            let Some(left) = element.child_by_field_name("left") else {
+                continue;
+            };
+            let Some(right) = element.child_by_field_name("right") else {
+                continue;
+            };
+            if right.kind() != "integer_literal" {
+                continue;
+            }
+            let mut children = element.walk();
+            let Some(operator) = element
+                .children(&mut children)
+                .find(|child| matches!(text(*child, source), "+" | "-"))
+            else {
+                continue;
+            };
+            if !source
+                .get(left.end_byte()..operator.start_byte())
+                .is_some_and(|between| between.contains('\n'))
+            {
+                continue;
+            }
             issues.push(offset_issue(
                 "rust:S3723",
                 "Separate these elements with a comma.",
                 source,
-                node.start_byte() + full.start(),
-                node.start_byte() + full.end(),
+                operator.start_byte(),
+                right.end_byte(),
             ));
         }
     });
@@ -3264,16 +3555,31 @@ fn check_shared_branch_prefix(root: Node<'_>, source: &str, issues: &mut Vec<Iss
         if node.kind() != "if_expression" {
             return;
         }
-        let pair = node
+        let Some(first_pair) = node
             .child_by_field_name("consequence")
             .and_then(first_branch_statement)
             .zip(
                 node.child_by_field_name("alternative")
                     .and_then(first_branch_statement),
-            );
-        if pair.is_some_and(|(first, second)| {
-            normalized_node(first, source) == normalized_node(second, source)
-        }) {
+            )
+        else {
+            return;
+        };
+        let same_prefix =
+            normalized_node(first_pair.0, source) == normalized_node(first_pair.1, source);
+        let same_suffix = node
+            .child_by_field_name("consequence")
+            .and_then(last_branch_statement)
+            .zip(
+                node.child_by_field_name("alternative")
+                    .and_then(last_branch_statement),
+            )
+            .is_some_and(|(a, b)| {
+                a.kind() != "return_expression"
+                    && normalized_node(a, source) == normalized_node(b, source)
+                    && !branch_suffix_uses_local_binding(a, b, source)
+            });
+        if same_prefix || same_suffix {
             issues.push(node_issue(
                 "rust:S7411",
                 "Extract the code shared by all branches.",
@@ -3283,13 +3589,41 @@ fn check_shared_branch_prefix(root: Node<'_>, source: &str, issues: &mut Vec<Iss
         }
     });
 }
+fn branch_suffix_uses_local_binding(a: Node<'_>, b: Node<'_>, source: &str) -> bool {
+    let mut names = HashSet::new();
+    for statement in [a, b] {
+        let Some(block) = enclosing_block(statement) else {
+            continue;
+        };
+        walk_valid(block, &mut |candidate| {
+            if candidate.kind() == "let_declaration"
+                && candidate.start_byte() < statement.start_byte()
+                && let Some(pattern) = candidate.child_by_field_name("pattern")
+            {
+                collect_pattern_binding_names(pattern, source, &mut names);
+            }
+        });
+    }
+    if names.is_empty() {
+        return false;
+    }
+    let mut found = false;
+    for statement in [a, b] {
+        walk_valid(statement, &mut |candidate| {
+            if candidate.kind() == "identifier" && names.contains(text(candidate, source).trim()) {
+                found = true;
+            }
+        });
+    }
+    found
+}
 
 fn first_branch_statement(mut branch: Node<'_>) -> Option<Node<'_>> {
     if branch.kind() == "else_clause" {
         branch = branch.named_child(0)?;
-    }
-    if branch.kind() == "if_expression" {
-        branch = branch.child_by_field_name("consequence")?;
+        if branch.kind() != "block" {
+            return None;
+        }
     }
     if branch.kind() != "block" {
         return None;
@@ -3298,6 +3632,22 @@ fn first_branch_statement(mut branch: Node<'_>) -> Option<Node<'_>> {
     branch
         .named_children(&mut cursor)
         .find(|statement| !matches!(statement.kind(), "line_comment" | "block_comment"))
+}
+fn last_branch_statement(mut branch: Node<'_>) -> Option<Node<'_>> {
+    if branch.kind() == "else_clause" {
+        branch = branch.named_child(0)?;
+        if branch.kind() != "block" {
+            return None;
+        }
+    }
+    if branch.kind() != "block" {
+        return None;
+    }
+    let mut cursor = branch.walk();
+    branch
+        .named_children(&mut cursor)
+        .filter(|statement| !matches!(statement.kind(), "line_comment" | "block_comment"))
+        .last()
 }
 
 fn check_async_block_tail(source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -4088,7 +4438,7 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
         let root = normalized_candidate.split("::").next().unwrap_or_default();
         return !standard_name_is_shadowed(node, root, source, true);
     }
-    let name = if node.kind() == "identifier" {
+    let name = if matches!(node.kind(), "identifier" | "type_identifier") {
         text(node, source).trim()
     } else {
         candidate.split("::").next().unwrap_or_default()
@@ -4100,12 +4450,12 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
         .into_iter()
         .any(|(alias, path)| {
             if alias == "*" {
-                return node.kind() == "identifier"
+                return matches!(node.kind(), "identifier" | "type_identifier")
                     && expected
                         .iter()
                         .any(|expected| *expected == format!("{path}::{name}"));
             }
-            if node.kind() == "identifier" && alias == name {
+            if matches!(node.kind(), "identifier" | "type_identifier") && alias == name {
                 return expected.iter().any(|expected| *expected == path);
             }
             candidate
@@ -4287,6 +4637,7 @@ fn item_declaration_shadows_name(
         "const_item"
             | "enum_item"
             | "function_item"
+            | "macro_definition"
             | "mod_item"
             | "static_item"
             | "struct_item"
@@ -4638,6 +4989,7 @@ fn latest_binding_value<'tree>(
             }
             _ => None,
         };
+
         let Some(event) = event else {
             return;
         };
@@ -4650,17 +5002,754 @@ fn latest_binding_value<'tree>(
     });
     latest.map_or(BindingState::NotFound, |(_, value)| value)
 }
+enum LocalIntegerType {
+    Unknown,
+    Known(bool),
+}
 
-fn check_overflow_addition(source: &str, scan: &str, issues: &mut Vec<Issue>) {
-    for full in overflow_comparison_regex().find_iter(scan) {
-        issues.push(offset_issue(
-            "rust:S7444",
-            "Use `checked_add` or `overflowing_add` to detect overflow.",
-            source,
-            full.start(),
-            full.end(),
-        ));
+fn integer_type_signedness(value: &str) -> Option<bool> {
+    let value = normalized(value);
+    if unsigned_type(&value) {
+        Some(true)
+    } else if matches!(
+        value.as_str(),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+    ) {
+        Some(false)
+    } else {
+        None
     }
+}
+
+fn binding_integer_type(value: Node<'_>, source: &str) -> Option<bool> {
+    let mut ancestor = value.parent();
+    while let Some(current) = ancestor {
+        if current.kind() == "let_declaration" {
+            if let Some(type_node) = current.child_by_field_name("type") {
+                return integer_type_signedness(text(type_node, source));
+            }
+            break;
+        }
+        ancestor = current.parent();
+    }
+    let value = unwrap_parenthesized(value);
+    if value.kind() == "type_cast_expression" {
+        return value
+            .child_by_field_name("type")
+            .and_then(|type_node| integer_type_signedness(text(type_node, source)));
+    }
+    if value.kind() == "integer_literal" {
+        let raw = text(value, source).replace('_', "");
+        let core = strip_integer_suffix(&raw);
+        return (core != raw).then(|| {
+            raw.strip_prefix(core)
+                .is_some_and(|suffix| suffix.starts_with('u'))
+        });
+    }
+    None
+}
+
+fn local_integer_type(node: Node<'_>, source: &str) -> Option<LocalIntegerType> {
+    let owner = enclosing_function(node)?;
+    let name = text(node, source).trim();
+    let mut scope = enclosing_block(node)?;
+    loop {
+        match latest_binding_value(scope, node, name, owner, source) {
+            BindingState::NotFound => {}
+            BindingState::NoValue => return Some(LocalIntegerType::Unknown),
+            BindingState::Value(value) => {
+                return Some(
+                    binding_integer_type(value, source)
+                        .map_or(LocalIntegerType::Unknown, LocalIntegerType::Known),
+                );
+            }
+        }
+        let Some(parent) = scope.parent() else {
+            break;
+        };
+        let Some(outer) = enclosing_block(parent) else {
+            break;
+        };
+        if outer.start_byte() == scope.start_byte() {
+            break;
+        }
+        scope = outer;
+    }
+    None
+}
+
+fn unsigned_like(node: Node<'_>, source: &str) -> bool {
+    if node.kind() == "integer_literal" {
+        let raw = text(node, source).replace('_', "");
+        let core = strip_integer_suffix(&raw);
+        return raw
+            .strip_prefix(core)
+            .is_some_and(|suffix| suffix.starts_with('u'));
+    }
+    if node.kind() == "unary_expression" {
+        return false;
+    }
+    if node.kind() != "identifier" {
+        return false;
+    }
+    if let Some(local) = local_integer_type(node, source) {
+        return match local {
+            LocalIntegerType::Unknown => false,
+            LocalIntegerType::Known(is_unsigned) => is_unsigned,
+        };
+    }
+    let Some(owner) = enclosing_function(node) else {
+        return false;
+    };
+    let Some(parameters) = owner.child_by_field_name("parameters") else {
+        return false;
+    };
+    let name = text(node, source).trim();
+    let mut cursor = parameters.walk();
+    parameters.named_children(&mut cursor).any(|parameter| {
+        parameter
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| text(pattern, source).trim() == name)
+            && parameter
+                .child_by_field_name("type")
+                .is_some_and(|ty| normalized(text(ty, source)).starts_with('u'))
+    })
+}
+
+fn check_overflow_addition(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "binary_expression" {
+            return;
+        }
+        let Some(left) = node.child_by_field_name("left") else {
+            return;
+        };
+        let Some(right) = node.child_by_field_name("right") else {
+            return;
+        };
+        let op = binary_operator(node, source);
+        if !matches!(op, Some("<" | ">")) {
+            return;
+        }
+        let candidates = match op {
+            Some("<") => [(left, right)],
+            Some(">") => [(right, left)],
+            _ => return,
+        };
+        for (sum, other) in candidates {
+            if sum.kind() != "binary_expression" || binary_operator(sum, source) != Some("+") {
+                continue;
+            }
+            let Some(a) = sum.child_by_field_name("left") else {
+                continue;
+            };
+            let Some(b) = sum.child_by_field_name("right") else {
+                continue;
+            };
+            if !unsigned_like(a, source)
+                || !unsigned_like(b, source)
+                || !unsigned_like(other, source)
+            {
+                continue;
+            }
+            let other_text = text(other, source).trim();
+            if other_text == text(a, source).trim() || other_text == text(b, source).trim() {
+                issues.push(node_issue(
+                    "rust:S7444",
+                    "Use `checked_add` or `overflowing_add` to detect overflow.",
+                    node,
+                    source,
+                ));
+                break;
+            }
+        }
+    });
+}
+fn binary_operator<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).find_map(|child| {
+        let value = text(child, source);
+        matches!(
+            value,
+            "%" | "+" | "/" | "<" | ">" | "<=" | ">=" | "==" | "!="
+        )
+        .then_some(value)
+    })
+}
+
+fn check_semantic_rust_rules(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    check_transmute_collection_types(root, source, issues);
+    check_transmute_rules(root, source, issues);
+    check_size_of_counts(root, source, issues);
+    check_option_env_unwrap(root, source, issues);
+    check_inline_trait_methods(root, source, issues);
+    check_modulo_one(root, source, issues);
+    check_derived_hash_eq(root, source, issues);
+}
+
+fn check_transmute_collection_types(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "call_expression" || !is_transmute_call(node, source) {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        let Some(args) = function.child_by_field_name("type_arguments") else {
+            return;
+        };
+        let (Some(from), Some(to)) = (args.named_child(0), args.named_child(1)) else {
+            return;
+        };
+        let from = text(from, source).trim();
+        let to = text(to, source).trim();
+        let Some((to_name, to_inner)) = collection_shape(to) else {
+            return;
+        };
+        let report = if from == "_" {
+            node.child_by_field_name("arguments")
+                .and_then(|a| a.named_child(0))
+                .is_some_and(|arg| inferred_collection_diff(arg, to_inner, source))
+        } else {
+            collection_shape(from).is_some_and(|(from_name, from_inner)| {
+                from_name != to_name || !collection_layout_compatible(from_inner, to_inner, source)
+            })
+        };
+        if report {
+            issues.push(node_issue("rust:S7420", "Do not transmute collections to different element types; use iteration and mapping instead.", node, source));
+        }
+    });
+}
+
+fn canonical_layout(value: &str, source: &str) -> String {
+    let mut value = value.trim().to_owned();
+    for _ in 0..4 {
+        let name = value.trim().to_owned();
+        let Some(alias) = source.lines().find_map(|line| {
+            let rest = line.trim().strip_prefix("type ")?;
+            let (alias, rhs) = rest.split_once('=')?;
+            (alias.trim() == name).then_some(rhs.trim().trim_end_matches(';').trim().to_owned())
+        }) else {
+            return name;
+        };
+        value = alias;
+    }
+    value.trim().to_owned()
+}
+fn collection_layout_compatible(from: &str, to: &str, source: &str) -> bool {
+    fn integer_bits(value: &str) -> Option<u16> {
+        let value = value.trim();
+        if !value.starts_with('u') && !value.starts_with('i') {
+            return None;
+        }
+        match &value[1..] {
+            "8" => Some(8),
+            "16" => Some(16),
+            "32" => Some(32),
+            "64" => Some(64),
+            "128" => Some(128),
+            "size" => u16::try_from(usize::BITS).ok(),
+            _ => None,
+        }
+    }
+    let from = canonical_layout(from, source);
+    let to = canonical_layout(to, source);
+    if from == to {
+        return true;
+    }
+    integer_bits(&from)
+        .zip(integer_bits(&to))
+        .is_some_and(|(a, b)| a == b)
+}
+
+fn inferred_collection_diff(arg: Node<'_>, target_inner: &str, source: &str) -> bool {
+    if arg.kind() != "identifier" {
+        return false;
+    }
+    let name = text(arg, source);
+    let prefix = &source[..arg.start_byte()];
+    let Some(pos) = prefix.rfind(&format!("let {name}")) else {
+        return false;
+    };
+    let init = &prefix[pos..];
+    let Some(mark) = init.rfind("_u") else {
+        return false;
+    };
+    let suffix: String = init[mark + 2..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    !suffix.is_empty() && format!("u{suffix}") != canonical_layout(target_inner, source)
+}
+
+fn is_transmute_call(node: Node<'_>, source: &str) -> bool {
+    is_transmute_function(node, source)
+}
+
+fn proven_null(node: Node<'_>, source: &str) -> bool {
+    let mut node = node;
+    while node.kind() == "parenthesized_expression" {
+        let Some(inner) = node.named_child(0) else {
+            return false;
+        };
+        node = inner;
+    }
+    if node.kind() == "integer_literal" {
+        return integer_is_zero(text(node, source));
+    }
+    if node.kind() == "type_cast_expression" {
+        return node
+            .child_by_field_name("value")
+            .is_some_and(|v| proven_null(v, source));
+    }
+    if node.kind() != "call_expression" {
+        return false;
+    }
+    let Some(function) = node.child_by_field_name("function") else {
+        return false;
+    };
+    match function.kind() {
+        "scoped_identifier" | "identifier" => standard_import_matches(
+            function,
+            source,
+            &[
+                "std::ptr::null",
+                "std::ptr::null_mut",
+                "core::ptr::null",
+                "core::ptr::null_mut",
+            ],
+        ),
+        "generic_function" => function
+            .child_by_field_name("function")
+            .is_some_and(|inner| match inner.kind() {
+                "scoped_identifier" | "identifier" => standard_import_matches(
+                    inner,
+                    source,
+                    &[
+                        "std::ptr::null",
+                        "std::ptr::null_mut",
+                        "core::ptr::null",
+                        "core::ptr::null_mut",
+                    ],
+                ),
+                _ => false,
+            }),
+        _ => false,
+    }
+}
+
+fn transmute_target<'a>(node: Node<'_>, source: &'a str) -> Option<&'a str> {
+    if let Some(function) = node.child_by_field_name("function")
+        && function.kind() == "generic_function"
+        && let Some(args) = function.child_by_field_name("type_arguments")
+        && args.named_child_count() >= 2
+    {
+        return args.named_child(1).map(|n| text(n, source));
+    }
+    let mut parent = node.parent();
+    while let Some(current) = parent {
+        if current.kind() == "arguments" {
+            return None;
+        }
+        if current.kind() == "let_declaration" {
+            return current.child_by_field_name("type").map(|n| text(n, source));
+        }
+        if current.kind() == "function_item" {
+            return current
+                .child_by_field_name("return_type")
+                .map(|n| text(n, source));
+        }
+        parent = current.parent();
+    }
+    None
+}
+
+fn is_function_pointer_type(target: &str) -> bool {
+    let compact: String = target
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
+    compact.starts_with("fn(")
+        || compact.starts_with("unsafefn(")
+        || compact.starts_with("externfn(")
+        || (compact.starts_with("extern\"") && compact.contains("\"fn("))
+}
+
+fn check_transmute_rules(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "call_expression" || !is_transmute_call(node, source) {
+            return;
+        }
+        let Some(arg) = node
+            .child_by_field_name("arguments")
+            .and_then(|a| a.named_child(0))
+        else {
+            return;
+        };
+        if !proven_null(arg, source) {
+            return;
+        }
+        let Some(target) = transmute_target(node, source) else {
+            return;
+        };
+        let target = target.trim();
+        if target.starts_with('&') {
+            issues.push(node_issue(
+                "rust:S7427",
+                "Use `Option` to represent a nullable reference",
+                node,
+                source,
+            ));
+        }
+        if is_function_pointer_type(target) {
+            issues.push(node_issue(
+                "rust:S7429",
+                "Use `Option<fn()>` to safely represent a nullable function pointer.",
+                node,
+                source,
+            ));
+        }
+    });
+}
+
+fn collection_shape(ty: &str) -> Option<(&str, &str)> {
+    let ty = ty.trim();
+    let open = ty.find('<')?;
+    let name = ty[..open].rsplit("::").next()?;
+    let inner = ty[open + 1..].strip_suffix('>')?;
+    matches!(name, "Vec" | "HashMap" | "HashSet").then_some((name, inner))
+}
+
+fn canonical_callable<'a>(
+    function: Node<'_>,
+    source: &'a str,
+    expected: &[&str],
+) -> Option<&'a str> {
+    let name = callable_name(function, source)?;
+    let mut base = function;
+    while base.kind() == "generic_function" {
+        base = base.child_by_field_name("function")?;
+    }
+    standard_import_matches(base, source, expected).then_some(name)
+}
+
+fn check_size_of_counts(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        let Some(name) = canonical_callable(
+            function,
+            source,
+            &[
+                "std::ptr::copy",
+                "std::ptr::copy_nonoverlapping",
+                "core::ptr::copy",
+                "core::ptr::copy_nonoverlapping",
+                "std::slice::from_raw_parts",
+                "std::slice::from_raw_parts_mut",
+                "core::slice::from_raw_parts",
+                "core::slice::from_raw_parts_mut",
+            ],
+        ) else {
+            return;
+        };
+        let outer_type = function
+            .child_by_field_name("type_arguments")
+            .and_then(|args| args.named_child(0))
+            .map(|ty| normalized(text(ty, source)));
+        let index = match name {
+            "copy" | "copy_nonoverlapping" => 2,
+            "from_raw_parts" | "from_raw_parts_mut" => 1,
+            _ => return,
+        };
+        let Some(arg) = node
+            .child_by_field_name("arguments")
+            .and_then(|a| a.named_child(index))
+        else {
+            return;
+        };
+        walk_valid(arg, &mut |child| {
+            if child.kind() != "call_expression" {
+                return;
+            }
+            let Some(function) = child.child_by_field_name("function") else {
+                return;
+            };
+            if canonical_callable(
+                function,
+                source,
+                &[
+                    "std::mem::size_of",
+                    "std::mem::size_of_val",
+                    "core::mem::size_of",
+                    "core::mem::size_of_val",
+                ],
+            )
+            .is_none()
+            {
+                return;
+            }
+            let actual = function
+                .child_by_field_name("type_arguments")
+                .and_then(|args| args.named_child(0))
+                .map(|ty| normalized(text(ty, source)));
+            if outer_type
+                .as_deref()
+                .is_some_and(|expected| actual.as_deref().is_some_and(|actual| actual != expected))
+            {
+                return;
+            }
+            if actual
+                .as_deref()
+                .is_some_and(|actual| matches!(actual, "u8" | "i8"))
+            {
+                return;
+            }
+            let mut parent = child.parent();
+            while let Some(current) = parent {
+                if current.kind() == "binary_expression"
+                    && binary_operator(current, source) == Some("/")
+                    && current.child_by_field_name("right").is_some_and(|right| {
+                        right.start_byte() <= child.start_byte()
+                            && child.end_byte() <= right.end_byte()
+                    })
+                {
+                    return;
+                }
+                parent = current.parent();
+            }
+            issues.push(node_issue(
+                "rust:S7431",
+                "Use the element count directly instead of `size_of::<T>`.",
+                child,
+                source,
+            ));
+        });
+    });
+}
+fn modulo_one_value(node: Node<'_>, source: &str) -> bool {
+    if node.kind() == "integer_literal" {
+        return parse_integer(text(node, source)) == Some(1);
+    }
+    node.kind() == "unary_expression"
+        && text(node, source).trim_start().starts_with('-')
+        && node
+            .named_child(0)
+            .is_some_and(|child| parse_integer(text(child, source)) == Some(1))
+}
+
+fn check_modulo_one(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "binary_expression" || binary_operator(node, source) != Some("%") {
+            return;
+        }
+        let Some(right) = node.child_by_field_name("right") else {
+            return;
+        };
+        if modulo_one_value(right, source) {
+            issues.push(node_issue(
+                "rust:S7451",
+                "Refactor the code to remove the `% 1` or `% -1` operation.",
+                node,
+                source,
+            ));
+        }
+    });
+}
+fn check_option_env_unwrap(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "call_expression" {
+            return;
+        }
+        let Some(function) = node.child_by_field_name("function") else {
+            return;
+        };
+        if function.kind() != "field_expression" {
+            return;
+        }
+        let method = function
+            .child_by_field_name("field")
+            .map(|f| text(f, source));
+        if !matches!(method, Some("unwrap" | "expect")) {
+            return;
+        }
+        let Some(mut value) = function.child_by_field_name("value") else {
+            return;
+        };
+        while value.kind() == "parenthesized_expression" {
+            let Some(inner) = value.named_child(0) else {
+                return;
+            };
+            value = inner;
+        }
+        if value.kind() != "macro_invocation" {
+            return;
+        }
+        let macro_node = value;
+        if macro_node.child_by_field_name("macro").is_some_and(|m| {
+            (m.kind() == "identifier"
+                && text(m, source).trim() == "option_env"
+                && !standard_name_is_shadowed(m, "option_env", source, false))
+                || standard_import_matches(m, source, &["std::option_env", "core::option_env"])
+        }) {
+            issues.push(node_issue(
+                "rust:S7445",
+                "Use `env!(...)` to ensure compile-time checking of the environment variable.",
+                node,
+                source,
+            ));
+        }
+    });
+}
+
+fn check_inline_trait_methods(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if node.kind() != "trait_item" {
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        let mut cursor = body.walk();
+        for item in body.named_children(&mut cursor) {
+            if item.kind() != "function_signature_item" {
+                continue;
+            }
+            let mut sibling = item.prev_named_sibling();
+            while let Some(attribute) = sibling {
+                if attribute.kind() == "attribute_item"
+                    && text(attribute, source).trim_start().starts_with("#[inline")
+                {
+                    issues.push(node_issue("rust:S7449", "Remove the `#[inline]` attribute from this trait method; it has no effect.", attribute, source));
+                }
+                if !matches!(
+                    attribute.kind(),
+                    "attribute_item" | "line_comment" | "block_comment"
+                ) {
+                    break;
+                }
+                sibling = attribute.prev_named_sibling();
+            }
+        }
+    });
+}
+fn derive_hash_attribute(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "attribute_item"
+        && text(node, source).trim_start().starts_with("#[derive(")
+        && text(node, source)
+            .split(['(', ')'])
+            .nth(1)
+            .is_some_and(|list| list.split(',').any(|part| part.trim() == "Hash"))
+}
+fn module_type_identity(node: Node<'_>, name: &str, source: &str) -> String {
+    let mut scopes = Vec::new();
+    let mut parent = node.parent();
+    while let Some(current) = parent {
+        if matches!(current.kind(), "mod_item" | "function_item")
+            && let Some(scope_name) = current.child_by_field_name("name")
+        {
+            scopes.push(text(scope_name, source).trim().to_string());
+        }
+        parent = current.parent();
+    }
+    scopes.reverse();
+    let mut relative = name.trim();
+    if let Some(absolute) = relative
+        .strip_prefix("crate::")
+        .or_else(|| relative.strip_prefix("::"))
+    {
+        scopes.clear();
+        relative = absolute;
+    } else if let Some(local) = relative.strip_prefix("self::") {
+        relative = local;
+    } else {
+        while let Some(parent) = relative.strip_prefix("super::") {
+            if scopes.pop().is_none() {
+                break;
+            }
+            relative = parent;
+        }
+    }
+    let base = normalized(relative);
+    let base = base.split('<').next().unwrap_or(&base).trim();
+    scopes.push(base.to_string());
+    scopes.join("::")
+}
+
+fn is_standard_partial_eq_trait(trait_: Node<'_>, source: &str) -> bool {
+    let path = match trait_.kind() {
+        "generic_type" => trait_.child_by_field_name("type"),
+        _ => Some(trait_),
+    };
+    let Some(path) = path else {
+        return false;
+    };
+    if path.kind() == "type_identifier" && text(path, source).trim() == "PartialEq" {
+        return !standard_name_is_shadowed(path, "PartialEq", source, false);
+    }
+    standard_import_matches(
+        path,
+        source,
+        &["std::cmp::PartialEq", "core::cmp::PartialEq"],
+    )
+}
+
+fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    let mut hashed = HashMap::new();
+    walk_valid(root, &mut |node| {
+        if !matches!(node.kind(), "struct_item" | "enum_item") {
+            return;
+        }
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let mut sibling = node.prev_named_sibling();
+        while let Some(attribute) = sibling {
+            if derive_hash_attribute(attribute, source) {
+                walk_all(attribute, &mut |token| {
+                    if token.child_count() == 0 && text(token, source) == "Hash" {
+                        hashed.insert(
+                            module_type_identity(node, text(name, source), source),
+                            token,
+                        );
+                    }
+                });
+                break;
+            }
+            if !matches!(
+                attribute.kind(),
+                "attribute_item" | "line_comment" | "block_comment"
+            ) {
+                break;
+            }
+            sibling = attribute.prev_named_sibling();
+        }
+    });
+    walk_valid(root, &mut |node| {
+        if node.kind() != "impl_item"
+            || !node
+                .child_by_field_name("trait")
+                .is_some_and(|trait_| is_standard_partial_eq_trait(trait_, source))
+        {
+            return;
+        }
+        let Some(ty) = node.child_by_field_name("type") else {
+            return;
+        };
+        let identity = module_type_identity(node, text(ty, source), source);
+        if let Some(&hash) = hashed.get(&identity) {
+            issues.push(node_issue(
+                "rust:S7424",
+                "Replace this manually implemented `PartialEq` with the derived implementation.",
+                hash,
+                source,
+            ));
+        }
+    });
 }
 
 fn check_partial_io_calls(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -4695,6 +5784,12 @@ fn check_partial_io_calls(root: Node<'_>, source: &str, scan: &str, issues: &mut
             ) {
                 continue;
             }
+            if io_result_consumed(
+                text(body, scan),
+                captures.get(0).expect("whole regex capture").end(),
+            ) {
+                continue;
+            }
             let full = captures.get(0).expect("whole regex capture");
             issues.push(offset_issue(
                 "rust:S7419",
@@ -4705,6 +5800,57 @@ fn check_partial_io_calls(root: Node<'_>, source: &str, scan: &str, issues: &mut
             ));
         }
     });
+}
+fn io_result_consumed(body: &str, end: usize) -> bool {
+    let prefix = &body[..end.min(body.len())];
+    let statement_start = prefix.rfind(['{', ';', '}']).map_or(0, |p| p + 1);
+    let suffix = body[end..].split([';', '}']).next().unwrap_or_default();
+    if prefix[statement_start..].contains("match ") {
+        let words: Vec<_> = body[end..]
+            .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+            .filter(|word| !word.is_empty())
+            .collect();
+        for marker in ["Ok", "Some"] {
+            if let Some(index) = words.iter().position(|word| *word == marker)
+                && let Some(binding) = words.get(index + 1).filter(|word| **word != "_")
+                && words.iter().filter(|word| *word == binding).count() > 1
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    let comparison_suffix = suffix.replace("=>", "");
+    if comparison_suffix.contains("==")
+        || comparison_suffix.contains("!=")
+        || comparison_suffix.contains('>')
+        || comparison_suffix.contains('<')
+    {
+        return true;
+    }
+    let Some(let_pos) = prefix[statement_start..]
+        .rfind("let ")
+        .map(|p| p + statement_start)
+    else {
+        return false;
+    };
+    let after = &prefix[let_pos + 4..];
+    let Some(eq) = after.find('=') else {
+        return false;
+    };
+    let name = after[..eq]
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches("mut ")
+        .trim();
+    if name == "_" || name.is_empty() {
+        return false;
+    }
+    body[end..]
+        .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+        .any(|word| word == name)
 }
 
 fn receiver_supports_io_trait(
@@ -4917,8 +6063,19 @@ fn boolean_operand_redundant(compact: &str) -> bool {
     left.split("&&").any(|operand| operand == repeated)
 }
 
+fn strip_integer_suffix(value: &str) -> &str {
+    const SUFFIXES: [&str; 12] = [
+        "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize",
+    ];
+    SUFFIXES
+        .iter()
+        .find_map(|suffix| value.strip_suffix(suffix))
+        .unwrap_or(value)
+}
+
 fn parse_integer(value: &str) -> Option<u128> {
     let compact = value.replace('_', "");
+    let compact = strip_integer_suffix(&compact);
     if let Some(hex) = compact.strip_prefix("0x") {
         u128::from_str_radix(hex, 16).ok()
     } else if let Some(octal) = compact.strip_prefix("0o") {
@@ -4949,7 +6106,8 @@ fn integer_is_zero(value: &str) -> bool {
 }
 
 fn parse_signed_integer(value: &str) -> Option<i128> {
-    value.replace('_', "").parse().ok()
+    let compact = value.replace('_', "");
+    strip_integer_suffix(&compact).parse().ok()
 }
 
 fn empty_integer_bounds(first_op: &str, first: i128, second_op: &str, second: i128) -> bool {
@@ -5161,7 +6319,6 @@ regex_fn!(
     string_variable_regex,
     r"let\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*String::from\("
 );
-regex_fn!(missing_comma_regex, r"(?m)[^,\[\s]\s*\n\s*-?\d");
 regex_fn!(
     partial_io_call_regex,
     r"\b(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\s*\.(?P<method>read|write)\s*\([^;\n]*\)"
@@ -5202,10 +6359,6 @@ regex_fn!(
 regex_fn!(
     panicking_condition_regex,
     r"^(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\.is_(?:none|err)\(\)$"
-);
-regex_fn!(
-    overflow_comparison_regex,
-    r"[A-Za-z_][A-Za-z0-9_]*\s*\+\s*[A-Za-z_][A-Za-z0-9_]*\s*<\s*[A-Za-z_][A-Za-z0-9_]*"
 );
 regex_fn!(
     unit_sort_closure_regex,
@@ -5448,13 +6601,303 @@ mod tests {
         );
     }
 
+    fn has_rule(source: &str, key: &str) -> bool {
+        keys(source).iter().any(|actual| actual == key)
+    }
+
     #[test]
-    fn closure_replacement_stays_silent_without_type_evidence() {
-        let found = keys(concat!(
-            "fn accepts(value: &&str) -> bool { !value.is_empty() }\n",
-            "fn main() { let values = vec![\"x\"]; let _ = values.iter().filter(|value| accepts(value)); }\n",
+    fn issue_121_size_of_only_flags_element_count_contexts() {
+        assert!(has_rule(
+            "fn f(x: *const u16, y: *mut u16) { unsafe { std::ptr::copy_nonoverlapping(x, y, std::mem::size_of::<u16>()); } }\n",
+            "rust:S7431"
         ));
-        assert!(found.iter().all(|key| key != "rust:S1612"), "{found:?}");
+        assert!(!has_rule(
+            "fn f() { let n = std::mem::size_of::<u16>(); let _ = n; }\n",
+            "rust:S7431"
+        ));
+    }
+
+    #[test]
+    fn issue_122_option_env_requires_unwrap() {
+        assert!(has_rule(
+            "fn f() -> &'static str { option_env!(\"X\").unwrap() }\n",
+            "rust:S7445"
+        ));
+        assert!(!has_rule(
+            "fn f() -> Option<&'static str> { option_env!(\"X\") }\n",
+            "rust:S7445"
+        ));
+    }
+
+    #[test]
+    fn issue_123_transmute_collection_types_must_differ() {
+        assert!(has_rule(
+            "fn f(v: Vec<u8>) -> Vec<u32> { unsafe { std::mem::transmute::<Vec<u8>, Vec<u32>>(v) } }\n",
+            "rust:S7420"
+        ));
+        assert!(!has_rule(
+            "fn f(v: Vec<u8>) -> Vec<u8> { unsafe { std::mem::transmute::<Vec<u8>, Vec<u8>>(v) } }\n",
+            "rust:S7420"
+        ));
+    }
+
+    #[test]
+    fn issue_124_integer_transmute_is_not_null_reference() {
+        assert!(has_rule(
+            "fn f() -> &'static u8 { unsafe { std::mem::transmute(0 as *const u8) } }\n",
+            "rust:S7427"
+        ));
+        assert!(!has_rule(
+            "fn f() -> *const u8 { unsafe { std::mem::transmute::<usize, *const u8>(1usize) } }\n",
+            "rust:S7427"
+        ));
+    }
+
+    #[test]
+    fn issue_125_integer_transmute_is_not_null_function() {
+        assert!(has_rule(
+            "fn f() -> fn() { unsafe { std::mem::transmute(std::ptr::null::<()>()) } }\n",
+            "rust:S7429"
+        ));
+        assert!(!has_rule(
+            "fn f() -> fn() { unsafe { std::mem::transmute::<usize, fn()>(1usize) } }\n",
+            "rust:S7429"
+        ));
+    }
+
+    #[test]
+    fn issue_126_overflow_requires_unsigned_addend_comparison() {
+        assert!(has_rule(
+            "fn f(a: u32, b: u32) -> bool { a + b < a }\n",
+            "rust:S7444"
+        ));
+        assert!(!has_rule(
+            "fn f(a: i32, b: i32, c: i32) -> bool { a + b < c }\n",
+            "rust:S7444"
+        ));
+    }
+    #[test]
+    fn issue_126_overflow_respects_shadowed_integer_type() {
+        assert!(!has_rule(
+            "fn f(a: u32, b: u32) -> bool { let a = a as i32; let b = b as i32; a > a + b }\n",
+            "rust:S7444"
+        ));
+        assert!(has_rule(
+            "fn f(a: u32, b: u32) -> bool { a > a + b }\n",
+            "rust:S7444"
+        ));
+    }
+
+    #[test]
+    fn issue_127_partial_eq_must_match_derived_type() {
+        let source = "#[derive(Hash)]\nstruct S(u8);\nimpl PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n";
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S7424")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos { line: 1, column: 9 },
+                end: Pos {
+                    line: 1,
+                    column: 13
+                },
+            }
+        );
+        assert!(!has_rule(
+            "#[derive(Hash)] struct S(u8); struct T(u8); impl PartialEq for T { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(!has_rule(
+            "#[derive(Hash)] struct S; mod other { pub struct S; } impl std::cmp::PartialEq for other::S { fn eq(&self, _: &Self) -> bool { true } }\n",
+            "rust:S7424"
+        ));
+
+        assert!(!has_rule(
+            "#[derive(Hash)] struct S(u8); trait NotPartialEq {}\nimpl NotPartialEq for S {}\n",
+            "rust:S7424"
+        ));
+        assert!(!has_rule(
+            "#[derive(Hash)] struct S(u8);\ntrait PartialEq {}\nimpl PartialEq for S {}\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S(u8);\nimpl std::cmp::PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S(u8);\nimpl core::cmp::PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "use std::cmp::PartialEq as PE;\n#[derive(Hash)] struct S(u8);\nimpl PE for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S(u8);\nimpl PartialEq<u8> for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S; impl PartialEq for self::S { fn eq(&self, _: &Self) -> bool { true } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S; impl PartialEq for crate::S { fn eq(&self, _: &Self) -> bool { true } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S; mod nested { impl PartialEq for super::S { fn eq(&self, _: &Self) -> bool { true } } }\n",
+            "rust:S7424"
+        ));
+    }
+
+    #[test]
+    fn issue_205_empty_statement_preserves_required_match_semicolons() {
+        for source in [
+            "fn f() { if true { () }; }\n",
+            "fn f() { if true { println!(\"x\"); }; }\n",
+            "fn f() { match Some(1) { Some(_) => (), None => () }; }\n",
+            "fn f(v: bool) -> Result<(), ()> { match v { true => {}, false => g()? }; Ok(()) } fn g() -> Result<(), ()> { Ok(()) }\n",
+        ] {
+            assert!(has_rule(source, "rust:S1116"), "{source}");
+        }
+        for source in [
+            "fn f() {\n // boundary comment\n match true { true => 1, false => 2 };\n macro_rules! m { () => { 1 }; }\n m!();\n}\n",
+            "macro_rules! println { () => { 1 }; } fn f() -> i32 { { println!() }; 7 }\n",
+            "macro_rules! value { ($unused:expr) => { 1 }; } fn f() -> i32 { { value!(\"println!\") }; 7 }\n",
+            "fn f(v: bool) -> i32 { match v { true => { return 1; }, false => 2 }; 3 }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S1116"), "{source}");
+        }
+    }
+
+    #[test]
+    fn issue_206_wildcard_import_distinguishes_modules_from_variants() {
+        for source in [
+            "mod module { pub struct A; }\nuse crate::module::*;\nfn main() {}\n",
+            "mod nested { pub mod module { pub struct A; } use self::module::*; }\nfn main() {}\n",
+        ] {
+            assert!(has_rule(source, "rust:S2208"), "{source}");
+        }
+        for source in [
+            "enum E { A }\nfn main() { use E::*; }\n",
+            "enum E { A }\nfn main() { use self::E::*; }\n",
+            "mod nested { pub enum E { A } fn f() { use self::E::*; } }\nfn main() {}\n",
+            "enum E { A }\nmod nested { fn f() { use super::E::*; } }\nfn main() {}\n",
+        ] {
+            assert!(!has_rule(source, "rust:S2208"), "{source}");
+        }
+    }
+
+    #[test]
+    fn issue_207_array_operator_boundary_keeps_nested_arguments_clean() {
+        assert!(has_rule(
+            "fn f() -> i32 { 1 }\nfn main() { let _ = [f()\n -4]; }\n",
+            "rust:S3723"
+        ));
+        assert!(!has_rule(
+            "fn foo(_: i32) -> i32 { 1 }\nfn main() { let _ = &[foo(\n 1,\n), 2]; }\n",
+            "rust:S3723"
+        ));
+    }
+
+    #[test]
+    fn issue_208_len_cast_requires_usize_return_evidence() {
+        assert!(has_rule(
+            "fn f(a: &str) { let _: usize = a.len() as usize; }\n",
+            "rust:S4325"
+        ));
+        assert!(!has_rule(
+            "fn f(m: std::fs::Metadata) { let _: usize = m.len() as usize; }\n",
+            "rust:S4325"
+        ));
+    }
+
+    #[test]
+    fn issue_209_shared_branch_suffix_is_detected() {
+        assert!(has_rule(
+            "fn emit(_: i32) {}\nfn finish() {}\nfn stop() {}\nfn f(x: bool) { if x { let a = 1; emit(a); finish(); } else { let b = 2; emit(b); finish(); } }\n",
+            "rust:S7411"
+        ));
+        assert!(!has_rule(
+            "fn emit(_: i32) {}\nfn finish() {}\nfn stop() {}\nfn f(x: bool) { if x { let a = 1; emit(a); finish(); } else { let b = 2; emit(b); stop(); } }\n",
+            "rust:S7411"
+        ));
+        assert!(!has_rule(
+            "fn emit(_: i32) {}\nfn f(c: bool) { if c { let (x,) = (1,); emit(x); } else { let (x,) = (2,); emit(x); } }\n",
+            "rust:S7411"
+        ));
+    }
+
+    #[test]
+    fn issue_210_consumed_partial_read_count_is_clean() {
+        assert!(!has_rule(
+            "use std::io::Read;\nfn f<R: Read>(r: &mut R, b: &mut [u8]) -> std::io::Result<usize> { let n = r.read(b)?; if n == 0 { return Ok(0); } Ok(n) }\n",
+            "rust:S7419"
+        ));
+        assert!(has_rule(
+            "use std::io::Read;\nfn f<R: Read>(r: &mut R, b: &mut [u8]) { let _ = r.read(b); }\n",
+            "rust:S7419"
+        ));
+        assert!(has_rule(
+            "use std::io::Read;\nfn consume() {}\nfn f<R: Read>(r: &mut R, b: &mut [u8], limit: usize) { match r.read(b) {\nOk(_) => { if limit > 0 { consume(); } }, Err(_) => {} } }\n",
+            "rust:S7419"
+        ));
+    }
+
+    #[test]
+    fn issue_211_inline_only_flags_bodyless_trait_methods() {
+        assert!(has_rule(
+            "trait T { #[inline] fn required(&self); }\n",
+            "rust:S7449"
+        ));
+        assert!(!has_rule(
+            "trait T { #[inline] fn provided(&self) {} }\n",
+            "rust:S7449"
+        ));
+    }
+
+    #[test]
+    fn issue_212_modulo_one_requires_complete_operand() {
+        assert!(has_rule("fn f(x: u32) -> u32 { x % 1u32 }\n", "rust:S7451"));
+        assert!(!has_rule("fn f(x: u32) -> u32 { x % 10 }\n", "rust:S7451"));
+    }
+
+    #[test]
+    fn issue_213_fixture_anchor_remains_the_only_coverage_contract() {
+        let anchor = keys(
+            "fn main() {\n    let result = Some('a').map(|s| s.to_uppercase());\n    drop(result);\n}\n",
+        );
+        assert_eq!(
+            anchor
+                .iter()
+                .filter(|key| key.as_str() == "rust:S1612")
+                .count(),
+            1
+        );
+        let block = keys(
+            "fn main() {\n    let result = Some('a').map(|s| { s.to_uppercase() });\n    drop(result);\n}\n",
+        );
+        let owned = keys(
+            "fn main() {\n    let result: Option<String> = Some(String::new());\n    let result = result.map(|s| s.len());\n    drop(result);\n}\n",
+        );
+        assert!(owned.iter().all(|key| key != "rust:S1612"), "{owned:?}");
+        let deref_adjusted = keys(
+            "fn main() {\n    let result: Option<&String> = None;\n    let result = result.map(|s| s.to_uppercase());\n    drop(result);\n}\n",
+        );
+        assert!(
+            deref_adjusted.iter().all(|key| key != "rust:S1612"),
+            "{deref_adjusted:?}"
+        );
+        assert!(block.iter().all(|key| key != "rust:S1612"), "{block:?}");
     }
 
     #[test]
