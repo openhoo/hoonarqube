@@ -15,6 +15,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if has_modifier(&modifiers, "public")
             && !has_modifier(&modifiers, "static")
             && !has_modifier(&modifiers, "const")
+            && !has_modifier(&modifiers, "readonly")
             && enclosing_type(field)
                 .is_some_and(|type_node| type_declared_rank(type_node, source) == 6)
         {
@@ -49,5 +50,29 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S1104");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn s1104_public_readonly_instance_fields_are_not_reported() {
+        let report = analyze_default(
+            "public class C\n{\n    public readonly int Id = 1;\n    public readonly int A = 2, B = 3;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1104");
+        assert_eq!(flagged.len(), 0);
+    }
+
+    #[test]
+    fn s1104_genuinely_mutable_public_instance_field_is_still_reported() {
+        let report = analyze_default(
+            "public class C\n{\n    public int Count;\n    public static int Shared;\n    public const int Fixed = 1;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1104");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 3);
+        assert_eq!(flagged[0].range.start.column, 15);
+        assert_eq!(
+            flagged[0].message,
+            "Make this field 'private' and encapsulate it in a 'public' property."
+        );
     }
 }
