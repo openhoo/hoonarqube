@@ -3364,46 +3364,47 @@ fn check_string_to_string(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_missing_array_commas(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_missing_array_commas(root: Node<'_>, source: &str, _scan: &str, issues: &mut Vec<Issue>) {
     walk_valid(root, &mut |node| {
         if node.kind() != "array_expression" {
             return;
         }
-        for full in missing_comma_regex().find_iter(text(node, scan)) {
-            let start = node.start_byte() + full.start();
-            if comma_match_is_nested(node, start) {
+        let mut cursor = node.walk();
+        for element in node.named_children(&mut cursor) {
+            if element.kind() != "binary_expression" {
+                continue;
+            }
+            let Some(left) = element.child_by_field_name("left") else {
+                continue;
+            };
+            let Some(right) = element.child_by_field_name("right") else {
+                continue;
+            };
+            if right.kind() != "integer_literal" {
+                continue;
+            }
+            let mut children = element.walk();
+            let Some(operator) = element
+                .children(&mut children)
+                .find(|child| matches!(text(*child, source), "+" | "-"))
+            else {
+                continue;
+            };
+            if !source
+                .get(left.end_byte()..operator.start_byte())
+                .is_some_and(|between| between.contains('\n'))
+            {
                 continue;
             }
             issues.push(offset_issue(
                 "rust:S3723",
                 "Separate these elements with a comma.",
                 source,
-                start,
-                node.start_byte() + full.end(),
+                operator.start_byte(),
+                right.end_byte(),
             ));
         }
     });
-}
-
-fn comma_match_is_nested(array: Node<'_>, start: usize) -> bool {
-    let mut nested = false;
-    walk_all(array, &mut |node| {
-        if node.id() != array.id()
-            && matches!(
-                node.kind(),
-                "arguments"
-                    | "array_expression"
-                    | "parenthesized_expression"
-                    | "block"
-                    | "closure_expression"
-            )
-            && node.start_byte() <= start
-            && start + 1 < node.end_byte()
-        {
-            nested = true;
-        }
-    });
-    nested
 }
 
 fn check_named_array_indexes(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -3598,12 +3599,8 @@ fn branch_suffix_uses_local_binding(a: Node<'_>, b: Node<'_>, source: &str) -> b
             if candidate.kind() == "let_declaration"
                 && candidate.start_byte() < statement.start_byte()
                 && let Some(pattern) = candidate.child_by_field_name("pattern")
-                && text(pattern, source)
-                    .trim()
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
             {
-                names.insert(text(pattern, source).trim().to_string());
+                collect_pattern_binding_names(pattern, source, &mut names);
             }
         });
     }
@@ -5005,6 +5002,82 @@ fn latest_binding_value<'tree>(
     });
     latest.map_or(BindingState::NotFound, |(_, value)| value)
 }
+enum LocalIntegerType {
+    Unknown,
+    Known(bool),
+}
+
+fn integer_type_signedness(value: &str) -> Option<bool> {
+    let value = normalized(value);
+    if unsigned_type(&value) {
+        Some(true)
+    } else if matches!(
+        value.as_str(),
+        "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+    ) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn binding_integer_type(value: Node<'_>, source: &str) -> Option<bool> {
+    let mut ancestor = value.parent();
+    while let Some(current) = ancestor {
+        if current.kind() == "let_declaration" {
+            if let Some(type_node) = current.child_by_field_name("type") {
+                return integer_type_signedness(text(type_node, source));
+            }
+            break;
+        }
+        ancestor = current.parent();
+    }
+    let value = unwrap_parenthesized(value);
+    if value.kind() == "type_cast_expression" {
+        return value
+            .child_by_field_name("type")
+            .and_then(|type_node| integer_type_signedness(text(type_node, source)));
+    }
+    if value.kind() == "integer_literal" {
+        let raw = text(value, source).replace('_', "");
+        let core = strip_integer_suffix(&raw);
+        return (core != raw).then(|| {
+            raw.strip_prefix(core)
+                .is_some_and(|suffix| suffix.starts_with('u'))
+        });
+    }
+    None
+}
+
+fn local_integer_type(node: Node<'_>, source: &str) -> Option<LocalIntegerType> {
+    let owner = enclosing_function(node)?;
+    let name = text(node, source).trim();
+    let mut scope = enclosing_block(node)?;
+    loop {
+        match latest_binding_value(scope, node, name, owner, source) {
+            BindingState::NotFound => {}
+            BindingState::NoValue => return Some(LocalIntegerType::Unknown),
+            BindingState::Value(value) => {
+                return Some(
+                    binding_integer_type(value, source)
+                        .map_or(LocalIntegerType::Unknown, LocalIntegerType::Known),
+                );
+            }
+        }
+        let Some(parent) = scope.parent() else {
+            break;
+        };
+        let Some(outer) = enclosing_block(parent) else {
+            break;
+        };
+        if outer.start_byte() == scope.start_byte() {
+            break;
+        }
+        scope = outer;
+    }
+    None
+}
+
 fn unsigned_like(node: Node<'_>, source: &str) -> bool {
     if node.kind() == "integer_literal" {
         let raw = text(node, source).replace('_', "");
@@ -5018,6 +5091,12 @@ fn unsigned_like(node: Node<'_>, source: &str) -> bool {
     }
     if node.kind() != "identifier" {
         return false;
+    }
+    if let Some(local) = local_integer_type(node, source) {
+        return match local {
+            LocalIntegerType::Unknown => false,
+            LocalIntegerType::Known(is_unsigned) => is_unsigned,
+        };
     }
     let Some(owner) = enclosing_function(node) else {
         return false;
@@ -5578,8 +5657,25 @@ fn module_type_identity(node: Node<'_>, name: &str, source: &str) -> String {
         parent = current.parent();
     }
     scopes.reverse();
-    let base = name.trim().rsplit("::").next().unwrap_or(name.trim());
-    let base = base.split('<').next().unwrap_or(base).trim();
+    let mut relative = name.trim();
+    if let Some(absolute) = relative
+        .strip_prefix("crate::")
+        .or_else(|| relative.strip_prefix("::"))
+    {
+        scopes.clear();
+        relative = absolute;
+    } else if let Some(local) = relative.strip_prefix("self::") {
+        relative = local;
+    } else {
+        while let Some(parent) = relative.strip_prefix("super::") {
+            if scopes.pop().is_none() {
+                break;
+            }
+            relative = parent;
+        }
+    }
+    let base = normalized(relative);
+    let base = base.split('<').next().unwrap_or(&base).trim();
     scopes.push(base.to_string());
     scopes.join("::")
 }
@@ -5722,6 +5818,7 @@ fn io_result_consumed(body: &str, end: usize) -> bool {
                 return true;
             }
         }
+        return false;
     }
     let comparison_suffix = suffix.replace("=>", "");
     if comparison_suffix.contains("==")
@@ -6222,7 +6319,6 @@ regex_fn!(
     string_variable_regex,
     r"let\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*String::from\("
 );
-regex_fn!(missing_comma_regex, r"(?m)[^,\[\s]\s*\n\s*-?\d");
 regex_fn!(
     partial_io_call_regex,
     r"\b(?P<receiver>[A-Za-z_][A-Za-z0-9_]*)\s*\.(?P<method>read|write)\s*\([^;\n]*\)"
@@ -6580,6 +6676,17 @@ mod tests {
             "rust:S7444"
         ));
     }
+    #[test]
+    fn issue_126_overflow_respects_shadowed_integer_type() {
+        assert!(!has_rule(
+            "fn f(a: u32, b: u32) -> bool { let a = a as i32; let b = b as i32; a > a + b }\n",
+            "rust:S7444"
+        ));
+        assert!(has_rule(
+            "fn f(a: u32, b: u32) -> bool { a > a + b }\n",
+            "rust:S7444"
+        ));
+    }
 
     #[test]
     fn issue_127_partial_eq_must_match_derived_type() {
@@ -6610,6 +6717,11 @@ mod tests {
             "rust:S7424"
         ));
         assert!(!has_rule(
+            "#[derive(Hash)] struct S; mod other { pub struct S; } impl std::cmp::PartialEq for other::S { fn eq(&self, _: &Self) -> bool { true } }\n",
+            "rust:S7424"
+        ));
+
+        assert!(!has_rule(
             "#[derive(Hash)] struct S(u8); trait NotPartialEq {}\nimpl NotPartialEq for S {}\n",
             "rust:S7424"
         ));
@@ -6631,6 +6743,18 @@ mod tests {
         ));
         assert!(has_rule(
             "#[derive(Hash)] struct S(u8);\nimpl PartialEq<u8> for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S; impl PartialEq for self::S { fn eq(&self, _: &Self) -> bool { true } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S; impl PartialEq for crate::S { fn eq(&self, _: &Self) -> bool { true } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S; mod nested { impl PartialEq for super::S { fn eq(&self, _: &Self) -> bool { true } } }\n",
             "rust:S7424"
         ));
     }
@@ -6707,6 +6831,10 @@ mod tests {
             "fn emit(_: i32) {}\nfn finish() {}\nfn stop() {}\nfn f(x: bool) { if x { let a = 1; emit(a); finish(); } else { let b = 2; emit(b); stop(); } }\n",
             "rust:S7411"
         ));
+        assert!(!has_rule(
+            "fn emit(_: i32) {}\nfn f(c: bool) { if c { let (x,) = (1,); emit(x); } else { let (x,) = (2,); emit(x); } }\n",
+            "rust:S7411"
+        ));
     }
 
     #[test]
@@ -6717,6 +6845,10 @@ mod tests {
         ));
         assert!(has_rule(
             "use std::io::Read;\nfn f<R: Read>(r: &mut R, b: &mut [u8]) { let _ = r.read(b); }\n",
+            "rust:S7419"
+        ));
+        assert!(has_rule(
+            "use std::io::Read;\nfn consume() {}\nfn f<R: Read>(r: &mut R, b: &mut [u8], limit: usize) { match r.read(b) {\nOk(_) => { if limit > 0 { consume(); } }, Err(_) => {} } }\n",
             "rust:S7419"
         ));
     }
