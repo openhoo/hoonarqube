@@ -6,10 +6,70 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from reference_matrix import build_reference_rows
-from reference_provenance import manifest_digest, package_metadata
+from reference_provenance import manifest_digest, package_metadata, validate_manifest
 
 
 class ReferenceMatrixTests(unittest.TestCase):
+    @staticmethod
+    def _manifest_with_commit(commit):
+        manifest = {
+            "schema_version": 1,
+            "project": "oracle-py",
+            "kind": "sq",
+            "repository": {"commit": commit},
+            "inputs": {
+                "input_sha256": "input",
+                "source_root": "src",
+                "expected": "expected",
+                "catalog": "catalog",
+            },
+        }
+        manifest["manifest_sha256"] = manifest_digest(manifest)
+        return manifest
+
+    def test_validate_manifest_accepts_lowercase_hex_commit_without_expected_commit(
+        self,
+    ):
+        manifest = self._manifest_with_commit("a" * 40)
+        validated = validate_manifest(
+            manifest,
+            project="oracle-py",
+            kind="sq",
+        )
+        self.assertEqual(validated["repository"]["commit"], "a" * 40)
+
+    def test_validate_manifest_rejects_nonhex_commit_without_expected_commit(self):
+        manifest = self._manifest_with_commit("g" * 40)
+        with self.assertRaisesRegex(ValueError, "exact repository commit"):
+            validate_manifest(
+                manifest,
+                project="oracle-py",
+                kind="sq",
+            )
+
+    def test_validate_manifest_rejects_wrong_length_commit_without_expected_commit(
+        self,
+    ):
+        for commit in ("a" * 39, "a" * 41):
+            with self.subTest(length=len(commit)):
+                manifest = self._manifest_with_commit(commit)
+                with self.assertRaisesRegex(ValueError, "exact repository commit"):
+                    validate_manifest(
+                        manifest,
+                        project="oracle-py",
+                        kind="sq",
+                    )
+
+    def test_validate_manifest_rejects_explicit_commit_mismatch(self):
+        manifest = self._manifest_with_commit("a" * 40)
+        with self.assertRaisesRegex(ValueError, "commit mismatch"):
+            validate_manifest(
+                manifest,
+                project="oracle-py",
+                kind="sq",
+                commit="b" * 40,
+            )
+
     def test_reference_rows_keep_multisets_and_deferred_native_statuses(self):
         expected = [
             {"key": "python:S1", "bad": "s1_bad.py", "good": "s1_good.py"},
