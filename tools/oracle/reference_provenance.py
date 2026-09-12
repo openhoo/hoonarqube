@@ -271,7 +271,11 @@ def validate_manifest(
     if not isinstance(repository, dict):
         raise ValueError("oracle provenance lacks repository context")
     actual_commit = repository.get("commit")
-    if not isinstance(actual_commit, str) or len(actual_commit) != 40:
+    if (
+        not isinstance(actual_commit, str)
+        or len(actual_commit) != 40
+        or any(char not in _HEX40 for char in actual_commit.lower())
+    ):
         raise ValueError("oracle provenance lacks exact repository commit")
     if commit is not None and actual_commit != commit:
         raise ValueError("oracle provenance commit mismatch")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import stat
@@ -226,6 +227,8 @@ class OwnedShellScriptTests(unittest.TestCase):
         report_script: str,
         output: str = "report",
         fail_on: str = "none",
+        working_directory: Path | None = None,
+        paths: str = "src",
     ) -> subprocess.CompletedProcess[str]:
         commands = root / "commands"
         commands.mkdir(parents=True)
@@ -243,7 +246,7 @@ class OwnedShellScriptTests(unittest.TestCase):
                 "INPUT_FAIL_ON": fail_on,
                 "INPUT_GO_HEADER_FORMAT": "",
                 "INPUT_OUTPUT": output,
-                "INPUT_PATHS": "src",
+                "INPUT_PATHS": paths,
                 "INPUT_PROFILE": "sonar-parity",
                 "INPUT_UPLOAD": "false",
                 "RUNNER_TEMP": str(runner_temp),
@@ -251,7 +254,7 @@ class OwnedShellScriptTests(unittest.TestCase):
         )
         return subprocess.run(
             ["bash", "-c", self._action_run_script(action, step_name)],
-            cwd=root,
+            cwd=working_directory or root,
             env=environment,
             text=True,
             capture_output=True,
@@ -592,6 +595,67 @@ class OwnedShellScriptTests(unittest.TestCase):
                         0,
                         f"{documentation}: {path} is absent at {revision}: {result.stderr}",
                     )
+    def test_analyze_exports_absolute_report_from_nested_working_directory(self):
+        report = '{"rules":[],"issues":[]}\n'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "packages" / "foo"
+            nested.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            result = self._run_action_report_case(
+                nested,
+                action=ANALYZE_ACTION,
+                step_name="Analyze source",
+                report_script=f"""
+                #!/bin/sh
+                printf '%s' '{report}'
+                """,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = (nested / "github-output").read_text(encoding="utf-8")
+            self.assertIn(f"report={nested / 'report'}\n", output)
+            self.assertEqual((nested / "report").read_text(encoding="utf-8"), report)
+
+    def test_code_quality_roots_nested_input_paths_before_sarif_publish(self):
+        report = (
+            '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json",'
+            '"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Hoonarqube",'
+            '"rules":[{"id":"R1","name":"R1","shortDescription":{"text":"R1"},'
+            '"helpUri":"https://example.test/r1","properties":{"category":"BUG",'
+            '"severity":"WARNING","help":"https://example.test/r1"}}]}},'
+            '"results":[{"ruleId":"R1","ruleIndex":0,"level":"warning",'
+            '"message":{"text":"finding"},"locations":[{"physicalLocation":'
+            '{"artifactLocation":{"uri":"packages/foo/finding.py"}}}]}]}]}'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "packages" / "foo"
+            nested.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            arguments = root / "arguments"
+            result = self._run_action_report_case(
+                root,
+                action=CODE_QUALITY_ACTION,
+                step_name="Analyze source and write SARIF",
+                working_directory=nested,
+                paths="finding.py",
+                report_script=f"""
+                #!/bin/sh
+                printf '%s\\n' "$@" > '{arguments}'
+                printf '%s' '{report}'
+                """,
+                output="report.sarif",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            passed = arguments.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(passed[-2:], ["--", "packages/foo/finding.py"])
+            published = json.loads(
+                (nested / "report.sarif").read_text(encoding="utf-8")
+            )
+            uri = published["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
+                "artifactLocation"
+            ]["uri"]
+            self.assertEqual(uri, "packages/foo/finding.py")
 
 
 if __name__ == "__main__":
