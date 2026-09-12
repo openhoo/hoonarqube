@@ -4441,7 +4441,7 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
         let root = normalized_candidate.split("::").next().unwrap_or_default();
         return !standard_name_is_shadowed(node, root, source, true);
     }
-    let name = if node.kind() == "identifier" {
+    let name = if matches!(node.kind(), "identifier" | "type_identifier") {
         text(node, source).trim()
     } else {
         candidate.split("::").next().unwrap_or_default()
@@ -4453,12 +4453,12 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
         .into_iter()
         .any(|(alias, path)| {
             if alias == "*" {
-                return node.kind() == "identifier"
+                return matches!(node.kind(), "identifier" | "type_identifier")
                     && expected
                         .iter()
                         .any(|expected| *expected == format!("{path}::{name}"));
             }
-            if node.kind() == "identifier" && alias == name {
+            if matches!(node.kind(), "identifier" | "type_identifier") && alias == name {
                 return expected.iter().any(|expected| *expected == path);
             }
             candidate
@@ -5584,6 +5584,24 @@ fn module_type_identity(node: Node<'_>, name: &str, source: &str) -> String {
     scopes.join("::")
 }
 
+fn is_standard_partial_eq_trait(trait_: Node<'_>, source: &str) -> bool {
+    let path = match trait_.kind() {
+        "generic_type" => trait_.child_by_field_name("type"),
+        _ => Some(trait_),
+    };
+    let Some(path) = path else {
+        return false;
+    };
+    if path.kind() == "type_identifier" && text(path, source).trim() == "PartialEq" {
+        return !standard_name_is_shadowed(path, "PartialEq", source, false);
+    }
+    standard_import_matches(
+        path,
+        source,
+        &["std::cmp::PartialEq", "core::cmp::PartialEq"],
+    )
+}
+
 fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let mut hashed = HashMap::new();
     walk_valid(root, &mut |node| {
@@ -5619,7 +5637,7 @@ fn check_derived_hash_eq(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) 
         if node.kind() != "impl_item"
             || !node
                 .child_by_field_name("trait")
-                .is_some_and(|trait_| text(trait_, source).trim().ends_with("PartialEq"))
+                .is_some_and(|trait_| is_standard_partial_eq_trait(trait_, source))
         {
             return;
         }
@@ -6589,6 +6607,30 @@ mod tests {
         );
         assert!(!has_rule(
             "#[derive(Hash)] struct S(u8); struct T(u8); impl PartialEq for T { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(!has_rule(
+            "#[derive(Hash)] struct S(u8); trait NotPartialEq {}\nimpl NotPartialEq for S {}\n",
+            "rust:S7424"
+        ));
+        assert!(!has_rule(
+            "#[derive(Hash)] struct S(u8);\ntrait PartialEq {}\nimpl PartialEq for S {}\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S(u8);\nimpl std::cmp::PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S(u8);\nimpl core::cmp::PartialEq for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "use std::cmp::PartialEq as PE;\n#[derive(Hash)] struct S(u8);\nimpl PE for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
+            "rust:S7424"
+        ));
+        assert!(has_rule(
+            "#[derive(Hash)] struct S(u8);\nimpl PartialEq<u8> for S { fn eq(&self, other: &Self) -> bool { self.0 == other.0 } }\n",
             "rust:S7424"
         ));
     }
