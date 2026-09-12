@@ -14,9 +14,13 @@ mod type_fixes;
 
 use crate::engine::bindings::KnownBinding;
 use crate::engine::file_context::{AnyImport, FileContext};
-use crate::support::{for_each_stmt, parse, to_range, to_u32};
+use crate::engine::scope::{
+    BindingKind, ScopeKind, SymbolTable, build_symbol_table, collect_file_facts, scope_is_within,
+};
+use crate::support::{for_each_stmt, parse, ranges_textually_equal, suite_span, to_range, to_u32};
 use hoonarqube_ir::{Issue, TextEdit};
-use ruff_python_ast::{Expr, ModModule, Stmt};
+use ruff_python_ast::token::TokenKind;
+use ruff_python_ast::{Expr, ModModule, Stmt, StmtIf};
 use ruff_python_parser::Parsed;
 use ruff_source_file::{LineIndex, LineRanges, OneIndexed, PositionEncoding, SourceLocation};
 use ruff_text_size::{Ranged, TextRange, TextSize};
@@ -48,9 +52,9 @@ pub(crate) fn attach_quick_fixes(
             "python:S1186" => s1186(issue, index, source),
             "python:S1720" => s1720(parsed, issue, index, source),
             "python:S1940" => s1940(issue, index, source),
-            "python:S2710" => s2710(issue, index, source),
+            "python:S2710" => s2710(parsed, issue, index, source),
             "python:S2772" | "python:S3626" => remove_line(issue, index, source),
-            "python:S3923" => s3923(issue, index, source),
+            "python:S3923" => s3923(parsed, issue, index, source),
             "python:S3984" => s3984(issue, index, source),
             "python:S4144" => s4144(issue, index, source),
             "python:S5712" => s5712(issue, index, source),
@@ -835,88 +839,307 @@ fn operator_has_identifier_neighbor(bytes: &[u8], index: usize, length: usize) -
         || after.is_some_and(|value| value.is_ascii_alphanumeric() || value == b'_')
 }
 
-fn s2710(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
+fn s2710(
+    parsed: &Parsed<ModModule>,
+    issue: &Issue,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let replacement = if source[range].trim() == "mcs" {
-        "mcs"
-    } else if source[range].trim() == "metacls" {
-        "metacls"
-    } else {
-        "cls"
+    let table = build_symbol_table(parsed);
+    let Some((param_scope, flagged, kind)) = parameter_binding_at(&table, range) else {
+        return Vec::new();
     };
-    let rename = text_edit(index, source, range, replacement);
+    if kind != BindingKind::Parameter || flagged == "cls" {
+        return Vec::new();
+    }
+    if collect_file_facts(parsed, source).dynamic_names {
+        return Vec::new();
+    }
+    let target = "cls";
+    let parameter_scope = &table.scopes[param_scope];
+    if parameter_scope.bindings.contains_key(target)
+        || parameter_scope.declares_global(target)
+        || parameter_scope.declares_nonlocal(target)
+    {
+        return Vec::new();
+    }
+    let Some(method_span) = function_span_containing(parsed, range) else {
+        return Vec::new();
+    };
+    for (scope_index, scope) in table.scopes.iter().enumerate() {
+        if scope_is_within(&table, scope_index, param_scope)
+            && (scope.declares_global(flagged) || scope.declares_nonlocal(flagged))
+        {
+            return Vec::new();
+        }
+    }
+    let mut renames = vec![range];
+    if let Some(bindings) = table.scopes[param_scope].bindings.get(flagged) {
+        renames.extend(bindings.iter().map(|binding| binding.range));
+    }
+    for load in &table.resolved_loads {
+        if load.name != flagged || !method_span.contains(load.range.start()) {
+            continue;
+        }
+        match load.target {
+            Some(binding_scope) if binding_scope == param_scope => {
+                if intermediate_scope_binds(&table, load.scope, param_scope, target) {
+                    return Vec::new();
+                }
+                renames.push(load.range);
+            }
+            Some(_) => {}
+            None => return Vec::new(),
+        }
+    }
+    for load in &table.resolved_loads {
+        if load.name == target
+            && method_span.contains(load.range.start())
+            && post_rename_rebinds_to(&table, load.scope, param_scope, target)
+        {
+            return Vec::new();
+        }
+    }
+    renames.sort_by_key(Ranged::start);
+    renames.dedup();
+    let edits = renames
+        .iter()
+        .map(|rename| text_edit(index, source, *rename, target))
+        .collect();
     vec![alt(
         "s2710-rename-class-parameter",
-        format!("Rename the class parameter to '{replacement}'."),
-        vec![rename],
+        format!("Rename the class parameter to '{target}'."),
+        edits,
     )]
 }
 
-fn s3923(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
+fn parameter_binding_at(
+    table: &SymbolTable,
+    span: TextRange,
+) -> Option<(usize, &str, BindingKind)> {
+    table
+        .scopes
+        .iter()
+        .enumerate()
+        .find_map(|(scope_index, scope)| {
+            scope.bindings.iter().find_map(|(name, bindings)| {
+                bindings
+                    .iter()
+                    .find(|binding| binding.range == span)
+                    .map(|binding| (scope_index, name.as_str(), binding.kind))
+            })
+        })
+}
+
+fn function_span_containing(parsed: &Parsed<ModModule>, span: TextRange) -> Option<TextRange> {
+    let mut found: Option<TextRange> = None;
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.range().contains(span.start())
+        {
+            let candidate = function.range();
+            if found.is_none_or(|current| candidate.len() < current.len()) {
+                found = Some(candidate);
+            }
+        }
+    });
+    found
+}
+
+fn intermediate_scope_binds(
+    table: &SymbolTable,
+    from_scope: usize,
+    to_scope: usize,
+    name: &str,
+) -> bool {
+    let mut cursor = Some(from_scope);
+    while let Some(scope_index) = cursor {
+        if scope_index == to_scope {
+            return false;
+        }
+        let scope = &table.scopes[scope_index];
+        if scope.bindings.contains_key(name)
+            || scope.declares_global(name)
+            || scope.declares_nonlocal(name)
+        {
+            return true;
+        }
+        cursor = scope.parent;
+    }
+    true
+}
+
+fn post_rename_rebinds_to(
+    table: &SymbolTable,
+    from_scope: usize,
+    added_scope: usize,
+    name: &str,
+) -> bool {
+    let mut cursor = Some(from_scope);
+    while let Some(scope_index) = cursor {
+        if scope_index == added_scope {
+            return true;
+        }
+        let scope = &table.scopes[scope_index];
+        if scope.kind == ScopeKind::Class {
+            return true;
+        }
+        if scope.bindings.contains_key(name)
+            || scope.declares_global(name)
+            || scope.declares_nonlocal(name)
+        {
+            return false;
+        }
+        cursor = scope.parent;
+    }
+    false
+}
+
+fn s3923(
+    parsed: &Parsed<ModModule>,
+    issue: &Issue,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let (if_start, _, full_if_end, if_line) = line_info(range, source);
-    if if_line.contains('(') {
-        return Vec::new();
-    }
-    let if_indent = indent(if_line).len();
-    let mut cursor = full_if_end.to_usize();
-    let mut else_line = None;
-    while cursor < source.len() {
-        let next = source[cursor..]
-            .find('\n')
-            .map_or(source.len(), |n| cursor + n + 1);
-        let line = source[cursor..next].trim_end_matches(['\r', '\n']);
-        if line.trim() == "else:" && indent(line).len() == if_indent {
-            else_line = Some((cursor, next));
-            break;
+    let mut flagged: Option<&StmtIf> = None;
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if let Stmt::If(if_stmt) = stmt
+            && if_stmt.start() == range.start()
+        {
+            flagged = Some(if_stmt);
         }
-        if !line.trim().is_empty() && indent(line).len() <= if_indent {
-            break;
-        }
-        cursor = next;
-    }
-    let Some((_, else_end)) = else_line else {
+    });
+    let Some(if_stmt) = flagged else {
         return Vec::new();
     };
-    let Some((body_start, _, first)) = next_code_line(source, else_end) else {
+    let [clause] = &if_stmt.elif_else_clauses[..] else {
         return Vec::new();
     };
-    if indent(&first).len() <= if_indent || first.contains('(') {
+    if clause.test.is_some() || if_stmt.body.is_empty() || clause.body.is_empty() {
         return Vec::new();
     }
-    let body_indent = indent(&first).len();
-    let mut end = source.len();
-    let mut scan = body_start;
-    while scan < source.len() {
-        let next = source[scan..]
-            .find('\n')
-            .map_or(source.len(), |n| scan + n + 1);
-        let line = source[scan..next].trim_end_matches(['\r', '\n']);
-        if !line.trim().is_empty() && indent(line).len() <= if_indent {
-            end = scan;
-            break;
-        }
-        scan = next;
+    let if_suite = suite_span(&if_stmt.body);
+    let else_suite = suite_span(&clause.body);
+    if !ranges_textually_equal(if_suite, else_suite, source)
+        || branch_strings_unsafe(parsed, source, if_suite, else_suite)
+        || !builtin_bool_is_unshadowed(parsed, source)
+    {
+        return Vec::new();
     }
-    let mut replacement = String::new();
-    let remove = body_indent.saturating_sub(if_indent);
-    for line in source[body_start..end].split_inclusive('\n') {
-        if line.len() >= remove && line.starts_with(&" ".repeat(remove)) {
-            replacement.push_str(&line[remove..]);
+    let test = source[if_stmt.test.range()].trim();
+    if test.is_empty() {
+        return Vec::new();
+    }
+    let stmt_start = if_stmt.start();
+    let stmt_end = else_suite.end();
+    let Some(if_prefix) = indentation_prefix(source, stmt_start) else {
+        return Vec::new();
+    };
+    let body_inline = !source[stmt_start.to_usize()..if_suite.start().to_usize()].contains('\n');
+    let body_pass_only = matches!(if_stmt.body.as_slice(), [Stmt::Pass(_)]);
+    let replacement = if body_inline {
+        let mut replacement = format!("bool(({test}))");
+        if !body_pass_only {
+            for stmt in &if_stmt.body {
+                replacement.push('\n');
+                replacement.push_str(if_prefix);
+                replacement.push_str(source[stmt.range()].trim());
+            }
+        }
+        replacement
+    } else {
+        let Some(body_prefix) = indentation_prefix(source, if_suite.start()) else {
+            return Vec::new();
+        };
+        if body_pass_only {
+            format!("bool(({test}))")
         } else {
-            replacement.push_str(line);
+            let Some(extra) = body_prefix.strip_prefix(if_prefix) else {
+                return Vec::new();
+            };
+            let mut replacement = format!("bool(({test}))\n");
+            let region =
+                &source[source.line_start(if_suite.start()).to_usize()..if_suite.end().to_usize()];
+            for line in region.split_inclusive('\n') {
+                if line.trim().is_empty() {
+                    replacement.push_str(line);
+                } else if line.starts_with(body_prefix) {
+                    replacement.push_str(&line[extra.len()..]);
+                } else {
+                    replacement.push_str(line);
+                }
+            }
+            replacement
         }
-    }
+    };
     vec![alt(
         "s3923-remove-if-statement",
-        "Remove the if statement",
+        "Collapse identical if/else branches while preserving condition evaluation",
         vec![text_edit(
             index,
             source,
-            TextRange::new(if_start, TextSize::from(to_u32(end))),
+            TextRange::new(stmt_start, stmt_end),
             replacement,
         )],
     )]
+}
+fn builtin_bool_is_unshadowed(parsed: &Parsed<ModModule>, source: &str) -> bool {
+    let facts = collect_file_facts(parsed, source);
+    !facts.dynamic_names
+        && !facts.has_wildcard_import
+        && build_symbol_table(parsed).scopes.iter().all(|scope| {
+            !scope.bindings.contains_key("bool")
+                && !scope.declares_global("bool")
+                && !scope.declares_nonlocal("bool")
+        })
+}
+
+fn indentation_prefix(source: &str, offset: TextSize) -> Option<&str> {
+    let line_start = source.line_start(offset).to_usize();
+    let prefix = source.get(line_start..offset.to_usize())?;
+    prefix
+        .chars()
+        .all(|character| character == ' ' || character == '\t')
+        .then_some(prefix)
+}
+
+fn branch_strings_unsafe(
+    parsed: &Parsed<ModModule>,
+    source: &str,
+    left: TextRange,
+    right: TextRange,
+) -> bool {
+    let mut left_strings = Vec::new();
+    let mut right_strings = Vec::new();
+    let mut interpolated = false;
+    for token in parsed.tokens() {
+        let in_left = left.contains_range(token.range());
+        let in_right = right.contains_range(token.range());
+        if !in_left && !in_right {
+            continue;
+        }
+        match token.kind() {
+            TokenKind::String => {
+                let text = &source[token.range()];
+                if text.contains('\n') {
+                    return true;
+                }
+                if in_left {
+                    left_strings.push(text);
+                } else {
+                    right_strings.push(text);
+                }
+            }
+            TokenKind::FStringStart
+            | TokenKind::FStringEnd
+            | TokenKind::TStringStart
+            | TokenKind::TStringEnd => interpolated = true,
+            _ => {}
+        }
+    }
+    interpolated || left_strings != right_strings
 }
 
 fn s3984(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
@@ -2045,5 +2268,185 @@ fn strip_parens(mut text: &str) -> &str {
             return text;
         }
         text = text[1..text.len() - 1].trim();
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{findings, scan};
+    use std::process::{Command, Output};
+
+    fn projected(source: &str, key: &str, id: &str) -> Option<String> {
+        let report = scan(source);
+        let issue = findings(&report, key).into_iter().next()?;
+        let edits = issue
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == id)
+            .map(|alternative| alternative.fix.edits.clone())?;
+        let references: Vec<&TextEdit> = edits.iter().collect();
+        hoonarqube_ir::apply_fixes(source, &references).ok()
+    }
+
+    fn assert_refused(source: &str, key: &str, id: &str) {
+        let report = scan(source);
+        let matches = findings(&report, key);
+        assert_eq!(matches.len(), 1, "expected exactly one {key} finding");
+        assert!(
+            !matches[0]
+                .alternatives
+                .iter()
+                .any(|alternative| alternative.id == id),
+            "{id} must be withheld"
+        );
+    }
+
+    fn run_python(source: &str) -> Output {
+        Command::new("python3")
+            .arg("-c")
+            .arg(source)
+            .output()
+            .expect("run Python quickfix fixture")
+    }
+
+    fn assert_same_runtime(original_source: &str, projected_source: &str) {
+        let original = run_python(original_source);
+        let projected = run_python(projected_source);
+        assert_eq!(projected.status, original.status);
+        assert_eq!(projected.stdout, original.stdout);
+        assert_eq!(projected.stderr, original.stderr);
+    }
+    fn assert_same_exception_runtime(original_source: &str, projected_source: &str) {
+        let original = run_python(original_source);
+        let projected = run_python(projected_source);
+        assert_eq!(projected.status, original.status);
+        assert_eq!(projected.stdout, original.stdout);
+        let last_line = |stderr: &[u8]| {
+            String::from_utf8_lossy(stderr)
+                .lines()
+                .last()
+                .map(str::to_owned)
+        };
+        assert_eq!(last_line(&projected.stderr), last_line(&original.stderr));
+    }
+
+    #[test]
+    fn s2710_renames_declaration_and_all_resolving_references() {
+        let source = "other = str\n\n\nclass C:\n    @classmethod\n    def make(other):\n        return other.__name__\n\n\nprint(C.make())\n";
+        let projected = projected(source, "python:S2710", "s2710-rename-class-parameter")
+            .expect("binding-aware rename expected");
+        assert!(projected.contains("def make(cls):"));
+        assert!(projected.contains("return cls.__name__"));
+        assert_same_runtime(source, &projected);
+    }
+
+    #[test]
+    fn s2710_renames_nested_references_and_rebindings() {
+        let closure = "class C:\n    @classmethod\n    def make(other):\n        def helper():\n            return other.__name__\n        return helper()\n\n\nprint(C.make())\n";
+        let closure_projected = projected(closure, "python:S2710", "s2710-rename-class-parameter")
+            .expect("nested capture rename expected");
+        assert!(closure_projected.contains("return cls.__name__"));
+        assert_same_runtime(closure, &closure_projected);
+
+        let rebinding = "class C:\n    @classmethod\n    def make(other):\n        other = 2\n        return other\n";
+        let rebinding_projected =
+            projected(rebinding, "python:S2710", "s2710-rename-class-parameter")
+                .expect("parameter rebinding rename expected");
+        assert!(rebinding_projected.contains("cls = 2"));
+        assert!(rebinding_projected.contains("return cls"));
+    }
+
+    #[test]
+    fn s2710_refuses_collisions_and_lexical_directive_changes() {
+        assert_refused(
+            "class C:\n    @classmethod\n    def make(other):\n        cls = 1\n        return other, cls\n",
+            "python:S2710",
+            "s2710-rename-class-parameter",
+        );
+        assert_refused(
+            "cls = int\n\n\nclass C:\n    @classmethod\n    def make(other):\n        return other, cls\n",
+            "python:S2710",
+            "s2710-rename-class-parameter",
+        );
+        assert_refused(
+            "class C:\n    @classmethod\n    def make(other):\n        global cls\n        return other\n",
+            "python:S2710",
+            "s2710-rename-class-parameter",
+        );
+        assert_refused(
+            "def outer():\n    cls = int\n    class C:\n        @classmethod\n        def make(other):\n            nonlocal cls\n            return other\n",
+            "python:S2710",
+            "s2710-rename-class-parameter",
+        );
+        assert_refused(
+            "class C:\n    @classmethod\n    def make(other):\n        def inner(cls):\n            return other\n        return inner(1)\n",
+            "python:S2710",
+            "s2710-rename-class-parameter",
+        );
+    }
+
+    #[test]
+    fn s3923_preserves_condition_truth_testing_and_side_effects() {
+        let source = "class Flag:\n    def __bool__(self):\n        print('truth-tested')\n        return True\n\n\ndef select(flag):\n    value = 1\n    if flag:\n        value = 2\n    else:\n        value = 2\n    return value\n\n\nprint(select(Flag()))\n";
+        let projected_source = projected(source, "python:S3923", "s3923-remove-if-statement")
+            .expect("condition-preserving rewrite expected");
+        let projected_report = scan(&projected_source);
+        assert!(findings(&projected_report, "python:S3923").is_empty());
+        assert!(findings(&projected_report, "python:S108").is_empty());
+        assert_same_runtime(source, &projected_source);
+
+        let comparison = "class Flag:\n    def __eq__(self, other):\n        print('comparison-tested')\n        return True\n\n\nleft = Flag()\nright = object()\nvalue = 1\nif left == right:\n    value = 2\nelse:\n    value = 2\nprint(value)\n";
+        let comparison_projected =
+            projected(comparison, "python:S3923", "s3923-remove-if-statement")
+                .expect("comparison-preserving rewrite expected");
+        assert_same_runtime(comparison, &comparison_projected);
+    }
+
+    #[test]
+    fn s3923_preserves_len_and_truth_conversion_exceptions() {
+        let len_source = "class Flag:\n    def __len__(self):\n        print('len-tested')\n        return 0\n\n\ndef select(flag):\n    if flag:\n        value = 2\n    else:\n        value = 2\n    return value\n\n\nprint(select(Flag()))\n";
+        let len_projected = projected(len_source, "python:S3923", "s3923-remove-if-statement")
+            .expect("__len__ condition rewrite expected");
+        assert_same_runtime(len_source, &len_projected);
+
+        let exception_source = "class Flag:\n    def __bool__(self):\n        raise RuntimeError('truth-failed')\n\n\nflag = Flag()\nif flag:\n    value = 2\nelse:\n    value = 2\nprint(value)\n";
+        let exception_projected = projected(
+            exception_source,
+            "python:S3923",
+            "s3923-remove-if-statement",
+        )
+        .expect("exception-preserving rewrite expected");
+        assert_same_exception_runtime(exception_source, &exception_projected);
+        assert!(!run_python(&exception_projected).status.success());
+    }
+
+    #[test]
+    fn s3923_handles_parenthesized_and_inline_conditions() {
+        let parenthesized = "def probe():\n    print('probe-called')\n    return True\n\n\nif (probe()):\n    print('branch')\nelse:\n    print('branch')\n";
+        let parenthesized_projected =
+            projected(parenthesized, "python:S3923", "s3923-remove-if-statement")
+                .expect("parenthesized condition rewrite expected");
+        assert_same_runtime(parenthesized, &parenthesized_projected);
+
+        let inline = "def probe():\n    print('probe-called')\n    return True\n\n\nif probe(): print('branch')\nelse: print('branch')\n";
+        let inline_projected = projected(inline, "python:S3923", "s3923-remove-if-statement")
+            .expect("inline condition rewrite expected");
+        assert_same_runtime(inline, &inline_projected);
+    }
+
+    #[test]
+    fn s3923_refuses_unsafe_or_nonmatching_shapes() {
+        let differing = "if flag:\n    value = 2\nelse:\n    value = 3\n";
+        assert!(projected(differing, "python:S3923", "s3923-remove-if-statement").is_none());
+        let shadowed_bool =
+            "bool = lambda value: False\nif flag:\n    value = 2\nelse:\n    value = 2\n";
+        assert_refused(shadowed_bool, "python:S3923", "s3923-remove-if-statement");
+
+        let elif_chain =
+            "if flag:\n    value = 2\nelif other:\n    value = 2\nelse:\n    value = 2\n";
+        assert!(findings(&scan(elif_chain), "python:S3923").is_empty());
+
+        let multiline = "if flag:\n    value = \"\"\"\n        same\n    \"\"\"\nelse:\n    value = \"\"\"\n        same\n    \"\"\"\n";
+        assert_refused(multiline, "python:S3923", "s3923-remove-if-statement");
     }
 }
