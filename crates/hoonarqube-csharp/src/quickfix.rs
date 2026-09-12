@@ -8,7 +8,10 @@
 //! [`QuickFixSemanticFacts`]; no same-name/type-text fallback is used.
 
 use crate::AnalyzerOptions;
-use crate::cst::{collect_kinds, node_text, range_from_byte_offsets, range_of, walk_all};
+use crate::cst::{
+    collect_kinds, integer_literal_natural_type, node_text, range_from_byte_offsets, range_of,
+    walk_all,
+};
 use crate::rules::literals::declarator_initializer;
 use hoonarqube_ir::{FileReport, Issue, Pos, Range, TextEdit};
 use tree_sitter::{Node, Parser};
@@ -1174,10 +1177,22 @@ fn s1905_scalar(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
     let Some(value) = cast.child_by_field_name("value") else {
         return Vec::new();
     };
-    if !matches!(
-        value.kind(),
-        "integer_literal" | "real_literal" | "character_literal"
-    ) {
+    let target = crate::cst::simple_name(node_text(type_node, source));
+    let value_text = node_text(value, source);
+    let compatible = match value.kind() {
+        "integer_literal" => integer_literal_natural_type(value_text) == Some(target),
+        "real_literal" => match target {
+            "double" => !value_text.ends_with(['f', 'F', 'm', 'M']),
+            "float" => value_text.ends_with(['f', 'F']),
+            "decimal" => value_text.ends_with(['m', 'M']),
+            _ => false,
+        },
+        "string_literal" => target == "string",
+        "character_literal" => target == "char",
+        "boolean_literal" => target == "bool",
+        _ => false,
+    };
+    if !compatible {
         return Vec::new();
     }
     add_range_action(
