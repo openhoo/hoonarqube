@@ -105,6 +105,7 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         .parse(source, None)
         .expect("Go parser returned no tree");
     let root = tree.root_node();
+    let imports = GoImports::collect(root, source);
     let line_facts = LineFacts::collect(source, root);
     let mut issues = Vec::new();
 
@@ -126,7 +127,7 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
     walk(root, &mut |node| {
         check_node(node, source, &line_facts, options, &mut issues);
     });
-    check_duplicate_strings(root, source, options, &mut issues);
+    check_duplicate_strings(root, source, options, &imports, &mut issues);
     check_duplicate_functions(root, source, &mut issues);
     sort_issues(&mut issues);
     issues.dedup();
@@ -336,6 +337,7 @@ fn check_native_call(node: Node<'_>, source: &str, imports: &GoImports, issues: 
         && ["Serve", "ListenAndServe", "ListenAndServeTLS"]
             .iter()
             .any(|member| function_name == format!("{http}.{member}"))
+        && !identifier_is_locally_bound(node, http, source)
     {
         issues.push(node_issue(
             "hoonarqube-go:G114",
@@ -366,6 +368,221 @@ fn check_native_call(node: Node<'_>, source: &str, imports: &GoImports, issues: 
     check_native_os_call(function, function_name, &arguments, source, imports, issues);
     check_native_ioutil_call(function_name, &arguments, source, imports, issues);
     check_native_rsa_call(function_name, &arguments, source, imports, issues);
+}
+
+/// True when `name` is bound inside the call's enclosing function: by the
+/// signature (receiver, parameters, named results), by a `for` or type switch
+/// header clause, or by a declaration in an enclosing block that precedes the
+/// call. Calls that still resolve to the import stay reportable.
+fn identifier_is_locally_bound(call: Node<'_>, name: &str, source: &str) -> bool {
+    ancestors(call).any(|scope| scope_binds_name(scope, call, name, source))
+}
+
+fn scope_binds_name(scope: Node<'_>, call: Node<'_>, name: &str, source: &str) -> bool {
+    match scope.kind() {
+        "function_declaration" | "method_declaration" | "func_literal" => {
+            signature_binds_name(scope, name, source)
+        }
+        "block" | "expression_case" | "type_case" | "default_case" => {
+            preceding_declarations_bind(scope, call, name, source)
+        }
+        "communication_case" => communication_case_binds_name(scope, call, name, source),
+        "if_statement" | "expression_switch_statement" => {
+            if_header_binds_name(scope, call, name, source)
+        }
+        "for_statement" => loop_header_binds_name(scope, call, name, source),
+        "type_switch_statement" => type_switch_guard_binds_name(scope, call, name, source),
+        _ => false,
+    }
+}
+
+fn signature_binds_name(scope: Node<'_>, name: &str, source: &str) -> bool {
+    for field in ["receiver", "parameters", "result", "results"] {
+        let mut cursor = scope.walk();
+        if scope
+            .children_by_field_name(field, &mut cursor)
+            .any(|part| direct_parameter_binds(part, name, source))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn direct_parameter_binds(node: Node<'_>, name: &str, source: &str) -> bool {
+    let parameters = if matches!(
+        node.kind(),
+        "parameter_declaration" | "variadic_parameter_declaration"
+    ) {
+        vec![node]
+    } else {
+        named_children(node)
+            .into_iter()
+            .filter(|child| {
+                matches!(
+                    child.kind(),
+                    "parameter_declaration" | "variadic_parameter_declaration"
+                )
+            })
+            .collect()
+    };
+    parameters.into_iter().any(|parameter| {
+        let mut cursor = parameter.walk();
+        parameter
+            .children_by_field_name("name", &mut cursor)
+            .any(|parameter_name| text(parameter_name, source) == name)
+    })
+}
+
+fn preceding_declarations_bind(block: Node<'_>, call: Node<'_>, name: &str, source: &str) -> bool {
+    let statements = named_children(block)
+        .into_iter()
+        .find(|child| child.kind() == "statement_list")
+        .map_or_else(|| named_children(block), named_children);
+    statements
+        .into_iter()
+        .take_while(|statement| statement.start_byte() < call.start_byte())
+        .any(|statement| statement_declares_before(statement, call.start_byte(), name, source))
+}
+
+fn statement_declares_before(statement: Node<'_>, before: usize, name: &str, source: &str) -> bool {
+    match statement.kind() {
+        "short_var_declaration" => {
+            statement.end_byte() <= before
+                && statement
+                    .child_by_field_name("left")
+                    .is_some_and(|left| direct_names_include(left, name, source))
+        }
+        "var_declaration" | "const_declaration" => declaration_specs(statement)
+            .into_iter()
+            .any(|spec| spec.end_byte() <= before && spec_names_include(spec, name, source)),
+        _ => false,
+    }
+}
+
+fn statement_declares(statement: Node<'_>, name: &str, source: &str) -> bool {
+    statement_declares_before(statement, usize::MAX, name, source)
+}
+
+fn declaration_specs(statement: Node<'_>) -> Vec<Node<'_>> {
+    descendants(statement)
+        .filter(|spec| matches!(spec.kind(), "var_spec" | "const_spec"))
+        .filter(|spec| {
+            !ancestors(*spec)
+                .take_while(|ancestor| ancestor.id() != statement.id())
+                .any(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        "function_declaration" | "method_declaration" | "func_literal"
+                    )
+                })
+        })
+        .collect()
+}
+
+fn spec_names_include(spec: Node<'_>, name: &str, source: &str) -> bool {
+    let mut cursor = spec.walk();
+    spec.children_by_field_name("name", &mut cursor)
+        .any(|spec_name| text(spec_name, source) == name)
+}
+
+fn direct_names_include(node: Node<'_>, name: &str, source: &str) -> bool {
+    if node.kind() == "identifier" {
+        return text(node, source) == name;
+    }
+    node.kind() == "expression_list"
+        && named_children(node)
+            .into_iter()
+            .any(|child| child.kind() == "identifier" && text(child, source) == name)
+}
+fn communication_case_binds_name(
+    scope: Node<'_>,
+    call: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    let communication = scope.child_by_field_name("communication").or_else(|| {
+        named_children(scope)
+            .into_iter()
+            .find(|child| matches!(child.kind(), "receive_statement" | "send_statement"))
+    });
+    let header_binds = communication.is_some_and(|communication| {
+        has_direct_child(communication, ":=")
+            && communication.end_byte() <= call.start_byte()
+            && communication
+                .child_by_field_name("left")
+                .is_some_and(|left| direct_names_include(left, name, source))
+    });
+    header_binds || preceding_declarations_bind(scope, call, name, source)
+}
+fn if_header_binds_name(scope: Node<'_>, call: Node<'_>, name: &str, source: &str) -> bool {
+    scope
+        .child_by_field_name("initializer")
+        .filter(|initializer| initializer.end_byte() <= call.start_byte())
+        .is_some_and(|initializer| statement_declares(initializer, name, source))
+}
+
+fn loop_header_binds_name(scope: Node<'_>, call: Node<'_>, name: &str, source: &str) -> bool {
+    named_children(scope)
+        .into_iter()
+        .filter(|child| matches!(child.kind(), "for_clause" | "range_clause"))
+        .any(|clause| match clause.kind() {
+            "range_clause" => {
+                has_direct_child(clause, ":=")
+                    && clause.end_byte() <= call.start_byte()
+                    && clause
+                        .child_by_field_name("left")
+                        .is_some_and(|left| direct_names_include(left, name, source))
+            }
+            _ => clause
+                .child_by_field_name("initializer")
+                .filter(|initializer| initializer.end_byte() <= call.start_byte())
+                .is_some_and(|initializer| statement_declares(initializer, name, source)),
+        })
+}
+
+fn type_switch_guard_binds_name(scope: Node<'_>, call: Node<'_>, name: &str, source: &str) -> bool {
+    if scope
+        .child_by_field_name("initializer")
+        .filter(|initializer| initializer.end_byte() <= call.start_byte())
+        .is_some_and(|initializer| statement_declares(initializer, name, source))
+    {
+        return true;
+    }
+    let in_case = ancestors(call)
+        .take_while(|ancestor| ancestor.id() != scope.id())
+        .filter(|ancestor| {
+            matches!(
+                ancestor.kind(),
+                "expression_case" | "type_case" | "default_case"
+            )
+        })
+        .any(|case| {
+            ancestors(case)
+                .find(|ancestor| {
+                    matches!(
+                        ancestor.kind(),
+                        "type_switch_statement"
+                            | "expression_switch_statement"
+                            | "select_statement"
+                    )
+                })
+                .is_some_and(|owner| owner.id() == scope.id())
+        });
+    in_case
+        && scope
+            .child_by_field_name("alias")
+            .filter(|alias| alias.end_byte() <= call.start_byte())
+            .is_some_and(|alias| names_include(alias, name, source))
+}
+
+fn names_include(node: Node<'_>, name: &str, source: &str) -> bool {
+    if node.kind() == "identifier" {
+        return text(node, source) == name;
+    }
+    named_children(node)
+        .into_iter()
+        .any(|child| names_include(child, name, source))
 }
 
 fn check_native_os_call(
@@ -1909,10 +2126,7 @@ fn decompression_assignment_event<'tree>(
 ) -> Option<(DecompressionEvent<'tree>, bool)> {
     let name = first_identifier(node.child_by_field_name("left")?, source)?;
     let right = node.child_by_field_name("right")?;
-    if decompression_calls
-        .iter()
-        .any(|call| text(right, source).contains(call))
-    {
+    if decompression_factory_call(right, source, decompression_calls) {
         return Some((
             DecompressionEvent::Define {
                 name: name.to_string(),
@@ -1936,6 +2150,49 @@ fn decompression_assignment_event<'tree>(
         },
         false,
     ))
+}
+
+/// A decompression source is only a real imported factory call. Transparent
+/// parentheses are accepted, while bare values, unrelated calls, and a local
+/// binding that shadows the imported package are rejected.
+fn decompression_factory_call(
+    right: Node<'_>,
+    source: &str,
+    decompression_calls: &HashSet<String>,
+) -> bool {
+    let right = unwrap_parenthesized(right);
+    let call = match right.kind() {
+        "call_expression" => Some(right),
+        "expression_list" => match named_children(right).as_slice() {
+            [only] => {
+                Some(unwrap_parenthesized(*only)).filter(|node| node.kind() == "call_expression")
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    let Some(call) = call else {
+        return false;
+    };
+    let Some(function) = call.child_by_field_name("function") else {
+        return false;
+    };
+    let function = unwrap_parenthesized(function);
+    let Some((receiver, method)) = selector_parts(function, source) else {
+        return false;
+    };
+    let qualified = format!("{receiver}.{method}");
+    decompression_calls.contains(&qualified) && !identifier_is_locally_bound(call, receiver, source)
+}
+
+fn unwrap_parenthesized(mut node: Node<'_>) -> Node<'_> {
+    while node.kind() == "parenthesized_expression" {
+        let Some(inner) = node.named_child(0) else {
+            break;
+        };
+        node = inner;
+    }
+    node
 }
 
 fn report_decompression_events(
@@ -2313,11 +2570,57 @@ fn check_comment_tags(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
                 "Complete the task associated to this TODO comment.",
             ),
         ] {
-            issues.extend(comment.match_indices(tag).map(|(relative, _)| {
-                relative_issue(key, message, node, source, relative, relative + tag.len())
-            }));
+            if tag == "TODO" {
+                issues.extend(
+                    comment_tag_spans(comment, tag)
+                        .into_iter()
+                        .map(|(start, end)| relative_issue(key, message, node, source, start, end)),
+                );
+            } else {
+                issues.extend(comment.match_indices(tag).map(|(relative, _)| {
+                    relative_issue(key, message, node, source, relative, relative + tag.len())
+                }));
+            }
         }
     });
+}
+
+/// Case-insensitive tag occurrences whose immediate neighbors are not letters
+/// or digits, mirroring the installed `SonarGo` `(?i)` tag boundary policy.
+fn comment_tag_spans(comment: &str, tag: &str) -> Vec<(usize, usize)> {
+    let bytes = comment.as_bytes();
+    let needle = tag.as_bytes();
+    let mut spans = Vec::new();
+    if needle.is_empty() {
+        return spans;
+    }
+    for (start, _) in comment.char_indices() {
+        if start + needle.len() > bytes.len() {
+            break;
+        }
+        if !bytes[start..start + needle.len()].eq_ignore_ascii_case(needle)
+            || is_alphanumeric_neighbor(comment, start, true)
+            || is_alphanumeric_neighbor(comment, start + needle.len(), false)
+        {
+            continue;
+        }
+        spans.push((start, start + needle.len()));
+    }
+    spans
+}
+
+fn is_alphanumeric_neighbor(comment: &str, offset: usize, before: bool) -> bool {
+    let window = if before {
+        &comment[..offset]
+    } else {
+        &comment[offset..]
+    };
+    let neighbor = if before {
+        window.chars().next_back()
+    } else {
+        window.chars().next()
+    };
+    neighbor.is_some_and(char::is_alphanumeric)
 }
 
 fn check_mistyped_assignments(
@@ -2373,7 +2676,10 @@ fn control_header_semicolons(root: Node<'_>) -> HashMap<usize, Vec<usize>> {
     walk_all(root, &mut |node| {
         if node.kind() == ";"
             && node.parent().is_some_and(|parent| {
-                matches!(parent.kind(), "for_clause" | "type_switch_statement")
+                matches!(
+                    parent.kind(),
+                    "for_clause" | "type_switch_statement" | "if_statement"
+                )
             })
         {
             semicolons
@@ -3116,6 +3422,7 @@ fn check_duplicate_strings(
     root: Node<'_>,
     source: &str,
     options: &AnalyzerOptions,
+    imports: &GoImports,
     issues: &mut Vec<Issue>,
 ) {
     let mut values: HashMap<&str, Vec<Node<'_>>> = HashMap::new();
@@ -3123,7 +3430,7 @@ fn check_duplicate_strings(
         if matches!(
             node.kind(),
             "interpreted_string_literal" | "raw_string_literal"
-        ) && !is_excluded_duplicate_string(node, source)
+        ) && !is_excluded_duplicate_string(node, source, imports)
         {
             let value = text(node, source);
             values.entry(value).or_default().push(node);
@@ -3145,7 +3452,7 @@ fn check_duplicate_strings(
     }
 }
 
-fn is_excluded_duplicate_string(node: Node<'_>, source: &str) -> bool {
+fn is_excluded_duplicate_string(node: Node<'_>, source: &str, imports: &GoImports) -> bool {
     let literal = text(node, source);
     let value = match node.kind() {
         "interpreted_string_literal" => literal
@@ -3162,7 +3469,8 @@ fn is_excluded_duplicate_string(node: Node<'_>, source: &str) -> bool {
         || value
             .chars()
             .all(|character| character.is_alphanumeric() || character == '_')
-        || is_logging_or_error_argument(node, source)
+        || is_struct_field_tag(node)
+        || is_logging_or_error_argument(node, source, imports)
 }
 
 fn literal_character_count(kind: &str, value: &str) -> usize {
@@ -3195,7 +3503,7 @@ fn consume(characters: &mut impl Iterator<Item = char>, count: usize) {
     }
 }
 
-fn is_logging_or_error_argument(node: Node<'_>, source: &str) -> bool {
+fn is_logging_or_error_argument(node: Node<'_>, source: &str, imports: &GoImports) -> bool {
     let Some(arguments) = node
         .parent()
         .filter(|parent| parent.kind() == "argument_list")
@@ -3215,30 +3523,43 @@ fn is_logging_or_error_argument(node: Node<'_>, source: &str) -> bool {
     let Some((receiver, method)) = function.rsplit_once('.') else {
         return false;
     };
-    matches!(
-        (receiver, method),
-        ("fmt", "Errorf") | ("errors" | "xerrors", "New")
-    ) || matches!(
-        method,
-        "Debug"
-            | "Debugf"
-            | "Error"
-            | "Errorf"
-            | "Fatal"
-            | "Fatalf"
-            | "Fatalln"
-            | "Info"
-            | "Infof"
-            | "Log"
-            | "Panic"
-            | "Panicf"
-            | "Panicln"
-            | "Print"
-            | "Printf"
-            | "Println"
-            | "Warn"
-            | "Warnf"
-    )
+    let is_fmt_function = imports.alias("fmt").is_some_and(|alias| receiver == alias)
+        && !identifier_is_locally_bound(call, receiver, source)
+        && matches!(method, "Errorf" | "Printf" | "Fprintf" | "Sprintf");
+    is_fmt_function
+        || matches!((receiver, method), ("errors" | "xerrors", "New"))
+        || matches!(
+            method,
+            "Debug"
+                | "Debugf"
+                | "Error"
+                | "Errorf"
+                | "Fatal"
+                | "Fatalf"
+                | "Fatalln"
+                | "Info"
+                | "Infof"
+                | "Log"
+                | "Panic"
+                | "Panicf"
+                | "Panicln"
+                | "Print"
+                | "Printf"
+                | "Println"
+                | "Warn"
+                | "Warnf"
+        )
+}
+
+/// Struct tags are field metadata, not constant-replaceable expressions, so
+/// they are excluded from duplicate-literal grouping.
+fn is_struct_field_tag(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        parent.kind() == "field_declaration"
+            && parent
+                .child_by_field_name("tag")
+                .is_some_and(|tag| tag.id() == node.id())
+    })
 }
 
 fn check_duplicate_functions(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
@@ -4815,6 +5136,216 @@ mod tests {
                 .count(),
             1,
             "reading the condition variable does not update it: {found:?}",
+        );
+    }
+    #[test]
+    fn todo_tags_match_case_insensitively_on_boundaries() {
+        let found = keys(concat!(
+            "package p\n",
+            "// TODO: uppercase control\n",
+            "// Todo: title-case control\n",
+            "// todo: lowercase control\n",
+            "// todos: glued suffix\n",
+            "// ATTODO: glued prefix\n",
+            "// TODO1: glued digit\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1135")
+                .count(),
+            3,
+            "only boundary-delimited TODO tags should report: {found:?}"
+        );
+    }
+
+    #[test]
+    fn fmt_format_arguments_and_field_tags_stay_out_of_duplicate_strings() {
+        let fmt_source = concat!(
+            "package p\n",
+            "import (\"fmt\"; \"io\")\n",
+            "func f() {\n",
+            " fmt.Errorf(\"format %s\", \"a\")\n",
+            " fmt.Errorf(\"format %s\", \"b\")\n",
+            " fmt.Errorf(\"format %s\", \"c\")\n",
+            " fmt.Printf(\"format %s\", \"a\")\n",
+            " fmt.Printf(\"format %s\", \"b\")\n",
+            " fmt.Printf(\"format %s\", \"c\")\n",
+            " fmt.Fprintf(io.Discard, \"format %s\", \"a\")\n",
+            " fmt.Fprintf(io.Discard, \"format %s\", \"b\")\n",
+            " fmt.Fprintf(io.Discard, \"format %s\", \"c\")\n",
+            " _ = fmt.Sprintf(\"format %s\", \"a\")\n",
+            " _ = fmt.Sprintf(\"format %s\", \"b\")\n",
+            " _ = fmt.Sprintf(\"format %s\", \"c\")\n",
+            " use(\"ordinary repeated!\"); use(\"ordinary repeated!\"); use(\"ordinary repeated!\")\n",
+            "}\n",
+            "func use(string) {}\n",
+        );
+        let found = keys(fmt_source);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1192")
+                .count(),
+            1,
+            "direct fmt format literals stay excluded while ordinary repeats report: {found:?}"
+        );
+
+        let alias_and_shadow_source = concat!(
+            "package p\n",
+            "import f \"fmt\"\n",
+            "type printer struct{}\n",
+            "func (printer) Sprintf(string, ...interface{}) string { return \"\" }\n",
+            "func shadowed(fmt printer) {\n",
+            " fmt.Sprintf(\"shadowed repeated!\"); fmt.Sprintf(\"shadowed repeated!\"); fmt.Sprintf(\"shadowed repeated!\")\n",
+            "}\n",
+            "func imported_alias() {\n",
+            " f.Sprintf(\"imported repeated!\"); f.Sprintf(\"imported repeated!\"); f.Sprintf(\"imported repeated!\")\n",
+            "}\n",
+        );
+        let alias_and_shadow = keys(alias_and_shadow_source);
+        assert_eq!(
+            alias_and_shadow
+                .iter()
+                .filter(|key| key.as_str() == "go:S1192")
+                .count(),
+            1,
+            "only shadowed fmt text remains a duplicate: {alias_and_shadow:?}"
+        );
+
+        let tagged_source = concat!(
+            "package p\n",
+            "type Tagged struct {\n",
+            " A string `yaml:\",omitempty\"`\n",
+            " B string `yaml:\",omitempty\"`\n",
+            " C string `yaml:\",omitempty\"`\n",
+            "}\n",
+            "func f() {\n",
+            " use(\"ordinary repeated!\"); use(\"ordinary repeated!\"); use(\"ordinary repeated!\")\n",
+            "}\n",
+            "func use(string) {}\n",
+        );
+        let tagged = keys(tagged_source);
+        assert_eq!(
+            tagged
+                .iter()
+                .filter(|key| key.as_str() == "go:S1192")
+                .count(),
+            1,
+            "field tags stay excluded while ordinary repeats report: {tagged:?}"
+        );
+    }
+
+    #[test]
+    fn if_header_semicolon_is_ignored_but_body_separator_reports() {
+        let found = keys(concat!(
+            "package p\n",
+            "func clean() {\n",
+            " if y := 1; y > 0 {\n",
+            "  _ = y\n",
+            " }\n",
+            "}\n",
+            "func packed() {\n",
+            " a := 1; b := 2\n",
+            " _, _ = a, b\n",
+            "}\n",
+            "func packedBodyInsideIf(cond bool) {\n",
+            " if cond { x := 1; y := 2; _, _ = x, y }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S122").count(),
+            2,
+            "if-header separators stay clean while packed statements report: {found:?}"
+        );
+    }
+
+    #[test]
+    fn native_g114_resolves_receiver_bindings_with_lexical_scope() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import \"net/http\"\n",
+            "type fake struct{}\n",
+            "func (f fake) ListenAndServe(string, interface{}) {}\n",
+            "func real() { http.ListenAndServe(\":80\", nil) }\n",
+            "func shadowed(http fake) { http.ListenAndServe(\":80\", nil) }\n",
+            "func renamed(other fake) { other.ListenAndServe(\":80\", nil) }\n",
+            "func grouped(other, http fake) { http.ListenAndServe(\":80\", nil) }\n",
+            "func variadic(http ...fake) { http[0].ListenAndServe(\":80\", nil) }\n",
+            "func nested(callback func(http int)) { http.ListenAndServe(\":80\", nil) }\n",
+            "func nestedShadow(http fake) { http.ListenAndServe(\":80\", nil) }\n",
+            "func beforeLocalShadow() {\n",
+            " http.ListenAndServe(\":80\", nil)\n",
+            " http := fake{}\n",
+            " _ = http\n",
+            "}\n",
+            "func postLocalShadow() {\n",
+            " http := fake{}\n",
+            " http.ListenAndServe(\":80\", nil)\n",
+            "}\n",
+            "func groupedLocal() {\n",
+            " var (\n",
+            "  other fake\n",
+            "  http fake\n",
+            " )\n",
+            " _ = other\n",
+            " http.ListenAndServe(\":80\", nil)\n",
+            "}\n",
+            "func typeCase(value interface{}) {\n",
+            " switch http := value.(type) { case fake: http.ListenAndServe(\":80\", nil); default: }\n",
+            "}\n",
+            "func expressionCase(value fake) {\n",
+            " switch http := value; http { default: http.ListenAndServe(\":80\", nil) }\n",
+            "}\n",
+            "func selectCase(ch chan fake) {\n",
+            " select { case http := <-ch: http.ListenAndServe(\":80\", nil); default: }\n",
+            "}\n",
+            "func nestedExpressionSwitch() {\n",
+            " switch http := func() any {\n",
+            "  switch { default: http.ListenAndServe(\":80\", nil) }\n",
+            "  return fake{}\n",
+            " }().(type) { case fake: _ = http }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:G114")
+                .count(),
+            4,
+            "import calls report, parameter shadowing suppresses, inner switch guard does not hide imported call, and prior import use remains: {found:?}"
+        );
+    }
+
+    #[test]
+    fn native_g110_requires_a_direct_gzip_factory_call() {
+        let found = native_keys(concat!(
+            "package p\n",
+            "import (\"compress/gzip\"; \"io\"; \"strings\")\n",
+            "type factory struct{}\n",
+            "func (factory) NewReader(string) io.Reader { return strings.NewReader(\"x\") }\n",
+            "func makeReader(string) io.Reader { return strings.NewReader(\"x\") }\n",
+            "func f(dst io.Writer, src io.Reader) {\n",
+            " _ = gzip.NewReader\n",
+            " reader := makeReader(\"gzip.NewReader\")\n",
+            " io.Copy(dst, reader)\n",
+            " genuine, err := (gzip.NewReader)(src)\n",
+            " if err != nil { return }\n",
+            " defer genuine.Close()\n",
+            " io.Copy(dst, genuine)\n",
+            "}\n",
+            "func local(gzip factory, dst io.Writer) {\n",
+            " reader := gzip.NewReader(\"x\")\n",
+            " io.Copy(dst, reader)\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "hoonarqube-go:G110")
+                .count(),
+            1,
+            "only parenthesized imported factories create decompression flow: {found:?}"
         );
     }
 }
