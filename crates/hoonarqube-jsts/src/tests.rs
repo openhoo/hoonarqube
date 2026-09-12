@@ -1901,13 +1901,38 @@ declare let emptyObjectAssignment: {} | undefined;
 if (!emptyObjectAssignment) emptyObjectAssignment = {};
 declare let safeObjectAssignment: object | undefined;
 if (!safeObjectAssignment) safeObjectAssignment = {};
+declare const boxedBigInt: BigInt | undefined;
+const boxedBigIntFallback = boxedBigInt ? boxedBigInt : 1n;
+declare let boxedBigIntAssignment: BigInt | undefined;
+if (!boxedBigIntAssignment) boxedBigIntAssignment = 1n;
+type Holder = { value: object | undefined };
+let holderReads = 0;
+const holder: Holder = {
+    get value() {
+        holderReads += 1;
+        return {};
+    }
+};
+const accessorResult = holder.value ? holder.value : {};
+type NestedValue = { value: object | undefined };
+type NestedHolder = { outer: NestedValue };
+let nestedReads = 0;
+const nestedHolder: NestedHolder = {
+    get outer() {
+        nestedReads += 1;
+        return { value: {} };
+    }
+};
+if (!nestedHolder.outer.value) nestedHolder.outer.value = {};
 export {
     boxedObjectFallback,
     emptyObjectFallback,
     safeObjectFallback,
     boxedObjectAssignment,
     emptyObjectAssignment,
-    safeObjectAssignment
+    safeObjectAssignment,
+    boxedBigIntFallback,
+    boxedBigIntAssignment
 };
 ",
     );
