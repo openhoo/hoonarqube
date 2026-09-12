@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import stat
 import subprocess
 import tarfile
@@ -570,6 +571,27 @@ class OwnedShellScriptTests(unittest.TestCase):
             self.assertIn("-Dsonar.projectKey=oracle-py", arguments)
             self.assertIn("-Dsonar.host.url=http://127.0.0.1:9000", arguments)
             self.assertIn("-Dsonar.working.directory=", arguments)
+
+    def test_documented_actions_exist_at_their_immutable_revisions(self):
+        references = re.compile(
+            r"uses:\s+openhoo/hoonarqube/(actions/[^@\s]+)@([0-9a-fA-F]{40})(?:\s|$)"
+        )
+        for documentation in (ROOT / "README.md", ROOT / "actions" / "README.md"):
+            for path, revision in references.findall(
+                documentation.read_text(encoding="utf-8")
+            ):
+                with self.subTest(documentation=documentation, action=path):
+                    result = subprocess.run(
+                        ["git", "cat-file", "-e", f"{revision}:{path}/action.yml"],
+                        cwd=ROOT,
+                        text=True,
+                        capture_output=True,
+                    )
+                    self.assertEqual(
+                        result.returncode,
+                        0,
+                        f"{documentation}: {path} is absent at {revision}: {result.stderr}",
+                    )
 
 
 if __name__ == "__main__":
