@@ -71,10 +71,15 @@ runs:
         INPUT_UPLOAD: ${{ inputs.upload }}
       run: |
         set -euo pipefail
+        working_directory="$PWD"
 
         hoonarqube_command=(hoonarqube)
         if [[ -n "$INPUT_EXECUTABLE" ]]; then
-          hoonarqube_command=("$INPUT_EXECUTABLE")
+          executable="$INPUT_EXECUTABLE"
+          if [[ "$executable" == */* && "$executable" != /* ]]; then
+            executable="$working_directory/${executable#./}"
+          fi
+          hoonarqube_command=("$executable")
         fi
 
         if [[ -z "$INPUT_OUTPUT" ]]; then
@@ -101,15 +106,7 @@ runs:
             ;;
         esac
 
-        paths=()
-        while IFS= read -r path || [[ -n "$path" ]]; do
-          if [[ "$path" == *$'\r' ]]; then
-            path="${path%$'\r'}"
-          fi
-          [[ "$path" =~ ^[[:space:]]*$ ]] && continue
-          paths+=("$path")
-        done <<< "$INPUT_PATHS"
-
+        repository_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
         reject_symlink_path() {
           local path="$1"
           local current="/"
@@ -128,6 +125,28 @@ runs:
           done
           return 0
         }
+
+        paths=()
+        while IFS= read -r path || [[ -n "$path" ]]; do
+          if [[ "$path" == *$'\r' ]]; then
+            path="${path%$'\r'}"
+          fi
+          [[ "$path" =~ ^[[:space:]]*$ ]] && continue
+          if [[ "$path" == /* ]]; then
+            resolved_path="$(realpath -m -- "$path")"
+          else
+            resolved_path="$(realpath -m -- "$working_directory/${path#./}")"
+          fi
+          if [[ "$resolved_path" != "$repository_root" && "$resolved_path" != "$repository_root"/* ]]; then
+            echo "::error::paths must remain within the repository root."
+            exit 2
+          fi
+          if [[ "$path" != /* ]]; then
+            path="${resolved_path#"$repository_root"/}"
+          fi
+          paths+=("$path")
+        done <<< "$INPUT_PATHS"
+
 
         report_path="$INPUT_OUTPUT"
         if [[ "$report_path" != /* ]]; then
@@ -152,13 +171,23 @@ runs:
 
         analysis_args=(analyze --profile github-code-quality --format sarif)
         if [[ -n "$INPUT_CACHE_DIR" ]]; then
-          analysis_args+=(--cache-dir "$INPUT_CACHE_DIR")
+          cache_dir="$INPUT_CACHE_DIR"
+          if [[ "$cache_dir" != /* ]]; then
+            cache_dir="$working_directory/${cache_dir#./}"
+          fi
+          analysis_args+=(--cache-dir "$cache_dir")
         fi
-        if ! "${hoonarqube_command[@]}" "${analysis_args[@]}" -- "${paths[@]}" > "$temporary_report"; then
+        set +e
+        (
+          cd -- "$repository_root"
+          "${hoonarqube_command[@]}" "${analysis_args[@]}" -- "${paths[@]}"
+        ) > "$temporary_report"
+        analysis_status=$?
+        set -e
+        if (( analysis_status != 0 )); then
           echo "::error::Hoonarqube analysis failed; no SARIF report was published."
-          exit 1
+          exit "$analysis_status"
         fi
-
         if ! jq -e '
           def positive_integer:
             type == "number" and . >= 1 and floor == .;
@@ -263,7 +292,7 @@ runs:
           echo "report=$report_path"
           echo "result-count=$result_count"
           echo "blocking-findings=$blocking_count"
-          echo "checkout-path=$PWD"
+          echo "checkout-path=$repository_root"
         } >> "$GITHUB_OUTPUT"
 
     - name: Upload SARIF to GitHub code scanning
