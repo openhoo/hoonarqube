@@ -551,7 +551,7 @@ impl<'a> SqlInjectionCollector<'a> {
                 function_scope,
                 at,
             }) => self
-                .resolve_path(expression, scope, at, function_scope)
+                .resolve_path_active(expression, scope, at, function_scope, active)
                 .map(|path| {
                     if suffix.is_empty() {
                         path
@@ -1015,5 +1015,20 @@ mod tests {
              }\n\
              pg.Client.query('SELECT ' + outer);\n");
         assert_eq!(filtered(&first_var_shadow, "S2077").len(), 1);
+    }
+
+    #[test]
+    fn recursive_alias_resolution_is_cycle_safe() {
+        let self_cycle = js("const self = self;\n\
+             self.query('SELECT ' + value);\n");
+        assert_eq!(filtered(&self_cycle, "S2077").len(), 0);
+
+        let source = js("const first = second;\n\
+             const second = first;\n\
+             first.query('SELECT ' + value);\n\
+             const Client = require('pg').Client;\n\
+             const db = new Client();\n\
+             db.query('SELECT ' + value);\n");
+        assert_eq!(filtered(&source, "S2077").len(), 1);
     }
 }
