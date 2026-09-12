@@ -943,6 +943,17 @@ fn line_span(source: &str, start: usize, end: usize) -> (usize, usize) {
     (line_start, line_end)
 }
 
+fn s125_comment_edit(source: &str, comment: Node<'_>) -> TextEdit {
+    let (line_start, line_end) = line_span(source, comment.start_byte(), comment.end_byte());
+    let before = &source[line_start..comment.start_byte()];
+    let after = &source[comment.end_byte()..line_end];
+    if before.trim().is_empty() && after.trim().is_empty() {
+        edit(source, line_start, line_end, "")
+    } else {
+        edit(source, comment.start_byte(), comment.end_byte(), "")
+    }
+}
+
 fn s1116(root: Node<'_>, source: &str, issue: &mut Issue, _start: usize, _end: usize) -> Vec<()> {
     let Some(node) = collect_kinds(root, &["empty_statement"])
         .into_iter()
@@ -996,36 +1007,37 @@ fn s125(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
     let Some(first) = exact_node(root, &issue.range, source) else {
         return Vec::new();
     };
-    if first.kind() != "comment"
-        || !node_text(first, source).starts_with("//")
-        || node_text(first, source).starts_with("///")
-    {
+    let first_text = node_text(first, source);
+    if first.kind() != "comment" || !first_text.starts_with("//") || first_text.starts_with("///") {
         return Vec::new();
     }
-    let first_line = first.start_position().row;
-    let mut last = first;
-    for comment in collect_kinds(root, &["comment"]) {
-        if comment.start_position().row <= first_line
-            || comment.start_position().row != last.end_position().row + 1
-        {
-            continue;
-        }
-        let text = node_text(comment, source);
-        if !text.starts_with("//") || text.starts_with("///") {
+
+    let comments: Vec<_> = collect_kinds(root, &["comment"])
+        .into_iter()
+        .filter(|comment| {
+            let text = node_text(*comment, source);
+            text.starts_with("//") && !text.starts_with("///")
+        })
+        .collect();
+    let Some(first_indexed) = comments
+        .iter()
+        .position(|comment| comment.start_byte() == first.start_byte())
+    else {
+        return Vec::new();
+    };
+    let mut edits = vec![s125_comment_edit(source, first)];
+    let mut expected_next_row = first.end_position().row + 1;
+    for comment in comments.into_iter().skip(first_indexed + 1) {
+        if comment.start_position().row != expected_next_row {
             break;
         }
-        last = comment;
+        edits.push(s125_comment_edit(source, comment));
+        expected_next_row = comment.end_position().row + 1;
     }
-    let (start, _) = line_span(source, first.start_byte(), first.end_byte());
-    let (_, end) = line_span(source, last.start_byte(), last.end_byte());
-    add_range_action(
-        issue,
-        source,
-        start,
-        end,
+    issue.add_alternative(
         "csharp.s125.remove-commented-out-code",
         "Remove commented out code",
-        "",
+        edits,
     );
     Vec::new()
 }
@@ -2092,5 +2104,85 @@ mod tests {
                 "{key} must remain unavailable without its exact semantic fact"
             );
         }
+    }
+    fn apply_s125(source: &str, marker: &str) -> String {
+        let start = source.find(marker).expect("S125 comment marker");
+        let end = start + marker.len();
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S125",
+            "Remove this commented out code.",
+            start,
+            end,
+        );
+        attach_fixes(source, &AnalyzerOptions::default(), &mut report, None);
+        let alternative = report.issues[0]
+            .alternatives
+            .first()
+            .expect("S125 action should be reachable");
+        assert_eq!(alternative.id, "csharp.s125.remove-commented-out-code");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        hoonarqube_ir::apply_fixes(source, &edits).expect("S125 edit should apply")
+    }
+
+    #[test]
+    fn s125_preserves_inline_code_and_mixed_comment_runs() {
+        let source = "class C\n{\n    static void M()\n    {\n        System.Console.WriteLine(\"keep\"); // int removed = 1;\n        // int removed = 2;\n        System.Console.WriteLine(\"after\");\n    }\n}\n";
+        let fixed = apply_s125(source, "// int removed = 1;");
+        assert_eq!(
+            fixed,
+            "class C\n{\n    static void M()\n    {\n        System.Console.WriteLine(\"keep\"); \n        System.Console.WriteLine(\"after\");\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn s125_preserves_live_prefix_after_full_comment_in_run() {
+        let source = "class C\n{\n    static void M()\n    {\n        // int removed = 1;\n        System.Console.WriteLine(\"after\"); // int removed = 2;\n        System.Console.WriteLine(\"tail\");\n    }\n}\n";
+        let fixed = apply_s125(source, "// int removed = 1;");
+        assert_eq!(
+            fixed,
+            "class C\n{\n    static void M()\n    {\n        System.Console.WriteLine(\"after\"); \n        System.Console.WriteLine(\"tail\");\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn s125_removes_full_comment_lines() {
+        let source = "class C\n{\n    static void M()\n    {\n        // int removed = 1;\n        System.Console.WriteLine(\"after\");\n    }\n}\n";
+        let fixed = apply_s125(source, "// int removed = 1;");
+        assert_eq!(
+            fixed,
+            "class C\n{\n    static void M()\n    {\n        System.Console.WriteLine(\"after\");\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn s125_stops_mixed_comment_run_at_non_line_comment() {
+        let source = "class C\n{\n    static void M()\n    {\n        System.Console.WriteLine(\"keep\"); // int removed = 1;\n        /* boundary */\n        // int untouched = 2;\n        System.Console.WriteLine(\"after\");\n    }\n}\n";
+        let fixed = apply_s125(source, "// int removed = 1;");
+        assert_eq!(
+            fixed,
+            "class C\n{\n    static void M()\n    {\n        System.Console.WriteLine(\"keep\"); \n        /* boundary */\n        // int untouched = 2;\n        System.Console.WriteLine(\"after\");\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn s125_refuses_documentation_comments() {
+        let source = "class C\n{\n    /// int docs = 1;\n}\n";
+        let start = source
+            .find("/// int docs = 1;")
+            .expect("documentation comment");
+        let end = start + "/// int docs = 1;".len();
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S125",
+            "Remove this commented out code.",
+            start,
+            end,
+        );
+        attach_fixes(source, &AnalyzerOptions::default(), &mut report, None);
+        assert!(
+            report.issues[0].alternatives.is_empty(),
+            "documentation comments must remain unavailable"
+        );
     }
 }
