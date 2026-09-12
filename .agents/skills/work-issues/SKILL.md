@@ -179,6 +179,21 @@ that operation and repository protections allow it; never bypass CI, review,
 branch, or merge protections. Do not schedule releases or claim unsupported
 analyzer parity.
 
+When the authorized action includes opening a PR, fill a body file from the
+repository PR templates — `.github/pull_request_template.md`, or
+`.github/PULL_REQUEST_TEMPLATE/release.md` only for release publication PRs —
+and create the PR with `gh pr create --body-file`; confirm the published body
+by live readback before reporting `PR-open`. Require every delegated fix to
+commit durable automated regression tests that expose the original defect
+pre-fix and pass post-fix, with clean/boundary controls, quickfix
+runtime/type/effect preservation, unsafe refusals, and an exact
+issue-to-test-symbol mapping. Aggregate test totals, source-code inspection,
+and mock echoes do not qualify; assert the observable contract. Detector
+presence/absence alone cannot prove quickfix safety. One-off smoke runs
+supplement, never replace, committed tests. Publish independently completed issue packages as
+separate incremental PRs, and merge only when every required protected check
+is green and every fixed issue carries its committed regression coverage.
+
 If a continuation is explicitly requested, revalidate only the current state,
 readiness, dependencies, active PRs, and the prior completion evidence. Reuse
 completed triage; do not restart it from scratch. A newly unready issue goes
@@ -194,6 +209,7 @@ End every run with separate sections named **Fixed**, **PR-open**, and
 - the exact integrated commit/head and, for a merge, the merged head;
 - focused and shared verification commands/results, including refusal or
   runtime evidence when applicable;
+- the exact issue-to-test-symbol mapping for every committed regression test;
 - pull-request number, base/head, and exact check/gate results when one was
   authorized; and
 - remaining scope, unresolved dependency, missing permission, or next
