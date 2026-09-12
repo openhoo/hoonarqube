@@ -549,7 +549,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: hoonarqube
-        uses: openhoo/hoonarqube/actions/code-quality@03b34bc8957995959d43531e82130a2c95bf01fa # pin to the consuming commit
+        uses: openhoo/hoonarqube/actions/code-quality@6c274a2f157364c2b7f5e8756f6204663937c7e1 # pin to the consuming commit
         with:
           paths: |
             src
