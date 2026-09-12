@@ -1837,6 +1837,82 @@ export { anyOr, unknownOr, neverOr };
     );
 }
 
+fn add_s4325_generic_imported_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s4325-generic.ts",
+        r"export type GenericBox<T> = { value: T };
+",
+    );
+    add_semantic_source(
+        files,
+        root,
+        "src/s4325-generic-imported.ts",
+        r"import type { GenericBox as ImportedBox } from './s4325-generic.js';
+
+type LocalBox<T> = { value: T };
+declare const localBox: LocalBox<string>;
+const sameLocal = localBox as LocalBox<string>;
+declare const importedBox: ImportedBox<string>;
+const sameImported = importedBox as ImportedBox<string>;
+export { sameLocal, sameImported };
+",
+    );
+}
+
+fn add_s6606_zod_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-zod.ts",
+        r"declare const args: { value: string } | undefined;
+const normalizedArgs = args ? args : { value: 'default' };
+
+let tupleCache: Set<string> | undefined;
+if (!tupleCache) tupleCache = new Set<string>();
+
+let valueCache: Set<string> | undefined;
+if (!valueCache) valueCache = new Set<string>();
+
+declare const result: { ref?: object };
+declare const parent: object;
+if (!result.ref) result.ref = parent;
+
+export { normalizedArgs, tupleCache, valueCache, result };
+",
+    );
+}
+
+fn add_s6606_falsy_object_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-falsy-objects.ts",
+        r"declare const boxedObject: Object | undefined;
+const boxedObjectFallback = boxedObject ? boxedObject : { value: 'fallback' };
+declare const emptyObject: {} | undefined;
+const emptyObjectFallback = emptyObject ? emptyObject : { value: 'fallback' };
+declare const safeObject: object | undefined;
+const safeObjectFallback = safeObject ? safeObject : { value: 'fallback' };
+declare let boxedObjectAssignment: Object | undefined;
+if (!boxedObjectAssignment) boxedObjectAssignment = {};
+declare let emptyObjectAssignment: {} | undefined;
+if (!emptyObjectAssignment) emptyObjectAssignment = {};
+declare let safeObjectAssignment: object | undefined;
+if (!safeObjectAssignment) safeObjectAssignment = {};
+export {
+    boxedObjectFallback,
+    emptyObjectFallback,
+    safeObjectFallback,
+    boxedObjectAssignment,
+    emptyObjectAssignment,
+    safeObjectAssignment
+};
+",
+    );
+}
+
 fn add_s6594_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
     add_semantic_source(
         files,
@@ -1870,6 +1946,9 @@ fn semantic_rule_sources(root: &Path) -> Vec<(PathBuf, String)> {
     add_s1874_reexport_sources(root, &mut files);
     add_s6627_sources(root, &mut files);
     add_s4325_sources(root, &mut files);
+    add_s4325_generic_imported_sources(root, &mut files);
+    add_s6606_zod_sources(root, &mut files);
+    add_s6606_falsy_object_sources(root, &mut files);
     add_s6606_ternary_sources(root, &mut files);
     add_s6606_union_sources(root, &mut files);
     add_s6606_effect_sources(root, &mut files);
@@ -1905,6 +1984,10 @@ fn write_semantic_rules_config(root: &Path) {
     "src/s6627-js.js",
     "src/s6627-ts.ts",
     "src/s4325-redundant.ts",
+    "src/s4325-generic.ts",
+    "src/s4325-generic-imported.ts",
+    "src/s6606-zod.ts",
+    "src/s6606-falsy-objects.ts",
     "src/s4325-meaningful.ts",
     "src/s6606-ternary.ts",
     "src/s6606-falsy-primitives.ts",
@@ -2119,6 +2202,28 @@ fn semantic_s4325_flags_redundant_assertions_but_not_a_meaningful_target_type() 
             .all(|issue| issue.rule_key != "typescript:S4325"),
         "a string|number to string assertion changes the target type"
     );
+    let (generic_path, generic_source) = fixture.file("src/s4325-generic-imported.ts");
+    let generic = context.analyze_with_context(
+        generic_path.clone(),
+        generic_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let generic_texts: Vec<_> = generic
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S4325")
+        .map(|issue| semantic_issue_source_text(generic_source, issue))
+        .collect();
+    assert_eq!(
+        generic_texts,
+        vec![
+            "localBox as LocalBox<string>",
+            "importedBox as ImportedBox<string>",
+        ],
+        "generic and imported aliases must preserve redundant-assertion findings"
+    );
     let _ = fs::remove_dir_all(fixture.root);
 }
 
@@ -2186,6 +2291,62 @@ fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positive
             "falsy, mixed, side-effect, and special types must not be rewritten as nullish in {name}"
         );
     }
+    let (zod_path, zod_source) = fixture.file("src/s6606-zod.ts");
+    let zod = context.analyze_with_context(
+        zod_path.clone(),
+        zod_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let zod_texts: Vec<_> = zod
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6606")
+        .map(|issue| semantic_issue_source_text(zod_source, issue))
+        .collect();
+    assert_eq!(zod_texts.len(), 4, "all four Zod-shaped forms must report");
+    for expected in [
+        "args ? args : { value: 'default' }",
+        "if (!tupleCache) tupleCache = new Set<string>()",
+        "if (!valueCache) valueCache = new Set<string>()",
+        "if (!result.ref) result.ref = parent",
+    ] {
+        assert!(
+            zod_texts.iter().any(|text| text.contains(expected)),
+            "missing S6606 Zod form {expected:?}: {zod_texts:?}"
+        );
+    }
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6606_rejects_falsy_object_structural_types() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+    let (objects_path, objects_source) = fixture.file("src/s6606-falsy-objects.ts");
+    let objects = context.analyze_with_context(
+        objects_path.clone(),
+        objects_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let object_texts: Vec<_> = objects
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6606")
+        .map(|issue| semantic_issue_source_text(objects_source, issue))
+        .collect();
+    assert_eq!(
+        object_texts,
+        vec![
+            "safeObject ? safeObject : { value: 'fallback' }",
+            "if (!safeObjectAssignment) safeObjectAssignment = {};",
+        ],
+        "Object and {{}} unions accept falsy primitives and must stay unchanged; `object` remains safe"
+    );
     let _ = fs::remove_dir_all(fixture.root);
 }
 

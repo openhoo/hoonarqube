@@ -520,7 +520,7 @@ function typeInfo(ts, checker, type) {
     if (f & ts.TypeFlags.Unknown) info.has_unknown = true;
     if (f & ts.TypeFlags.Never) info.has_never = true;
     if (f & ts.TypeFlags.TypeParameter) info.has_type_parameter = true;
-    if (f & ts.TypeFlags.Object) info.has_object = true;
+    if (f & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive)) info.has_object = true;
     if (f & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.ESSymbolLike)) {
       info.has_primitive = true;
     }
@@ -529,6 +529,26 @@ function typeInfo(ts, checker, type) {
     }
   }
   return info;
+}
+
+function truthySafeTypeInfo(info) {
+  return !info.has_primitive
+    && !info.has_any
+    && !info.has_unknown
+    && !info.has_type_parameter;
+}
+
+function typeAcceptsFalsyPrimitive(checker, type) {
+  return checker.isTypeAssignableTo(checker.getNumberLiteralType(0), type)
+    || checker.isTypeAssignableTo(checker.getFalseType(), type)
+    || checker.isTypeAssignableTo(checker.getStringLiteralType(''), type);
+}
+
+function objectOrNullishTypeInfo(info, checker, type) {
+  return Boolean((info.has_null || info.has_undefined)
+    && info.has_object
+    && truthySafeTypeInfo(info)
+    && !typeAcceptsFalsyPrimitive(checker, type));
 }
 
 function isGenericCall(ts, checker, node) {
@@ -1537,6 +1557,47 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     ts.forEachChild(node, visitLogicalChild);
     return hasAnd && hasOr;
   };
+  const unwrapReference = node => {
+    let current = node;
+    while (current && ts.isParenthesizedExpression(current)) current = current.expression;
+    return current;
+  };
+  const stableReference = node => {
+    const current = unwrapReference(node);
+    if (!current) return false;
+    if (ts.isIdentifier(current) || current.kind === ts.SyntaxKind.ThisKeyword) return true;
+    if (!ts.isPropertyAccessExpression(current) || current.questionDotToken) return false;
+    const propertySymbol = quickfixSymbol(checker, current.name);
+    const declarations = propertySymbol?.declarations || [];
+    if (!propertySymbol || declarations.length === 0
+      || declarations.some(declaration => ts.isGetAccessorDeclaration(declaration)
+        || ts.isSetAccessorDeclaration(declaration))) return false;
+    return stableReference(current.expression);
+  };
+  const referenceSubject = node => {
+    const current = unwrapReference(node);
+    if (!current || !stableReference(current)) return undefined;
+    const location = ts.isIdentifier(current)
+      ? current
+      : ts.isPropertyAccessExpression(current) ? current.name : undefined;
+    const symbol = quickfixSymbol(checker, location);
+    if (!symbol) return undefined;
+    return {
+      node: current,
+      symbol,
+      text: source.slice(current.getStart(sourceFile), current.end),
+    };
+  };
+  const sameReference = (left, right) => {
+    const first = referenceSubject(left);
+    const second = referenceSubject(right);
+    return Boolean(first && second && first.text === second.text && first.symbol === second.symbol);
+  };
+  const objectOrNullishGuard = node => {
+    const type = quickfixTypeAt(checker, node);
+    const info = typeInfo(ts, checker, type);
+    return { info, ok: objectOrNullishTypeInfo(info, checker, type) };
+  };
 
   function visit(node, parent, inConditionalTest = false, inMixedLogical = false) {
     if (ts.isIdentifier(node) || ts.isPrivateIdentifier?.(node)) {
@@ -1660,6 +1721,51 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
             report,
             reason: report ? 'nullish-identity-check' : 'conditional-type-not-proven',
           });
+        }
+      } else {
+        const subject = referenceSubject(node.condition);
+        if (subject && sameReference(node.condition, node.whenTrue)) {
+          const guard = objectOrNullishGuard(subject.node);
+          if (guard.ok) {
+            nullish.push({
+              kind: 'conditional',
+              span: span(source, node),
+              left_span: span(source, subject.node),
+              right_span: span(source, node.whenFalse),
+              left: guard.info,
+              report: true,
+              reason: 'nullish-truthiness-identity',
+            });
+          }
+        }
+      }
+    }
+
+    if (ts.isIfStatement(node) && !node.elseStatement) {
+      const negation = unwrapReference(node.expression);
+      if (ts.isPrefixUnaryExpression(negation)
+        && negation.operator === ts.SyntaxKind.ExclamationToken) {
+        const subject = referenceSubject(negation.operand);
+        const body = node.thenStatement;
+        const statements = ts.isBlock(body) ? body.statements : [body];
+        if (subject && statements.length === 1 && ts.isExpressionStatement(statements[0])) {
+          const expression = statements[0].expression;
+          if (ts.isBinaryExpression(expression)
+            && expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            && sameReference(negation.operand, expression.left)) {
+            const guard = objectOrNullishGuard(subject.node);
+            if (guard.ok) {
+              nullish.push({
+                kind: 'nullish-assignment',
+                span: span(source, node),
+                left_span: span(source, expression.left),
+                right_span: span(source, expression.right),
+                left: guard.info,
+                report: true,
+                reason: 'nullish-truthiness-assignment',
+              });
+            }
+          }
         }
       }
     }
