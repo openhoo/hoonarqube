@@ -860,6 +860,17 @@ fn class_issues(
     if is_constant_only_type(node, source) {
         return;
     }
+    constant_only_supertype_issues(root, node, source, index, semantics, issues);
+}
+
+fn constant_only_supertype_issues(
+    root: Node<'_>,
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
     for supertype in direct_supertype_nodes(node) {
         let supertype_text = node_text(supertype, source)
             .trim_start_matches("extends")
