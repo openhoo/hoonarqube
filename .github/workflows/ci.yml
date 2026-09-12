@@ -80,6 +80,9 @@ jobs:
           python3 -m unittest scripts/test_sync_release_version.py
           python3 -m unittest scripts/test_shell_scripts.py
 
+      - name: Issue intake regressions
+        run: node --test .github/scripts/issue-intake.test.cjs
+
       - name: Source-only publication policy
         run: |
           cargo metadata --locked --format-version 1 --no-deps |

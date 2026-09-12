@@ -1,0 +1,162 @@
+[
+  {
+    "name": "bug",
+    "color": "b60205",
+    "description": "Reported defect in existing behavior or safety; triage records verification"
+  },
+  {
+    "name": "enhancement",
+    "color": "1f6feb",
+    "description": "Feature, coverage, or capability request"
+  },
+  {
+    "name": "documentation",
+    "color": "0075ca",
+    "description": "Improvements or additions to documentation"
+  },
+  {
+    "name": "duplicate",
+    "color": "cfd3d7",
+    "description": "This issue or pull request already exists"
+  },
+  {
+    "name": "invalid",
+    "color": "e4e669",
+    "description": "This doesn't seem right"
+  },
+  {
+    "name": "question",
+    "color": "d876e3",
+    "description": "Further information is requested"
+  },
+  {
+    "name": "wontfix",
+    "color": "ffffff",
+    "description": "This will not be worked on"
+  },
+  {
+    "name": "needs-triage",
+    "color": "d4a72c",
+    "description": "Evidence and scope still need triage"
+  },
+  {
+    "name": "needs-info",
+    "color": "9a6700",
+    "description": "Specific information is needed before triage can continue"
+  },
+  {
+    "name": "ready-for-agent",
+    "color": "1a7f37",
+    "description": "Evidence, scope, and acceptance criteria are ready for agent implementation"
+  },
+  {
+    "name": "false-positive",
+    "color": "cf222e",
+    "description": "Confirmed finding reported where the code is valid"
+  },
+  {
+    "name": "false-negative",
+    "color": "a40e26",
+    "description": "Confirmed expected finding or behavior is missed"
+  },
+  {
+    "name": "regression",
+    "color": "9c2c2c",
+    "description": "Previously working behavior regressed"
+  },
+  {
+    "name": "unsafe-fix",
+    "color": "82071e",
+    "description": "Suggested or applied fix can change valid behavior or data"
+  },
+  {
+    "name": "crash",
+    "color": "6e1d2a",
+    "description": "Supported input aborts instead of returning a report"
+  },
+  {
+    "name": "coverage",
+    "color": "0969da",
+    "description": "Requested rule or analysis coverage is not currently provided"
+  },
+  {
+    "name": "language:python",
+    "color": "6f42c1",
+    "description": "Python language scope"
+  },
+  {
+    "name": "language:javascript",
+    "color": "8250df",
+    "description": "JavaScript language scope"
+  },
+  {
+    "name": "language:typescript",
+    "color": "5a32a3",
+    "description": "TypeScript language scope"
+  },
+  {
+    "name": "language:csharp",
+    "color": "6639ba",
+    "description": "C# language scope"
+  },
+  {
+    "name": "language:go",
+    "color": "7048e8",
+    "description": "Go language scope"
+  },
+  {
+    "name": "language:rust",
+    "color": "4c2889",
+    "description": "Rust language scope"
+  },
+  {
+    "name": "language:java",
+    "color": "7b3f9e",
+    "description": "Java language scope"
+  },
+  {
+    "name": "language:ruby",
+    "color": "8e44ad",
+    "description": "Ruby language scope"
+  },
+  {
+    "name": "area:cli",
+    "color": "0550ae",
+    "description": "Command-line analyzer or runtime behavior"
+  },
+  {
+    "name": "area:exports",
+    "color": "0a5b83",
+    "description": "Report or export format behavior"
+  },
+  {
+    "name": "area:metrics",
+    "color": "0969da",
+    "description": "Project measurements, duplication, or quality-gate metrics"
+  },
+  {
+    "name": "area:ci",
+    "color": "1f6feb",
+    "description": "Continuous-integration workflow or action behavior"
+  },
+  {
+    "name": "priority:critical",
+    "color": "b60205",
+    "description": "Highest user or data impact"
+  },
+  {
+    "name": "priority:high",
+    "color": "bc4c00",
+    "description": "High user or data impact"
+  },
+  {
+    "name": "priority:normal",
+    "color": "57606a",
+    "description": "Normal priority"
+  },
+  {
+    "name": "priority:low",
+    "color": "6e7781",
+    "description": "Low priority"
+  }
+]
