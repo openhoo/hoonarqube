@@ -1713,15 +1713,35 @@ fn javadoc_param_tag<'a>(
     offset: usize,
     line: &'a str,
 ) -> Option<(usize, &'a str)> {
-    let at = line.find("@param")?;
+    // Only a Javadoc block-tag position may start a parameter tag: after
+    // comment decoration (leading whitespace and any leading `*`), the
+    // content must begin with the exact `@param` tag. Prose and inline
+    // `{@code @param ...}` bodies never create block tags.
+    let (content, decoration) = if let Some(after_open) = line.strip_prefix("/**") {
+        let content = after_open
+            .trim_start_matches([' ', '\t'])
+            .trim_start_matches('*')
+            .trim_start_matches([' ', '\t']);
+        (content, line.len() - content.len())
+    } else {
+        let content = line
+            .trim_start_matches([' ', '\t'])
+            .trim_start_matches('*')
+            .trim_start_matches([' ', '\t']);
+        (content, line.len() - content.len())
+    };
+    let rest = content.strip_prefix("@param")?;
+    if !rest.is_empty() && !rest.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
     let tag_start = start
         + text
             .split_inclusive('\n')
             .take(offset)
             .map(str::len)
             .sum::<usize>()
-        + at;
-    Some((tag_start, line[at + 6..].trim()))
+        + decoration;
+    Some((tag_start, rest.trim_start()))
 }
 
 fn javadoc_param_value(rest: &str) -> (bool, &str) {
@@ -1748,11 +1768,30 @@ fn javadoc_parameter_names<'a>(declaration: Node<'_>, source: &'a str) -> Vec<&'
         .map(|parameters| {
             direct_named_children(parameters)
                 .into_iter()
-                .filter_map(|parameter| parameter.child_by_field_name("name"))
-                .map(|name| node_text(name, source))
+                .filter_map(|parameter| javadoc_parameter_name(parameter, source))
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// A formal parameter exposes `name` directly; a `spread_parameter` has no
+/// fields and wraps its binding in a `variable_declarator`.
+fn javadoc_parameter_name<'source>(
+    parameter: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    if let Some(name) = parameter.child_by_field_name("name") {
+        return Some(node_text(name, source));
+    }
+    if parameter.kind() != "spread_parameter" {
+        return None;
+    }
+    let mut cursor = parameter.walk();
+    parameter
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "variable_declarator")
+        .and_then(|declarator| declarator.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
 }
 
 fn javadoc_type_parameter_names<'a>(declaration: Node<'_>, source: &'a str) -> Vec<&'a str> {
@@ -1761,17 +1800,31 @@ fn javadoc_type_parameter_names<'a>(declaration: Node<'_>, source: &'a str) -> V
         .map(|parameters| {
             direct_named_children(parameters)
                 .into_iter()
-                .map(|parameter| node_text(parameter, source))
+                .filter_map(|parameter| type_parameter_identifier(parameter, source))
                 .collect()
         })
         .unwrap_or_default()
 }
 
+/// `type_parameter` has no name field: the declared identifier is the first
+/// identifier child, before any optional `type_bound`.
+fn type_parameter_identifier<'source>(
+    parameter: Node<'_>,
+    source: &'source str,
+) -> Option<&'source str> {
+    let mut cursor = parameter.walk();
+    parameter
+        .named_children(&mut cursor)
+        .find(|child| matches!(child.kind(), "identifier" | "type_identifier"))
+        .map(|identifier| node_text(identifier, source))
+}
+
 fn javadoc_param_is_known(name_text: &str, params: &[&str], type_params: &[&str]) -> bool {
     if name_text.starts_with('<') {
-        type_params
-            .iter()
-            .any(|parameter| parameter.contains(name_text.trim_matches(['<', '>'])))
+        // Type-parameter identifiers are compared exactly; a declared name
+        // that merely contains the tag text must not accept it.
+        let tag = name_text.trim_matches(['<', '>']);
+        type_params.contains(&tag)
     } else {
         params.contains(&name_text)
     }
@@ -1836,15 +1889,41 @@ fn javadoc_param_issues(
     let (start, end) = comment;
     let text = &source[start..end];
     let mut out = Vec::new();
+    let mut inline_tag_depth = 0usize;
     for (offset, line) in text.lines().enumerate() {
-        let Some((tag_start, rest)) = javadoc_param_tag(text, start, offset, line) else {
-            continue;
-        };
-        if let Some(issue) = javadoc_param_issue(node, name, rest, tag_start, source, index) {
+        if inline_tag_depth == 0
+            && let Some((tag_start, rest)) = javadoc_param_tag(text, start, offset, line)
+            && let Some(issue) = javadoc_param_issue(node, name, rest, tag_start, source, index)
+        {
             out.push(issue);
         }
+        inline_tag_depth = javadoc_inline_tag_depth(line, inline_tag_depth);
     }
     out
+}
+
+fn javadoc_inline_tag_depth(line: &str, mut depth: usize) -> usize {
+    let bytes = line.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if depth == 0 {
+            if bytes[index] == b'{' && bytes.get(index + 1) == Some(&b'@') {
+                depth = 1;
+                index += 2;
+            } else {
+                index += 1;
+            }
+        } else if bytes[index] == b'{' {
+            depth = depth.saturating_add(1);
+            index += 1;
+        } else if bytes[index] == b'}' {
+            depth -= 1;
+            index += 1;
+        } else {
+            index += 1;
+        }
+    }
+    depth
 }
 
 fn javadoc_issues(root: Node<'_>, source: &str, index: &LineIndex) -> Vec<Issue> {
@@ -2163,6 +2242,77 @@ mod tests {
                 &github_issues(relative_nested),
                 "java/constants-only-interface"
             ),
+            1
+        );
+    }
+    #[test]
+    fn type_parameter_javadoc_tags_require_exact_names() {
+        let bad = "/**\n * @param <T> wrong type parameter\n */\npublic class Probe<TT> {}";
+        assert_eq!(
+            count_rule(&github_issues(bad), "java/unknown-javadoc-parameter"),
+            1
+        );
+        let good = "/**\n * @param <TT> declared type parameter\n */\npublic class Probe<TT> {}";
+        assert_eq!(
+            count_rule(&github_issues(good), "java/unknown-javadoc-parameter"),
+            0
+        );
+        let unrelated =
+            "/**\n * @param <Z> unrelated type parameter\n */\npublic class Probe<TT> {}";
+        assert_eq!(
+            count_rule(&github_issues(unrelated), "java/unknown-javadoc-parameter"),
+            1
+        );
+        let bounded = "/**\n * @param <T> declared bounded type parameter\n */\npublic class Probe<T extends Number> {}";
+        assert_eq!(
+            count_rule(&github_issues(bounded), "java/unknown-javadoc-parameter"),
+            0
+        );
+    }
+
+    #[test]
+    fn inline_param_prose_is_not_a_block_tag() {
+        let inline =
+            "/**\n * Example prose with {@code @param fake} inline.\n */\npublic class Probe {}";
+        assert_eq!(
+            count_rule(&github_issues(inline), "java/unknown-javadoc-parameter"),
+            0
+        );
+        let block = "/**\n * @param missing does not exist\n */\npublic class Probe {}";
+        assert_eq!(
+            count_rule(&github_issues(block), "java/unknown-javadoc-parameter"),
+            1
+        );
+        let gluing = "/**\n * @paramX glued tag text\n */\npublic class Probe {}";
+        assert_eq!(
+            count_rule(&github_issues(gluing), "java/unknown-javadoc-parameter"),
+            0
+        );
+    }
+
+    #[test]
+    fn varargs_parameter_binds_javadoc_param() {
+        let source = "class JavadocVarargs {\n    /**\n     * @param values accepted varargs parameter\n     */\n    void accepted(String... values) {}\n\n    /**\n     * @param value unknown parameter\n     */\n    void rejected(String... values) {}\n\n    /**\n     * @param value accepted ordinary parameter\n     */\n    void ordinary(String value) {}\n}";
+        let issues = github_issues(source);
+        let unknown = count_rule(&issues, "java/unknown-javadoc-parameter");
+        assert_eq!(unknown, 1);
+        let finding = issues
+            .iter()
+            .find(|issue| issue.rule_key == "java/unknown-javadoc-parameter")
+            .expect("wrong varargs parameter should remain a finding");
+        assert_eq!(finding.range.start.line, 8);
+    }
+
+    #[test]
+    fn multiline_inline_tag_body_is_not_a_block_param() {
+        let source = "/**\n * {@code\n * if (x) { run(); }\n * @param fake\n * }\n */\npublic class Probe {}";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/unknown-javadoc-parameter"),
+            0
+        );
+        let reset = "/**\n * {@code\n * if (x) { run(); }\n * }\n * @param missing real block tag after inline close\n */\npublic class Probe {}";
+        assert_eq!(
+            count_rule(&github_issues(reset), "java/unknown-javadoc-parameter"),
             1
         );
     }
