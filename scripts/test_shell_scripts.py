@@ -604,7 +604,7 @@ class OwnedShellScriptTests(unittest.TestCase):
             '"severity":"WARNING","help":"https://example.test/r1"}}]}},'
             '"results":[{"ruleId":"R1","ruleIndex":0,"level":"warning",'
             '"message":{"text":"finding"},"locations":[{"physicalLocation":'
-            '{"artifactLocation":{"uri":"packages/foo/finding.py"}}]}]}]}'
+            '{"artifactLocation":{"uri":"packages/foo/finding.py"}}}]}]}]}'
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

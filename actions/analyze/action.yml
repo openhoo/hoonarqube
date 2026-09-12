@@ -175,9 +175,6 @@ runs:
           fi
           exit 1
         fi
-        if (( analysis_status != 0 )); then
-          exit "$analysis_status"
-        fi
         mv -- "$temporary_report" "$report_path"
 
 
@@ -206,6 +203,9 @@ runs:
           echo "report=$report_output"
           echo "blocking-findings=$blocking"
         } >> "$GITHUB_OUTPUT"
+        if (( analysis_status != 0 )); then
+          exit "$analysis_status"
+        fi
         if [[ "$blocking" -ne 0 ]]; then
           echo "::error::Hoonarqube found ${blocking} issue(s) at or above ${threshold}."
           exit 1
