@@ -194,8 +194,13 @@ runs:
             | length
           ' "$INPUT_OUTPUT")"
         fi
+        report_output="$INPUT_OUTPUT"
+        repository_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
+        if [[ "$INPUT_OUTPUT" != /* && "$PWD" != "$repository_root" ]]; then
+          report_output="$report_path"
+        fi
         {
-          echo "report=$INPUT_OUTPUT"
+          echo "report=$report_output"
           echo "blocking-findings=$blocking"
         } >> "$GITHUB_OUTPUT"
         if (( analysis_status != 0 )); then
