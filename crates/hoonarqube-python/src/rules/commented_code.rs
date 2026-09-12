@@ -27,11 +27,35 @@ fn matches_catalog_exception(line: &str) -> bool {
     let Some(rest) = content.strip_prefix("py") else {
         return false;
     };
-    let word = rest
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-        .count();
-    word > 0 && rest[word..].starts_with(':')
+    let mut chars = rest.chars().peekable();
+    let mut word_len = 0;
+    while chars
+        .peek()
+        .is_some_and(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+    {
+        chars.next();
+        word_len += 1;
+    }
+    word_len > 0 && chars.next() == Some(':')
+}
+
+fn is_documentation_heading(line: &str) -> bool {
+    const CODE_STARTERS: [&str; 10] = [
+        "return", "if", "for", "while", "def", "class", "import", "from", "raise", "yield",
+    ];
+    let content = line.trim_start().strip_prefix('#').unwrap_or("").trim();
+    let mut words = content.split_whitespace();
+    let Some(title) = words.next() else {
+        return false;
+    };
+    let Some(decoration) = words.next_back() else {
+        return false;
+    };
+    !CODE_STARTERS.contains(&title)
+        && title.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+        && decoration.len() >= 3
+        && decoration.chars().all(|ch| ch == '-' || ch == '=')
+        && words.all(|word| word.chars().all(|ch| ch.is_alphanumeric() || ch == '_'))
 }
 
 pub(crate) fn check_commented_code(
@@ -44,6 +68,7 @@ pub(crate) fn check_commented_code(
         let looks_like_code = source[token.range()]
             .lines()
             .filter(|line| !matches_catalog_exception(line))
+            .filter(|line| !is_documentation_heading(line))
             .any(line_looks_like_code);
         if looks_like_code {
             issues.push(Issue {
@@ -57,4 +82,28 @@ pub(crate) fn check_commented_code(
         }
     }
     issues
+}
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s125_spares_documentation_headings_but_flags_commented_code() {
+        let headings = scan(
+            "# Project --------------------------------------------------------------\n\
+# General ---------------------------------------------------------------\n",
+        );
+        assert!(findings(&headings, "python:S125").is_empty());
+
+        let disabled = scan("# value = compute(1)\n");
+        assert_eq!(findings(&disabled, "python:S125").len(), 1);
+
+        // A genuine disabled statement must remain visible even beside a
+        // prose heading; this is not a blanket suppression of S125.
+        let mixed = scan(
+            "# Project --------------------------------------------------------------\n\
+# value = compute(1)\n",
+        );
+        assert_eq!(findings(&mixed, "python:S125").len(), 1);
+    }
 }
