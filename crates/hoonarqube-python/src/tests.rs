@@ -2472,6 +2472,27 @@ fn s5713_flags_subclass_and_parent_sharing_an_except_clause() {
     assert!(findings_of(source_order, "python:S5713").is_empty());
 }
 #[test]
+fn s5713_flags_imported_and_aliased_stdlib_exception_pairs() {
+    let io_pair = concat!(
+        "import io\n",
+        "try:\n    work()\n",
+        "except (OSError, io.UnsupportedOperation):\n    recover()\n",
+    );
+    assert_eq!(findings_of(io_pair, "python:S5713").len(), 1);
+
+    let aliased = concat!(
+        "import json\n",
+        "import json as j\n",
+        "try:\n    work()\n",
+        "except (ValueError, json.JSONDecodeError):\n    recover()\n",
+        "try:\n    work()\n",
+        "except (ValueError, j.JSONDecodeError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(aliased, "python:S5713").len(), 2);
+    let unrelated = "try:\n    work()\nexcept (ValueError, KeyError):\n    recover()\n";
+    assert!(findings_of(unrelated, "python:S5713").is_empty());
+}
+#[test]
 fn s100_and_s1542_partition_functions_by_class_nesting() {
     let report = scan("class C:\n    def BadName(self):\n        pass\n");
     let s100: Vec<_> = report

@@ -27,6 +27,37 @@ The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
 
+## Rust S1612 coverage contract, version 1
+
+The Rust analyzer owns `rust:S1612`, but its current executable coverage is
+the frozen `Some('a').map(|s| s.to_uppercase())` fixture anchor only. Registry
+membership and a passing anchor test are not general redundant-method-closure
+support. No automatic rewrite or general detector is enabled by this contract.
+
+Before a general implementation may report a forwarding closure, it must prove:
+
+- The exact method identity and visibility, including inherent versus trait
+  dispatch, from resolved receiver and argument types.
+- The same parameter order, argument evaluation, return type, and coercions
+  when replacing the closure with that method's function item.
+- Equivalent receiver moves, borrows, automatic references/dereferences, and
+  lifetimes; borrowed, owned, and captured values are not interchangeable.
+- A body that only forwards its parameters, without captures, extra work,
+  argument transformation, or changed side effects.
+
+Missing type, ownership, or method-resolution evidence withholds a general
+finding; it never certifies the source as clean. A future implementation must
+qualify this versioned contract before expanding the fixture-only boundary.
+
+The corrected Rust/Clippy 1.96 reference for
+[`ripgrep@3fce3b5bb0236da2df6d99672afb8a719642eca7`](https://github.com/BurntSushi/ripgrep/tree/3fce3b5bb0236da2df6d99672afb8a719642eca7)
+contains 19 mapped `clippy::redundant_closure_for_method_calls` opportunities.
+The complete 86-file source-scope replay is complete but emits no S1612
+findings: all 19 remain documented native coverage gaps, not exact matches or
+clean verdicts. Removed, unknown, unavailable, and unsupported lint mappings
+remain separate unverified evidence. This explicitly documents the present
+coverage alternative in [issue #213](https://github.com/openhoo/hoonarqube/issues/213).
+
 ## Project-measurement scope
 
 Rule parity and project-measurement parity are separate contracts. The
