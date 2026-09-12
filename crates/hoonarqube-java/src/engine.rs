@@ -861,6 +861,28 @@ fn class_issues(
         return;
     }
     for supertype in direct_supertype_nodes(node) {
+        let supertype_text = node_text(supertype, source)
+            .trim_start_matches("extends")
+            .trim_start_matches("implements")
+            .trim();
+        let qualified_base = supertype_text
+            .split('<')
+            .next()
+            .unwrap_or(supertype_text)
+            .trim();
+        if qualified_base.contains('.')
+            && !qualified_name_resolves_locally(
+                qualified_base,
+                semantics.package_name(),
+                root,
+                source,
+            )
+        {
+            // Without a classpath a dotted external supertype cannot be
+            // resolved; reporting an unrelated local same-named declaration
+            // would be a guess, so withhold this local-only finding.
+            continue;
+        }
         let interface_name = simple_supertype_name(supertype, source);
         let Some(super_decl) = find_unique_type(root, interface_name, source) else {
             continue;
@@ -890,6 +912,84 @@ fn class_issues(
         )]);
         issues.push(finding);
     }
+}
+
+/// Whether a dotted type reference can denote a declaration inside this file:
+/// its qualification must equal the file package or a local owner chain.
+fn qualified_name_resolves_locally(
+    qualified: &str,
+    package: Option<&str>,
+    root: Node<'_>,
+    source: &str,
+) -> bool {
+    let mut parts = qualified.split('.').collect::<Vec<_>>();
+    let package_qualified = if let Some(package) = package {
+        let package_parts = package.split('.').collect::<Vec<_>>();
+        if parts.starts_with(&package_parts) {
+            parts.drain(..package_parts.len());
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let Some(name) = parts.pop() else {
+        return false;
+    };
+    let owner_parts = parts;
+    let first = owner_parts.first().copied().unwrap_or(name);
+    let Some(mut owner) = (if package_qualified {
+        top_level_type(root, first, source)
+    } else {
+        find_unique_type(root, first, source)
+    }) else {
+        return false;
+    };
+    for part in owner_parts.iter().skip(1) {
+        let Some(next) = nested_type_child(owner, part, source) else {
+            return false;
+        };
+        owner = next;
+    }
+    if owner_parts.is_empty() {
+        true
+    } else {
+        nested_type_child(owner, name, source).is_some()
+    }
+}
+
+fn top_level_type<'tree>(root: Node<'tree>, name: &str, source: &str) -> Option<Node<'tree>> {
+    let matches = direct_named_children(root)
+        .into_iter()
+        .filter(|node| {
+            matches!(
+                node.kind(),
+                "interface_declaration"
+                    | "class_declaration"
+                    | "record_declaration"
+                    | "enum_declaration"
+            ) && node
+                .child_by_field_name("name")
+                .is_some_and(|value| node_text(value, source) == name)
+        })
+        .collect::<Vec<_>>();
+    (matches.len() == 1).then(|| matches[0])
+}
+
+fn nested_type_child<'tree>(owner: Node<'tree>, name: &str, source: &str) -> Option<Node<'tree>> {
+    let body = owner.child_by_field_name("body")?;
+    direct_named_children(body).into_iter().find(|child| {
+        matches!(
+            child.kind(),
+            "class_declaration"
+                | "interface_declaration"
+                | "enum_declaration"
+                | "record_declaration"
+        ) && child
+            .child_by_field_name("name")
+            .is_some_and(|value| node_text(value, source) == name)
+    })
 }
 
 fn object_creation_issues(
@@ -2009,5 +2109,50 @@ mod tests {
         let cfg = build_cfg(body, source, &lines, &semantics);
         assert!(cfg.nodes.iter().all(|node| node.kind != "depth_limit"));
         assert_eq!(cfg.nodes.len(), 2);
+    }
+    fn github_issues(source: &str) -> Vec<hoonarqube_ir::Issue> {
+        let lines = LineIndex::new(source);
+        let tree = parse(source).expect("valid Java fixture");
+        super::github_quality_issues(tree.root_node(), source, &lines)
+    }
+
+    fn count_rule(issues: &[hoonarqube_ir::Issue], rule: &str) -> usize {
+        issues.iter().filter(|issue| issue.rule_key == rule).count()
+    }
+
+    #[test]
+    fn qualified_external_supertype_withholds_constants_only_finding() {
+        let source = "package p;\ninterface Constants { int X = 1; }\nclass Uses implements other.Constants { public void f() {} }";
+        let issues = github_issues(source);
+        assert_eq!(count_rule(&issues, "java/constants-only-interface"), 0);
+        let local = "package p;\ninterface Constants { int X = 1; }\nclass Uses implements Constants { public void f() {} }";
+        assert_eq!(
+            count_rule(&github_issues(local), "java/constants-only-interface"),
+            1
+        );
+        let same_package = "package other;\ninterface Constants { int X = 1; }\nclass Uses implements other.Constants { public void f() {} }";
+        assert_eq!(
+            count_rule(
+                &github_issues(same_package),
+                "java/constants-only-interface"
+            ),
+            1
+        );
+        let nested_shadow = "package p;\nclass Holder { interface Constants { int X = 1; } }\nclass Uses implements p.Constants { public void f() {} }";
+        assert_eq!(
+            count_rule(
+                &github_issues(nested_shadow),
+                "java/constants-only-interface"
+            ),
+            0
+        );
+        let relative_nested = "class Outer { static class Inner { interface Constants { int X = 1; } } class Uses implements Inner.Constants { void f() {} } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(relative_nested),
+                "java/constants-only-interface"
+            ),
+            1
+        );
     }
 }
