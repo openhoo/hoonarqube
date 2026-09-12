@@ -6,10 +6,10 @@ disable-model-invocation: true
 
 # Fix one explicitly selected issue
 
-Use this skill only after an explicit invocation with one issue URL or number, for
-example `/skill:fix-issue 123` or `/skill:fix-issue https://github.com/openhoo/hoonarqube/issues/123`.
-A `ready-for-agent` state, an issue label, a notification, or an existing issue
-alone is not execution authorization.
+Use after the user selects an issue to fix, or the authorized work-issues
+coordinator assigns that issue as a bounded package. The parent assignment
+inherits its existing action contract; it does not require the user to invoke
+this skill again. An issue label or notification alone is not authorization.
 
 This is a repository-specific adaptation of the feedback-loop and red/green
 principles in [implement](https://github.com/mattpocock/skills/blob/main/skills/engineering/implement/SKILL.md),
@@ -36,12 +36,13 @@ skills or tracker conventions.
 - Public security reports are not ordinary bug work. Do not repeat sensitive
   details in issue comments or a public PR; use the repository's private
   vulnerability-reporting route and record only the minimum safe status.
-- Use only these states: `needs-triage`, `needs-info`, `ready-for-agent`, and
-  `wontfix`. No extra state or queue is allowed. Missing evidence, unavailable
+- Use only these GitHub readiness states: `needs-triage`, `needs-info`,
+  `ready-for-agent`, and `wontfix`. Local execution checkpoints are separate
+  bookkeeping, never new tracker labels. Missing evidence, unavailable
   dependencies, and unresolved authority are described in the issue text and
   normally remain `needs-info`; they are not silently made agent-ready.
-- Readiness is not authorization. A fix may begin only after the explicit skill
-  invocation and after the issue's scope and acceptance criteria are pinned.
+- Readiness is not authorization. A fix may begin only under the explicit user
+  request or authorized coordinator assignment, with scope and acceptance pinned.
 - Do not bypass CI, branch protection, approvals, or repository permissions.
   Never use an administrator merge, force-push, or an unrequested release.
 - Do not invent tracker labels. When labels are required, use only the current
@@ -50,8 +51,8 @@ skills or tracker conventions.
 
 ## 1. Pin the issue and its authority
 
-Fetch the complete current issue before reading old local notes or forming a
-hypothesis. Preserve the URL, number, title, body, current state, labels,
+Read the complete current issue, or reuse the coordinator's complete cached
+record when its issue timestamp and linked PR heads still match live state. Preserve the URL, number, title, body, current state, labels,
 comments, and timestamps in a private working note. For a GitHub repository,
 use commands equivalent to:
 
@@ -112,8 +113,9 @@ skill://triage
 ```
 
 A triage brief is a bounded handoff, not permission to broaden scope. If an
-active PR already covers the issue, inspect it and hand the evidence/status to
-`skill://work-issues`; do not repeatedly consume the issue with a second fix.
+active PR already covers the issue, inspect it and return its next concrete
+action to `skill://work-issues`. When assigned that existing campaign PR, repair
+and verify it in its owning worktree; do not create a second fix or redo triage.
 
 ## 2. Isolate the work
 
@@ -134,9 +136,9 @@ Use `feat/issue-123` instead for an explicitly agreed enhancement or coverage
 change. Choose a non-conflicting branch/worktree name and pin its starting
 commit. If the base cannot be identified or is not clean, stop and report the
 blocker; do not repair it with reset or cleanup. Keep the disposable worktree
-until all evidence is saved. Removing that worktree, committing, pushing,
-merging, or releasing requires the corresponding user authorization and must
-never affect the original checkout.
+until all evidence is saved. Keep local commits as durable, reviewable handoffs
+for the authorized source work. Pushing, merging, releases and destructive cleanup follow the existing
+action contract and must never affect the original checkout.
 
 ## 3. Understand repository truth before editing
 
@@ -179,6 +181,12 @@ Apply these Hoonarqube-specific boundaries:
   unverified.
 
 ## 4. Build a bounded, red-capable feedback loop
+
+Own the feedback loop in this worktree. Execute focused compilation/tests and
+the reproduction during implementation, even while other isolated workers run.
+A blanket ban on all validation creates untested handoffs and must not be
+inferred from a parent-only full-suite policy. Resource limits call for bounded
+build slots or a separate target directory, not hours without feedback.
 
 Start with the smallest public seam that can observe the reported behavior.
 Use the issue's exact reproduction when it is already durable and sufficient;
@@ -259,8 +267,11 @@ another rule finding is not a successful application.
 
 ## 6. Verify once after the coordinated change
 
-Run the exact repository checks once after all related edits are complete, not a
-private substitute or an administrator-bypassed CI result. The baseline from
+Run the relevant package checks after this package's related edits are complete.
+Do not wait for the entire backlog. When delegated, return executed focused
+checks; the coordinator owns shared/full-suite checks for the publication
+package. Do not run a second full suite in the child or substitute an
+administrator-bypassed CI result. The baseline from
 `CONTRIBUTING.md` is:
 
 ```sh
@@ -292,13 +303,13 @@ checks are recorded. A linked PR may use `Closes #N` only when it contains the
 complete actual fix. A partial fix, investigation, refusal, or `needs-info`
 state must not auto-close the issue.
 
-Commit, push, merge, and release are separate authorization boundaries:
+Reuse the authorized action contract from the user or coordinator.
 
-- Without explicit authorization, leave the implementation in the isolated
-  worktree and report the exact diff/evidence; do not commit or publish it.
-- If authorized to commit, include only owned changes and use the repository's
-  Conventional Commit rules. Never include user work or unrelated generated
-  files.
+- Source-work authorization includes a local scoped commit for a durable
+  handoff. If the user explicitly forbids commits, preserve the worktree/diff
+  instead and record that limit. Local commits do not authorize publication.
+- Include only owned changes and use the repository's Conventional Commit
+  rules. Never include user work or unrelated generated files.
 - If authorized to push or open/update a PR, preserve the exact tested head,
   required checks, branch protections, and evidence. Never force-push or bypass
   a failing/pending protected gate.
@@ -329,6 +340,12 @@ Hand the result to [`skill://work-issues`](skill://work-issues) with:
 - clean and unsafe/refusal controls;
 - repository checks, artifact locations/digests, and limitations; and
 - the next bounded action, if any.
+
+Persist the handoff with the work-issues queue and a receipt outside the repo.
+Include the tested head, actual commands and exits, observable acceptance and
+control results. A script prepared for someone else to run is unverified.
+Keep each completely resolved issue linked separately in the PR and confirm
+GitHub closure references before handing it off for an authorized merge.
 
 Do not hand off an invented success. If evidence or authority is still missing,
 use `needs-info` and name the precise missing input. If the request conflicts
