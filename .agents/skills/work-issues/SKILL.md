@@ -1,225 +1,151 @@
 ---
 name: work-issues
-description: "Execute a finite, explicitly authorized issue backlog through isolated fix worktrees and report verified outcomes."
+description: "Finish an authorized Hoonarqube issue backlog in small verified packages, reconcile existing PRs, and preserve progress across restarts."
 disable-model-invocation: true
 ---
 
-# Work issues
+# Work issues through completion
 
-Use this skill only when the user explicitly asks to execute issue work (for
-example, fix or implement issues). It composes with the repository's sibling
-`/skill:triage` and `/skill:fix-issue` skills. It is an execution coordinator,
-not a replacement for triage, and it never silently expands a backlog.
+Use for an explicit request to fix or implement issues. Read-only discovery
+stays read-only. Coordinate with [fix-issue](../fix-issue/SKILL.md) and use
+[triage](../triage/SKILL.md) only where evidence or scope is actually missing.
 
-This is an independent adaptation of the bounded implementation and two-axis
-review ideas in:
+## Scope and authority
 
-- <https://github.com/mattpocock/skills/blob/main/skills/engineering/implement/SKILL.md>
-- <https://github.com/mattpocock/skills/blob/main/skills/engineering/code-review/SKILL.md>
+- “All open issues” means the finite list of OPEN issue IDs captured at the
+  start. A filter also becomes a frozen list. New issues do not enter that run
+  automatically. With no scope at all, select one ready issue by priority/age.
+- Source work includes isolated worktrees, focused checks and local commits
+  needed for a reviewable handoff. Preserve the user's dirty checkout.
+- Record the user's authorized publication actions once. Reuse an earlier
+  still-applicable instruction to push, open PRs, merge green PRs or close
+  resolved issues; do not ask again at every package or restart. Missing
+  external authorization is a boundary, not permission to infer it.
+- “Publish” does not automatically request a release/tag/artifact campaign.
+  Use release procedures only when that outcome is explicitly requested.
+- Continue the captured scope until each item reaches its authorized endpoint
+  or has a concrete blocker. Do not stop after one wave to demand “continue”.
+  Stop the whole run only for a shared safety/authorization boundary; a local
+  compiler failure or unavailable reference blocks its package, not all others.
 
-## Invocation and authorization
+Expose IDs, action contract, current owners and immediate packages concisely.
+This disclosure is not an approval question when authority already exists.
 
-Every run has a finite scope and an explicit action contract.
+## Recover before dispatching
 
-- A scope may name issue numbers, a finite list, a label/category/priority
-  filter, a milestone, or a finite maximum. If the user gives no scope, use
-  the conservative default: **one OPEN issue carrying `ready-for-agent`**,
-  selected by priority and then age (defined below).
-- A request to execute/fix/implement is authorization for the source changes
-  needed by that stated scope. Do not infer permission to create a pull
-  request, merge it, change tracker metadata, close issues, or release from
-  that wording; those actions require explicit authorization in the same
-  request or an earlier still-applicable contract.
-- A request that only asks to discover, list, or propose issues is read-only.
-  Select and expose the candidate set and contract, but do not edit source,
-  issues, labels, comments, branches, or pull requests.
-- A multi-issue run must have a finite count or finite named set. Never turn a
-  filter into an unbounded autonomous backlog. Stop at the stated limit and
-  require a new explicit invocation to continue.
+On first entry, capture compact issue metadata and open PRs once. On restart,
+read the existing ledger, retained worktrees and receipts, then refresh live
+issue/PR state. Do not rebuild a prose TODO list or reread every report.
 
-Before the first source write, expose the selected issue IDs and, for each,
-the classification, evidence boundary, dependency result, intended change
-surface, permitted pull-request/merge action, and stop criteria. This is a
-contract disclosure, not a request for needless confirmation: proceed when the
-user already granted the required permission; ask only for a permission that
-is genuinely absent.
+Read the complete body, comments and relevant timeline/linked-PR discussion
+for the next actual package. Follow real dependencies; do not recursively
+expand the whole backlog through every incidental link. Cache that evidence
+with issue `updatedAt`, base SHA and PR head; refresh changed records only.
 
-## Phase 1: read-only discovery
+An OPEN issue with `ready-for-agent` and pinned acceptance is eligible.
+Classifications remain Bug, Coverage request, Enhancement or Documentation.
+An unready selected issue gets bounded triage from existing evidence. A missing
+label alone is not a reason to discard it from an “all” request: record the
+triage result, synchronize labels only when authorized, or report that exact
+boundary. Do not invent labels or treat catalog presence as executable coverage.
 
-Discovery makes no modifications. Do not add or remove labels, edit issue
-bodies, add comments, assign work, create branches or pull requests, close
-issues, or write source while discovering candidates.
+An existing PR is work to reconcile, not a reason to send the issue back to
+triage. Inspect failed checks, missing acceptance, review and merge state.
+Finish the current campaign's PR under its existing authorization before
+starting another fix for those IDs. Never take over unrelated active work
+without authorization. A merged partial PR does not close its whole issue.
 
-For every issue that could enter the selected set, read the complete current
-record before deciding:
+Order work: repair/finalize existing packages, then critical/high-priority
+ready issues, then normal/low/unprioritized issues by age and number. Preserve
+missing priorities as absent. Dependency prerequisites precede their dependents.
 
-1. state, number, title, labels, creation time, and current milestone;
-2. the full body and complete comment/event history (every comment/event),
-   plus prior decisions or audit notes; filter only the final report, not
-   discovery (never read only the first or latest comment);
-3. all dependency and related-issue links, including references in linked
-   pull-request bodies and comments;
-4. every active pull request, its base/head, review/check state, and whether it
-   is merged, closed, or still active;
-5. repository truth needed to judge the claim, including the relevant
-   `CONTRIBUTING.md`, `PARITY.md`, `QUICKFIX.md`, workflow protections, and
-   executable implementation registries when an analyzer rule is involved.
+## Small packages and bounded concurrency
 
-Do not treat a search result, issue title, catalog row, green compile, or
-single comment as the complete record. User-reported failures are evidence;
-do not rerun them merely to dispute the report.
+Default to at most four active implementation packages and one coordinator.
+Start with one issue per package; combine a few only when they share the actual
+root cause and can be tested/reviewed together. A language crate or “all Python
+issues” is not a package boundary. Large accepted enhancements get separate
+prerequisite and dependent packages, with complete issue acceptance retained.
 
-### Readiness contract
+Each package has one owner, explicit paths, base SHA and a separate clean
+worktree. Shared registries, catalogs, lockfiles, generated files and public
+core interfaces require serialized ownership or an explicit prerequisite PR.
+Disjoint intentions inside one changing file are not isolation. OMP's automatic
+copy of a dirty checkout is not a clean publication base. Never auto-apply
+worker patches into the user's integration checkout.
 
-An executable candidate is an issue whose GitHub state is `OPEN`, whose
-labels include `ready-for-agent`, whose scope and acceptance criteria are
-concrete enough to delegate, and which has no unresolved blocker. `OPEN` is
-the tracker state; `ready-for-agent` is a required readiness label, not a
-second state. Do not invent another readiness or hand-off label. An issue
-that lacks `ready-for-agent` remains unready even when it is OPEN.
+Delegate when useful and supported. Workers receive the exact package, cached
+issue evidence, acceptance, paths, base, permitted actions and evidence location.
+They do not spawn more fixers. The coordinator can execute a package directly
+when delegation is unavailable or adds no useful parallel work.
 
-The issue classification must be one of:
+Workers own implementation **and focused verification**. They may and should
+compile/test their changed package and run the bounded CLI/compiler/runtime
+reproduction immediately. Never tell every worker to skip all builds, tests,
+formatters or linters until all backlog writers finish. Use a separate Cargo
+target directory per worktree; bound concurrent builds if memory is tight.
 
-- **Bug**
-- **Coverage request**
-- **Enhancement**
-- **Documentation**
+Use [fix-issue](../fix-issue/SKILL.md) for the regression/control contract.
+Run shared checks once per independently publishable package or small integrated
+set when its scope requires them, at its tested head. Existing unchanged check
+results remain evidence. Do not postpone all verification until the last issue,
+run full workspace suites in every child, or freeze unrelated worktrees.
 
-The category is `bug` or `enhancement`; coverage and documentation are
-supplements, not third categories. Preserve existing supplemental labels,
-including verified forms such as `priority:critical`, `priority:high`,
-`priority:normal`, `priority:low`, and `language:*`, plus any existing
-`area:*` or symptom labels; never create or rename labels in this workflow.
-Do not guess a missing priority, area, language, symptom, or readiness label.
+If a provider returns 429, reduce dispatch and use its retry/reset information.
+Do not launch replacement workers against the same exhausted provider. Preserve
+model choices; verify actual worker model and any prewalk/advisor routing.
+More agents do not repair a serial integration or provider bottleneck.
 
-Revalidate readiness immediately before delegation, using the completed
-triage evidence rather than restarting triage:
+## Persistent progress and completion loop
 
-- Read issue text and linked pull requests for an explicit `blocked by #N`.
-  Resolve each referenced issue/PR and its current behavior/check state.
-- An unresolved dependency, active implementation PR, missing reproduction or
-  evidence, unclear acceptance criterion, or incomplete authorization makes
-  the issue unready. Route it to `/skill:triage` with the exact missing fact;
-  do not relabel it or place it in a replacement queue.
-- A dependency being closed is not proof that its behavior is present. Require
-  evidence of the behavior or an explicit verified decision before treating
-  the dependent issue as ready.
-- Do not duplicate an active PR unless the user explicitly named that PR or
-  authorized taking it over. An active PR without verified completion is not a
-  fixed issue.
-- Missing evidence or dependency information is described in the report, not
-  converted into `ready-for-agent` automatically.
+Use [scripts/issue_queue.py](scripts/issue_queue.py) for durable local ownership,
+WIP limits, overlapping-path refusal and restart reports. Its SQLite database
+belongs under a persistent state directory outside the repository. It does not
+spawn agents, mutate Git/GitHub, certify semantic correctness or grant authority.
+See [references/queue.md](references/queue.md) for commands and receipt format.
 
-For this repository specifically, the frozen Sonar catalogs are definitions,
-not proof of executable coverage. Use language executable registries and
-actual profile/runtime evidence to assess implementation. A reference or
-scanner disagreement alone is not a defect claim. Incomplete analysis is not
-a clean result. A quick-fix issue needs compiler/runtime before-and-after
-behavior and refusal controls, not only emitted text or a successful compile.
+Save each transition, not merely a final chat summary: issue IDs, owner,
+worktree, paths, base/head, next action, verification receipt, PR and blocker.
+The local states (`working`, `verified`, `pr-open`, `blocked`, tracker `closed`)
+are execution bookkeeping, not new GitHub labels. A stale heartbeat requires
+owner/process inspection; it never authorizes automatic reassignment or deletion.
+Blocked work keeps its path ownership until explicitly reconciled.
 
-### Deterministic selection
+For each completed package:
 
-Filter by the explicit scope first, then retain only OPEN, ready candidates.
-Order candidates by:
+1. Inspect the real diff and executed regression/acceptance evidence. Compile
+   and test the clean publication worktree, not an adjacent dirty superset.
+   Reject zero-test runs and unexecuted “tests added” handoffs.
+   Every fixed issue requires committed automated regression coverage and an
+   exact issue-to-test-symbol mapping. Demonstrate the original defect before
+   the fix and the passing result afterward, with clean/boundary controls.
+   Quickfix tests must preserve runtime behavior, types and effects and refuse
+   unsafe inputs; detector presence/absence alone does not prove fix safety.
+   One-off smoke runs supplement, never replace, these committed tests.
+2. Commit only owned changes. Pin the tested commit. If publication is
+   authorized, fill `.github/pull_request_template.md` (or the release template
+   only for an explicitly requested release) into a body file; use
+   `gh pr create --body-file` and read the published body back. Missing templates
+   in an old base call for reading the current base, not a second template PR.
+3. List every fully resolved issue separately with `Closes #N`. A partial
+   package uses related references and records the remaining acceptance.
+   Verify GitHub's `closingIssuesReferences`; a bare mention does not close it.
+4. Reconcile CI at that exact head. Failed checks go to the package owner with
+   the first root error; unrelated packages continue. Pending checks stay
+   pending. Avoid repeated full log/status dumps while waiting.
+5. If already authorized, merge once protected checks and required reviews are
+   satisfied, using exact-head protection. Never bypass protections, use admin
+   merge, force-push or create an unrequested release.
+6. Read merged SHA and actual issue states back. Record fixed only for complete
+   accepted behavior on the intended base. A green/open PR is not resolved;
+   tracker closure alone is not proof of a fix. Investigate missing closure
+   links under the existing authority rather than quietly counting completion.
 
-1. priority: `priority:critical`, `priority:high`, `priority:normal`,
-   `priority:low`;
-2. oldest creation timestamp;
-3. lowest issue number as the final deterministic tie-breaker.
+If 30 minutes pass without a commit, verified reproduction, PR/check transition
+or precise new blocker, inspect the stalled package. Split excessive scope,
+resolve ownership, run its smallest check or retain a concrete blocked handoff.
+Do not respond by repeating broad reviews or spawning a replacement army.
 
-An absent priority sorts after `priority:low` and is reported as absent; it is
-never silently promoted. The default scope selects only the first candidate.
-If a named issue is not ready, report it as blocked/unready and do not silently
-replace it with a different issue unless the user's finite scope explicitly
-permits fallback selection.
-
-## Phase 2: bounded delegation
-
-Delegate each selected issue through `/skill:fix-issue #N`; do not implement a
-selected issue directly in this coordinator. Give the sibling the complete
-issue record, prior triage evidence, dependency resolution, acceptance
-criteria, and the exact permitted PR/merge action. The sibling must distinguish
-an actual behavior-preserving fix from unsupported scanner differences and
-must return focused reproduction/test evidence.
-
-Use one isolated worktree per issue. Independent issues may be delegated in
-parallel only after their likely change surfaces are disjoint. Treat shared
-core modules, registries, catalogs, lockfiles, generated artifacts, CI, and
-unknown overlap as conflicting: do not parallelize them. Assign one
-serialized integration owner for conflicting changes, apply them in a stable
-order, preserve unrelated dirty work, and resolve conflicts explicitly rather
-than overwriting another worktree.
-
-Children may run focused tests, reproductions, compiler/runtime checks, and
-other evidence needed for their issue, but they must skip full-suite
-validation. After all selected work is integrated, run shared verification
-once at the parent level, covering the combined change and repository gates.
-Do not claim completion from a green compile, a passing narrow check, or an
-open pull request alone.
-
-The coordinator must stop dispatching when the finite limit is reached. Stop
-an individual issue when its dependency, evidence, authorization, focused
-verification, or integration contract fails. Stop the whole run when an
-unrelated user change would be overwritten, the authorization boundary
-changes, a shared integration conflict cannot be resolved safely, or the
-combined verification/gate fails; preserve artifacts and report the exact
-boundary. Do not start future releases or other backlog items automatically.
-
-## Completion and tracker safety
-
-A fix is complete only when the sibling's evidence demonstrates the requested
-behavior, regression/refusal controls where relevant, and the integrated
-change passes the required verification, followed by the explicitly
-authorized PR/merge action. A successful local build is not completion.
-
-Never speculate a closure, rewrite unrelated labels, discard audit notes, or
-claim an issue is resolved because a PR is merely open or green. Create,
-update, merge, or close tracker objects only when the user explicitly granted
-that operation and repository protections allow it; never bypass CI, review,
-branch, or merge protections. Do not schedule releases or claim unsupported
-analyzer parity.
-
-When the authorized action includes opening a PR, fill a body file from the
-repository PR templates — `.github/pull_request_template.md`, or
-`.github/PULL_REQUEST_TEMPLATE/release.md` only for release publication PRs —
-and create the PR with `gh pr create --body-file`; confirm the published body
-by live readback before reporting `PR-open`. Require every delegated fix to
-commit durable automated regression tests that expose the original defect
-pre-fix and pass post-fix, with clean/boundary controls, quickfix
-runtime/type/effect preservation, unsafe refusals, and an exact
-issue-to-test-symbol mapping. Aggregate test totals, source-code inspection,
-and mock echoes do not qualify; assert the observable contract. Detector
-presence/absence alone cannot prove quickfix safety. One-off smoke runs
-supplement, never replace, committed tests. Publish independently completed issue packages as
-separate incremental PRs, and merge only when every required protected check
-is green and every fixed issue carries its committed regression coverage.
-
-If a continuation is explicitly requested, revalidate only the current state,
-readiness, dependencies, active PRs, and the prior completion evidence. Reuse
-completed triage; do not restart it from scratch. A newly unready issue goes
-to `/skill:triage`, and the run remains bounded by the new explicit scope or
-limit.
-
-## Report
-
-End every run with separate sections named **Fixed**, **PR-open**, and
-**Blocked**. For every selected issue, include:
-
-- issue number/title, classification, priority, and final state;
-- the exact integrated commit/head and, for a merge, the merged head;
-- focused and shared verification commands/results, including refusal or
-  runtime evidence when applicable;
-- the exact issue-to-test-symbol mapping for every committed regression test;
-- pull-request number, base/head, and exact check/gate results when one was
-  authorized; and
-- remaining scope, unresolved dependency, missing permission, or next
-  explicitly authorized action.
-
-`Fixed` means the tested complete behavior is integrated and the authorized
-merge/closure contract has actually completed. `PR-open` means the tested
-candidate and authorized PR exist, but it is **not** resolved or fixed until
-its required merge/completion evidence exists. `Blocked` includes unready
-issues, failed verification, unresolved dependencies, conflicting worktrees,
-missing authorization, and active PRs that are not verified complete. Always
-report skipped candidates and the finite remaining scope so continuation is
-explicit rather than autonomous.
+Report compactly: original scope, verified merged/closed, PR-open, locally
+verified, working and blocked counts; links/SHAs for completed packages and
+specific next actions. Separate tracker closure from behavioral fix evidence.
