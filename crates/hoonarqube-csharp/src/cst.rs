@@ -200,6 +200,89 @@ pub(crate) fn base_simple_names<'a>(type_node: Node<'_>, source: &'a str) -> Vec
     names
 }
 
+/// Natural type of a C# integer literal, including suffixes and widening.
+pub(crate) fn integer_literal_natural_type(text: &str) -> Option<&'static str> {
+    let suffix_start = text
+        .char_indices()
+        .rev()
+        .find(|(_, character)| !matches!(character, 'u' | 'U' | 'l' | 'L'))
+        .map_or(text.len(), |(index, _)| index + 1);
+    let value = parse_integer_literal_value(&text[..suffix_start])?;
+    natural_integer_type(value, &text[suffix_start..])
+}
+
+fn parse_integer_literal_value(text: &str) -> Option<u128> {
+    let (digits, radix) = integer_literal_digits(text);
+    let mut value: u128 = 0;
+    let mut has_digit = false;
+    for byte in digits.bytes() {
+        if byte == b'_' {
+            continue;
+        }
+        let digit = integer_digit_value(byte, radix)?;
+        value = value.checked_mul(u128::from(radix))?.checked_add(digit)?;
+        has_digit = true;
+    }
+    has_digit.then_some(value)
+}
+
+fn integer_literal_digits(text: &str) -> (&str, u32) {
+    if text.starts_with("0x") || text.starts_with("0X") {
+        (&text[2..], 16)
+    } else if text.starts_with("0b") || text.starts_with("0B") {
+        (&text[2..], 2)
+    } else {
+        (text, 10)
+    }
+}
+
+fn integer_digit_value(byte: u8, radix: u32) -> Option<u128> {
+    let value = match byte {
+        b'0'..=b'9' => u32::from(byte - b'0'),
+        b'a'..=b'f' => u32::from(byte - b'a') + 10,
+        b'A'..=b'F' => u32::from(byte - b'A') + 10,
+        _ => return None,
+    };
+    (value < radix).then_some(u128::from(value))
+}
+
+fn natural_integer_type(value: u128, suffix: &str) -> Option<&'static str> {
+    const I32_MAX: u128 = 2_147_483_647;
+    const U32_MAX: u128 = 4_294_967_295;
+    const I64_MAX: u128 = 9_223_372_036_854_775_807;
+    const U64_MAX: u128 = 18_446_744_073_709_551_615;
+
+    let has_u = suffix.contains(['u', 'U']);
+    let has_l = suffix.contains(['l', 'L']);
+    match (has_u, has_l) {
+        (true, true) => first_fitting_integer_type(value, &[(U64_MAX, "ulong")]),
+        (true, false) => {
+            first_fitting_integer_type(value, &[(U32_MAX, "uint"), (U64_MAX, "ulong")])
+        }
+        (false, true) => {
+            first_fitting_integer_type(value, &[(I64_MAX, "long"), (U64_MAX, "ulong")])
+        }
+        (false, false) => first_fitting_integer_type(
+            value,
+            &[
+                (I32_MAX, "int"),
+                (U32_MAX, "uint"),
+                (I64_MAX, "long"),
+                (U64_MAX, "ulong"),
+            ],
+        ),
+    }
+}
+
+fn first_fitting_integer_type(
+    value: u128,
+    bounds: &[(u128, &'static str)],
+) -> Option<&'static str> {
+    bounds
+        .iter()
+        .find_map(|(limit, name)| (*limit >= value).then_some(*name))
+}
+
 /// Simple attribute names applied directly to `node`
 /// (`[OptionalAttribute]` → `Optional`).
 pub(crate) fn attributes_of<'a>(node: Node<'_>, source: &'a str) -> Vec<&'a str> {
