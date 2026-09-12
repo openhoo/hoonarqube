@@ -6,7 +6,7 @@ checkout action and each Hoonarqube action to a full commit SHA.
 ## SonarQube Generic Issue Import
 
 ```yaml
-- uses: openhoo/hoonarqube/actions/analyze@03b34bc8957995959d43531e82130a2c95bf01fa # pinned revision
+- uses: openhoo/hoonarqube/actions/analyze@6c274a2f157364c2b7f5e8756f6204663937c7e1 # pinned revision
   with:
     version: 0.8.2
     paths: |
@@ -33,7 +33,7 @@ releases to preserve their uncached behavior.
 
 ```yaml
 - id: hoonarqube
-  uses: openhoo/hoonarqube/actions/code-quality@03b34bc8957995959d43531e82130a2c95bf01fa # pinned revision
+  uses: openhoo/hoonarqube/actions/code-quality@6c274a2f157364c2b7f5e8756f6204663937c7e1 # pinned revision
   with:
     version: 0.8.2
     paths: |
