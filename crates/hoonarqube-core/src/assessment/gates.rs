@@ -691,9 +691,9 @@ fn new_code_line_sets(
         }
     }
     sets.retain(|_, lines| !lines.is_empty());
-    if sets.is_empty() {
-        return Err("new-code scope is empty".to_string());
-    }
+    // An unchanged complete baseline has no new-code lines. Count metrics
+    // still have a defined zero value; denominator-based metrics reject the
+    // empty scope at their own derivation boundary.
     Ok(sets)
 }
 
@@ -823,9 +823,7 @@ fn validate_new_line_sets(
                 .ok_or_else(|| "new-code line denominator overflows u64".to_string())?;
         }
     }
-    if denominator == 0 {
-        return Err("new-code scope is empty".to_string());
-    }
+    // An empty complete scope is valid for count metrics.
     Ok(denominator)
 }
 fn duplication_line_denominator(
@@ -854,9 +852,7 @@ fn duplication_line_denominator(
             .checked_add(usize_as_u64(lines.len()))
             .ok_or_else(|| "new-code duplication denominator overflows u64".to_string())?;
     }
-    if denominator == 0 {
-        return Err("new-code duplication has no eligible denominator".to_string());
-    }
+    // An empty complete scope has no density denominator.
     Ok(denominator)
 }
 
@@ -1540,6 +1536,69 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.contains("omit"))
         );
+    }
+
+    #[test]
+    fn complete_empty_new_code_scope_counts_zero_but_percentages_stay_unavailable() {
+        let mut report = report(true);
+        let mut new_code = new_code_report(AssessmentStatus::Complete, Some(context()), Vec::new());
+        new_code.lines.clear();
+        report.assessment = Some(assessment(
+            Some(coverage_report(
+                CoverageCounter::new(0, 0).expect("empty lines"),
+                Vec::new(),
+            )),
+            Some(new_code),
+        ));
+
+        let count_metrics = [
+            "issues",
+            "files",
+            "lines",
+            "duplicated_lines",
+            "duplicated_blocks",
+            "duplicated_files",
+        ];
+        let mut conditions = count_metrics
+            .iter()
+            .map(|metric| condition(GateScope::NewCode, metric, GateOperator::Lte, 0.0))
+            .collect::<Vec<_>>();
+        conditions.extend([
+            condition(GateScope::NewCode, "line_coverage", GateOperator::Gte, 0.0),
+            condition(
+                GateScope::NewCode,
+                "branch_coverage",
+                GateOperator::Gte,
+                0.0,
+            ),
+            condition(
+                GateScope::NewCode,
+                "duplicated_lines_density",
+                GateOperator::Gte,
+                0.0,
+            ),
+        ]);
+
+        let evaluated = evaluate_gate(
+            &GateConfig {
+                schema_version: 1,
+                conditions,
+            },
+            &report,
+        );
+        assert_eq!(evaluated.status, GateStatus::Unavailable);
+        assert_eq!(evaluated.conditions.len(), count_metrics.len() + 3);
+        for (result, metric) in evaluated.conditions.iter().zip(count_metrics) {
+            assert_eq!(result.metric, metric);
+            assert_eq!(result.status, GateStatus::Pass);
+            assert_eq!(result.actual, Some(0.0));
+            assert!(result.diagnostic.is_none());
+        }
+        for result in &evaluated.conditions[count_metrics.len()..] {
+            assert_eq!(result.status, GateStatus::Unavailable);
+            assert_eq!(result.actual, None);
+            assert!(result.diagnostic.is_some());
+        }
     }
 
     #[test]

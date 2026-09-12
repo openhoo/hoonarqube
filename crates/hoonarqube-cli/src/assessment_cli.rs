@@ -180,13 +180,23 @@ fn build_new_code_report(
 
 fn load_baseline_new_code(assessment: &AssessmentReport, path: &Path) -> NewCodeReport {
     match load_reference_report(path) {
-        Ok(reference) => match reference.assessment.as_ref() {
-            Some(reference_assessment) => compare_reports(assessment, Some(reference_assessment)),
-            None => unavailable_new_code(
-                AssessmentStatus::Invalid,
-                "reference report has no assessment artifact",
-            ),
-        },
+        Ok(reference) => {
+            if !reference.project.complete {
+                return unavailable_new_code(
+                    AssessmentStatus::Incomplete,
+                    "baseline project analysis is incomplete; new-code status is indeterminate",
+                );
+            }
+            match reference.assessment.as_ref() {
+                Some(reference_assessment) => {
+                    compare_reports(assessment, Some(reference_assessment))
+                }
+                None => unavailable_new_code(
+                    AssessmentStatus::Invalid,
+                    "reference report has no assessment artifact",
+                ),
+            }
+        }
         Err(error) => unavailable_new_code(AssessmentStatus::Invalid, error),
     }
 }
@@ -1036,6 +1046,67 @@ mod tests {
         };
         assert_eq!(assessment_exit_status(&report), 2);
     }
+    #[test]
+    fn incomplete_baseline_is_retained_but_comparison_is_indeterminate() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-assessment-incomplete-baseline-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let context =
+            AnalysisContext::new("analyzer", "catalog", "options", "scope", None::<String>);
+        let assessment = AssessmentReport {
+            schema_version: ASSESSMENT_SCHEMA_VERSION,
+            context,
+            sources: Vec::new(),
+            coverage: None,
+            new_code: None,
+            gate: None,
+        };
+        let reference = AnalysisReport {
+            schema_version: 1,
+            files: Vec::new(),
+            project: hoonarqube_ir::ProjectReport {
+                metrics: hoonarqube_ir::ProjectMetrics {
+                    files: 0,
+                    lines: 0,
+                    code_lines: 0,
+                    comment_lines: 0,
+                },
+                files: Vec::new(),
+                duplications: Vec::new(),
+                duplication: None,
+                complete: false,
+                warnings: vec!["parse error".to_owned()],
+                roots: vec![root.clone()],
+            },
+            assessment: Some(assessment.clone()),
+        };
+        let path = root.join("baseline.json");
+        write_baseline_atomically(&path, &reference, &root, &[])
+            .expect("incomplete assessment remains writable as a diagnostic");
+        let persisted: AnalysisReport =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(!persisted.project.complete);
+
+        let new_code = load_baseline_new_code(&assessment, &path);
+        assert_eq!(new_code.status, AssessmentStatus::Incomplete);
+        assert!(new_code.findings.is_empty());
+        assert!(new_code.resolved.is_empty());
+        assert!(new_code.lines.is_empty());
+        assert!(
+            new_code
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("incomplete"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn baseline_write_rejects_symlink_aliases_but_allows_distinct_destination() {
