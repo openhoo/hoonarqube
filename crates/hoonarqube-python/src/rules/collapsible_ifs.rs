@@ -34,15 +34,26 @@ fn visit_suite(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, sourc
 
 /// An `if` whose then-suite holds exactly one further `if`, where neither
 /// carries elif/else clauses, merges into a single condition joined by `and`.
-/// Clauses with `elif`/`else` (including an `else` suite holding one lone `if`)
-/// change semantics when flattened and are exempt.
+/// The same merge applies to an `elif` suite whose sole statement is a
+/// clause-free `if` (`elif a: if b:` becomes `elif a and b:`). Clauses with
+/// `elif`/`else` (including an `else` suite holding one lone `if`, which
+/// would flatten into a new `elif`) change semantics and are exempt.
 fn collapsible_inner(outer: &StmtIf, issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
-    if !outer.elif_else_clauses.is_empty() {
-        return;
+    if outer.elif_else_clauses.is_empty()
+        && let [Stmt::If(inner)] = outer.body.as_slice()
+    {
+        push_collapsible(inner, issues, index, source);
     }
-    let [Stmt::If(inner)] = outer.body.as_slice() else {
-        return;
-    };
+    for clause in &outer.elif_else_clauses {
+        if clause.test.is_some()
+            && let [Stmt::If(inner)] = clause.body.as_slice()
+        {
+            push_collapsible(inner, issues, index, source);
+        }
+    }
+}
+
+fn push_collapsible(inner: &StmtIf, issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
     if !inner.elif_else_clauses.is_empty() {
         return;
     }

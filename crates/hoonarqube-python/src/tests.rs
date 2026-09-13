@@ -678,6 +678,21 @@ fn s1172_flags_unused_function_parameters() {
     let used = scan("def scale(value, factor):\n    return value * factor\n\n\nscale(2, 3)\n");
     assert!(findings(&used, "python:S1172").is_empty());
 }
+#[test]
+fn s1172_ignores_unrelated_scope_tokens() {
+    let leak = scan(
+        "def target(poolmanager):\n    return 1\n\n\ndef unrelated(poolmanager):\n    return poolmanager\n",
+    );
+    let found = findings(&leak, "python:S1172");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 1);
+    let renamed = scan(
+        "def target(poolmanager):\n    return 1\n\n\ndef unrelated(other):\n    return other\n",
+    );
+    assert_eq!(findings(&renamed, "python:S1172").len(), 1);
+    let used = scan("def target(poolmanager):\n    return poolmanager\n");
+    assert!(findings(&used, "python:S1172").is_empty());
+}
 
 #[test]
 fn s1481_flags_unused_local_variables() {
@@ -687,6 +702,21 @@ fn s1481_flags_unused_local_variables() {
     assert_eq!(found[0].range.start.line, 2);
     let clean = scan("def run():\n    total = 1\n    return total\n\n\nrun()\n");
     assert!(findings(&clean, "python:S1481").is_empty());
+}
+#[test]
+fn s1481_ignores_unrelated_scope_tokens() {
+    let leak = scan(
+        "def target():\n    value = object()\n    return 1\n\n\ndef unrelated(value):\n    return value\n",
+    );
+    let found = findings(&leak, "python:S1481");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 2);
+    let renamed = scan(
+        "def target():\n    value = object()\n    return 1\n\n\ndef unrelated(other):\n    return other\n",
+    );
+    assert_eq!(findings(&renamed, "python:S1481").len(), 1);
+    let used = scan("def target():\n    value = object()\n    return value\n");
+    assert!(findings(&used, "python:S1481").is_empty());
 }
 
 #[test]
@@ -948,6 +978,36 @@ fn s1854_flags_dead_final_stores() {
         "    report(total)\n"
     ));
     assert!(findings(&alive, "python:S1854").is_empty());
+}
+#[test]
+fn s1854_flags_first_store_overwritten_on_every_branch() {
+    let branch_overwrite = scan(concat!(
+        "def branch_overwrite(flag):\n",
+        "    handle = \"initial\"\n",
+        "    if flag:\n",
+        "        handle = \"yes\"\n",
+        "    else:\n",
+        "        handle = \"no\"\n",
+        "    return handle\n"
+    ));
+    let found = findings(&branch_overwrite, "python:S1854");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 2);
+    let reads_first_store = scan(concat!(
+        "def used_before_overwrite(flag):\n",
+        "    handle = \"initial\"\n",
+        "    observe(handle)\n",
+        "    if flag:\n",
+        "        handle = \"yes\"\n",
+        "    else:\n",
+        "        handle = \"no\"\n",
+        "    return handle\n"
+    ));
+    assert!(findings(&reads_first_store, "python:S1854").is_empty());
+    let straight = scan("def straight():\n    value = 0\n    observe(value)\n    value = 1\n");
+    let found = findings(&straight, "python:S1854");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 4);
 }
 
 #[test]
@@ -2869,12 +2929,31 @@ fn s1066_spares_semantics_changing_shapes() {
         )
         .is_empty()
     );
-    for source in [
-        "if a:\n    if b:\n        work()\n    else:\n        stop()\n",
-        "if a:\n    work()\nelif a:\n    if b:\n        work()\n",
-    ] {
-        assert!(findings(&scan(source), "python:S1066").is_empty());
-    }
+    assert!(
+        findings(
+            &scan("if a:\n    if b:\n        work()\n    else:\n        stop()\n"),
+            "python:S1066"
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn s1066_flags_collapsible_if_as_sole_elif_statement() {
+    let flagged = scan(concat!(
+        "def check(node_check, value):\n",
+        "    if isinstance(node_check, str):\n",
+        "        return True\n",
+        "    elif node_check is not None:\n",
+        "        if not isinstance(value, node_check):\n",
+        "            return False\n",
+        "    return True\n"
+    ));
+    let found = findings(&flagged, "python:S1066");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 5);
+    let else_suite = scan("if a:\n    work()\nelse:\n    if b:\n        work()\n");
+    assert!(findings(&else_suite, "python:S1066").is_empty());
 }
 
 #[test]
