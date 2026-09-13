@@ -1869,55 +1869,81 @@ type ImportedKeys = keyof import("./module").Widget;
         let mut stack = vec![(node, true)];
         while let Some((current, is_root)) = stack.pop() {
             let kind = current.kind();
-            if !is_root && is_comment_kind(kind) {
-                continue;
-            }
-            if !is_root && is_java_unit_kind(kind) {
-                parts.push("<unit>".to_owned());
-                parts.push(kind.to_owned());
-            }
-            if !is_root && is_string_root_kind(kind) {
-                parts.push(
-                    if is_interpolated_kind(kind)
-                        || (kind == "string" && contains_interpolation(current))
-                    {
-                        "<interpolated-string>"
-                    } else {
-                        "<string-literal>"
-                    }
-                    .to_owned(),
-                );
-                continue;
-            }
-            if !is_root && is_atomic_literal_kind(kind) {
-                parts.push(kind.to_owned());
-                parts.push(
-                    current
-                        .utf8_text(source.as_bytes())
-                        .unwrap_or(kind)
-                        .to_owned(),
-                );
+            if !is_root && legacy_push_marked_node(&mut parts, source, current, kind) {
                 continue;
             }
             if current.child_count() == 0 {
-                if current.is_extra() || is_comment_kind(kind) || is_string_content_kind(kind) {
-                    continue;
-                }
-                let text = current.utf8_text(source.as_bytes()).unwrap_or(kind);
-                if text.is_empty() && current.start_byte() == current.end_byte() {
-                    continue;
-                }
-                parts.push(kind.to_owned());
-                parts.push(if is_layout_kind(kind) {
-                    "<layout>".to_owned()
-                } else {
-                    text.to_owned()
-                });
+                legacy_push_leaf_parts(&mut parts, source, current, kind);
             } else {
                 push_children_with_root_flag(&mut stack, current);
             }
         }
         parts
+    }
+
+    /// Pushes the encoded marker parts for a non-root marked node; returns
+    /// `true` when traversal must stop at this node (string or literal leaf).
+    fn legacy_push_marked_node(
+        parts: &mut Vec<String>,
+        source: &str,
+        current: Node<'_>,
+        kind: &str,
+    ) -> bool {
+        if is_comment_kind(kind) {
+            return true;
+        }
+        if is_java_unit_kind(kind) {
+            parts.push("<unit>".to_owned());
+            parts.push(kind.to_owned());
+            return false;
+        }
+        if is_string_root_kind(kind) {
+            let interpolated =
+                is_interpolated_kind(kind) || (kind == "string" && contains_interpolation(current));
+            parts.push(
+                if interpolated {
+                    "<interpolated-string>"
+                } else {
+                    "<string-literal>"
+                }
+                .to_owned(),
+            );
+            return true;
+        }
+        if is_atomic_literal_kind(kind) {
+            parts.push(kind.to_owned());
+            parts.push(
+                current
+                    .utf8_text(source.as_bytes())
+                    .unwrap_or(kind)
+                    .to_owned(),
+            );
+            return true;
+        }
+        false
+    }
+
+    /// Pushes the leaf parts for a childless node, preserving the legacy
+    /// skip rules for extra, comment, string-content, and empty nodes.
+    fn legacy_push_leaf_parts(
+        parts: &mut Vec<String>,
+        source: &str,
+        current: Node<'_>,
+        kind: &str,
+    ) {
+        if current.is_extra() || is_comment_kind(kind) || is_string_content_kind(kind) {
+            return;
+        }
+        let text = current.utf8_text(source.as_bytes()).unwrap_or(kind);
+        if text.is_empty() && current.start_byte() == current.end_byte() {
+            return;
+        }
+        parts.push(kind.to_owned());
+        parts.push(if is_layout_kind(kind) {
+            "<layout>".to_owned()
+        } else {
+            text.to_owned()
+        });
     }
 
     fn encoded_parts(symbol: &str) -> Vec<String> {
