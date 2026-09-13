@@ -1,13 +1,17 @@
 // Residual rule machinery for 'expression' (extracted from lib.rs).
 use crate::rules::shared::CONSOLE_METHODS;
 use crate::rules::shared::argument_expression;
+use crate::rules::shared::call_property;
 use crate::support::{
-    IssueSink, RuleScope, member_object, member_root_name, member_rooted_at, unparenthesized,
+    IssueSink, RuleScope, constructor_name, identifier_name, member_object, member_root_name,
+    member_rooted_at, unparenthesized,
 };
+use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    AssignmentTarget, BindingIdentifier, CallExpression, Expression, Function, MemberExpression,
-    ObjectExpression, ObjectPropertyKind, PropertyKey, PropertyKind, ThisExpression,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    AssignmentTarget, BindingIdentifier, CallExpression, Expression, Function, FunctionType,
+    IdentifierReference, MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind,
+    PropertyKey, PropertyKind, Statement, ThisExpression, UnaryOperator, VariableDeclaration,
+    VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_member_expression, walk_variable_declaration};
@@ -65,24 +69,51 @@ pub(crate) fn check_logging_and_binding_calls(
     }
 }
 
-/// `S6666`, `S6959`, `S2871`, `S6653`, `S2685`, `S6654`, and `S6661`.
+/// `S6666`, `S6959`, `S2871`, `S6653`, `S2685`, `S6654`, and `S6661`. The
+/// `S6666` proof reports literal array arguments for every receiver, and
+/// evidenced nonliteral arguments (including borrowed `Array.prototype.slice`
+/// calls and forwarded wrapper parameters) where the spread rewrite preserves
+/// the receiver's `this`.
 pub(crate) fn check_collection_and_object_calls(
     sink: &mut IssueSink,
     it: &CallExpression<'_>,
     property: &str,
     member: &MemberExpression<'_>,
+    semantic: Option<&Semantic<'_>>,
 ) {
-    if property == "apply"
-        && it.arguments.len() == 2
-        && argument_expression(&it.arguments[1])
-            .is_some_and(|argument| matches!(argument, Expression::ArrayExpression(_)))
-    {
-        sink.emit_span(
-            RuleScope::Both,
-            "S6666",
-            "Use spread syntax instead of \"apply\".",
-            it.arguments[1].span(),
-        );
+    if property == "apply" && it.arguments.len() == 2 {
+        let argument = argument_expression(&it.arguments[1]);
+        // A literal array argument carries its array proof in place, so it
+        // stays reported for every receiver: the tracked oracle control
+        // `h.apply(ctx, [args])` pins exactly this shape as a finding.
+        let literal_array =
+            argument.is_some_and(|argument| matches!(argument, Expression::ArrayExpression(_)));
+        // A nonliteral argument needs same-file array evidence before the
+        // call can become `f(...spread)`, and the rewrite must preserve the
+        // callee's `this`: only null/undefined/void receivers, or a thisArg
+        // that is exactly the object the applied member was read from
+        // (`o.m.apply(o, ...)`), qualify. Arbitrary second arguments are
+        // never reported merely for sitting in an `apply` call.
+        let evidenced_array = !literal_array
+            && argument.is_some_and(|argument| {
+                semantic.is_some_and(|semantic| established_array_argument(argument, semantic))
+            })
+            && (this_arg_is_neutral(it) || this_arg_is_applied_member_object(it, member));
+        if literal_array {
+            sink.emit_span(
+                RuleScope::Both,
+                "S6666",
+                "Use spread syntax instead of \"apply\".",
+                it.arguments[1].span(),
+            );
+        } else if evidenced_array {
+            sink.emit_span(
+                RuleScope::Both,
+                "S6666",
+                "Use the spread operator instead of '.apply()'.",
+                it.span(),
+            );
+        }
     }
     if property == "reduce" && it.arguments.len() == 1 {
         sink.emit_span(
@@ -135,6 +166,269 @@ pub(crate) fn check_collection_and_object_calls(
             it.arguments[0].span(),
         );
     }
+}
+
+/// Whether the `apply` receiver is one a spread rewrite preserves: only
+/// `null`, `undefined`, and `void <expression>` leave the callee with the
+/// same `this` that `f(...arguments)` provides.
+fn this_arg_is_neutral(call: &CallExpression<'_>) -> bool {
+    let Some(expression) = call.arguments.first().and_then(argument_expression) else {
+        return false;
+    };
+    let peeled = unparenthesized(expression);
+    match peeled {
+        Expression::NullLiteral(_) => true,
+        Expression::Identifier(_) => identifier_name(peeled) == Some("undefined"),
+        Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::Void,
+        _ => false,
+    }
+}
+
+/// Whether the `apply` receiver is exactly the object the applied member was
+/// read from, so `o.m.apply(o, arguments)` and `o.m(...arguments)` share the
+/// same `this`.
+fn this_arg_is_applied_member_object(
+    call: &CallExpression<'_>,
+    member: &MemberExpression<'_>,
+) -> bool {
+    let Some(this_arg) = call.arguments.first().and_then(argument_expression) else {
+        return false;
+    };
+    let Some(applied_member) = member_object(member).as_member_expression() else {
+        return false;
+    };
+    let object = unparenthesized(member_object(applied_member));
+    let receiver = unparenthesized(this_arg);
+    if matches!(
+        (object, receiver),
+        (Expression::ThisExpression(_), Expression::ThisExpression(_))
+    ) {
+        return true;
+    }
+    match (identifier_name(object), identifier_name(receiver)) {
+        (Some(object_name), Some(receiver_name)) => object_name == receiver_name,
+        _ => false,
+    }
+}
+
+/// Whether the second `apply` argument is conservatively established to be
+/// an array: a same-file binding initialized from an array value, a forwarded
+/// wrapper parameter, or a call whose contract returns a fresh array.
+fn established_array_argument(argument: &Expression<'_>, semantic: &Semantic<'_>) -> bool {
+    match unparenthesized(argument) {
+        Expression::Identifier(identifier) => {
+            binding_declaration_init(identifier, semantic)
+                .is_some_and(|init| array_producing_expression(init, semantic))
+                || declared_array_parameter(identifier, semantic)
+        }
+        Expression::NewExpression(new_expression) => array_producing_new(new_expression),
+        Expression::CallExpression(call) => array_producing_call(call, semantic),
+        _ => false,
+    }
+}
+
+/// Whether the expression establishes an array value when it initializes a
+/// binding. TypeScript-only wrappers (`as`, `satisfies`, `!`) are peeled.
+fn array_producing_expression(expression: &Expression<'_>, semantic: &Semantic<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::ArrayExpression(_) => true,
+        Expression::NewExpression(new_expression) => array_producing_new(new_expression),
+        Expression::CallExpression(call) => array_producing_call(call, semantic),
+        Expression::TSAsExpression(as_expression) => {
+            array_producing_expression(&as_expression.expression, semantic)
+        }
+        Expression::TSSatisfiesExpression(satisfies_expression) => {
+            array_producing_expression(&satisfies_expression.expression, semantic)
+        }
+        Expression::TSNonNullExpression(non_null_expression) => {
+            array_producing_expression(&non_null_expression.expression, semantic)
+        }
+        _ => false,
+    }
+}
+
+/// `new Array(...)` always produces an array.
+fn array_producing_new(new_expression: &NewExpression<'_>) -> bool {
+    constructor_name(new_expression) == Some("Array")
+}
+
+/// Calls whose documented contract returns a fresh array, including a
+/// borrowed `Array.prototype.slice` invoked through `call`.
+fn array_producing_call(call: &CallExpression<'_>, semantic: &Semantic<'_>) -> bool {
+    let Some((property, member)) = call_property(call) else {
+        return false;
+    };
+    if property == "call" {
+        return borrowed_slice_produces_array(member, call, semantic);
+    }
+    if member_rooted_at(member, "Array") {
+        return matches!(property, "from" | "of");
+    }
+    if member_rooted_at(member, "Object") {
+        return matches!(property, "keys" | "values" | "entries");
+    }
+    matches!(
+        property,
+        "concat"
+            | "slice"
+            | "splice"
+            | "map"
+            | "filter"
+            | "flat"
+            | "flatMap"
+            | "reverse"
+            | "sort"
+            | "toSorted"
+            | "toReversed"
+            | "toSpliced"
+            | "with"
+            | "split"
+    )
+}
+
+/// Whether the call is a borrowed `Array.prototype.slice` invocation with a
+/// proven array-like source: `slice.call(arguments, 1)` always returns a
+/// fresh array, while object-like arrays and unknown sources stay unproven.
+fn borrowed_slice_produces_array(
+    member: &MemberExpression<'_>,
+    call: &CallExpression<'_>,
+    semantic: &Semantic<'_>,
+) -> bool {
+    let slice_callee = unparenthesized(member_object(member));
+    let proven_slice = match slice_callee {
+        Expression::Identifier(identifier) => binding_declaration_init(identifier, semantic)
+            .is_some_and(|init| is_array_prototype_slice_member(init)),
+        _ => is_array_prototype_slice_member(slice_callee),
+    };
+    if !proven_slice {
+        return false;
+    }
+    let Some(source) = call.arguments.first().and_then(argument_expression) else {
+        return false;
+    };
+    array_like_slice_source(source, semantic)
+}
+
+/// Whether the expression is the direct `Array.prototype.slice` member read.
+fn is_array_prototype_slice_member(expression: &Expression<'_>) -> bool {
+    let Some(MemberExpression::StaticMemberExpression(member)) =
+        unparenthesized(expression).as_member_expression()
+    else {
+        return false;
+    };
+    member.property.name == "slice" && slice_prototype_object_is_array(&member.object)
+}
+
+/// Whether the expression reads `Array.prototype` through a static member
+/// rooted at the `Array` identifier.
+fn slice_prototype_object_is_array(object: &Expression<'_>) -> bool {
+    let Some(MemberExpression::StaticMemberExpression(prototype)) =
+        unparenthesized(object).as_member_expression()
+    else {
+        return false;
+    };
+    prototype.property.name == "prototype" && identifier_name(&prototype.object) == Some("Array")
+}
+
+/// Whether the borrowed slice source is one the fresh-array proof covers: the
+/// `arguments` object, an array literal, or a conservatively established
+/// array. Object-like arrays (`{ 0: "a", length: 1 }`) and unknown receivers
+/// stay unproven.
+fn array_like_slice_source(expression: &Expression<'_>, semantic: &Semantic<'_>) -> bool {
+    let peeled = unparenthesized(expression);
+    if identifier_name(peeled) == Some("arguments") {
+        return true;
+    }
+    matches!(peeled, Expression::ArrayExpression(_))
+        || established_array_argument(expression, semantic)
+}
+
+/// Initializer of the local binding an identifier resolves to, when that
+/// binding is a variable that is never reassigned.
+fn binding_declaration_init<'a>(
+    identifier: &IdentifierReference<'_>,
+    semantic: &Semantic<'a>,
+) -> Option<&'a Expression<'a>> {
+    let reference_id = identifier.reference_id.get()?;
+    let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
+    if semantic.nodes().is_empty() || semantic.scoping().symbol_is_mutated(symbol_id) {
+        return None;
+    }
+    let AstKind::VariableDeclarator(declarator) = semantic.symbol_declaration(symbol_id).kind()
+    else {
+        return None;
+    };
+    declarator.init.as_ref()
+}
+
+/// Whether the identifier resolves to the unmutated parameter of a returned
+/// function-expression wrapper that forwards it as an `apply` argument. The
+/// wrapper shape establishes the variadic array contract without relying on
+/// a parameter name; arbitrary formal parameters remain unproven.
+fn declared_array_parameter(identifier: &IdentifierReference<'_>, semantic: &Semantic<'_>) -> bool {
+    if semantic.nodes().is_empty() {
+        return false;
+    }
+    let Some(reference_id) = identifier.reference_id.get() else {
+        return false;
+    };
+    let Some(symbol_id) = semantic.scoping().get_reference(reference_id).symbol_id() else {
+        return false;
+    };
+    if semantic.scoping().symbol_is_mutated(symbol_id) {
+        return false;
+    }
+    let declaration = semantic.symbol_declaration(symbol_id);
+    if !matches!(declaration.kind(), AstKind::FormalParameter(_)) {
+        return false;
+    }
+    let Some(function) = semantic
+        .nodes()
+        .ancestors(declaration.id())
+        .find_map(|node| match node.kind() {
+            AstKind::Function(function) => Some(function),
+            _ => None,
+        })
+    else {
+        return false;
+    };
+    if !matches!(function.r#type, FunctionType::FunctionExpression)
+        || function.params.items.len() != 1
+        || function.params.rest.is_some()
+        || !matches!(
+            semantic.nodes().parent_kind(function.node_id.get()),
+            AstKind::ReturnStatement(_)
+        )
+    {
+        return false;
+    }
+    let Some(body) = function.body.as_deref() else {
+        return false;
+    };
+    let [Statement::ReturnStatement(return_statement)] = body.statements.as_slice() else {
+        return false;
+    };
+    let Some(Expression::CallExpression(call)) =
+        return_statement.argument.as_ref().map(unparenthesized)
+    else {
+        return false;
+    };
+    let Some((property, _)) = call_property(call) else {
+        return false;
+    };
+    if property != "apply" || call.arguments.len() != 2 {
+        return false;
+    }
+    let Some(Expression::Identifier(forwarded)) =
+        call.arguments[1].as_expression().map(unparenthesized)
+    else {
+        return false;
+    };
+    forwarded
+        .reference_id
+        .get()
+        .and_then(|reference_id| semantic.scoping().get_reference(reference_id).symbol_id())
+        == Some(symbol_id)
 }
 
 /// Whether the `.bind(...)` receiver is a function whose own `this` is not
@@ -240,10 +534,8 @@ mod tests {
         // #252: verbatim axios/axios@18e7dfedf30c96e58652887f930642ae82e0130c
         // lib/helpers/spread.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
         // reports the `callback.apply(null, arr)` wrapper call at line 26.
-        let report = js(include_str!(
-            "../../../fixtures/shapes/axios-spread.js"
-        ));
-        let sites: Vec<((u32, u32), (u32, u32), &str)> = report
+        let report = js(include_str!("../../../fixtures/shapes/axios-spread.js"));
+        let sites: Vec<_> = report
             .issues
             .iter()
             .filter(|issue| issue.rule_key == "javascript:S6666")
@@ -268,7 +560,10 @@ mod tests {
     #[test]
     fn s6666_reports_spread_safe_nonliteral_array_arguments() {
         let findings = js_keys(
-            "fn.apply(null, args);\n\
+            "const args = [1, 2];\n\
+             const values = list.map(toValue);\n\
+             const slice = Array.prototype.slice;\n\
+             fn.apply(null, args);\n\
              fn.apply(undefined, args);\n\
              obj.method.apply(obj, values);\n\
              obj.method.apply(obj, slice.call(arguments, 1));\n\

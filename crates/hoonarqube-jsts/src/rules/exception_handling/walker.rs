@@ -7,11 +7,12 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     CatchClause, Declaration, Expression, MethodDefinition, MethodDefinitionKind, ReturnStatement,
-    Statement,
+    Statement, TryStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_catch_clause, walk_declaration, walk_expression, walk_method_definition,
+    walk_try_statement,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -58,20 +59,14 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
                 );
             }
         }
-        // `S2486`: an empty catch is flagged unless it carries a comment
-        // explaining why the exception is ignored.
-        if it.body.body.is_empty() {
-            let inner = Span::new(it.body.span.start + 1, it.body.span.end.saturating_sub(1));
-            if !span_contains_comment(self.comments, inner) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S2486",
-                    "Handle this exception or remove this empty catch clause.",
-                    it.body.span(),
-                );
-            }
-        }
         walk_catch_clause(self, it);
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        if let Some(handler) = &it.handler {
+            self.check_s2486(handler, it.block.body.len());
+        }
+        walk_try_statement(self, it);
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
@@ -91,6 +86,40 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
             }
         }
         walk_method_definition(self, it);
+    }
+}
+
+impl<'index> ExceptionHandlingCollector<'index> {
+    /// `S2486`: a comment excuses an empty catch only while the try body
+    /// holds at most one statement. A comment-only catch over a
+    /// multi-statement try body is reported across the catch clause with the
+    /// pinned Sonar way wording, and an uncommented empty catch stays
+    /// reported regardless of the try size.
+    fn check_s2486(&mut self, handler: &CatchClause<'index>, try_statement_count: usize) {
+        if !handler.body.body.is_empty() {
+            return;
+        }
+        let inner = Span::new(
+            handler.body.span.start + 1,
+            handler.body.span.end.saturating_sub(1),
+        );
+        if span_contains_comment(self.comments, inner) {
+            if try_statement_count >= 2 {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S2486",
+                    "Handle this exception or don't catch it at all.",
+                    handler.span(),
+                );
+            }
+        } else {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2486",
+                "Handle this exception or remove this empty catch clause.",
+                handler.body.span(),
+            );
+        }
     }
 }
 
@@ -255,7 +284,7 @@ function silent() {
         let report = js(include_str!(
             "../../../fixtures/shapes/axios-deprecated-method.js"
         ));
-        let sites: Vec<((u32, u32), (u32, u32), &str)> = report
+        let sites: Vec<_> = report
             .issues
             .iter()
             .filter(|issue| issue.rule_key == "javascript:S2486")
