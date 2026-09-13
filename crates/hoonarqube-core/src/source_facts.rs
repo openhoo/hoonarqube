@@ -186,7 +186,7 @@ pub(crate) fn read_bounded_source_from(
 
 /// Builds the structured rejected facts for a source refused at the byte
 /// bound before its content was read.  `None` when no registered language
-/// claims the path, mirroring [`source_exceeds_limits`].
+/// claims the path, mirroring `source_exceeds_limits`.
 #[must_use]
 pub fn oversize_source_facts(path: &Path, bytes: u64) -> Option<SourceFacts> {
     let language = crate::language_for_path(path)?;
