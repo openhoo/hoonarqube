@@ -31,8 +31,30 @@ pub struct SourceFacts {
     pub metrics: FileMetrics,
     pub tokens: Vec<NormalizedToken>,
     pub symbols: Vec<String>,
+    /// Exact compositional definitions of Java statement units; empty for
+    /// other languages and Razor.  See [`UnitDefinition`].
+    pub units: Vec<UnitDefinition>,
     pub error: Option<String>,
     pub language: Language,
+}
+
+/// Exact compositional definition of one Java statement unit.
+///
+/// `token` is the index of the unit's emitted [`NormalizedToken`]; `symbol`
+/// is the interned own-parts signature: the unit's normalized content with
+/// the reserved `<unit>` marker (plus nested unit kind) recorded at exactly
+/// the positions where the historical flattened signature carried them, but
+/// without re-traversing nested unit subtrees.  `children` are indices into
+/// the same vector and are strictly smaller than the definition's own index,
+/// so the vector is a post-order forest.  Expanding a definition over its
+/// children reproduces the complete normalized nested content byte-for-byte;
+/// equality of two units is exact structural equality over interned strings
+/// and no hash participates in that decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitDefinition {
+    pub token: u32,
+    pub symbol: u32,
+    pub children: Vec<u32>,
 }
 
 /// Adapts complete compiler-backed Razor measurements to the project facts
@@ -47,6 +69,7 @@ pub fn compiler_razor_facts(path: &Path, metrics: FileMetrics) -> Option<SourceF
         metrics,
         tokens: Vec::new(),
         symbols: Vec::new(),
+        units: Vec::new(),
         error: None,
         language: Language::CSharp,
     })
@@ -96,6 +119,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             },
             tokens: Vec::new(),
             symbols: Vec::new(),
+            units: Vec::new(),
             error: Some(
                 "Razor source facts require a complete trusted C# compiler context".to_owned(),
             ),
@@ -111,6 +135,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
             symbols: Vec::new(),
+            units: Vec::new(),
             error: Some(format!(
                 "source exceeds bounded facts input ({} bytes, {} lines)",
                 source.len(),
@@ -125,6 +150,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
             symbols: Vec::new(),
+            units: Vec::new(),
             error: Some(format!(
                 "source exceeds bounded facts input ({} bytes, {} lines)",
                 source.len(),
@@ -141,6 +167,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
             symbols: Vec::new(),
+            units: Vec::new(),
             error: Some(error),
             language,
         });
@@ -155,6 +182,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
             symbols: Vec::new(),
+            units: Vec::new(),
             error: Some("tree-sitter returned no syntax tree".to_owned()),
             language,
         });
@@ -172,6 +200,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
         metrics,
         tokens: collector.tokens,
         symbols: collector.symbols,
+        units: collector.java_definitions,
         error,
         language,
     })
@@ -285,6 +314,11 @@ struct FactCollector<'source> {
     key_buffer: String,
     visited_nodes: usize,
     signature_nodes: usize,
+    java_units: Vec<JavaUnitRecord>,
+    java_unit_index: HashMap<usize, usize>,
+    java_unit_parent: HashMap<usize, usize>,
+    java_unit_children: Vec<usize>,
+    java_definitions: Vec<UnitDefinition>,
     error: Option<String>,
     stopped: bool,
 }
@@ -292,6 +326,17 @@ struct JavaStream<'tree> {
     id: usize,
     start_byte: usize,
     units: Vec<Node<'tree>>,
+}
+
+/// One collected Java unit awaiting its children's definitions.  `children`
+/// holds nested unit node IDs in `<unit>` marker visit order; `pending`
+/// bounds the definition ordering work in `finish_java_units`.
+struct JavaUnitRecord {
+    node_id: usize,
+    token: u32,
+    symbol: u32,
+    children: Vec<usize>,
+    pending: usize,
 }
 
 impl<'source> FactCollector<'source> {
@@ -313,6 +358,11 @@ impl<'source> FactCollector<'source> {
             key_buffer: String::with_capacity(256),
             visited_nodes: 0,
             signature_nodes: 0,
+            java_units: Vec::new(),
+            java_unit_index: HashMap::new(),
+            java_unit_parent: HashMap::new(),
+            java_unit_children: Vec::new(),
+            java_definitions: Vec::new(),
             error: None,
             stopped: false,
         }
@@ -497,6 +547,7 @@ impl<'source> FactCollector<'source> {
         let mut streams = self.collect_java_streams(root);
         streams.sort_by_key(|stream| (stream.start_byte, stream.id));
         self.emit_java_streams(streams);
+        self.finish_java_units();
     }
 
     fn collect_java_streams<'tree>(&mut self, root: Node<'tree>) -> Vec<JavaStream<'tree>> {
@@ -590,6 +641,75 @@ impl<'source> FactCollector<'source> {
                 return;
             }
         }
+    }
+
+    /// Orders the recorded unit definitions children-first and freezes them
+    /// into [`SourceFacts::units`].  A unit becomes ready exactly when all
+    /// nested units recorded inside it are defined, so the loop performs
+    /// constant work per unit and per child edge and terminates on any tree.
+    fn finish_java_units(&mut self) {
+        if self.stopped {
+            self.java_units.clear();
+            self.java_unit_index.clear();
+            self.java_unit_parent.clear();
+            self.java_unit_children.clear();
+            return;
+        }
+        let mut records = std::mem::take(&mut self.java_units);
+        let index_by_node = std::mem::take(&mut self.java_unit_index);
+        let parent_of = std::mem::take(&mut self.java_unit_parent);
+        self.java_unit_children.clear();
+        let mut definitions = Vec::with_capacity(records.len());
+        let mut definition_of_record = vec![0_u32; records.len()];
+        let mut ready: Vec<usize> = records
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| record.pending == 0)
+            .map(|(index, _)| index)
+            .collect();
+        let mut cursor = 0;
+        while cursor < ready.len() {
+            let record_index = ready[cursor];
+            cursor += 1;
+            let record = &records[record_index];
+            let mut children = Vec::with_capacity(record.children.len());
+            for child in &record.children {
+                let Some(&child_record) = index_by_node.get(child) else {
+                    self.fail("java unit definition references an unknown child");
+                    self.java_definitions.clear();
+                    return;
+                };
+                children.push(definition_of_record[child_record]);
+            }
+            definition_of_record[record_index] = saturating_u32(definitions.len());
+            definitions.push(UnitDefinition {
+                token: record.token,
+                symbol: record.symbol,
+                children,
+            });
+            if let Some(&parent) = parent_of.get(&record.node_id) {
+                let Some(parent_record) = records.get_mut(parent) else {
+                    self.fail("java unit definition references an unknown parent");
+                    self.java_definitions.clear();
+                    return;
+                };
+                if parent_record.pending == 0 {
+                    self.fail("java unit definition child count underflow");
+                    self.java_definitions.clear();
+                    return;
+                }
+                parent_record.pending -= 1;
+                if parent_record.pending == 0 {
+                    ready.push(parent);
+                }
+            }
+        }
+        if definitions.len() != records.len() {
+            self.fail("java unit definitions are cyclic or incomplete");
+            self.java_definitions.clear();
+            return;
+        }
+        self.java_definitions = definitions;
     }
 
     fn emit_java_stream_barrier(&mut self, node: Node<'_>) {
@@ -733,6 +853,7 @@ impl<'source> FactCollector<'source> {
         self.key_buffer.clear();
         self.key_buffer.push_str("java-unit");
         append_part(&mut self.key_buffer, node.kind());
+        self.java_unit_children.clear();
         let mut stack = vec![(node, true)];
         let mut saw_code = false;
         while let Some((current, is_root)) = stack.pop() {
@@ -750,7 +871,43 @@ impl<'source> FactCollector<'source> {
         if !saw_code {
             self.mark_start(node, true);
         }
+        let token_index = saturating_u32(self.tokens.len());
         self.emit_buffered_token(node);
+        if self.stopped {
+            return;
+        }
+        self.record_java_unit(node, token_index);
+    }
+
+    /// Records one unit's exact compositional definition after its token was
+    /// interned.  The definition carries the own-parts signature symbol plus
+    /// the nested unit nodes recorded at their `<unit>` marker positions;
+    /// the parent links let `finish_java_units` order definitions
+    /// children-first without re-traversing any subtree.
+    fn record_java_unit(&mut self, node: Node<'_>, token: u32) {
+        if self.java_units.len() >= MAX_FACT_TOKENS {
+            self.fail("java unit definitions exceed bounded size");
+            return;
+        }
+        let node_id = node.id();
+        let symbol = self.tokens[token as usize].symbol;
+        let children = std::mem::take(&mut self.java_unit_children);
+        let pending = children.len();
+        let record_index = self.java_units.len();
+        for child in &children {
+            if self.java_unit_parent.insert(*child, record_index).is_some() {
+                self.fail("java unit child has multiple parents");
+                return;
+            }
+        }
+        self.java_units.push(JavaUnitRecord {
+            node_id,
+            token,
+            symbol,
+            children,
+            pending,
+        });
+        self.java_unit_index.insert(node_id, record_index);
     }
 
     fn visit_java_signature_node<'tree>(
@@ -768,6 +925,14 @@ impl<'source> FactCollector<'source> {
         if !is_root && is_java_unit_kind(kind) {
             append_part(&mut self.key_buffer, "<unit>");
             append_part(&mut self.key_buffer, kind);
+            *saw_code = true;
+            // The nested unit keeps its own independently emitted token and
+            // definition.  Recording its node at this exact marker position
+            // preserves the historical flattened marker ordering while the
+            // enclosing signature stops re-traversing nested content, so
+            // every node's normalized parts are emitted exactly once.
+            self.java_unit_children.push(current.id());
+            return;
         }
         if !is_root && is_string_root_kind(kind) {
             self.mark_node(current, true);
@@ -1683,6 +1848,233 @@ type ImportedKeys = keyof import("./module").Widget;
                 .iter()
                 .any(|symbol| symbol.contains("for_statement"))
         );
+    }
+
+    #[test]
+    fn java_deep_nested_signatures_remain_complete() {
+        let depth = 1_500;
+        let mut source = String::from("class C { void f(boolean x) {\n");
+        source.push_str(&"if (x) {\n".repeat(depth));
+        source.push_str("System.out.println(x);\n");
+        source.push_str(&"}\n".repeat(depth));
+        source.push_str("} }\n");
+
+        let facts = facts("deep.java", &source);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert_eq!(facts.units.len(), depth + 1);
+    }
+
+    fn legacy_java_parts(source: &str, node: Node<'_>) -> Vec<String> {
+        let mut parts = vec![node.kind().to_owned()];
+        let mut stack = vec![(node, true)];
+        while let Some((current, is_root)) = stack.pop() {
+            let kind = current.kind();
+            if !is_root && is_comment_kind(kind) {
+                continue;
+            }
+            if !is_root && is_java_unit_kind(kind) {
+                parts.push("<unit>".to_owned());
+                parts.push(kind.to_owned());
+            }
+            if !is_root && is_string_root_kind(kind) {
+                parts.push(
+                    if is_interpolated_kind(kind)
+                        || (kind == "string" && contains_interpolation(current))
+                    {
+                        "<interpolated-string>"
+                    } else {
+                        "<string-literal>"
+                    }
+                    .to_owned(),
+                );
+                continue;
+            }
+            if !is_root && is_atomic_literal_kind(kind) {
+                parts.push(kind.to_owned());
+                parts.push(
+                    current
+                        .utf8_text(source.as_bytes())
+                        .unwrap_or(kind)
+                        .to_owned(),
+                );
+                continue;
+            }
+            if current.child_count() == 0 {
+                if current.is_extra() || is_comment_kind(kind) || is_string_content_kind(kind) {
+                    continue;
+                }
+                let text = current.utf8_text(source.as_bytes()).unwrap_or(kind);
+                if text.is_empty() && current.start_byte() == current.end_byte() {
+                    continue;
+                }
+                parts.push(kind.to_owned());
+                parts.push(if is_layout_kind(kind) {
+                    "<layout>".to_owned()
+                } else {
+                    text.to_owned()
+                });
+            } else {
+                push_children_with_root_flag(&mut stack, current);
+            }
+        }
+        parts
+    }
+
+    fn encoded_parts(symbol: &str) -> Vec<String> {
+        let bytes = symbol.as_bytes();
+        let mut offset = "java-unit".len();
+        let mut parts = Vec::new();
+        while offset < bytes.len() {
+            let Some(colon) = bytes[offset..].iter().position(|byte| *byte == b':') else {
+                panic!("malformed encoded Java unit symbol");
+            };
+            let colon = offset + colon;
+            let length = std::str::from_utf8(&bytes[offset..colon])
+                .expect("ASCII encoded part length")
+                .parse::<usize>()
+                .expect("encoded part length");
+            let start = colon + 1;
+            let end = start + length;
+            parts.push(
+                std::str::from_utf8(&bytes[start..end])
+                    .expect("encoded Java unit part")
+                    .to_owned(),
+            );
+            offset = end + 1;
+        }
+        parts
+    }
+
+    fn expanded_java_parts(facts: &SourceFacts, definition_index: usize) -> Vec<String> {
+        fn expand_tail(
+            facts: &SourceFacts,
+            parts: &[String],
+            children: &[u32],
+            output: &mut Vec<String>,
+        ) {
+            let mut child_index = 0;
+            let mut index = 0;
+            while index < parts.len() {
+                let part = &parts[index];
+                output.push(part.clone());
+                index += 1;
+                if part == "<unit>" {
+                    let kind = parts.get(index).expect("unit marker kind");
+                    output.push(kind.clone());
+                    index += 1;
+                    let child = children
+                        .get(child_index)
+                        .copied()
+                        .expect("child for unit marker") as usize;
+                    child_index += 1;
+                    let child_definition = &facts.units[child];
+                    let child_parts =
+                        encoded_parts(&facts.symbols[child_definition.symbol as usize]);
+                    assert_eq!(child_parts.first(), Some(kind));
+                    expand_tail(facts, &child_parts[1..], &child_definition.children, output);
+                }
+            }
+            assert_eq!(child_index, children.len());
+        }
+
+        let definition = &facts.units[definition_index];
+        let parts = encoded_parts(&facts.symbols[definition.symbol as usize]);
+        let mut output = Vec::new();
+        expand_tail(facts, &parts, &definition.children, &mut output);
+        output
+    }
+
+    #[test]
+    fn java_composition_matches_independent_legacy_normalizer() {
+        let source = "class C { void f() { if (ready) { // ignored\n String value = \"literal\"; alpha(value); } if (other) { beta(); } } }";
+        let facts = facts("legacy.java", source);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        let mut parser = Parser::new();
+        set_parser_language(&mut parser, Language::Java, "java").expect("Java parser");
+        let tree = parser
+            .parse(normalize_java_parser_source(source).as_ref(), None)
+            .expect("Java tree");
+        let mut stack = vec![tree.root_node()];
+        let mut compared = 0;
+        while let Some(node) = stack.pop() {
+            if is_java_unit_kind(node.kind()) {
+                let token = facts
+                    .tokens
+                    .iter()
+                    .position(|token| {
+                        token.start_byte as usize == node.start_byte()
+                            && token.end_byte as usize == node.end_byte()
+                    })
+                    .expect("unit token");
+                let definition_index = facts
+                    .units
+                    .iter()
+                    .position(|definition| definition.token as usize == token)
+                    .expect("unit definition");
+                assert_eq!(
+                    expanded_java_parts(&facts, definition_index),
+                    legacy_java_parts(source, node),
+                    "compositional expansion must preserve every legacy marker position"
+                );
+                compared += 1;
+            }
+            push_children(&mut stack, node);
+        }
+        assert_eq!(compared, facts.units.len());
+    }
+
+    #[test]
+    fn java_nested_units_keep_exact_marker_order_and_children() {
+        let facts = facts(
+            "nested.java",
+            "class C { void f() { if (a) { alpha(); } if (b) { beta(); } } }",
+        );
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert_eq!(facts.units.len(), 4);
+        let mut parents = facts.units.iter().filter(|unit| unit.children.len() == 1);
+        let first = parents.next().expect("first nested parent");
+        let second = parents.next().expect("second nested parent");
+        assert!(parents.next().is_none());
+        assert_ne!(first.token, second.token);
+        let first_symbol = &facts.symbols[first.symbol as usize];
+        let second_symbol = &facts.symbols[second.symbol as usize];
+        let first_marker = first_symbol.find("<unit>").expect("first marker");
+        let second_marker = second_symbol.find("<unit>").expect("second marker");
+        assert!(first_marker < first_symbol.len());
+        assert!(second_marker < second_symbol.len());
+        let first_child = &facts.units[first.children[0] as usize];
+        let second_child = &facts.units[second.children[0] as usize];
+        assert_ne!(
+            facts.symbols[first_child.symbol as usize],
+            facts.symbols[second_child.symbol as usize]
+        );
+    }
+
+    #[test]
+    fn java_same_line_units_keep_distinct_byte_occurrences() {
+        let facts = facts(
+            "same-line.java",
+            "class C { void f() { if (a) { alpha(); } if (b) { beta(); } } }",
+        );
+        let spans: Vec<(u32, u32)> = facts
+            .units
+            .iter()
+            .map(|unit| {
+                let token = &facts.tokens[unit.token as usize];
+                (token.start_byte, token.end_byte)
+            })
+            .collect();
+        assert_eq!(facts.units.len(), 4);
+        assert!(spans.iter().all(|(_, end)| *end > 0));
+        assert_eq!(
+            spans
+                .iter()
+                .map(|(start, _)| *start)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            spans.len()
+        );
+        assert!(facts.tokens.iter().all(|token| token.start_line == 1));
     }
 
     #[test]
