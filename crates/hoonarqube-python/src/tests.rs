@@ -1247,6 +1247,27 @@ fn s4487_single_underscore_issues_are_opt_in() {
     let enabled = scan_with_options(source, &options);
     assert_eq!(findings(&enabled, "python:S4487").len(), 1);
 }
+
+#[test]
+fn s905_report_on_strings_parameter_controls_string_findings() {
+    // Issue #119: the catalog default reportOnStrings=false keeps attribute
+    // documentation strings clean; enabling the parameter restores findings.
+    let source = concat!(
+        "class C:\n",
+        "    value = 1\n",
+        "    \"\"\"Documentation for value.\"\"\"\n",
+    );
+    assert!(
+        findings(&scan(source), "python:S905").is_empty(),
+        "strings stay unreported under the default reportOnStrings=false"
+    );
+    let options = AnalyzerOptions {
+        report_on_strings: true,
+        ..AnalyzerOptions::default()
+    };
+    let enabled = scan_with_options(source, &options);
+    assert_eq!(findings(&enabled, "python:S905").len(), 1);
+}
 // -----------------------------------------------------------------------
 // regex engine + Tier-B regex rules.
 // -----------------------------------------------------------------------

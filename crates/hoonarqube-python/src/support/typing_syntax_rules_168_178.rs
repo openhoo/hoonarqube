@@ -1,6 +1,6 @@
 // --- Typing-syntax rules (#168–#178).
 
-use crate::support::{called_name, for_each_stmt, function_parameters, unmasked_segments};
+use crate::support::{called_name, for_each_stmt, function_parameters};
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
@@ -25,16 +25,20 @@ pub(crate) fn for_each_annotation(module_body: &[Stmt], visit: &mut impl FnMut(&
     });
 }
 
-/// Whether raw (unmasked) source declares PEP 695 `type X = ...` aliases.
-pub(crate) fn pep695_aliases_present(parsed: &Parsed<ModModule>, source: &str) -> bool {
-    unmasked_segments(parsed, source)
-        .iter()
-        .any(|(_, segment)| {
-            segment.lines().any(|line| {
-                let trimmed = line.trim_start();
-                trimmed.starts_with("type ") && trimmed.contains('=')
-            })
-        })
+/// Whether the syntax tree declares PEP 695 `type X = ...` aliases.
+///
+/// Detection is syntax-aware: an ordinary assignment to a variable named
+/// `type` (`type = "file"`) binds a plain name, not an alias declaration,
+/// so it must not enable the PEP 695 gates. Every real `Stmt::TypeAlias`,
+/// including declarations nested in functions or classes, activates them.
+pub(crate) fn pep695_aliases_present(parsed: &Parsed<ModModule>) -> bool {
+    let mut present = false;
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        if matches!(stmt, Stmt::TypeAlias(_)) {
+            present = true;
+        }
+    });
+    present
 }
 
 /// Names bound by `X = TypeVar(...)` assignments anywhere in the tree.

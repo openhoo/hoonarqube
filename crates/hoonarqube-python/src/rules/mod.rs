@@ -296,6 +296,7 @@ pub(crate) fn check_tier_a_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    options: &AnalyzerOptions,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
@@ -326,7 +327,12 @@ pub(crate) fn check_tier_a_battery(
     issues.extend(check_lambda_assignments(index, source, file_ctx));
     issues.extend(check_boundary_slice_comparisons(index, source, file_ctx));
     issues.extend(check_float_equality_comparisons(index, source, file_ctx));
-    issues.extend(check_no_effect_statements(parsed, index, source));
+    issues.extend(check_no_effect_statements(
+        parsed,
+        index,
+        source,
+        options.report_on_strings,
+    ));
     issues.extend(check_exit_signatures(index, source, file_ctx));
     issues.extend(check_init_return_values(index, source, file_ctx));
     issues.extend(check_only_reraise_handlers(index, source, file_ctx));
