@@ -7,11 +7,12 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     CatchClause, Declaration, Expression, MethodDefinition, MethodDefinitionKind, ReturnStatement,
-    Statement,
+    Statement, TryStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_catch_clause, walk_declaration, walk_expression, walk_method_definition,
+    walk_try_statement,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -58,20 +59,14 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
                 );
             }
         }
-        // `S2486`: an empty catch is flagged unless it carries a comment
-        // explaining why the exception is ignored.
-        if it.body.body.is_empty() {
-            let inner = Span::new(it.body.span.start + 1, it.body.span.end.saturating_sub(1));
-            if !span_contains_comment(self.comments, inner) {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S2486",
-                    "Handle this exception or remove this empty catch clause.",
-                    it.body.span(),
-                );
-            }
-        }
         walk_catch_clause(self, it);
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        if let Some(handler) = &it.handler {
+            self.check_s2486(handler, it.block.body.len());
+        }
+        walk_try_statement(self, it);
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
@@ -91,6 +86,40 @@ impl<'a> Visit<'a> for ExceptionHandlingCollector<'a> {
             }
         }
         walk_method_definition(self, it);
+    }
+}
+
+impl<'index> ExceptionHandlingCollector<'index> {
+    /// `S2486`: a comment excuses an empty catch only while the try body
+    /// holds at most one statement. A comment-only catch over a
+    /// multi-statement try body is reported across the catch clause with the
+    /// pinned Sonar way wording, and an uncommented empty catch stays
+    /// reported regardless of the try size.
+    fn check_s2486(&mut self, handler: &CatchClause<'index>, try_statement_count: usize) {
+        if !handler.body.body.is_empty() {
+            return;
+        }
+        let inner = Span::new(
+            handler.body.span.start + 1,
+            handler.body.span.end.saturating_sub(1),
+        );
+        if span_contains_comment(self.comments, inner) {
+            if try_statement_count >= 2 {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S2486",
+                    "Handle this exception or don't catch it at all.",
+                    handler.span(),
+                );
+            }
+        } else {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S2486",
+                "Handle this exception or remove this empty catch clause.",
+                handler.body.span(),
+            );
+        }
     }
 }
 
@@ -244,5 +273,58 @@ function silent() {
             "class A {\n  set value(next) {\n    const f = () => {\n      return next;\n    };\n  }\n}\n",
         );
         assert_eq!(count_key(&nested, "javascript:S2432"), 0);
+    }
+
+    #[test]
+    fn s2486_reports_pinned_axios_comment_only_catch() {
+        // #253: verbatim axios/axios@18e7dfedf30c96e58652887f930642ae82e0130c
+        // lib/helpers/deprecatedMethod.js (MIT). SonarQube 26.8.0.126808
+        // (Sonar way) reports the comment-only catch at lines 28-30 because
+        // its try body holds two statements.
+        let report = js(include_str!(
+            "../../../fixtures/shapes/axios-deprecated-method.js"
+        ));
+        let sites: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S2486")
+            .map(|issue| {
+                (
+                    (issue.range.start.line, issue.range.start.column),
+                    (issue.range.end.line, issue.range.end.column),
+                    issue.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sites,
+            vec![(
+                (28, 4),
+                (30, 3),
+                "Handle this exception or don't catch it at all."
+            )]
+        );
+    }
+
+    #[test]
+    fn s2486_scales_comment_only_catch_tolerance_with_try_size() {
+        // Same-server control shapes: a single-statement try body keeps the
+        // comment-only catch tolerated, a two-statement body does not.
+        let single = "function one() {\n  try {\n    doOne();\n  } catch (error) {\n    /* Ignore */\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(single), "javascript:S2486"), 0);
+
+        let two = "function two() {\n  try {\n    doOne();\n    doTwo();\n  } catch (error) {\n    /* Ignore */\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(two), "javascript:S2486"), 1);
+
+        let handled = "function handled() {\n  try {\n    doOne();\n  } catch (error) {\n    log(error);\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(handled), "javascript:S2486"), 0);
+
+        // A zero-statement try body stays tolerated.
+        let zero = "function zero() {\n  try {\n  } catch (error) {\n    /* Ignore */\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(zero), "javascript:S2486"), 0);
+
+        // An uncommented empty catch stays flagged regardless of the try size.
+        let empty = "function empty() {\n  try {\n    doOne();\n    doTwo();\n  } catch (error) {\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(empty), "javascript:S2486"), 1);
     }
 }

@@ -550,7 +550,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.mark_required_parentheses(&it.callee, Precedence::Call, false);
-        check_member_calls(&mut self.sink, it);
+        check_member_calls(&mut self.sink, it, self.semantic);
         check_plain_calls(&mut self.sink, it, self.semantic);
         if callee_name(it).is_some_and(|name| name == "Boolean")
             && it.arguments.len() == 1
@@ -675,12 +675,16 @@ fn is_bitwise_operator(operator: BinaryOperator) -> bool {
 
 /// Member-call rules: `S106`, `S1442`, `S6637`, `S6676`, `S6666`, `S6959`,
 /// `S2871`, `S6653`, `S2685`, `S6654`, and `S6661`.
-fn check_member_calls(sink: &mut IssueSink, it: &CallExpression<'_>) {
+fn check_member_calls(
+    sink: &mut IssueSink,
+    it: &CallExpression<'_>,
+    semantic: Option<&Semantic<'_>>,
+) {
     let Some((property, member)) = call_property(it) else {
         return;
     };
     check_logging_and_binding_calls(sink, it, property, member);
-    check_collection_and_object_calls(sink, it, property, member);
+    check_collection_and_object_calls(sink, it, property, member, semantic);
 }
 
 /// Legacy octal escapes (`\101`), including `\0`-prefixed forms.
