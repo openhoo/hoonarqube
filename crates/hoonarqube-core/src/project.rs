@@ -524,6 +524,7 @@ mod tests {
                 end_byte: 5,
             }],
             symbols: vec!["value".to_string()],
+            units: Vec::new(),
             error: error.map(str::to_string),
             language: Language::Python,
         }

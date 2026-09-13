@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::Language;
-use crate::source_facts::SourceFacts;
+use crate::source_facts::{SourceFacts, UnitDefinition};
 
 /// Limits and thresholds used by [`detect_duplications`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +129,33 @@ struct WindowKey {
     length: usize,
     hash_a: u64,
     hash_b: u64,
+}
+
+/// Exact structural identity for a Java unit. `own` is already canonical
+/// through the project-wide string interner; child IDs are canonical keys
+/// produced for definitions earlier in the post-order vector. The derived
+/// hash is only a bucket index: equality remains exact key equality.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct UnitKey {
+    own: u32,
+    children: Vec<u32>,
+}
+
+fn is_java_unit_symbol(symbol: &str) -> bool {
+    let Some(encoded) = symbol.strip_prefix("java-unit") else {
+        return false;
+    };
+    let Some((length_text, payload)) = encoded.split_once(':') else {
+        return false;
+    };
+    let Ok(length) = length_text.parse::<usize>() else {
+        return false;
+    };
+    length_text == length.to_string()
+        && payload
+            .as_bytes()
+            .get(length)
+            .is_some_and(|byte| *byte == b'|')
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,12 +309,14 @@ fn prepare_files(
     });
     let total_tokens = validate_input_files(files, &order, options)?;
     let mut interner: HashMap<String, u32> = HashMap::new();
+    let mut unit_interner: HashMap<UnitKey, u32> = HashMap::new();
     let mut next_symbol_id = 0_u64;
     let mut prepared = Vec::with_capacity(files.len());
     for &index in &order {
         prepared.push(build_prepared_file(
             &files[index],
             &mut interner,
+            &mut unit_interner,
             &mut next_symbol_id,
         )?);
     }
@@ -338,6 +367,7 @@ fn validate_input_files(
 fn build_prepared_file(
     file: &DuplicationFile,
     interner: &mut HashMap<String, u32>,
+    unit_interner: &mut HashMap<UnitKey, u32>,
     next_symbol_id: &mut u64,
 ) -> Result<PreparedFile, String> {
     let facts = &file.facts;
@@ -371,6 +401,23 @@ fn build_prepared_file(
         };
         ids.push(id);
     }
+    if facts.language == Language::Java || !facts.units.is_empty() {
+        let mut composition = UnitComposition {
+            path: &file.path,
+            facts,
+            ids: &mut ids,
+            unit_interner,
+            next_symbol_id,
+            definition_ids: Vec::with_capacity(facts.units.len()),
+            seen_tokens: HashSet::with_capacity(facts.units.len()),
+            parent_of: vec![None; facts.units.len()],
+            child_edges: 0,
+        };
+        for (definition_index, definition) in facts.units.iter().enumerate() {
+            composition.compose_definition(definition_index, definition)?;
+        }
+        composition.require_exact_coverage()?;
+    }
 
     let mut starts = Vec::with_capacity(ids.len());
     let mut ends = Vec::with_capacity(ids.len());
@@ -396,6 +443,177 @@ fn build_prepared_file(
         prefix_a,
         prefix_b,
     })
+}
+
+/// Per-file state while Java unit definitions are validated and composed
+/// into structural unit IDs.  Definitions are consumed in post-order, so
+/// every child's composed ID already exists when its parent needs it; the
+/// `ids` slots of unit tokens are rewritten to the composed structural IDs.
+struct UnitComposition<'a> {
+    path: &'a std::path::Path,
+    facts: &'a SourceFacts,
+    ids: &'a mut [u32],
+    unit_interner: &'a mut HashMap<UnitKey, u32>,
+    next_symbol_id: &'a mut u64,
+    definition_ids: Vec<u32>,
+    seen_tokens: HashSet<usize>,
+    parent_of: Vec<Option<usize>>,
+    child_edges: usize,
+}
+
+impl UnitComposition<'_> {
+    fn invalid(&self, definition_index: usize, detail: &str) -> String {
+        format!(
+            "duplication unit definition {definition_index} {detail} for {}",
+            self.path.display()
+        )
+    }
+
+    fn compose_definition(
+        &mut self,
+        definition_index: usize,
+        definition: &UnitDefinition,
+    ) -> Result<(), String> {
+        let (token_index, own) = self.validate_header(definition_index, definition)?;
+        self.child_edges = self
+            .child_edges
+            .checked_add(definition.children.len())
+            .ok_or_else(|| "duplication unit definition edge count overflows usize".to_owned())?;
+        if self.child_edges > self.facts.tokens.len() {
+            return Err(self.invalid(
+                definition_index,
+                "definitions exceed bounded child-edge storage",
+            ));
+        }
+        if definition.children.len() > self.facts.tokens.len() {
+            return Err(self.invalid(definition_index, "exceeds child bound"));
+        }
+        let children = self.validate_children(definition_index, definition)?;
+        let key = UnitKey { own, children };
+        let id = if let Some(&id) = self.unit_interner.get(&key) {
+            id
+        } else {
+            let id = allocate_symbol_id(self.next_symbol_id)?;
+            self.unit_interner.insert(key, id);
+            id
+        };
+        self.definition_ids.push(id);
+        // `validate_header` verified the token index is within range.
+        self.ids[token_index] = id;
+        Ok(())
+    }
+
+    /// Validates one definition's token and own-parts symbol and returns the
+    /// token index plus the token's current own-parts ID.
+    fn validate_header(
+        &mut self,
+        definition_index: usize,
+        definition: &UnitDefinition,
+    ) -> Result<(usize, u32), String> {
+        let token_index = usize::try_from(definition.token)
+            .map_err(|_| self.invalid(definition_index, "token is out of range"))?;
+        let Some(token) = self.facts.tokens.get(token_index) else {
+            return Err(self.invalid(definition_index, "token is out of range"));
+        };
+        let Some(&own) = self.ids.get(token_index) else {
+            return Err(self.invalid(definition_index, "token is out of range"));
+        };
+        let Some(symbol_text) = usize::try_from(definition.symbol)
+            .ok()
+            .and_then(|symbol| self.facts.symbols.get(symbol))
+        else {
+            return Err(self.invalid(definition_index, "symbol is out of range"));
+        };
+        if !is_java_unit_symbol(symbol_text)
+            || token.symbol != definition.symbol
+            || !self.seen_tokens.insert(token_index)
+        {
+            return Err(self.invalid(definition_index, "has an inconsistent token"));
+        }
+        Ok((token_index, own))
+    }
+
+    /// Validates one definition's child references (precedence, ordering,
+    /// spans, single parenthood) and returns their composed unit IDs.
+    fn validate_children(
+        &mut self,
+        definition_index: usize,
+        definition: &UnitDefinition,
+    ) -> Result<Vec<u32>, String> {
+        let token_index = usize::try_from(definition.token)
+            .map_err(|_| self.invalid(definition_index, "token is out of range"))?;
+        let (parent_start, parent_end) = {
+            let token = &self.facts.tokens[token_index];
+            (token.start_byte, token.end_byte)
+        };
+        let mut previous_end = parent_start;
+        let mut children = Vec::with_capacity(definition.children.len());
+        for &child in &definition.children {
+            let child_index = usize::try_from(child)
+                .map_err(|_| self.invalid(definition_index, "child is out of range"))?;
+            if child_index >= definition_index {
+                return Err(self.invalid(definition_index, "references a non-preceding child"));
+            }
+            let Some(child_definition) = self.facts.units.get(child_index) else {
+                return Err(self.invalid(definition_index, "references an unavailable child"));
+            };
+            let (child_start, child_end) =
+                self.child_token_span(definition_index, child_definition)?;
+            if child_start < parent_start
+                || child_end > parent_end
+                || child_start < previous_end
+                || self.parent_of[child_index]
+                    .replace(definition_index)
+                    .is_some()
+            {
+                return Err(self.invalid(definition_index, "child spans or parents are invalid"));
+            }
+            previous_end = child_end;
+            let Some(&child_id) = self.definition_ids.get(child_index) else {
+                return Err(self.invalid(definition_index, "references an unavailable child"));
+            };
+            children.push(child_id);
+        }
+        Ok(children)
+    }
+
+    fn child_token_span(
+        &self,
+        definition_index: usize,
+        child_definition: &UnitDefinition,
+    ) -> Result<(u32, u32), String> {
+        let child_token_index = usize::try_from(child_definition.token)
+            .map_err(|_| self.invalid(definition_index, "child token is out of range"))?;
+        let Some(child_token) = self.facts.tokens.get(child_token_index) else {
+            return Err(self.invalid(definition_index, "child token is out of range"));
+        };
+        Ok((child_token.start_byte, child_token.end_byte))
+    }
+
+    /// Requires the definitions to cover exactly the tokens whose symbol is
+    /// a Java unit signature, so partially defined files fail closed.
+    fn require_exact_coverage(&self) -> Result<(), String> {
+        let expected_tokens: HashSet<usize> = self
+            .facts
+            .tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| {
+                usize::try_from(token.symbol)
+                    .ok()
+                    .and_then(|symbol| self.facts.symbols.get(symbol))
+                    .is_some_and(|symbol| is_java_unit_symbol(symbol))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if expected_tokens != self.seen_tokens {
+            return Err(format!(
+                "duplication Java unit definitions do not cover all unit tokens in {}",
+                self.path.display()
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn build_hash_prefix(ids: &[u32], base: u64) -> Result<Vec<u64>, String> {
@@ -1364,10 +1582,10 @@ mod tests {
         detect_duplications, insert_coverage,
     };
     use crate::Language;
-    use crate::source_facts::{NormalizedToken, SourceFacts};
+    use crate::source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
     use hoonarqube_ir::FileMetrics;
     use std::collections::{BTreeMap, HashMap};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn facts(
         language: Language,
@@ -1403,6 +1621,7 @@ mod tests {
                 comment_lines: 0,
             },
             tokens,
+            units: Vec::new(),
             symbols,
             error: None,
             language,
@@ -1810,5 +2029,69 @@ mod tests {
             ..DuplicationOptions::default()
         };
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn java_identical_nested_units_match_at_ten_statements() {
+        let body = (0..10)
+            .map(|_| "if (x) { foo(); }")
+            .collect::<Vec<_>>()
+            .join(" ");
+        let source = format!("class C {{ void f() {{ {body} }} }}");
+        let left = collect_source_facts(Path::new("left.java"), &source).expect("java facts");
+        let right = collect_source_facts(Path::new("right.java"), &source).expect("java facts");
+        let files = vec![
+            DuplicationFile {
+                path: PathBuf::from("left.java"),
+                language: Language::Java,
+                facts: left,
+            },
+            DuplicationFile {
+                path: PathBuf::from("right.java"),
+                language: Language::Java,
+                facts: right,
+            },
+        ];
+        let result = detect_duplications(&files, &options(10, 1)).expect("java detection");
+        let body_start = u32::try_from(source.find(&body).expect("nested statement body"))
+            .expect("small fixture offset");
+        let body_end = body_start + u32::try_from(body.len()).expect("small fixture body");
+        assert!(result.groups.iter().any(|group| {
+            group.language == "java"
+                && ["left.java", "right.java"].iter().all(|path| {
+                    group.occurrences.iter().any(|occurrence| {
+                        occurrence.path == Path::new(path)
+                            && occurrence.start_byte <= body_start
+                            && occurrence.end_byte >= body_end
+                    })
+                })
+        }));
+    }
+
+    #[test]
+    fn java_different_nested_units_do_not_match_nine_statement_tail() {
+        let tail = (0..9)
+            .map(|index| format!("int value{index} = {index};"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let left_source = format!("class C {{ void f() {{ if (x) {{ foo(); }} {tail} }} }}");
+        let right_source = format!("class C {{ void f() {{ if (x) {{ bar(); }} {tail} }} }}");
+        let left = collect_source_facts(Path::new("left.java"), &left_source).expect("java facts");
+        let right =
+            collect_source_facts(Path::new("right.java"), &right_source).expect("java facts");
+        let files = vec![
+            DuplicationFile {
+                path: PathBuf::from("left.java"),
+                language: Language::Java,
+                facts: left,
+            },
+            DuplicationFile {
+                path: PathBuf::from("right.java"),
+                language: Language::Java,
+                facts: right,
+            },
+        ];
+        let result = detect_duplications(&files, &options(10, 1)).expect("java detection");
+        assert!(result.groups.is_empty());
     }
 }

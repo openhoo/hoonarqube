@@ -646,6 +646,7 @@ fn duplication_inputs(
                         comment_lines: 0,
                     },
                     symbols,
+                    units: Vec::new(),
                     tokens,
                     error: None,
                 },
