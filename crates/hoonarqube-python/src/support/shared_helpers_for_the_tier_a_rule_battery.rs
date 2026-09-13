@@ -3,6 +3,10 @@
 use crate::support::to_u32;
 use ruff_python_ast::ExceptHandler;
 use ruff_python_ast::Expr;
+use ruff_python_ast::FStringPart;
+use ruff_python_ast::FStringValue;
+use ruff_python_ast::InterpolatedStringElement;
+use ruff_python_ast::InterpolatedStringElements;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
@@ -11,6 +15,7 @@ use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtMatch;
 use ruff_python_ast::StmtTypeAlias;
 use ruff_python_ast::StmtWith;
+use ruff_python_ast::TStringValue;
 use ruff_python_ast::TypeParam;
 use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::Parsed;
@@ -73,8 +78,10 @@ pub(crate) fn for_each_stmt<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a St
     }
 }
 
-/// Direct child expressions of an expression. FString/TString interiors are
-/// intentionally opaque: their literal parts are not visited.
+/// Direct child expressions of an expression. FString/TString literal text
+/// segments are intentionally opaque, but every interpolation expression is a
+/// child: Python evaluates interpolations (and their nested format specs) when
+/// it evaluates the string.
 pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
     let mut children: Vec<&Expr> = Vec::new();
     match expr {
@@ -152,9 +159,44 @@ pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
                 children.push(bound);
             }
         }
+        Expr::FString(e) => push_fstring_exprs(&e.value, &mut children),
+        Expr::TString(e) => push_tstring_exprs(&e.value, &mut children),
         _ => {}
     }
     children
+}
+
+/// Interpolation expressions of an f-string value's f-string parts; plain
+/// literal parts stay opaque.
+fn push_fstring_exprs<'a>(value: &'a FStringValue, children: &mut Vec<&'a Expr>) {
+    for part in value.as_slice() {
+        if let FStringPart::FString(fstring) = part {
+            push_interpolation_exprs(&fstring.elements, children);
+        }
+    }
+}
+
+/// Interpolation expressions of a t-string value's t-string parts.
+fn push_tstring_exprs<'a>(value: &'a TStringValue, children: &mut Vec<&'a Expr>) {
+    for tstring in value.as_slice() {
+        push_interpolation_exprs(&tstring.elements, children);
+    }
+}
+
+/// Interpolation expressions of an interpolated string, including the
+/// expressions of nested format specs. Literal text elements stay opaque.
+fn push_interpolation_exprs<'a>(
+    elements: &'a InterpolatedStringElements,
+    children: &mut Vec<&'a Expr>,
+) {
+    for element in elements {
+        if let InterpolatedStringElement::Interpolation(interpolation) = element {
+            children.push(&interpolation.expression);
+            if let Some(format_spec) = &interpolation.format_spec {
+                push_interpolation_exprs(&format_spec.elements, children);
+            }
+        }
+    }
 }
 
 fn push_generator_exprs<'a>(
@@ -203,7 +245,8 @@ pub(crate) fn for_each_stmt_expr_in_scope<'a>(stmts: &'a [Stmt], visit: &mut imp
 }
 
 /// Top-level expressions carried directly by a statement (decorators,
-/// annotations, defaults, tests, targets, values, ...).
+/// annotations, defaults, tests, targets, values, assert messages, except
+/// selectors, ...).
 pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
     let mut exprs: Vec<&Expr> = Vec::new();
     match stmt {
@@ -236,7 +279,16 @@ pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
             exprs.extend(s.exc.as_deref());
             exprs.extend(s.cause.as_deref());
         }
-        Stmt::Assert(s) => exprs.push(&s.test),
+        Stmt::Assert(s) => {
+            exprs.push(&s.test);
+            exprs.extend(s.msg.as_deref());
+        }
+        Stmt::Try(s) => {
+            for handler in &s.handlers {
+                let ExceptHandler::ExceptHandler(handler) = handler;
+                exprs.extend(handler.type_.as_deref());
+            }
+        }
         Stmt::Expr(s) => exprs.push(&s.value),
         Stmt::TypeAlias(type_alias) => push_type_alias_exprs(type_alias, &mut exprs),
         _ => {}
