@@ -37,7 +37,7 @@ pub(crate) mod shared_lock_targets;
 pub(crate) mod shift_right_operand_kinds;
 pub(crate) mod static_iv_usage;
 pub(crate) mod static_password_salts;
-mod support;
+pub(crate) mod support;
 mod walker;
 
 pub(crate) use support::parameter_units;

@@ -349,6 +349,7 @@ pub(crate) fn analyze_project_paths(
     warnings: &mut Vec<String>,
 ) -> Result<hoonarqube_ir::AnalysisReport, String> {
     let mut collected = collect_project_inputs(paths, project_options, warnings);
+    let options = &with_csharp_project_index(options, &collected);
     let semantic = load_project_semantic_context(
         project_options,
         options,
@@ -394,6 +395,46 @@ pub(crate) fn analyze_project_paths(
         project_options,
     );
     Ok(report)
+}
+
+/// Builds one immutable C# project type index per scan and attaches it to
+/// the analyzer options, so project-scope C# rules (`csharpsquid:S4019`)
+/// resolve hidden base methods across accepted source files. Runs without a
+/// project index keep the strictly per-file behavior; the GitHub Code
+/// Quality profile never consults the index.
+fn with_csharp_project_index(
+    options: &AnalyzerOptionsBundle,
+    collected: &CollectedProjectInputs,
+) -> AnalyzerOptionsBundle {
+    if options.profile == hoonarqube_catalog::RuleProfile::GithubCodeQuality {
+        return options.clone();
+    }
+    let csharp_paths: Vec<PathBuf> = collected
+        .pending
+        .iter()
+        .filter(|input| {
+            hoonarqube_core::language_for_path(&input.path) == Some(Language::CSharp)
+                && !hoonarqube_core::is_razor_path(&input.path)
+        })
+        .map(|input| input.path.clone())
+        .collect();
+    if csharp_paths.len() < 2 {
+        return options.clone();
+    }
+    let mut snapshots = Vec::with_capacity(csharp_paths.len());
+    for path in &csharp_paths {
+        if let Ok(source) = fs::read_to_string(path) {
+            snapshots.push(hoonarqube_csharp::SourceSnapshot::new(path.clone(), source));
+        }
+    }
+    if snapshots.len() < 2 {
+        return options.clone();
+    }
+    let mut options = options.clone();
+    options.csharp.project_type_index = Some(std::sync::Arc::new(
+        hoonarqube_csharp::ProjectTypeIndex::build(&snapshots),
+    ));
+    options
 }
 
 fn append_unsupported_inventory(

@@ -89,6 +89,11 @@ pub struct AnalyzerOptions {
     /// `csharpsquid:S6418` `randomnessSensibility`: distinct character
     /// classes required inside a suspected secret literal.
     pub secret_randomness_sensibility: u32,
+    /// Syntax-level cross-file type index of the accepted project sources,
+    /// built once per project scan. It extends base-type resolution of
+    /// project-scope rules (`csharpsquid:S4019`) beyond the analyzed file;
+    /// `None` keeps strictly per-file behavior.
+    pub project_type_index: Option<std::sync::Arc<ProjectTypeIndex>>,
 }
 
 impl Default for AnalyzerOptions {
@@ -127,6 +132,7 @@ impl Default for AnalyzerOptions {
                 "token".to_string(),
             ],
             secret_randomness_sensibility: 3,
+            project_type_index: None,
         }
     }
 }
@@ -215,7 +221,7 @@ pub fn analyze(
         root, source, language,
     ));
     issues.extend(rules::tier_c::tier_c_heuristic_issues(
-        root, source, language,
+        root, source, language, options,
     ));
     let mut report = hoonarqube_ir::FileReport {
         path,
@@ -588,12 +594,14 @@ fn parse(source: &str) -> tree_sitter::Tree {
 mod cst;
 mod github_quality;
 mod metrics;
+mod project_index;
 mod rules;
 mod symbol_table;
 
 pub(crate) mod quickfix;
 pub mod semantic;
 pub mod semantic_quickfix;
+pub use project_index::ProjectTypeIndex;
 pub use semantic::{
     BUNDLED_HELPER_NUGET_CONFIG, BUNDLED_HELPER_PROGRAM, BUNDLED_HELPER_PROJECT,
     BUNDLED_HELPER_QUICKFIX_PLANNER, BaseTypeSuggestionFact, BlazorLambdaFact, CastFact,
