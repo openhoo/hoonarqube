@@ -208,37 +208,11 @@ impl<'a> Measurer<'a> {
                 // enclosing cognitive score without inflating its
                 // cyclomatic count.
                 Stmt::FunctionDef(function) => {
-                    let level = match self.frames.last() {
-                        Some(Frame::Function(body)) if is_wrapper_function(body, stmt) => {
-                            self.nesting
-                        }
-                        Some(Frame::Function(_)) => self.nesting + 1,
-                        // Class bodies and the file root reset the level.
-                        _ => 0,
-                    };
-                    let saved_nesting = self.nesting;
-                    let saved_definitions = self.nested_definitions;
-                    self.nesting = level;
-                    self.nested_definitions += 1;
-                    self.frames.push(Frame::Function(&function.body));
-                    self.walk_suite(&function.body);
-                    self.frames.pop();
-                    self.nested_definitions = saved_definitions;
-                    self.nesting = saved_nesting;
+                    self.walk_nested_function(function, stmt);
                     continue;
                 }
                 Stmt::ClassDef(_) => {
-                    let saved_nesting = self.nesting;
-                    let saved_definitions = self.nested_definitions;
-                    self.nesting = 0;
-                    self.nested_definitions += 1;
-                    self.frames.push(Frame::Class);
-                    for body in child_bodies(stmt) {
-                        self.walk_suite(body);
-                    }
-                    self.frames.pop();
-                    self.nested_definitions = saved_definitions;
-                    self.nesting = saved_nesting;
+                    self.walk_nested_class(stmt);
                     continue;
                 }
                 Stmt::If(if_) => {
@@ -430,6 +404,46 @@ impl<'a> Measurer<'a> {
             pending.push(ExprWork::Visit(&generator.iter));
             pending.push(ExprWork::Visit(&generator.target));
         }
+    }
+
+    /// Rolls one nested function definition into the enclosing cognitive
+    /// score at the `SonarPython` level: a wrapper parent lends its own level,
+    /// any other function parent adds one, and a class parent resets to 0.
+    fn walk_nested_function(
+        &mut self,
+        function: &'a ruff_python_ast::StmtFunctionDef,
+        stmt: &'a Stmt,
+    ) {
+        let level = match self.frames.last() {
+            Some(Frame::Function(body)) if is_wrapper_function(body, stmt) => self.nesting,
+            Some(Frame::Function(_)) => self.nesting + 1,
+            _ => 0,
+        };
+        let saved_nesting = self.nesting;
+        let saved_definitions = self.nested_definitions;
+        self.nesting = level;
+        self.nested_definitions += 1;
+        self.frames.push(Frame::Function(&function.body));
+        self.walk_suite(&function.body);
+        self.frames.pop();
+        self.nested_definitions = saved_definitions;
+        self.nesting = saved_nesting;
+    }
+
+    /// Rolls one nested class definition into the enclosing cognitive score;
+    /// class bodies reset the nesting level to zero.
+    fn walk_nested_class(&mut self, stmt: &'a Stmt) {
+        let saved_nesting = self.nesting;
+        let saved_definitions = self.nested_definitions;
+        self.nesting = 0;
+        self.nested_definitions += 1;
+        self.frames.push(Frame::Class);
+        for body in child_bodies(stmt) {
+            self.walk_suite(body);
+        }
+        self.frames.pop();
+        self.nested_definitions = saved_definitions;
+        self.nesting = saved_nesting;
     }
 }
 
