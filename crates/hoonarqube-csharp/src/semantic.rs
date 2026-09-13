@@ -2642,6 +2642,148 @@ foreach (object value in new[] { a, b, c, d }) Console.WriteLine($"{value.GetTyp
         );
     }
 
+    /// Refusal harness for inputs that keep their finding but must not
+    /// receive any fix action: the projected source must stay byte identical
+    /// and keep its runtime output.
+    fn assert_native_refusal_preserves_runtime(
+        label: &str,
+        source: &str,
+        key: &str,
+        action_id: &str,
+        expected_stdout: &str,
+    ) {
+        let fixture = RuntimeQuickFixFixture::new(label, source);
+        let before = fixture.stdout(source);
+        assert_eq!(
+            before, expected_stdout,
+            "original runtime output for {label}"
+        );
+        let report = fixture.native_report(source);
+        assert_eq!(
+            runtime_rule_count(&report, key),
+            1,
+            "the unsafe input must keep its original {key} finding for {label}: {:?}",
+            report.issues
+        );
+        let actions: Vec<_> = report
+            .issues
+            .iter()
+            .flat_map(|issue| issue.alternatives.iter())
+            .filter(|action| action.id == action_id)
+            .collect();
+        assert!(
+            actions.is_empty(),
+            "unsafe {action_id} must be refused for {label}: {actions:?}"
+        );
+        let after = fixture.stdout(source);
+        assert_eq!(
+            after, before,
+            "refusal must preserve runtime output for {label}"
+        );
+    }
+
+    #[test]
+    fn issue109_s3257_refuses_object_corruption_and_keeps_identity_removals() {
+        const UNSAFE: &str = r"using System;
+public static class Program
+{
+    public static void Main()
+    {
+        var values = new object[] { 1, 2 };
+        Console.WriteLine(values.GetType().Name);
+    }
+}
+";
+        const CASTS: &str = r"using System;
+public static class Program
+{
+    public static void Main()
+    {
+        var values = new object[] { (object)1, (object)2 };
+        Console.WriteLine(values.GetType().Name);
+    }
+}
+";
+        const INTS: &str = r"using System;
+public static class Program
+{
+    public static void Main()
+    {
+        var values = new int[] { 1, 2 };
+        Console.WriteLine(values.GetType().Name);
+    }
+}
+";
+        assert_native_refusal_preserves_runtime(
+            "issue109-object-array-corruption",
+            UNSAFE,
+            "csharpsquid:S3257",
+            "csharp.s3257.remove-array-element-type",
+            "Object[]\n",
+        );
+
+        assert_native_runtime_contract(
+            "issue109-object-array-casts",
+            CASTS,
+            "csharpsquid:S3257",
+            "csharp.s3257.remove-array-element-type",
+            1,
+            "Object[]\n",
+        );
+
+        assert_native_runtime_contract(
+            "issue109-int-array-identity",
+            INTS,
+            "csharpsquid:S3257",
+            "csharp.s3257.remove-array-element-type",
+            1,
+            "Int32[]\n",
+        );
+    }
+
+    #[test]
+    fn issue110_s3261_preserves_adjacent_type_and_solitary_removal() {
+        const SAME_LINE: &str = r#"using System;
+namespace Rev { } public class Review { public int Api => 1; }
+public static class Program
+{
+    public static void Main()
+    {
+        var review = new Review();
+        Console.WriteLine($"{review.Api}:{typeof(Review).Namespace == null}");
+    }
+}
+"#;
+        const SOLITARY: &str = r#"using System;
+namespace Rev
+{
+}
+public static class Program
+{
+    public static void Main()
+    {
+        Console.WriteLine("stable");
+    }
+}
+"#;
+        assert_native_runtime_contract(
+            "issue110-same-line-namespace",
+            SAME_LINE,
+            "csharpsquid:S3261",
+            "csharp.s3261.remove-empty-namespace",
+            1,
+            "1:True\n",
+        );
+        assert_native_runtime_contract(
+            "issue110-solitary-namespace",
+            SOLITARY,
+            "csharpsquid:S3261",
+            "csharp.s3261.remove-empty-namespace",
+            1,
+            "stable\n",
+        );
+    }
+
     #[derive(Debug)]
     struct ExpectedSemanticFinding {
         case: &'static str,
