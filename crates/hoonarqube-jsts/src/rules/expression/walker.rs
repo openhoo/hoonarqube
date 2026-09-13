@@ -12,7 +12,9 @@ use super::s1314_numeric_literal::check_numeric_literal;
 use super::s1442_plain_calls::check_plain_calls;
 use super::s1528_constructor_calls::{check_constructor_calls, check_type_wrapper};
 use super::s2424_assignment_rules::{check_assignment_rules, check_sign_swap};
-use super::s2692_index_of_comparisons::check_index_of_comparisons;
+use super::s2692_index_of_comparisons::{
+    check_direct_index_comparison, check_index_of_comparisons,
+};
 use super::s3003_relational_strings::check_relational_strings;
 use super::s3981_length_comparison::check_length_comparison;
 use super::s4125_typeof_literal::check_typeof_literal;
@@ -370,6 +372,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         }
         check_binary_operators(&mut self.sink, self.source, it);
         check_index_of_comparisons(&mut self.sink, it);
+        check_direct_index_comparison(&mut self.sink, self.source, it);
         check_length_comparison(&mut self.sink, it);
         check_relational_strings(&mut self.sink, it);
         check_typeof_literal(&mut self.sink, it);

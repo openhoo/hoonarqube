@@ -559,6 +559,51 @@ mod tests {
     }
 
     #[test]
+    fn negated_or_guards_rewrite_to_optional_chaining() {
+        // #249: the De Morgan dual of the supported `&&` guards — an `||`
+        // chain whose operands are single negations over the same root.
+        // The pinned Express guard reports exactly once, at the outermost
+        // span.
+        let pinned = js_keys("if (!fn || !fn.handle || !fn.set) {\n  g();\n}\n");
+        assert_eq!(count_key(&pinned, "javascript:S6582"), 1);
+
+        let two_clause = js_keys("if (!a || !a.b) {\n  g();\n}\n");
+        assert_eq!(count_key(&two_clause, "javascript:S6582"), 1);
+
+        // Operands that are not negations, negations over a different
+        // root, or double negations stay outside the supported family.
+        let mixed_roots = js_keys("if (!a || !b.c) {\n  g();\n}\n");
+        assert_eq!(count_key(&mixed_roots, "javascript:S6582"), 0);
+
+        let unnegated = js_keys("if (a || a.b) {\n  g();\n}\n");
+        assert_eq!(count_key(&unnegated, "javascript:S6582"), 0);
+
+        let half_guard = js_keys("if (!a || b.c) {\n  g();\n}\n");
+        assert_eq!(count_key(&half_guard, "javascript:S6582"), 0);
+
+        let double_negation = js_keys("if (!!a || !!a.b) {\n  g();\n}\n");
+        assert_eq!(count_key(&double_negation, "javascript:S6582"), 0);
+    }
+
+    #[test]
+    fn s6582_reports_pinned_express_negated_or_guard() {
+        // #249: verbatim expressjs/express@53d4a0d606c0388f764f192b306ce0e90200e7e8
+        // lib/application.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
+        // reports exactly one S6582 in this file, the negated-OR member
+        // guard at line 221.
+        let report = js(include_str!(
+            "../../../fixtures/shapes/express-application.js"
+        ));
+        let sites: Vec<(u32, u32)> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6582")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(sites, vec![(221, 8)]);
+    }
+
+    #[test]
     fn match_with_non_global_regex_prefers_exec() {
         let flagged = js_keys("const one = text.match(/ab/);\n");
         assert_eq!(count_key(&flagged, "javascript:S6594"), 1);
