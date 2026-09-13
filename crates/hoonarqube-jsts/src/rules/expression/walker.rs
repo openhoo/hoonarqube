@@ -482,7 +482,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         self.mark_required_parentheses(receiver, Precedence::Member, false);
         match &it.left {
             AssignmentTarget::StaticMemberExpression(member) => {
-                self.visit_expression(&member.object)
+                self.visit_expression(&member.object);
             }
             AssignmentTarget::ComputedMemberExpression(member) => {
                 self.visit_expression(&member.object);

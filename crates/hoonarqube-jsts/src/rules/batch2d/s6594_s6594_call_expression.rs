@@ -5,9 +5,9 @@ use crate::support::{IssueSink, LineIndex, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingIdentifier, CallExpression, Declaration, Expression, ImportDeclaration,
-    ImportDeclarationSpecifier, MemberExpression, ModuleExportName, RegExpFlags, Statement,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    BindingIdentifier, CallExpression, Declaration, ExportNamedDeclaration, Expression,
+    ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, ModuleExportName, RegExpFlags,
+    Statement, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_call_expression, walk_variable_declaration};
@@ -296,11 +296,11 @@ impl S6594RegexConstants {
 
 /// Relative specifiers only; bare and absolute imports stay opaque.
 fn resolve_module_path(base: &Path, specifier: &str) -> Option<PathBuf> {
+    const EXTENSIONS: [&str; 6] = ["ts", "tsx", "mts", "cts", "js", "mjs"];
     if !(specifier.starts_with("./") || specifier.starts_with("../")) || specifier.contains('\0') {
         return None;
     }
     let joined = base.join(specifier);
-    const EXTENSIONS: [&str; 6] = ["ts", "tsx", "mts", "cts", "js", "mjs"];
     let mut candidates = vec![joined.clone()];
     for extension in EXTENSIONS {
         candidates.push(joined.with_extension(extension));
@@ -345,29 +345,46 @@ fn collect_module_regex_exports(
         }
     }
     for statement in statements {
-        match statement {
-            // `export const NAME = /regex/`
-            Statement::ExportDeclaration(export) => {
-                if let Declaration::VariableDeclaration(declaration) = &export.declaration {
-                    collect_const_regex_declarators(declaration, table);
-                }
+        record_exported_regex_name(statement, &locals, table);
+    }
+}
+
+/// Records the regex-ness of one top-level export statement under its
+/// exported name, resolving `export { local as alias }` re-exports.
+fn record_exported_regex_name(
+    statement: &Statement<'_>,
+    locals: &HashMap<String, Option<bool>>,
+    table: &mut HashMap<String, Option<bool>>,
+) {
+    match statement {
+        // `export const NAME = /regex/`
+        Statement::ExportDeclaration(export) => {
+            if let Declaration::VariableDeclaration(declaration) = &export.declaration {
+                collect_const_regex_declarators(declaration, table);
             }
-            // `export { NAME }` / `export { NAME as ALIAS }`
-            Statement::ExportNamedDeclaration(export) => {
-                if export.export_kind.is_type() {
-                    continue;
-                }
-                for specifier in &export.specifiers {
-                    if specifier.export_kind.is_type() {
-                        continue;
-                    }
-                    let local = module_export_name(&specifier.local);
-                    let exported = module_export_name(&specifier.exported);
-                    table.insert(exported, locals.get(&local).copied().flatten());
-                }
-            }
-            _ => {}
         }
+        // `export { NAME }` / `export { NAME as ALIAS }`
+        Statement::ExportNamedDeclaration(export) => record_named_reexports(export, locals, table),
+        _ => {}
+    }
+}
+
+/// Records one `export { local as alias }` specifier's regex-ness.
+fn record_named_reexports(
+    export: &ExportNamedDeclaration<'_>,
+    locals: &HashMap<String, Option<bool>>,
+    table: &mut HashMap<String, Option<bool>>,
+) {
+    if export.export_kind.is_type() {
+        return;
+    }
+    for specifier in &export.specifiers {
+        if specifier.export_kind.is_type() {
+            continue;
+        }
+        let local = module_export_name(&specifier.local);
+        let exported = module_export_name(&specifier.exported);
+        table.insert(exported, locals.get(&local).copied().flatten());
     }
 }
 
