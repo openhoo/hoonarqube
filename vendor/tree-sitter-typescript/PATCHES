@@ -23,6 +23,13 @@ without relaxing ordinary identifier parsing. The TSX-only conflict entries
 in common/define-grammar.js keep type-parameter and type-member ambiguity
 explicit and leave the TypeScript dialect branch unchanged.
 
+TypeScript 4.7 variance annotations on type parameters are supported
+locally in common/define-grammar.js: `type_parameter` accepts an optional
+`in`, `out`, or combined `in out` modifier before the parameter name.
+Repeated or reversed modifiers (`out in`, `out out`) remain parse errors so
+that fail-closed source facts keep flagging malformed input. Upstream
+0.23.2 and master do not support these annotations (openho/hoonarqube#94).
+
 The generated TypeScript and TSX parser sources, node-type tables, and
 matching tree-sitter support headers were regenerated from this narrowed
 grammar with tree-sitter CLI 0.25.10 using ABI 14, with
