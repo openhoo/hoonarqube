@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::binop_literal_invalid;
+use crate::support::binop_literals_invalid;
 use crate::support::is_arithmetic_op;
 use crate::support::issue_at;
 use crate::support::literal_kind;
@@ -25,8 +25,13 @@ pub(crate) fn check_s5607_incompatible_operator_pairs(
             if let (Some(left), Some(right)) = (
                 literal_kind(binop.left.as_ref()),
                 literal_kind(binop.right.as_ref()),
-            ) && binop_literal_invalid(binop.op, left, right)
-            {
+            ) && binop_literals_invalid(
+                binop.op,
+                binop.left.as_ref(),
+                binop.right.as_ref(),
+                left,
+                right,
+            ) {
                 let between = &source[TextRange::new(binop.left.end(), binop.right.start())];
                 let operator = between.trim();
                 let leading = between.len() - between.trim_start().len();
@@ -81,5 +86,36 @@ mod tests {
 
         let good = scan("result = 'value' * 2\n");
         assert!(findings(&good, "python:S5607").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tuple_format_tests {
+    use crate::test_support::{findings, scan};
+
+    // Issue #113: `str % tuple` and `bytes % tuple` are printf-style
+    // formatting; only genuinely incompatible placeholder/argument pairs
+    // report.
+
+    #[test]
+    fn s5607_accepts_tuple_percent_formatting_with_matching_placeholders() {
+        let flagged = scan(
+            "value = \"%s:%s\" % (\"a\", \"b\")\nsingle = \"%s\" % (\"a\",)\ndata = b\"%s:%s\" % (b\"a\", b\"b\")\n",
+        );
+        assert!(findings(&flagged, "python:S5607").is_empty());
+    }
+
+    #[test]
+    fn s5607_still_flags_incompatible_tuple_formatting() {
+        // Fewer tuple elements than placeholders: TypeError at runtime.
+        assert_eq!(
+            findings(&scan("value = \"%s:%s\" % (\"a\",)\n"), "python:S5607").len(),
+            1
+        );
+        // Matching count but a str element for %d: TypeError at runtime.
+        assert_eq!(
+            findings(&scan("value = \"%d\" % (\"a\",)\n"), "python:S5607").len(),
+            1
+        );
     }
 }

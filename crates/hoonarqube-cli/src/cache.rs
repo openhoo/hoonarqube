@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use hoonarqube_core::project::ProjectFile;
-use hoonarqube_core::source_facts::{NormalizedToken, SourceFacts};
+use hoonarqube_core::source_facts::{NormalizedToken, SourceFacts, UnitDefinition};
 use hoonarqube_core::{
     AnalyzerOptions, CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions,
     JstsAnalyzerOptions, Language, PythonAnalyzerOptions, RubyAnalyzerOptions, RustAnalyzerOptions,
@@ -20,6 +20,7 @@ use hoonarqube_core::{
 use hoonarqube_ir::{FileMetrics, FileReport};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 
 const CACHE_VERSION: u32 = 1;
 const CACHE_NAMESPACE: &str = ".hoonarqube-cache-v1";
@@ -31,6 +32,7 @@ const MAX_CACHE_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_HEADER_BYTES: usize = 64 * 1024;
 const MAX_CACHE_TOKENS: usize = 2 * 1024 * 1024;
 const MAX_CACHE_SYMBOLS: usize = 2 * 1024 * 1024;
+const MAX_CACHE_UNITS: usize = 2 * 1024 * 1024;
 const TEMP_ATTEMPTS: usize = 16;
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -92,13 +94,204 @@ struct CachePayload {
     facts: CachedFacts,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 struct CachedFacts {
     metrics: FileMetrics,
     tokens: Vec<CachedToken>,
     symbols: Vec<String>,
+    units: Vec<CachedUnit>,
     error: Option<String>,
     language: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CachedFactsWire {
+    metrics: FileMetrics,
+    tokens: Vec<CachedToken>,
+    symbols: Vec<String>,
+    units: BoundedCachedUnits,
+    error: Option<String>,
+    language: String,
+}
+
+impl<'de> Deserialize<'de> for CachedFacts {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = CachedFactsWire::deserialize(deserializer)?;
+        Ok(Self {
+            metrics: wire.metrics,
+            tokens: wire.tokens,
+            symbols: wire.symbols,
+            units: wire.units.0,
+            error: wire.error,
+            language: wire.language,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct BoundedCachedUnits(Vec<CachedUnit>);
+
+struct CachedUnitSeed<'a> {
+    remaining_edges: &'a mut usize,
+}
+
+struct CachedUnitVisitor<'a> {
+    remaining_edges: &'a mut usize,
+}
+
+struct ChildIdsSeed<'a> {
+    remaining_edges: &'a mut usize,
+}
+
+struct ChildIdsVisitor<'a> {
+    remaining_edges: &'a mut usize,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for CachedUnitSeed<'_> {
+    type Value = CachedUnit;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(CachedUnitVisitor {
+            remaining_edges: self.remaining_edges,
+        })
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for CachedUnitVisitor<'_> {
+    type Value = CachedUnit;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a cached Java unit")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: serde::de::MapAccess<'de>,
+    {
+        let mut token = None;
+        let mut symbol = None;
+        let mut children = None;
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "token" => {
+                    if token.replace(map.next_value()?).is_some() {
+                        return Err(serde::de::Error::custom("duplicate cached unit token"));
+                    }
+                }
+                "symbol" => {
+                    if symbol.replace(map.next_value()?).is_some() {
+                        return Err(serde::de::Error::custom("duplicate cached unit symbol"));
+                    }
+                }
+                "children" => {
+                    let remaining_edges = &mut *self.remaining_edges;
+                    if children
+                        .replace(map.next_value_seed(ChildIdsSeed { remaining_edges })?)
+                        .is_some()
+                    {
+                        return Err(serde::de::Error::custom("duplicate cached unit children"));
+                    }
+                }
+                _ => {
+                    let _: serde::de::IgnoredAny = map.next_value()?;
+                }
+            }
+        }
+        Ok(CachedUnit {
+            token: token.ok_or_else(|| serde::de::Error::missing_field("token"))?,
+            symbol: symbol.ok_or_else(|| serde::de::Error::missing_field("symbol"))?,
+            children: children.ok_or_else(|| serde::de::Error::missing_field("children"))?,
+        })
+    }
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for ChildIdsSeed<'_> {
+    type Value = Vec<u32>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(ChildIdsVisitor {
+            remaining_edges: self.remaining_edges,
+        })
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for ChildIdsVisitor<'_> {
+    type Value = Vec<u32>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a bounded sequence of child unit IDs")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut children = Vec::new();
+        while let Some(child) = sequence.next_element::<u32>()? {
+            if *self.remaining_edges == 0 {
+                return Err(serde::de::Error::custom(
+                    "cache unit edge count exceeds bounded limit",
+                ));
+            }
+            *self.remaining_edges -= 1;
+            children.push(child);
+        }
+        Ok(children)
+    }
+}
+
+impl<'de> Deserialize<'de> for BoundedCachedUnits {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct UnitsVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for UnitsVisitor {
+            type Value = BoundedCachedUnits;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a bounded sequence of cached Java units")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut units = Vec::new();
+                // The remaining budget is shared with each nested child
+                // sequence, so no unit can allocate beyond the aggregate edge
+                // cap before the next child is rejected.
+                let mut remaining_edges = MAX_CACHE_UNITS;
+                while units.len() < MAX_CACHE_UNITS {
+                    let Some(unit) = sequence.next_element_seed(CachedUnitSeed {
+                        remaining_edges: &mut remaining_edges,
+                    })?
+                    else {
+                        return Ok(BoundedCachedUnits(units));
+                    };
+                    units.push(unit);
+                }
+                if sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "cache unit count exceeds bounded limit",
+                    ));
+                }
+                Ok(BoundedCachedUnits(units))
+            }
+        }
+
+        deserializer.deserialize_seq(UnitsVisitor)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -108,6 +301,13 @@ struct CachedToken {
     end_line: u32,
     start_byte: u32,
     end_byte: u32,
+}
+
+#[derive(Debug, Serialize)]
+struct CachedUnit {
+    token: u32,
+    symbol: u32,
+    children: Vec<u32>,
 }
 
 #[derive(Serialize)]
@@ -121,15 +321,41 @@ struct CachedFactsRef<'a> {
     metrics: &'a FileMetrics,
     tokens: CachedTokens<'a>,
     symbols: &'a [String],
+    units: CachedUnits<'a>,
     error: Option<&'a str>,
     language: &'static str,
 }
 
 struct CachedTokens<'a>(&'a [NormalizedToken]);
 
+struct CachedUnits<'a>(&'a [UnitDefinition]);
+
+#[derive(Serialize)]
+struct CachedUnitRef<'a> {
+    token: u32,
+    symbol: u32,
+    children: &'a [u32],
+}
+
+impl<'a> From<&'a UnitDefinition> for CachedUnitRef<'a> {
+    fn from(unit: &'a UnitDefinition) -> Self {
+        Self {
+            token: unit.token,
+            symbol: unit.symbol,
+            children: &unit.children,
+        }
+    }
+}
+
 impl Serialize for CachedTokens<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_seq(self.0.iter().map(CachedToken::from))
+    }
+}
+
+impl Serialize for CachedUnits<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().map(CachedUnitRef::from))
     }
 }
 
@@ -238,6 +464,7 @@ impl Cache {
                 metrics: &facts.metrics,
                 tokens: CachedTokens(&facts.tokens),
                 symbols: &facts.symbols,
+                units: CachedUnits(&facts.units),
                 error: facts.error.as_deref(),
                 language: language_name(facts.language),
             },
@@ -330,7 +557,10 @@ impl TryFrom<CachedFacts> for SourceFacts {
 
     fn try_from(facts: CachedFacts) -> Result<Self, Self::Error> {
         let language = parse_language(&facts.language).ok_or(())?;
-        if facts.tokens.len() > MAX_CACHE_TOKENS || facts.symbols.len() > MAX_CACHE_SYMBOLS {
+        if facts.tokens.len() > MAX_CACHE_TOKENS
+            || facts.symbols.len() > MAX_CACHE_SYMBOLS
+            || facts.units.len() > MAX_CACHE_UNITS
+        {
             return Err(());
         }
         let tokens = facts
@@ -343,14 +573,43 @@ impl TryFrom<CachedFacts> for SourceFacts {
                 start_byte: token.start_byte,
                 end_byte: token.end_byte,
             })
-            .collect();
-        Ok(SourceFacts {
+            .collect::<Vec<_>>();
+        let units = facts
+            .units
+            .into_iter()
+            .enumerate()
+            .map(|(index, unit)| {
+                let token = usize::try_from(unit.token).ok()?;
+                let symbol = usize::try_from(unit.symbol).ok()?;
+                if token >= tokens.len()
+                    || symbol >= facts.symbols.len()
+                    || !unit
+                        .children
+                        .iter()
+                        .all(|child| usize::try_from(*child).is_ok_and(|child| child < index))
+                {
+                    return None;
+                }
+                Some(UnitDefinition {
+                    token: unit.token,
+                    symbol: unit.symbol,
+                    children: unit.children,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or(())?;
+        let source_facts = SourceFacts {
             metrics: facts.metrics,
             tokens,
             symbols: facts.symbols,
+            units,
             error: facts.error,
             language,
-        })
+        };
+        if !valid_unit_definitions(&source_facts) {
+            return Err(());
+        }
+        Ok(source_facts)
     }
 }
 
@@ -372,7 +631,105 @@ fn valid_facts(facts: &SourceFacts, source_len: usize) -> bool {
             && token.end_line <= facts.metrics.lines
             && start_byte <= end_byte
             && end_byte.is_some_and(|end| end <= source_len)
-    })
+    }) && valid_unit_definitions(facts)
+}
+
+fn valid_unit_definitions(facts: &SourceFacts) -> bool {
+    if facts.units.len() > MAX_CACHE_UNITS
+        || (facts.language != Language::Java && !facts.units.is_empty())
+    {
+        return false;
+    }
+    let mut seen_tokens = HashSet::with_capacity(facts.units.len());
+    let mut parent_of = vec![None; facts.units.len()];
+    let mut child_edges = 0usize;
+    for (index, unit) in facts.units.iter().enumerate() {
+        let Some(token) = usize::try_from(unit.token).ok() else {
+            return false;
+        };
+        let Some(symbol) = usize::try_from(unit.symbol).ok() else {
+            return false;
+        };
+        let Some(token_value) = facts.tokens.get(token) else {
+            return false;
+        };
+        let Some(symbol_text) = facts.symbols.get(symbol) else {
+            return false;
+        };
+        if symbol_text.starts_with("\0barrier:")
+            || !is_java_unit_symbol(symbol_text)
+            || token_value.symbol != unit.symbol
+            || !seen_tokens.insert(token)
+        {
+            return false;
+        }
+        child_edges = match child_edges.checked_add(unit.children.len()) {
+            Some(edges) if edges <= MAX_CACHE_UNITS => edges,
+            _ => return false,
+        };
+        let mut previous_end = token_value.start_byte;
+        for child in &unit.children {
+            let Some(child) = usize::try_from(*child).ok() else {
+                return false;
+            };
+            if child >= index
+                || child >= parent_of.len()
+                || parent_of[child].replace(index).is_some()
+            {
+                return false;
+            }
+            let Some(child_definition) = facts.units.get(child) else {
+                return false;
+            };
+            let Some(child_token_index) = usize::try_from(child_definition.token).ok() else {
+                return false;
+            };
+            let Some(child_token) = facts.tokens.get(child_token_index) else {
+                return false;
+            };
+            if child_token.start_byte < token_value.start_byte
+                || child_token.end_byte > token_value.end_byte
+                || child_token.start_byte < previous_end
+            {
+                return false;
+            }
+            previous_end = child_token.end_byte;
+        }
+    }
+    if facts.language == Language::Java {
+        let expected_tokens: HashSet<usize> = facts
+            .tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, token)| {
+                usize::try_from(token.symbol)
+                    .ok()
+                    .and_then(|symbol| facts.symbols.get(symbol))
+                    .is_some_and(|symbol| is_java_unit_symbol(symbol))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        expected_tokens == seen_tokens
+    } else {
+        seen_tokens.is_empty()
+    }
+}
+
+fn is_java_unit_symbol(symbol: &str) -> bool {
+    let Some(encoded) = symbol.strip_prefix("java-unit") else {
+        return false;
+    };
+    let Some((length_text, payload)) = encoded.split_once(':') else {
+        return false;
+    };
+    let Ok(length) = length_text.parse::<usize>() else {
+        return false;
+    };
+    length_text == length.to_string()
+        && payload
+            .as_bytes()
+            .get(length)
+            .is_some_and(|byte| *byte == b'|')
 }
 
 fn parse_language(value: &str) -> Option<Language> {
@@ -681,6 +1038,101 @@ mod tests {
     use hoonarqube_core::project::analyze_project_file;
     use hoonarqube_ir::FileClassification;
 
+    fn java_facts(
+        tokens: Vec<NormalizedToken>,
+        symbols: Vec<String>,
+        units: Vec<UnitDefinition>,
+    ) -> SourceFacts {
+        SourceFacts {
+            metrics: FileMetrics {
+                lines: 1,
+                code_lines: 1,
+                comment_lines: 0,
+            },
+            tokens,
+            symbols,
+            units,
+            error: None,
+            language: Language::Java,
+        }
+    }
+
+    fn java_unit_token(symbol: u32, start_byte: u32, end_byte: u32) -> NormalizedToken {
+        NormalizedToken {
+            symbol,
+            start_line: 1,
+            end_line: 1,
+            start_byte,
+            end_byte,
+        }
+    }
+
+    #[test]
+    fn java_cache_requires_exact_unit_token_coverage() {
+        let facts = java_facts(
+            vec![java_unit_token(0, 0, 1), java_unit_token(0, 1, 2)],
+            vec!["java-unit1:x|".to_owned()],
+            vec![UnitDefinition {
+                token: 0,
+                symbol: 0,
+                children: Vec::new(),
+            }],
+        );
+        assert!(
+            !valid_unit_definitions(&facts),
+            "a partial unit table must not warm-hit Java facts"
+        );
+    }
+
+    #[test]
+    fn malformed_java_sidecar_fails_closed_after_decode() {
+        let payload = serde_json::json!({
+            "metrics": {"lines": 1, "code_lines": 1, "comment_lines": 0},
+            "tokens": [
+                {"symbol": 0, "start_line": 1, "end_line": 1, "start_byte": 0, "end_byte": 1},
+                {"symbol": 0, "start_line": 1, "end_line": 1, "start_byte": 1, "end_byte": 2}
+            ],
+            "symbols": ["java-unit1:x|"],
+            "units": [{"token": 0, "symbol": 0, "children": []}],
+            "error": null,
+            "language": "java"
+        });
+        let facts: CachedFacts =
+            serde_json::from_value(payload).expect("bounded malformed payload decodes");
+        assert!(
+            SourceFacts::try_from(facts).is_err(),
+            "partial Java unit sidecars must be cache misses"
+        );
+    }
+
+    #[test]
+    fn java_cache_rejects_duplicate_child_edges() {
+        let facts = java_facts(
+            vec![java_unit_token(0, 0, 1), java_unit_token(0, 0, 4)],
+            vec!["java-unit1:x|".to_owned()],
+            vec![
+                UnitDefinition {
+                    token: 0,
+                    symbol: 0,
+                    children: Vec::new(),
+                },
+                UnitDefinition {
+                    token: 1,
+                    symbol: 0,
+                    children: vec![0, 0],
+                },
+            ],
+        );
+        assert!(!valid_unit_definitions(&facts));
+    }
+
+    #[test]
+    fn java_cache_rejects_noncanonical_unit_symbol_prefixes() {
+        assert!(!is_java_unit_symbol("java-unittest"));
+        assert!(!is_java_unit_symbol("java-unit01:x|"));
+        assert!(is_java_unit_symbol("java-unit1:x|"));
+    }
+
     #[test]
     fn oversized_serialization_stops_at_the_cache_budget() {
         let mut writer = BoundedWriter {
@@ -784,5 +1236,24 @@ mod tests {
         analyzed.error = Some("analyzer failed".into());
         cache.store(path, digest, &analyzed);
         assert!(!entry.exists());
+    }
+
+    #[test]
+    fn java_unit_cache_round_trip_preserves_compositional_facts() {
+        let fixture = Fixture::new();
+        let options = AnalyzerOptions::default();
+        let cache =
+            Cache::new_with_fingerprints(Some(&fixture.0), &options, &CacheFingerprints::default())
+                .expect("cache context");
+        let path = Path::new("Sample.java");
+        let source = "class Sample { void f() { if (true) { return; } } }\n";
+        let analyzed =
+            analyze_project_file(path, source, &options, FileClassification::Source, false);
+        let facts = analyzed.facts.as_ref().expect("Java facts");
+        assert!(!facts.units.is_empty(), "fixture must exercise Java units");
+        let digest = Cache::source_digest(source.as_bytes());
+        cache.store(path, digest, &analyzed);
+        let cached = cache.load(path, source.len(), digest).expect("cache hit");
+        assert_eq!(cached.facts, *facts);
     }
 }

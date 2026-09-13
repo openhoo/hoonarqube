@@ -1,4 +1,4 @@
-use crate::support::collect_string_contents;
+use crate::support::collect_value_string_contents;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -23,7 +23,7 @@ pub(crate) fn check_cleartext_protocols(
         "example.com",
     ];
     let mut issues = Vec::new();
-    for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
+    for (text, range) in collect_value_string_contents(parsed.syntax().body.as_slice()) {
         let mut flagged_protocol = None;
         for scheme in CLEARTEXT_SCHEMES {
             let mut search = 0usize;
@@ -73,5 +73,37 @@ mod tests {
 
         let good = scan("secure = 'https://unsafe.test'\nlocal = 'http://localhost:8000'\n");
         assert!(findings(&good, "python:S5332").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod docstring_prose_tests {
+    use crate::test_support::{findings, scan};
+
+    // Issue #112: URLs in documentation strings are prose, not cleartext
+    // communication; executable endpoint values keep reporting.
+
+    #[test]
+    fn s5332_module_docstring_documentation_url_is_clean() {
+        let flagged =
+            scan("\"\"\"Documentation: see http://yaml.org/ for the YAML specification.\"\"\"\n");
+        assert!(findings(&flagged, "python:S5332").is_empty());
+    }
+
+    #[test]
+    fn s5332_docstring_url_is_clean_but_endpoint_value_still_flags() {
+        let source = concat!(
+            "def fetch():\n",
+            "    \"\"\"Reads the spec at http://yaml.org/spec.\"\"\"\n",
+            "    return download(\"http://unsafe.test/data\")\n",
+        );
+        let flagged = scan(source);
+        let found = findings(&flagged, "python:S5332");
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0]
+                .message
+                .starts_with("Using http protocol is insecure")
+        );
     }
 }
