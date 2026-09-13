@@ -2284,7 +2284,7 @@ fn report_uninitialized(
         let Some(node) = find_node(root, local.byte_start, local.byte_end) else {
             continue;
         };
-        if is_in_boolean_context(node) || is_guarded_read(node, source) {
+        if is_in_boolean_context(node) || is_guarded_read(node, source, local.name.as_str()) {
             continue;
         }
         let cfg_node = facts
@@ -2344,22 +2344,20 @@ fn find_node<'tree>(root: Node<'tree>, start: usize, end: usize) -> Option<Node<
 fn is_in_boolean_context(node: Node<'_>) -> bool {
     let mut current = node.parent();
     while let Some(parent) = current {
-        if matches!(
-            parent.kind(),
-            "and"
-                | "or"
-                | "not"
-                | "if_modifier"
-                | "unless_modifier"
-                | "while_modifier"
-                | "until_modifier"
-        ) {
+        if matches!(parent.kind(), "and" | "or" | "not") {
             return true;
         }
-        if matches!(parent.kind(), "if" | "unless" | "while" | "until")
-            && let Some(condition) = parent.child_by_field_name("condition")
-            && node.start_byte() >= condition.start_byte()
-            && node.end_byte() <= condition.end_byte()
+        let is_modifier = matches!(
+            parent.kind(),
+            "if_modifier" | "unless_modifier" | "while_modifier" | "until_modifier"
+        );
+        if (is_modifier || matches!(parent.kind(), "if" | "unless" | "while" | "until"))
+            && parent
+                .child_by_field_name("condition")
+                .is_some_and(|condition| {
+                    node.start_byte() >= condition.start_byte()
+                        && node.end_byte() <= condition.end_byte()
+                })
         {
             return true;
         }
@@ -2368,41 +2366,60 @@ fn is_in_boolean_context(node: Node<'_>) -> bool {
     false
 }
 
-fn is_guarded_read(node: Node<'_>, source: &str) -> bool {
+fn is_guarded_read(node: Node<'_>, source: &str, local_name: &str) -> bool {
     let mut current = node.parent();
     while let Some(parent) = current {
-        if matches!(parent.kind(), "if" | "unless" | "while" | "until") {
-            let Some(condition) = parent.child_by_field_name("condition") else {
-                current = parent.parent();
-                continue;
-            };
-            let in_consequence = parent
-                .child_by_field_name("consequence")
-                .is_some_and(|branch| {
-                    node.start_byte() >= branch.start_byte() && node.end_byte() <= branch.end_byte()
-                });
-            let in_alternative = parent
-                .child_by_field_name("alternative")
-                .is_some_and(|branch| {
-                    node.start_byte() >= branch.start_byte() && node.end_byte() <= branch.end_byte()
-                });
-            if in_consequence || in_alternative {
-                let condition_truthy = if parent.kind() == "unless" {
-                    in_alternative
-                } else {
-                    in_consequence
-                };
-                if guard_proves_not_nil(node_text(condition, source), condition_truthy) {
-                    return true;
-                }
-            }
+        let is_ordinary = matches!(parent.kind(), "if" | "elsif" | "unless" | "while" | "until");
+        let is_modifier = matches!(
+            parent.kind(),
+            "if_modifier" | "unless_modifier" | "while_modifier" | "until_modifier"
+        );
+        if (is_ordinary || is_modifier) && is_guarded_branch(parent, node, source, local_name) {
+            return true;
         }
         current = parent.parent();
     }
     false
 }
 
-fn guard_proves_not_nil(condition: &str, truthy_branch: bool) -> bool {
+fn is_guarded_branch(parent: Node<'_>, node: Node<'_>, source: &str, local_name: &str) -> bool {
+    let is_modifier = matches!(
+        parent.kind(),
+        "if_modifier" | "unless_modifier" | "while_modifier" | "until_modifier"
+    );
+    let Some(condition) = parent.child_by_field_name("condition") else {
+        return false;
+    };
+    let in_consequence = branch_contains(parent, "consequence", node);
+    let in_alternative = branch_contains(parent, "alternative", node);
+    let in_executing_branch = if is_modifier {
+        ["body", "statement", "consequence"]
+            .iter()
+            .any(|field| branch_contains(parent, field, node))
+    } else {
+        in_consequence || in_alternative
+    };
+    if !in_executing_branch {
+        return false;
+    }
+    let truthy_branch = if is_modifier {
+        matches!(parent.kind(), "if_modifier" | "while_modifier")
+    } else {
+        match parent.kind() {
+            "unless" | "until" => in_alternative,
+            _ => in_consequence,
+        }
+    };
+    guard_proves_not_nil(node_text(condition, source), truthy_branch, local_name)
+}
+
+fn branch_contains(parent: Node<'_>, field: &str, node: Node<'_>) -> bool {
+    parent.child_by_field_name(field).is_some_and(|branch| {
+        node.start_byte() >= branch.start_byte() && node.end_byte() <= branch.end_byte()
+    })
+}
+
+fn guard_proves_not_nil(condition: &str, truthy_branch: bool, local_name: &str) -> bool {
     let condition = condition.trim();
     let (negated, expression) = condition
         .strip_prefix('!')
@@ -2412,12 +2429,12 @@ fn guard_proves_not_nil(condition: &str, truthy_branch: bool) -> bool {
         .and_then(|value| value.strip_suffix(')'))
         .map_or(expression, str::trim);
     if is_identifier(expression) {
-        return truthy_branch != negated;
+        return expression == local_name && truthy_branch != negated;
     }
     if let Some(variable) = expression.strip_suffix(".nil?")
         && is_identifier(variable.trim())
     {
-        return truthy_branch == negated;
+        return variable.trim() == local_name && truthy_branch == negated;
     }
     false
 }
@@ -3178,6 +3195,51 @@ def build_with_block(seed, callback = proc { seed.length })\n  callback\nend\n";
                 github_quality(source)
                     .iter()
                     .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn unrelated_conditions_do_not_prove_uninitialized_receivers_not_nil() {
+        let plain = "def f(ready, assigned)\n  value = \"x\" if assigned\n  value.length\nend\n";
+        let issues = github_quality(plain);
+        let hits: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rb/uninitialized-local-variable")
+            .collect();
+        assert_eq!(hits.len(), 1, "{plain}");
+        assert_eq!(hits[0].range.start.line, 3, "{plain}");
+        for source in [
+            "def f(ready, assigned)\n  value = \"x\" if assigned\n  if ready\n    value.length\n  end\nend\n",
+            "def f(ready, assigned)\n  value = \"x\" if assigned\n  value.length if ready\nend\n",
+            "def f(ready, assigned)\n  value = \"x\" if assigned\n  unless ready.nil?\n    value.length\n  end\nend\n",
+            "def f(ready, assigned)\n  value = \"x\" if assigned\n  if !ready.nil?\n    value.length\n  end\nend\n",
+            "def f(ready, assigned)\n  value = \"x\" if assigned\n  while ready\n    value.length\n  end\nend\n",
+            "def f(ready, assigned)\n  value = \"x\" if assigned\n  until ready\n    value.length\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn own_variable_guards_still_suppress_uninitialized_receivers() {
+        for source in [
+            "def f(assigned)\n  value = \"x\" if assigned\n  if value\n    value.length\n  end\nend\n",
+            "def f(assigned)\n  value = \"x\" if assigned\n  value.length if value\nend\n",
+            "def f(assigned)\n  value = \"x\" if assigned\n  value.length while value\nend\n",
+            "def f(assigned)\n  value = \"x\" if assigned\n  if !value.nil?\n    value.length\n  end\nend\n",
+            "def f(flag, assigned)\n  value = \"x\" if assigned\n  if flag\n  elsif value\n    value.length\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
                 "{source}"
             );
         }
