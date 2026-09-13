@@ -332,21 +332,24 @@ pub(crate) fn local_inheritance_graph<'a>(
 }
 
 /// Seen-set BFS over an inheritance graph; `hits` decides the terminal node.
-pub(crate) fn graph_reaches(
-    graph: &std::collections::HashMap<&str, Vec<&str>>,
-    start: &str,
-    hits: impl Fn(&str) -> bool,
-) -> bool {
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let mut queue: Vec<&str> = graph.get(start).cloned().unwrap_or_default();
+pub(crate) fn graph_reaches<N>(
+    graph: &std::collections::HashMap<N, Vec<N>>,
+    start: &N,
+    hits: impl Fn(&N) -> bool,
+) -> bool
+where
+    N: Clone + Eq + std::hash::Hash,
+{
+    let mut seen: std::collections::HashSet<N> = std::collections::HashSet::new();
+    let mut queue: Vec<N> = graph.get(start).cloned().unwrap_or_default();
     while let Some(current) = queue.pop() {
-        if hits(current) {
+        if hits(&current) {
             return true;
         }
-        if seen.insert(current)
-            && let Some(successors) = graph.get(current)
+        if seen.insert(current.clone())
+            && let Some(successors) = graph.get(&current)
         {
-            queue.extend(successors.iter().copied());
+            queue.extend(successors.iter().cloned());
         }
     }
     false
