@@ -1924,7 +1924,7 @@ fn razor_line_count(source: &str) -> u32 {
     }
 }
 
-fn is_razor_path(path: &Path) -> bool {
+pub(crate) fn is_razor_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("razor"))
@@ -1969,7 +1969,7 @@ fn manifest_digest(sources: &[SourceSnapshot]) -> String {
     digest_bytes(&framed)
 }
 
-fn digest_bytes(bytes: &[u8]) -> String {
+pub(crate) fn digest_bytes(bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(bytes);
     format!("{:x}", digest.finalize())

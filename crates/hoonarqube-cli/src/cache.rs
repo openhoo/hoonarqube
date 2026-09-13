@@ -983,6 +983,12 @@ fn csharp_options_value(options: &CSharpAnalyzerOptions) -> serde_json::Value {
         &options.credential_words,
         &options.secret_words,
         options.secret_randomness_sensibility,
+        options
+            .project_type_index
+            .as_ref()
+            .map_or(serde_json::Value::Null, |index| serde_json::Value::String(
+                index.digest().to_owned()
+            ),),
     ])
 }
 
