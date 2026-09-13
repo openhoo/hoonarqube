@@ -882,7 +882,6 @@ impl<'a> Visit<'a> for EsIdiomCollector<'a> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        self.check_s6594_call_expression(it);
         walk_call_expression(self, it);
     }
 

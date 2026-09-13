@@ -6,8 +6,9 @@ use crate::engine::pattern_parser::{
     walk_pattern_nodes,
 };
 use crate::rules::regex_family::collectors::{
-    REGEX_COMPLEXITY_THRESHOLD, emit_concise_class_rewrite, emit_space_runs_in_sequence,
-    flag_single_char_alternation, for_every_sequence, is_bare_control_character,
+    REGEX_COMPLEXITY_THRESHOLD, check_unnecessary_pattern_escapes, emit_concise_class_rewrite,
+    emit_digit_range_rewrite, emit_space_runs_in_sequence, flag_single_char_alternation,
+    for_every_sequence, is_bare_control_character,
 };
 use crate::support::{IssueSink, RuleScope};
 
@@ -49,6 +50,7 @@ pub(crate) fn check_constant_regex_site(sink: &mut IssueSink, site: &RegexSite) 
     check_concise_shapes(sink, site, &parsed);
     check_space_runs(sink, site, &parsed);
     check_empty_string_repetition(sink, site, &parsed);
+    check_unnecessary_pattern_escapes(sink, site);
     check_pointless_reluctant_quantifier(sink, site, &parsed);
     check_single_char_alternation(sink, site, &parsed);
     check_anchor_precedence(sink, site, &parsed);
@@ -457,9 +459,14 @@ fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedR
                 );
             }
             PatternNode::Class {
-                items, start, end, ..
+                negated,
+                items,
+                start,
+                end,
+                ..
             } => {
                 emit_concise_class_rewrite(sink, site, items, *start, *end);
+                emit_digit_range_rewrite(sink, site, *negated, items, *start, *end);
             }
             _ => {}
         });
@@ -1175,5 +1182,82 @@ mod tests {
         assert_eq!(count_key(&constructor, "javascript:S5842"), 1);
         let typescript = findings("const re = /(a?)*/;\n", JstsLanguage::TypeScript);
         assert_eq!(count_key(&typescript, "typescript:S5842"), 1);
+    }
+    #[test]
+    fn s6353_flags_concise_digit_range_classes() {
+        // #197: `[0-9]` is exactly the `\d` shorthand in JavaScript regex.
+        let report = js("const range = /[0-9]/;\n");
+        assert_eq!(
+            filtered(&report, "S6353"),
+            vec![
+                "javascript:S6353:1:Use concise character class syntax '\\d' instead of '[0-9]'."
+                    .to_string()
+            ]
+        );
+
+        // Quantified and embedded digit ranges keep the same rewrite.
+        let quantified = js_keys("const re = /[0-9]{1,7}/;\n");
+        assert_eq!(count_key(&quantified, "javascript:S6353"), 1);
+        let alternation =
+            js_keys("const re = /^(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;\n");
+        assert_eq!(count_key(&alternation, "javascript:S6353"), 5);
+
+        // Shapes without a concise `\d` equivalent stay clean.
+        let negated = js_keys("const re = /[^0-9]/;\n");
+        assert_eq!(count_key(&negated, "javascript:S6353"), 0);
+        let partial = js_keys("const re = /[0-57-9]/;\n");
+        assert_eq!(count_key(&partial, "javascript:S6353"), 0);
+        let widened = js_keys("const re = /[a-9]/;\n");
+        assert_eq!(count_key(&widened, "javascript:S6353"), 0);
+        let extra = js_keys("const re = /[a0-9]/;\n");
+        assert_eq!(count_key(&extra, "javascript:S6353"), 0);
+
+        // The duplicate-only rewrite is unchanged.
+        let duplicate = js_keys("const re = /[aa]/;\n");
+        assert_eq!(count_key(&duplicate, "javascript:S6353"), 1);
+
+        let typescript = findings("const re = /[0-9]/;\n", JstsLanguage::TypeScript);
+        assert_eq!(count_key(&typescript, "typescript:S6353"), 1);
+    }
+
+    #[test]
+    fn s6535_flags_unnecessary_escapes_in_regex_literals() {
+        // #198 control: only `\.` is unnecessary; the middle `\-` must stay
+        // because removing it would form the invalid range `[a-.]`.
+        let control = js_keys("const regex = /[a\\-\\.]/;\n");
+        assert_eq!(count_key(&control, "javascript:S6535"), 1);
+
+        // A middle `\-` keeps the class semantics, so it stays clean.
+        let middle_dash = js_keys("const re = /[a\\-z]/;\n");
+        assert_eq!(count_key(&middle_dash, "javascript:S6535"), 0);
+
+        // Escapes that carry meaning in their context stay clean.
+        let any_char = js_keys("const re = /a\\.b/;\n");
+        assert_eq!(count_key(&any_char, "javascript:S6535"), 0);
+        let class_close = js_keys("const re = /[\\]]/;\n");
+        assert_eq!(count_key(&class_close, "javascript:S6535"), 0);
+        let negation = js_keys("const re = /[\\^a]/;\n");
+        assert_eq!(count_key(&negation, "javascript:S6535"), 0);
+
+        // Punctuation that is literal inside a class is unnecessary.
+        let trailing_dash = js_keys("const re = /[A-Za-z0-9\\-]/;\n");
+        assert_eq!(count_key(&trailing_dash, "javascript:S6535"), 1);
+        let bracket = js_keys("const re = /[a\\[\\-]/;\n");
+        assert_eq!(count_key(&bracket, "javascript:S6535"), 2);
+
+        // The Zod email shape: the required `\-` is kept while the
+        // end-of-class `\-` and `\.` are reported.
+        let zod = js_keys(
+            "const emailRegex = /^(?!\\.)(?!.*\\.\\.)([A-Z0-9_'+\\-\\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\\-]*\\.)+[A-Z]{2,}$/i;\n",
+        );
+        assert_eq!(count_key(&zod, "javascript:S6535"), 2);
+
+        // The constructor form analyzes the same pattern text.
+        let constructor = js_keys("const re = new RegExp('[a\\\\-\\\\.]');\n");
+        assert_eq!(count_key(&constructor, "javascript:S6535"), 1);
+
+        // String-literal escape behavior is unchanged.
+        let string_form = js_keys("const s = \"a\\\\a\";\n");
+        assert_eq!(count_key(&string_form, "javascript:S6535"), 1);
     }
 }
