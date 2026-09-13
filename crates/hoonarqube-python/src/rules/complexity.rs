@@ -335,32 +335,8 @@ impl<'a> Measurer<'a> {
         while let Some(work) = pending.pop() {
             match work {
                 ExprWork::Visit(expr) => match expr {
-                    Expr::BoolOp(bool_op) => {
-                        if self.nested_definitions == 0 {
-                            self.cyclomatic += bool_op
-                                .values
-                                .len()
-                                .saturating_sub(1)
-                                .try_into()
-                                .unwrap_or(u32::MAX);
-                        }
-                        if self.logic_chain != Some(bool_op.op) {
-                            self.cognitive += 1;
-                        }
-                        let saved_chain = self.logic_chain;
-                        self.logic_chain = Some(bool_op.op);
-                        pending.push(ExprWork::RestoreLogic(saved_chain));
-                        pending.extend(bool_op.values.iter().rev().map(ExprWork::Visit));
-                    }
-                    Expr::If(if_exp) => {
-                        self.cognitive += 1 + self.nesting;
-                        let saved = self.nesting;
-                        self.nesting += 1;
-                        pending.push(ExprWork::RestoreNesting(saved));
-                        pending.push(ExprWork::Visit(&if_exp.orelse));
-                        pending.push(ExprWork::Visit(&if_exp.body));
-                        pending.push(ExprWork::Visit(&if_exp.test));
-                    }
+                    Expr::BoolOp(bool_op) => self.walk_bool_op(bool_op, &mut pending),
+                    Expr::If(if_exp) => self.walk_conditional(if_exp, &mut pending),
                     Expr::ListComp(comp) => {
                         pending.push(ExprWork::Visit(&comp.elt));
                         self.push_comprehensions(&comp.generators, &mut pending);
@@ -444,6 +420,48 @@ impl<'a> Measurer<'a> {
         self.frames.pop();
         self.nested_definitions = saved_definitions;
         self.nesting = saved_nesting;
+    }
+
+    /// Scores a boolean-operator chain: its decision points count
+    /// cyclomatically only outside nested definitions, the cognitive weight
+    /// falls once per consecutive run of the same operator, and the chain's
+    /// logic context is restored after its operands.
+    fn walk_bool_op(
+        &mut self,
+        bool_op: &'a ruff_python_ast::ExprBoolOp,
+        pending: &mut Vec<ExprWork<'a>>,
+    ) {
+        if self.nested_definitions == 0 {
+            self.cyclomatic += bool_op
+                .values
+                .len()
+                .saturating_sub(1)
+                .try_into()
+                .unwrap_or(u32::MAX);
+        }
+        if self.logic_chain != Some(bool_op.op) {
+            self.cognitive += 1;
+        }
+        let saved_chain = self.logic_chain;
+        self.logic_chain = Some(bool_op.op);
+        pending.push(ExprWork::RestoreLogic(saved_chain));
+        pending.extend(bool_op.values.iter().rev().map(ExprWork::Visit));
+    }
+
+    /// Scores a conditional expression at `1 + nesting` with its three
+    /// sub-expressions one nesting level deeper.
+    fn walk_conditional(
+        &mut self,
+        if_exp: &'a ruff_python_ast::ExprIf,
+        pending: &mut Vec<ExprWork<'a>>,
+    ) {
+        self.cognitive += 1 + self.nesting;
+        let saved = self.nesting;
+        self.nesting += 1;
+        pending.push(ExprWork::RestoreNesting(saved));
+        pending.push(ExprWork::Visit(&if_exp.orelse));
+        pending.push(ExprWork::Visit(&if_exp.body));
+        pending.push(ExprWork::Visit(&if_exp.test));
     }
 }
 
