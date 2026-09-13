@@ -417,6 +417,25 @@ function configDiagnostic(ts, item, file) {
   );
 }
 
+// TypeScript reports options/config-level failures such as TS2688 missing
+// explicit compiler type references through program options/global diagnostics,
+// rather than per-file semantic diagnostics. They invalidate every fact of
+// the run, so they become structured diagnostics and flip `complete` false.
+// Ordinary unresolved imports (TS2307) are deliberately left to per-file
+// semantic handling and are not collected here.
+function collectOptionsDiagnostics(ts, program, diagnostics) {
+  const seen = new Set(diagnostics.map(item => `${item.code}|${item.message}`));
+  const items = [...program.getOptionsDiagnostics(), ...program.getGlobalDiagnostics()];
+  for (const item of items) {
+    if (item.category !== ts.DiagnosticCategory.Error && item.category !== ts.DiagnosticCategory.Warning) continue;
+    const entry = configDiagnostic(ts, item, item.file ? item.file.fileName : undefined);
+    const key = `${entry.code}|${entry.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    diagnostics.push(entry);
+  }
+}
+
 function makeHost(ts, config, snapshots, diagnostics) {
   const base = ts.createCompilerHost(config.options, true);
   const originals = {
@@ -1886,6 +1905,7 @@ function main() {
     return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: version, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
   }
   const checker = program.getTypeChecker();
+  collectOptionsDiagnostics(ts, program, diagnostics);
   const requested = [...snapshots.keys()].sort();
   const files = [];
   for (const file of requested) {

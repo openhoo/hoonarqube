@@ -730,19 +730,17 @@ impl ProjectSemanticContext {
             ));
         }
 
-        let script = materialize_helper(config).map_err(|error| ProjectContextError {
+        let materialized = materialize_helper(config).map_err(|error| ProjectContextError {
             code: "JS_CONTEXT_HELPER_PREPARE".to_owned(),
             message: error.to_string(),
             diagnostics: Vec::new(),
         })?;
+        let script = &materialized.path;
         let tsconfig = config.tsconfig.as_ref().map(|path| canonical_path(path));
         let tsconfig_digest = tsconfig
             .as_ref()
             .and_then(|path| fs::read(path).ok().map(|content| digest_bytes(&content)));
-        let helper_digest = fs::read(&script).map_or_else(
-            |_| digest_bytes(EMBEDDED_HELPER.as_bytes()),
-            |content| digest_bytes(&content),
-        );
+        let helper_digest = materialized.digest;
         let request = HelperRequest {
             schema_version: HELPER_PROTOCOL_VERSION,
             root: canonical_path(&config.root),
@@ -769,7 +767,7 @@ impl ProjectSemanticContext {
             message: error.to_string(),
             diagnostics: Vec::new(),
         })?;
-        let output = invoke_helper(config, &script, &input)?;
+        let output = invoke_helper(config, script, &input)?;
         if output.len() > config.max_output_bytes {
             return Err(ProjectContextError {
                 code: "JS_CONTEXT_OUTPUT_LIMIT".to_owned(),
@@ -1043,19 +1041,309 @@ struct HelperResponse {
     fingerprint: String,
 }
 
-fn materialize_helper(config: &TypeScriptProjectConfig) -> Result<PathBuf, std::io::Error> {
+#[derive(Debug)]
+struct MaterializedHelper {
+    path: PathBuf,
+    digest: String,
+}
+
+fn materialize_helper(
+    config: &TypeScriptProjectConfig,
+) -> Result<MaterializedHelper, std::io::Error> {
     if let Some(path) = &config.helper_script {
-        return Ok(canonical_path(path));
+        let path = canonical_path(path);
+        let digest = fs::read(&path).map_or_else(
+            |_| digest_bytes(EMBEDDED_HELPER.as_bytes()),
+            |content| digest_bytes(&content),
+        );
+        return Ok(MaterializedHelper { path, digest });
     }
-    fs::create_dir_all(&config.helper_cache_dir)?;
-    let path = config
+    publish_embedded_helper(config)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn publish_embedded_helper(
+    _config: &TypeScriptProjectConfig,
+) -> Result<MaterializedHelper, std::io::Error> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "secure compiler-helper materialization is unsupported on this platform",
+    ))
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn publish_embedded_helper(
+    config: &TypeScriptProjectConfig,
+) -> Result<MaterializedHelper, std::io::Error> {
+    let display_path = config
         .helper_cache_dir
-        .join(format!("semantic-helper-v{HELPER_PROTOCOL_VERSION}.cjs"));
-    let needs_write = fs::read_to_string(&path).map_or(true, |current| current != EMBEDDED_HELPER);
-    if needs_write {
-        fs::write(&path, EMBEDDED_HELPER.as_bytes())?;
+        .join(secure_cache::helper_file_name());
+    let dir = secure_cache::open_cache_dir_anchored(&config.root, &config.helper_cache_dir)?;
+    let (path, digest) = secure_cache::publish_helper_into(&dir, &display_path)?;
+    Ok(MaterializedHelper { path, digest })
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod secure_cache {
+    use super::{EMBEDDED_HELPER, HELPER_PROTOCOL_VERSION, digest_bytes};
+    use rustix::fs::{
+        AtFlags, FileType, Mode, OFlags, fstat, fsync, mkdirat, openat, renameat, statat, unlinkat,
+    };
+    use rustix::io::Errno;
+    use rustix::process::geteuid;
+    use std::ffi::OsStr;
+    use std::fs::File;
+    use std::io::{Error as IoError, Read, Write};
+    use std::os::fd::OwnedFd;
+    use std::path::{Component, Path, PathBuf};
+
+    fn symlink_refusal(path: &Path) -> IoError {
+        IoError::other(format!(
+            "refusing to materialize the TypeScript helper through symbolic link {}",
+            path.to_string_lossy().escape_debug()
+        ))
     }
-    Ok(path)
+
+    pub(super) fn helper_file_name() -> String {
+        format!("semantic-helper-v{HELPER_PROTOCOL_VERSION}.cjs")
+    }
+
+    fn dir_flags() -> OFlags {
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+    }
+
+    /// A symlinked path component opened with `O_NOFOLLOW | O_DIRECTORY`
+    /// reports `ENOTDIR` on Linux (the directory check precedes the
+    /// `ELOOP` check), so `ENOTDIR` must be confirmed against the component
+    /// itself before it can be reported as a symbolic-link refusal.
+    fn is_symlink_component(parent: &OwnedFd, name: &OsStr) -> bool {
+        statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+            .is_ok_and(|stat| FileType::from_raw_mode(stat.st_mode) == FileType::Symlink)
+    }
+
+    fn open_dir_component(
+        parent: &OwnedFd,
+        name: &OsStr,
+        create: bool,
+    ) -> std::io::Result<OwnedFd> {
+        match openat(parent, name, dir_flags(), Mode::empty()) {
+            Ok(fd) => Ok(fd),
+            Err(Errno::NOENT) if create => {
+                match mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
+                    Ok(()) | Err(Errno::EXIST) => {}
+                    Err(error) => return Err(IoError::from(error)),
+                }
+                match openat(parent, name, dir_flags(), Mode::empty()) {
+                    Ok(fd) => Ok(fd),
+                    Err(Errno::LOOP | Errno::MLINK) => Err(symlink_refusal(Path::new(name))),
+                    Err(Errno::NOTDIR) if is_symlink_component(parent, name) => {
+                        Err(symlink_refusal(Path::new(name)))
+                    }
+                    Err(error) => Err(IoError::from(error)),
+                }
+            }
+            Err(Errno::LOOP | Errno::MLINK) => Err(symlink_refusal(Path::new(name))),
+            Err(Errno::NOTDIR) if is_symlink_component(parent, name) => {
+                Err(symlink_refusal(Path::new(name)))
+            }
+            Err(error) => Err(IoError::from(error)),
+        }
+    }
+
+    /// The cache path is never canonicalized: each component is opened or
+    /// created relative to its parent descriptor with `O_NOFOLLOW`.
+    ///
+    /// Explicit cache paths are supported both below and outside the project
+    /// root.  Existing path components are not chmodded; newly created
+    /// directories request the private `0o700` mode subject to the umask.
+    pub(super) fn open_cache_dir_anchored(
+        _root: &Path,
+        cache_dir: &Path,
+    ) -> std::io::Result<OwnedFd> {
+        let mut current = if cache_dir.is_absolute() {
+            openat(rustix::fs::CWD, Path::new("/"), dir_flags(), Mode::empty())
+        } else {
+            openat(rustix::fs::CWD, Path::new("."), dir_flags(), Mode::empty())
+        }
+        .map_err(IoError::from)?;
+        let mut moved = false;
+        for component in cache_dir.components() {
+            match component {
+                Component::Normal(name) => {
+                    let next = open_dir_component(&current, name, true)?;
+                    current = next;
+                    moved = true;
+                }
+                Component::CurDir | Component::RootDir => {}
+                Component::ParentDir => {
+                    current = openat(&current, OsStr::new(".."), dir_flags(), Mode::empty())
+                        .map_err(IoError::from)?;
+                    moved = true;
+                }
+                Component::Prefix(_) => {
+                    return Err(IoError::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "TypeScript helper cache contains an unsupported path component",
+                    ));
+                }
+            }
+        }
+        if !moved {
+            return Err(IoError::new(
+                std::io::ErrorKind::InvalidInput,
+                "the TypeScript helper cache must name a dedicated directory",
+            ));
+        }
+        let stat = fstat(&current).map_err(IoError::from)?;
+        if stat.st_uid != geteuid().as_raw() {
+            return Err(IoError::new(
+                std::io::ErrorKind::PermissionDenied,
+                "TypeScript helper cache directory is not owned by the effective user",
+            ));
+        }
+        Ok(current)
+    }
+
+    fn read_regular_nofollow(
+        dir: &OwnedFd,
+        name: &OsStr,
+        display: &Path,
+    ) -> std::io::Result<Option<Vec<u8>>> {
+        let fd = match openat(
+            dir,
+            name,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(fd) => fd,
+            Err(Errno::NOENT) => return Ok(None),
+            Err(Errno::LOOP | Errno::MLINK) => {
+                return Err(symlink_refusal(display));
+            }
+            Err(error) => return Err(IoError::from(error)),
+        };
+        let stat = fstat(&fd).map_err(IoError::from)?;
+        if stat.st_uid != geteuid().as_raw() {
+            return Err(IoError::new(
+                std::io::ErrorKind::PermissionDenied,
+                "TypeScript helper cache entry is not owned by the effective user",
+            ));
+        }
+        if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+            return Err(IoError::new(
+                std::io::ErrorKind::InvalidData,
+                "TypeScript helper cache entry is not a regular file",
+            ));
+        }
+        let handle = File::from(fd);
+        let mut content = Vec::with_capacity(EMBEDDED_HELPER.len() + 1);
+        handle
+            .take((EMBEDDED_HELPER.len() + 1) as u64)
+            .read_to_end(&mut content)?;
+        Ok(Some(content))
+    }
+
+    pub(super) fn publish_helper_into(
+        dir: &OwnedFd,
+        display_path: &Path,
+    ) -> std::io::Result<(PathBuf, String)> {
+        let pinned = EMBEDDED_HELPER.as_bytes();
+        let name = helper_file_name();
+        if let Some(existing) = read_regular_nofollow(dir, OsStr::new(&name), display_path)?
+            && existing == pinned
+        {
+            return Ok((display_path.to_path_buf(), digest_bytes(pinned)));
+        }
+        let mut published = false;
+        for attempt in 0..64_u32 {
+            let temporary_name = format!(".{name}.tmp-{}-{attempt}", std::process::id());
+            let fd = match openat(
+                dir,
+                OsStr::new(&temporary_name),
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_raw_mode(0o644),
+            ) {
+                Ok(fd) => fd,
+                Err(Errno::EXIST) => continue,
+                Err(error) => return Err(IoError::from(error)),
+            };
+            if let Err(error) = write_and_sync(fd, pinned) {
+                let _ = unlinkat(dir, OsStr::new(&temporary_name), AtFlags::empty());
+                return Err(error);
+            }
+            if let Err(error) = renameat(dir, OsStr::new(&temporary_name), dir, OsStr::new(&name)) {
+                let _ = unlinkat(dir, OsStr::new(&temporary_name), AtFlags::empty());
+                return Err(IoError::from(error));
+            }
+            published = true;
+            break;
+        }
+        if !published {
+            return Err(IoError::other(
+                "no free temporary name while publishing the TypeScript helper",
+            ));
+        }
+        fsync(dir).map_err(IoError::from)?;
+        let proof =
+            read_regular_nofollow(dir, OsStr::new(&name), display_path)?.ok_or_else(|| {
+                IoError::other("published TypeScript helper disappeared before verification")
+            })?;
+        if proof != pinned {
+            return Err(IoError::other(
+                "published TypeScript helper content identity mismatch",
+            ));
+        }
+        Ok((display_path.to_path_buf(), digest_bytes(pinned)))
+    }
+
+    fn write_and_sync(fd: OwnedFd, bytes: &[u8]) -> std::io::Result<()> {
+        let mut handle = File::from(fd);
+        handle.write_all(bytes)?;
+        handle.flush()?;
+        fsync(&handle).map_err(IoError::from)
+    }
+}
+const EMBEDDED_HELPER_BOOTSTRAP: &str = r"
+const Module = require('node:module');
+const path = require('node:path');
+const filename = process.argv[1];
+const countText = process.env.HOONARQUBE_EMBEDDED_HELPER_CHUNK_COUNT;
+const count = Number.parseInt(countText || '', 10);
+if (!filename || !Number.isSafeInteger(count) || count < 1) {
+  throw new Error('embedded TypeScript helper source is unavailable');
+}
+const chunks = [];
+for (let index = 0; index < count; index += 1) {
+  const chunk = process.env[`HOONARQUBE_EMBEDDED_HELPER_CHUNK_${index}`];
+  if (typeof chunk !== 'string') {
+    throw new Error('embedded TypeScript helper source is incomplete');
+  }
+  chunks.push(chunk);
+}
+const source = chunks.join('');
+const helper = new Module(filename, require.main);
+helper.filename = filename;
+helper.paths = Module._nodeModulePaths(path.dirname(filename));
+require.main = helper;
+helper._compile(source, filename);
+";
+
+const EMBEDDED_HELPER_ENV_CHUNK_BYTES: usize = 32 * 1024;
+
+fn embedded_helper_chunks(source: &str) -> impl Iterator<Item = &str> {
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        if start == source.len() {
+            return None;
+        }
+        let mut end = (start + EMBEDDED_HELPER_ENV_CHUNK_BYTES).min(source.len());
+        while end > start && !source.is_char_boundary(end) {
+            end -= 1;
+        }
+        let chunk = &source[start..end];
+        start = end;
+        Some(chunk)
+    })
 }
 
 fn invoke_helper(
@@ -1064,7 +1352,21 @@ fn invoke_helper(
     input: &[u8],
 ) -> Result<Vec<u8>, ProjectContextError> {
     let mut command = Command::new(&config.helper_program);
-    command.args(&config.helper_args).arg(script);
+    command.args(&config.helper_args);
+    if config.helper_script.is_none() {
+        command.arg("-e").arg(EMBEDDED_HELPER_BOOTSTRAP).arg(script);
+        let mut chunk_count = 0;
+        for (index, chunk) in embedded_helper_chunks(EMBEDDED_HELPER).enumerate() {
+            command.env(format!("HOONARQUBE_EMBEDDED_HELPER_CHUNK_{index}"), chunk);
+            chunk_count += 1;
+        }
+        command.env(
+            "HOONARQUBE_EMBEDDED_HELPER_CHUNK_COUNT",
+            chunk_count.to_string(),
+        );
+    } else {
+        command.arg(script);
+    }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1186,4 +1488,229 @@ fn canonical_path(path: &Path) -> PathBuf {
             std::env::current_dir().map_or_else(|_| path.to_path_buf(), |cwd| cwd.join(path))
         }
     })
+}
+
+#[cfg(test)]
+mod materialization_tests {
+    use super::*;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    use std::os::unix::fs::PermissionsExt;
+
+    struct ScenarioRoot {
+        root: PathBuf,
+    }
+
+    impl ScenarioRoot {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir()
+                .join(format!("hoonarqube-issue98-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).expect("scenario root");
+            Self { root }
+        }
+
+        fn config(&self) -> TypeScriptProjectConfig {
+            let project = self.root.join("project");
+            fs::create_dir_all(&project).expect("project directory");
+            TypeScriptProjectConfig::new(project)
+        }
+    }
+
+    impl Drop for ScenarioRoot {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn helper_path(config: &TypeScriptProjectConfig) -> PathBuf {
+        config
+            .helper_cache_dir
+            .join(format!("semantic-helper-v{HELPER_PROTOCOL_VERSION}.cjs"))
+    }
+
+    fn helper_never_started(scenario: &ScenarioRoot) -> PathBuf {
+        scenario.root.join("helper-program-does-not-exist")
+    }
+
+    fn load_without_helper(
+        mut config: TypeScriptProjectConfig,
+        scenario: &ScenarioRoot,
+    ) -> Result<ProjectSemanticContext, ProjectContextError> {
+        config.helper_program = helper_never_started(scenario);
+        ProjectSemanticContext::load(&config, &ProjectSemanticSources::default())
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn publishes_and_reuses_pinned_helper() {
+        let scenario = ScenarioRoot::new("normal");
+        let config = scenario.config();
+        let path = helper_path(&config);
+        let _ = load_without_helper(config.clone(), &scenario);
+        assert_eq!(
+            fs::metadata(&config.helper_cache_dir)
+                .expect("cache metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert!(
+            path.is_file() && !path.is_symlink(),
+            "normal materialization must publish a regular helper"
+        );
+        assert_eq!(fs::read(&path).expect("helper"), EMBEDDED_HELPER.as_bytes());
+        fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+            .expect("permissions");
+        let _ = load_without_helper(config, &scenario);
+        assert_eq!(
+            fs::metadata(&path).expect("metadata").permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn preserves_existing_cache_ancestor_permissions() {
+        let scenario = ScenarioRoot::new("existing-directory-mode");
+        let config = scenario.config();
+        let source_dir = config.root.join("src");
+        fs::create_dir_all(&source_dir).expect("source directory");
+        fs::set_permissions(
+            &source_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .expect("source permissions");
+        let cache_dir = source_dir.join("cache");
+        fs::create_dir_all(&cache_dir).expect("existing cache directory");
+        fs::set_permissions(
+            &cache_dir,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .expect("cache permissions");
+        let mut custom = config;
+        custom.helper_cache_dir = cache_dir;
+        let _ = load_without_helper(custom.clone(), &scenario);
+        assert_eq!(
+            fs::metadata(&source_dir)
+                .expect("source metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755,
+            "existing cache ancestors must not be chmodded"
+        );
+        assert_eq!(
+            fs::metadata(&custom.helper_cache_dir)
+                .expect("cache metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755,
+            "existing cache directories must not be chmodded"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn supports_explicit_external_cache_path() {
+        let scenario = ScenarioRoot::new("external-cache");
+        let mut config = scenario.config();
+        config.helper_cache_dir = scenario.root.join("external-cache");
+        let path = helper_path(&config);
+        let _ = load_without_helper(config, &scenario);
+        assert!(
+            path.is_file() && !path.is_symlink(),
+            "explicit external cache must remain supported"
+        );
+        assert_eq!(fs::read(&path).expect("helper"), EMBEDDED_HELPER.as_bytes());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn rejects_final_symlink_without_sentinel_write() {
+        let scenario = ScenarioRoot::new("final-symlink");
+        let config = scenario.config();
+        fs::create_dir_all(&config.helper_cache_dir).expect("cache");
+        let sentinel = scenario.root.join("sentinel");
+        fs::write(&sentinel, b"unchanged").expect("sentinel");
+        let path = helper_path(&config);
+        std::os::unix::fs::symlink(&sentinel, &path).expect("symlink");
+        let error = load_without_helper(config, &scenario)
+            .expect_err("final symlink must stop before helper invocation");
+        assert_eq!(error.code, "JS_CONTEXT_HELPER_PREPARE");
+        assert!(error.message.contains("symbolic link"));
+        assert_eq!(fs::read(&sentinel).expect("sentinel"), b"unchanged");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn rejects_parent_symlink_without_outside_write() {
+        let scenario = ScenarioRoot::new("parent-link");
+        let config = scenario.config();
+        let outside = scenario.root.join("outside");
+        fs::create_dir_all(&outside).expect("outside");
+        let hoonarqube = config.helper_cache_dir.parent().unwrap().parent().unwrap();
+        fs::create_dir_all(hoonarqube).expect("cache parent");
+        std::os::unix::fs::symlink(&outside, hoonarqube.join("semantic")).expect("parent link");
+        let error = load_without_helper(config, &scenario)
+            .expect_err("parent symlink must stop before helper invocation");
+        assert_eq!(error.code, "JS_CONTEXT_HELPER_PREPARE");
+        assert!(error.message.contains("symbolic link"));
+        assert!(
+            fs::read_dir(outside)
+                .expect("outside listing")
+                .next()
+                .is_none()
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn controlled_final_swap_is_rejected_without_sentinel_write() {
+        let scenario = ScenarioRoot::new("controlled-swap");
+        let config = scenario.config();
+        let path = helper_path(&config);
+        let _ = load_without_helper(config.clone(), &scenario);
+        assert!(path.is_file() && !path.is_symlink());
+        let sentinel = scenario.root.join("sentinel");
+        fs::write(&sentinel, b"unchanged").expect("sentinel");
+        fs::remove_file(&path).expect("published helper");
+        std::os::unix::fs::symlink(&sentinel, &path).expect("swap");
+        let error = load_without_helper(config, &scenario).expect_err("swapped symlink");
+        assert_eq!(error.code, "JS_CONTEXT_HELPER_PREPARE");
+        assert!(error.message.contains("symbolic link"));
+        assert_eq!(fs::read(&sentinel).expect("sentinel"), b"unchanged");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn replaces_untrusted_cached_content() {
+        let scenario = ScenarioRoot::new("untrusted");
+        let config = scenario.config();
+        fs::create_dir_all(&config.helper_cache_dir).expect("cache");
+        let path = helper_path(&config);
+        fs::write(&path, b"untrusted").expect("cache entry");
+        let _ = load_without_helper(config.clone(), &scenario);
+        assert_eq!(fs::read(&path).expect("helper"), EMBEDDED_HELPER.as_bytes());
+        assert_eq!(
+            fs::read_dir(&config.helper_cache_dir)
+                .expect("cache listing")
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))
+                .count(),
+            0
+        );
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[test]
+    fn unsupported_platform_fails_closed() {
+        let scenario = ScenarioRoot::new("unsupported");
+        let error =
+            ProjectSemanticContext::load(&scenario.config(), &ProjectSemanticSources::default())
+                .expect_err("unsupported");
+        assert_eq!(error.code, "JS_CONTEXT_HELPER_PREPARE");
+        assert!(error.message.contains("unsupported"));
+    }
 }
