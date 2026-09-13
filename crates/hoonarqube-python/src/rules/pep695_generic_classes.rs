@@ -47,4 +47,34 @@ mod tests {
         let flagged = scan("class Box(Generic[T]):\n    pass\nclass Plain:\n    pass\n");
         assert_eq!(findings(&flagged, "python:S6792").len(), 1);
     }
+
+    #[test]
+    fn s6792_flags_generic_base_through_typing_module_alias() {
+        let flagged = scan(concat!(
+            "import typing as t\n",
+            "\n",
+            "T = t.TypeVar(\"T\")\n",
+            "\n",
+            "\n",
+            "class Box(t.Generic[T]):\n",
+            "    item: T\n",
+            "\n",
+            "\n",
+            "class Plain:\n",
+            "    item: str\n"
+        ));
+        let found = findings(&flagged, "python:S6792");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 5);
+
+        // A non-Generic subscript through the same alias stays clean.
+        let foreign = scan(concat!(
+            "import typing as t\n",
+            "\n",
+            "\n",
+            "class Names(t.List[str]):\n",
+            "    pass\n"
+        ));
+        assert!(findings(&foreign, "python:S6792").is_empty());
+    }
 }
