@@ -10,7 +10,7 @@ impl<'a> TierCCallUsageCollector<'_, '_> {
     pub(crate) fn check_void_result(&mut self, it: &CallExpression<'a>) {
         if self.suppress_span != Some(it.span())
             && let Some(name) = callee_name(it)
-            && let Some(facts) = self.census.functions.get(name)
+            && let Some(facts) = self.census.resolve(name, it.callee.span().start)
             && facts.is_void()
         {
             self.sink.emit_span(

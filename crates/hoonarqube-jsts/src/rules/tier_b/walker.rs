@@ -34,12 +34,12 @@ use super::s6522_tb_import_reassigned::check_tb_import_reassigned;
 use super::s6544_tb_promise_chains::check_tb_promise_chains;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::engine::scope_model::{TbFlow, TbHalt, build_tb_model};
-use crate::support::{IssueSink, LineIndex, ScannedComment};
+use crate::engine::scope_model::{TbFlow, TbHalt, build_tb_model, dead_stores};
+use crate::support::{IssueSink, LineIndex, RuleScope, ScannedComment};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
 use oxc_semantic::Semantic;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// All Tier-B checks that run over the scope model.
 fn check_tier_b_rules(
@@ -97,7 +97,9 @@ fn check_tier_b_rules(
     sink.issues
 }
 
-/// `S1854` / `S2123` / `S1226` / `S4165` over the straight-line tracker.
+/// `S1854` / `S2123` / `S1226` / `S4165` over the straight-line tracker,
+/// plus the backward dead-store pass for overwritten locals the straight-line
+/// tracker cannot see (stores sunk inside branches and loops).
 fn check_tb_flow_rules<'p>(
     program: &'p oxc_ast::ast::Program<'p>,
     source: &str,
@@ -113,6 +115,32 @@ fn check_tb_flow_rules<'p>(
         target_write_depth: 0,
     };
     flow.visit_program(program);
+
+    // Union the backward pass, skipping stores the forward tracker already
+    // reported at the same position.
+    let forward_sites: HashSet<(u32, u32)> = sink
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key.ends_with(":S1854"))
+        .map(|issue| (issue.range.start.line, issue.range.start.column))
+        .collect();
+    let dead_stores = dead_stores(program, source);
+    for dead in dead_stores {
+        let position = sink.index.range(dead.site).start;
+        let key = (position.line, position.column);
+        if forward_sites.contains(&key) {
+            continue;
+        }
+        sink.emit_span(
+            RuleScope::Both,
+            "S1854",
+            &format!(
+                "Remove this useless assignment to variable \"{}\".",
+                dead.name
+            ),
+            dead.site,
+        );
+    }
 }
 
 /// S1068 + S6441 + S6767 entry point; findings land directly in `sink`.
@@ -178,16 +206,6 @@ mod tests {
             "function g() {\n  let y = compute();\n  {\n    let y = 2;\n    use(y);\n  }\n  return y;\n}\ng();\n",
         );
         assert_eq!(filtered(&shadow, "S1854").len(), 0);
-    }
-
-    #[test]
-    fn dead_store_survives_branches_only_when_both_paths_agree() {
-        let source = js(
-            "function f(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  } else {\n    x = b();\n  }\n  return x;\n}\nf(1);\n",
-        );
-        // The two overwrites live at different offsets, so the value may be
-        // read from either path: nothing is reported.
-        assert_eq!(filtered(&source, "S1854").len(), 0);
     }
 
     #[test]
@@ -332,5 +350,45 @@ mod tests {
             "function f() {\n  var x = compute();\n  {\n    let x = 2;\n  }\n  return x;\n}\nf();\n",
         );
         assert_eq!(filtered(&let_shadow, "S1854").len(), 0);
+    }
+
+    #[test]
+    fn s1854_reports_pinned_markdown_it_start_overwrites() {
+        // #139: verbatim sources of markdown-it at pinned revision
+        // 3c51991c32aaa2b002a52c009334ebe5752c84b3 (MIT), which SonarQube and
+        // CodeQL both flag at the listed `start` lines while the tracker
+        // missed them. Line numbers below match the pinned files exactly.
+        let image = ts(include_str!("../../../fixtures/flow/markdown-it-image.ts"));
+        let image_sites: Vec<(u32, u32)> = image
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S1854")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(image_sites, vec![(39, 4)], "pinned image.ts:39");
+
+        let link = ts(include_str!("../../../fixtures/flow/markdown-it-link.ts"));
+        let link_sites: Vec<(u32, u32)> = link
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S1854")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(link_sites, vec![(10, 6), (43, 4)], "pinned link.ts:10/43");
+    }
+
+    #[test]
+    fn s1854_branch_and_loop_controls_stay_clean() {
+        // A read on the skipped branch keeps the initial value live.
+        let conditional = js(
+            "function g(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  }\n  return x;\n}\ng(true);\n",
+        );
+        assert_eq!(filtered(&conditional, "S1854").len(), 0);
+
+        // Loop bodies may re-read the previous iteration's value.
+        let loop_carried = js(
+            "function h(items) {\n  let current = items[0];\n  for (const item of items) {\n    use(current, item);\n    current = item;\n  }\n}\nh([]);\n",
+        );
+        assert_eq!(filtered(&loop_carried, "S1854").len(), 0);
     }
 }
