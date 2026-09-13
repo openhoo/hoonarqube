@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use hoonarqube_ir::assessment::{
     ASSESSMENT_SCHEMA_VERSION, AssessmentStatus, FindingStatus, GateConditionResult, GateOperator,
-    GateReport, GateScope, GateStatus,
+    GateReport, GateScope, GateStatus, normalize_path,
 };
 use hoonarqube_ir::{AnalysisReport, FileClassification, MeasurementStatus};
 
@@ -436,7 +436,8 @@ fn new_code_metric(metric: &str, report: &AnalysisReport) -> Result<MetricValue,
     }
     let new_code = complete_new_code(report)?;
     let line_sets = new_code_line_sets(new_code)?;
-    let scoped_line_count = validate_new_line_sets(report, &line_sets)?;
+    let measurements = measurement_index(report)?;
+    let scoped_line_count = validate_new_line_sets(&measurements, &line_sets)?;
     match metric {
         "files" => Ok(MetricValue::Count(usize_as_u64(line_sets.len()))),
         "lines" => Ok(MetricValue::Count(scoped_line_count)),
@@ -470,19 +471,19 @@ fn new_code_metric(metric: &str, report: &AnalysisReport) -> Result<MetricValue,
             percentage_counter(eligible, covered, "new-code branch coverage")
         }
         "duplicated_lines" => {
-            let scoped = scoped_duplication(report, &line_sets)?;
+            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
             Ok(MetricValue::Count(scoped.duplicated_lines))
         }
         "duplicated_blocks" => {
-            let scoped = scoped_duplication(report, &line_sets)?;
+            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
             Ok(MetricValue::Count(scoped.duplicated_blocks))
         }
         "duplicated_files" => {
-            let scoped = scoped_duplication(report, &line_sets)?;
+            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
             Ok(MetricValue::Count(scoped.duplicated_files))
         }
         "duplicated_lines_density" => {
-            let scoped = scoped_duplication(report, &line_sets)?;
+            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
             percentage_counter(
                 scoped.denominator,
                 scoped.duplicated_lines,
@@ -697,6 +698,35 @@ fn new_code_line_sets(
     Ok(sets)
 }
 
+/// Normalized, duplicate-checked view of the project measurement inventory.
+///
+/// New-code artifacts identify files by normalized paths, so every
+/// cross-artifact join against project measurements must resolve both sides
+/// with the same normalization.  Inventory entries that normalize to the same
+/// path are conflicting aliases and fail closed instead of silently joining.
+struct MeasurementIndex<'a> {
+    files: BTreeMap<PathBuf, &'a hoonarqube_ir::ProjectFileMeasurement>,
+}
+
+fn measurement_index(report: &AnalysisReport) -> Result<MeasurementIndex<'_>, String> {
+    let mut files = BTreeMap::new();
+    for measurement in &report.project.files {
+        let path = normalize_path(&measurement.path).map_err(|error| {
+            format!(
+                "project inventory path \"{}\" is invalid: {error}",
+                measurement.path.to_string_lossy().escape_debug()
+            )
+        })?;
+        if files.insert(path.clone(), measurement).is_some() {
+            return Err(format!(
+                "project inventory contains duplicate path \"{}\"",
+                path.to_string_lossy().escape_debug()
+            ));
+        }
+    }
+    Ok(MeasurementIndex { files })
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ScopedDuplication {
     duplicated_lines: u64,
@@ -707,11 +737,12 @@ struct ScopedDuplication {
 
 fn scoped_duplication(
     report: &AnalysisReport,
+    measurements: &MeasurementIndex<'_>,
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
 ) -> Result<ScopedDuplication, String> {
     let _ = complete_duplication(report)?;
-    validate_new_line_sets(report, line_sets)?;
-    let denominator = duplication_line_denominator(report, line_sets)?;
+    validate_new_line_sets(measurements, line_sets)?;
+    let denominator = duplication_line_denominator(measurements, line_sets)?;
     let mut duplicated_lines = BTreeSet::new();
     let mut duplicated_blocks = BTreeSet::new();
     let mut duplicated_files = BTreeSet::new();
@@ -749,7 +780,13 @@ fn collect_scoped_occurrence(
             occurrence.path.to_string_lossy().escape_debug()
         ));
     }
-    let Some(lines) = line_sets.get(&occurrence.path) else {
+    let path = normalize_path(&occurrence.path).map_err(|error| {
+        format!(
+            "duplication occurrence path \"{}\" is invalid: {error}",
+            occurrence.path.to_string_lossy().escape_debug()
+        )
+    })?;
+    let Some(lines) = line_sets.get(&path) else {
         return Ok(());
     };
     let covered = (occurrence.start_line..=occurrence.end_line).any(|line| lines.contains(&line));
@@ -757,38 +794,33 @@ fn collect_scoped_occurrence(
         return Ok(());
     }
     duplicated_blocks.insert((
-        occurrence.path.clone(),
+        path.clone(),
         occurrence.start_line,
         occurrence.end_line,
         occurrence.start_byte,
         occurrence.end_byte,
     ));
-    duplicated_files.insert(occurrence.path.clone());
+    duplicated_files.insert(path.clone());
     for line in occurrence.start_line..=occurrence.end_line {
         if lines.contains(&line) {
-            duplicated_lines.insert((occurrence.path.clone(), line));
+            duplicated_lines.insert((path.clone(), line));
         }
     }
     Ok(())
 }
 
 fn validate_new_line_sets(
-    report: &AnalysisReport,
+    measurements: &MeasurementIndex<'_>,
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
 ) -> Result<u64, String> {
     let mut denominator = 0_u64;
     for (path, lines) in line_sets {
-        let measurement = report
-            .project
-            .files
-            .iter()
-            .find(|file| file.path == *path)
-            .ok_or_else(|| {
-                format!(
-                    "new-code path \"{}\" is absent from project inventory",
-                    path.to_string_lossy().escape_debug()
-                )
-            })?;
+        let measurement = measurements.files.get(path).copied().ok_or_else(|| {
+            format!(
+                "new-code path \"{}\" is absent from project inventory",
+                path.to_string_lossy().escape_debug()
+            )
+        })?;
         if !matches!(
             measurement.classification,
             FileClassification::Source | FileClassification::Test
@@ -827,22 +859,17 @@ fn validate_new_line_sets(
     Ok(denominator)
 }
 fn duplication_line_denominator(
-    report: &AnalysisReport,
+    measurements: &MeasurementIndex<'_>,
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
 ) -> Result<u64, String> {
     let mut denominator = 0_u64;
     for (path, lines) in line_sets {
-        let measurement = report
-            .project
-            .files
-            .iter()
-            .find(|file| file.path == *path)
-            .ok_or_else(|| {
-                format!(
-                    "new-code path \"{}\" is absent from project inventory",
-                    path.to_string_lossy().escape_debug()
-                )
-            })?;
+        let measurement = measurements.files.get(path).copied().ok_or_else(|| {
+            format!(
+                "new-code path \"{}\" is absent from project inventory",
+                path.to_string_lossy().escape_debug()
+            )
+        })?;
         if measurement.classification != FileClassification::Source
             || measurement.duplication.is_none()
         {
@@ -1045,8 +1072,9 @@ mod tests {
         NewCodeLines, NewCodeReport, SourceSnapshot,
     };
     use hoonarqube_ir::{
-        AnalysisReport, DuplicationMetrics, FileClassification, FileMetrics, FileReport, Issue,
-        MeasurementStatus, Pos, ProjectFileMeasurement, ProjectMetrics, ProjectReport, Range,
+        AnalysisReport, DuplicateGroup, DuplicateOccurrence, DuplicationMetrics,
+        FileClassification, FileMetrics, FileReport, Issue, MeasurementStatus, Pos,
+        ProjectFileMeasurement, ProjectMetrics, ProjectReport, Range,
     };
     use std::cmp::Ordering;
     use std::path::PathBuf;
@@ -1665,5 +1693,208 @@ mod tests {
         assert_eq!(compare_u64_f64(1, 1.5), Ordering::Less);
         assert_eq!(compare_u64_f64(2, 1.5), Ordering::Greater);
         assert_eq!(compare_u64_f64(2, 2.0), Ordering::Equal);
+    }
+
+    #[test]
+    fn new_code_gate_joins_normalized_inventory_paths_and_counts_changed_files_once() {
+        let mut report = report(true);
+        report.project.files[0].path = PathBuf::from("./src/main.rs");
+        report.assessment = Some(assessment(
+            None,
+            Some(new_code_report(
+                AssessmentStatus::Complete,
+                Some(context()),
+                Vec::new(),
+            )),
+        ));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                condition(GateScope::NewCode, "files", GateOperator::Eq, 1.0),
+                condition(GateScope::NewCode, "lines", GateOperator::Eq, 1.0),
+            ],
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Pass);
+        assert_eq!(evaluated.conditions[0].status, GateStatus::Pass);
+        assert_eq!(evaluated.conditions[0].actual, Some(1.0));
+        assert_eq!(evaluated.conditions[1].status, GateStatus::Pass);
+        assert_eq!(evaluated.conditions[1].actual, Some(1.0));
+    }
+
+    #[test]
+    fn unchanged_complete_new_code_counts_zero_on_aliased_inventory() {
+        let mut report = report(true);
+        report.project.files[0].path = PathBuf::from("./src/main.rs");
+        let mut new_code = new_code_report(AssessmentStatus::Complete, Some(context()), Vec::new());
+        new_code.lines.clear();
+        report.assessment = Some(assessment(None, Some(new_code)));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                condition(GateScope::NewCode, "files", GateOperator::Eq, 0.0),
+                condition(GateScope::NewCode, "lines", GateOperator::Eq, 0.0),
+            ],
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Pass);
+        for result in &evaluated.conditions {
+            assert_eq!(result.status, GateStatus::Pass);
+            assert_eq!(result.actual, Some(0.0));
+        }
+    }
+
+    #[test]
+    fn duplicate_normalized_inventory_aliases_fail_closed() {
+        let mut report = report(true);
+        report.project.files.push(project_file("src/main.rs", 10));
+        report.project.files[0].path = PathBuf::from("./src/main.rs");
+        report.assessment = Some(assessment(
+            None,
+            Some(new_code_report(
+                AssessmentStatus::Complete,
+                Some(context()),
+                Vec::new(),
+            )),
+        ));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![condition(
+                GateScope::NewCode,
+                "files",
+                GateOperator::Gte,
+                0.0,
+            )],
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Unavailable);
+        assert_eq!(evaluated.conditions[0].status, GateStatus::Unavailable);
+        assert_eq!(evaluated.conditions[0].actual, None);
+        assert!(
+            evaluated
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("duplicate"))
+        );
+    }
+
+    #[test]
+    fn genuinely_absent_inventory_path_stays_unavailable() {
+        let mut report = report(true);
+        let mut new_code = new_code_report(AssessmentStatus::Complete, Some(context()), Vec::new());
+        new_code.lines[0].path = PathBuf::from("other.py");
+        report.assessment = Some(assessment(None, Some(new_code)));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![condition(
+                GateScope::NewCode,
+                "files",
+                GateOperator::Gte,
+                0.0,
+            )],
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Unavailable);
+        assert_eq!(evaluated.conditions[0].status, GateStatus::Unavailable);
+        assert_eq!(evaluated.conditions[0].actual, None);
+        assert!(
+            evaluated
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("absent from project inventory"))
+        );
+    }
+
+    #[test]
+    fn new_code_duplication_scopes_normalize_occurrence_paths() {
+        let mut report = report(true);
+        report.project.duplications.push(DuplicateGroup {
+            language: "python".to_string(),
+            occurrences: vec![DuplicateOccurrence {
+                path: PathBuf::from("./src/main.rs"),
+                start_line: 1,
+                end_line: 1,
+                start_byte: 0,
+                end_byte: 9,
+            }],
+        });
+        report.assessment = Some(assessment(
+            None,
+            Some(new_code_report(
+                AssessmentStatus::Complete,
+                Some(context()),
+                Vec::new(),
+            )),
+        ));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                condition(
+                    GateScope::NewCode,
+                    "duplicated_lines",
+                    GateOperator::Eq,
+                    1.0,
+                ),
+                condition(
+                    GateScope::NewCode,
+                    "duplicated_blocks",
+                    GateOperator::Eq,
+                    1.0,
+                ),
+                condition(
+                    GateScope::NewCode,
+                    "duplicated_files",
+                    GateOperator::Eq,
+                    1.0,
+                ),
+                condition(
+                    GateScope::NewCode,
+                    "duplicated_lines_density",
+                    GateOperator::Gte,
+                    100.0,
+                ),
+            ],
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Pass);
+        assert_eq!(evaluated.conditions[0].actual, Some(1.0));
+        assert_eq!(evaluated.conditions[1].actual, Some(1.0));
+        assert_eq!(evaluated.conditions[2].actual, Some(1.0));
+        assert_eq!(evaluated.conditions[3].actual, Some(100.0));
+    }
+
+    #[test]
+    fn genuinely_unmatched_duplication_occurrences_are_not_new_code() {
+        let mut report = report(true);
+        report.project.duplications.push(DuplicateGroup {
+            language: "python".to_string(),
+            occurrences: vec![DuplicateOccurrence {
+                path: PathBuf::from("src/main.rs"),
+                start_line: 5,
+                end_line: 6,
+                start_byte: 40,
+                end_byte: 80,
+            }],
+        });
+        report.assessment = Some(assessment(
+            None,
+            Some(new_code_report(
+                AssessmentStatus::Complete,
+                Some(context()),
+                Vec::new(),
+            )),
+        ));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![condition(
+                GateScope::NewCode,
+                "duplicated_lines",
+                GateOperator::Eq,
+                0.0,
+            )],
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Pass);
+        assert_eq!(evaluated.conditions[0].actual, Some(0.0));
     }
 }
