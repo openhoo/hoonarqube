@@ -614,6 +614,63 @@ fn s4144_flags_identical_sibling_implementations() {
 }
 
 #[test]
+fn s4144_ignores_comment_differences_between_sibling_bodies() {
+    // Explanatory comments inside otherwise-identical bodies must not hide
+    // the duplication (PyYAML check_key/check_value shape).
+    let flagged = scan(concat!(
+        "class Loader:\n",
+        "    def check_key(self):\n",
+        "        if self.flow_level:\n",
+        "            # KEY token: ':' only starts a key outside flow context.\n",
+        "            return False\n",
+        "        else:\n",
+        "            return self.peek() == ':'\n",
+        "    def check_value(self):\n",
+        "        if self.flow_level:\n",
+        "            # VALUE token: ':' after a scalar may belong to the key.\n",
+        "            return False\n",
+        "        else:\n",
+        "            return self.peek() == ':'\n"
+    ));
+    let found = findings(&flagged, "python:S4144");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 8);
+
+    // Executable differences still suppress the report even when comments
+    // agree.
+    let differing = scan(concat!(
+        "class Loader:\n",
+        "    def check_key(self):\n",
+        "        if self.flow_level:\n",
+        "            # same comment\n",
+        "            return False\n",
+        "        else:\n",
+        "            return self.peek() == ':'\n",
+        "    def check_value(self):\n",
+        "        if self.flow_level:\n",
+        "            # same comment\n",
+        "            return False\n",
+        "        else:\n",
+        "            return self.peek() != ':'\n"
+    ));
+    assert!(findings(&differing, "python:S4144").is_empty());
+
+    // Comment-like text inside strings stays executable content, so a
+    // string difference is real and identical strings still duplicate.
+    let string_bodies = scan(concat!(
+        "def one():\n",
+        "    if flag:\n",
+        "        return 'flow'\n",
+        "    return 'plain'\n",
+        "def two():\n",
+        "    if flag:\n",
+        "        return 'flow'\n",
+        "    return 'plain'\n"
+    ));
+    assert_eq!(findings(&string_bodies, "python:S4144").len(), 1);
+}
+
+#[test]
 fn s5717_flags_mutated_defaults() {
     let flagged = scan(concat!(
         "def collect(bucket=[]):\n",
@@ -759,6 +816,38 @@ fn s5806_flags_function_local_builtin_shadowing_only() {
     let renamed =
         scan("def process(items):\n    length = len(items)\n    return length\n\n\nprocess([1])\n");
     assert!(findings(&renamed, "python:S5806").is_empty());
+}
+
+#[test]
+fn s5806_reports_parameter_shadow_despite_dynamic_name_lookups() {
+    // A `globals()` lookup elsewhere in the file must not veto a parameter
+    // rebinding: no dynamic mechanism can create or rename a parameter, so
+    // the shadow is real regardless (Click help-parameter shape).
+    let shadow = scan(concat!(
+        "def install(ctx, help=None):\n",
+        "    if help is None:\n",
+        "        help = ctx.info_name\n",
+        "    return help\n",
+        "\n",
+        "\n",
+        "def registry():\n",
+        "    return globals()\n"
+    ));
+    let found = findings(&shadow, "python:S5806");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 3);
+
+    // Dynamic-name safety is retained for ordinary local assignments.
+    let dynamic_local = scan(concat!(
+        "def build(entries):\n",
+        "    list = list(entries)\n",
+        "    return list\n",
+        "\n",
+        "\n",
+        "def registry():\n",
+        "    return globals()\n"
+    ));
+    assert!(findings(&dynamic_local, "python:S5806").is_empty());
 }
 
 #[test]
