@@ -3,12 +3,14 @@ use super::collectors::RootedMemberScanner;
 use crate::rules::batch2d::s3512_es_idioms::EsIdiomCollector;
 use crate::rules::shared::is_equality_operator;
 use crate::support::RuleScope;
+use crate::support::expression_root_name;
 use crate::support::identifier_name;
 use crate::support::unparenthesized;
 use oxc_ast::ast::BinaryExpression;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::LogicalExpression;
 use oxc_ast::ast::LogicalOperator;
+use oxc_ast::ast::UnaryOperator;
 use oxc_ast_visit::Visit;
 use oxc_span::GetSpan;
 
@@ -89,14 +91,55 @@ fn and_chain_root<'a>(chain: &'a Expression<'a>) -> Option<&'a str> {
     }
 }
 
+/// De Morgan dual of the `&&` guard family: every operand of the `||`
+/// chain is a single negation over either the guarded identifier or a
+/// member chain rooted at it (`!fn || !fn.handle || !fn.set`). The root
+/// must agree across the chain, and at least one operand must guard a
+/// member access.
+fn negated_or_guard_root<'a>(logical: &'a LogicalExpression<'a>) -> Option<&'a str> {
+    let mut operands = Vec::new();
+    collect_or_operands(logical, &mut operands);
+    let mut root: Option<&str> = None;
+    let mut member_guard = false;
+    for &operand in &operands {
+        let Expression::UnaryExpression(unary) = operand else {
+            return None;
+        };
+        if unary.operator != UnaryOperator::LogicalNot {
+            return None;
+        }
+        let argument = unparenthesized(&unary.argument);
+        let name = expression_root_name(argument)?;
+        if root.is_some_and(|known| known != name) {
+            return None;
+        }
+        root = Some(name);
+        member_guard |= !matches!(argument, Expression::Identifier(_));
+    }
+    if member_guard { root } else { None }
+}
+
+/// Flattens a (possibly single-operand) `||` chain into its operands.
+fn collect_or_operands<'a>(
+    logical: &'a LogicalExpression<'a>,
+    operands: &mut Vec<&'a Expression<'a>>,
+) {
+    for side in [&logical.left, &logical.right] {
+        if let Expression::LogicalExpression(nested) = unparenthesized(side)
+            && nested.operator == LogicalOperator::Or
+        {
+            collect_or_operands(nested, operands);
+        } else {
+            operands.push(unparenthesized(side));
+        }
+    }
+}
+
 // Generated per-rule checks (moved out of traversal overrides).
 impl EsIdiomCollector<'_> {
     /// `S6582` logic extracted from `visit_logical_expression`. Each chain
     /// reports once, at its outermost span.
     pub(crate) fn check_s6582_logical_expression(&mut self, it: &LogicalExpression<'_>) {
-        if it.operator != LogicalOperator::And {
-            return;
-        }
         if self
             .s6582_spans
             .iter()
@@ -104,18 +147,23 @@ impl EsIdiomCollector<'_> {
         {
             return;
         }
-        if let Some(root) = null_guard_target(&it.left) {
-            let mut scanner = RootedMemberScanner { root, found: false };
-            scanner.visit_expression(&it.right);
-            if scanner.found {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S6582",
-                    "Use optional chaining (\"?.\") instead of this null check.",
-                    it.span(),
-                );
-                self.s6582_spans.push(it.span());
-            }
+        let root = match it.operator {
+            LogicalOperator::And => null_guard_target(&it.left).and_then(|root| {
+                let mut scanner = RootedMemberScanner { root, found: false };
+                scanner.visit_expression(&it.right);
+                scanner.found.then_some(root)
+            }),
+            LogicalOperator::Or => negated_or_guard_root(it),
+            LogicalOperator::Coalesce => None,
+        };
+        if root.is_some() {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S6582",
+                "Use optional chaining (\"?.\") instead of this null check.",
+                it.span(),
+            );
+            self.s6582_spans.push(it.span());
         }
     }
 }

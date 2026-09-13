@@ -9,15 +9,19 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, BinaryOperator, BreakStatement, CallExpression,
-    ContinueStatement, DoWhileStatement, Expression, ForInStatement, ForOfStatement, ForStatement,
-    ForStatementInit, Function, MethodDefinition, ReturnStatement, Statement, StaticBlock,
-    SwitchCase, ThrowStatement, UpdateExpression, UpdateOperator, WhileStatement,
+    ComputedMemberExpression, ContinueStatement, DoWhileStatement, Expression, ForInStatement,
+    ForOfStatement, ForStatement, ForStatementInit, Function, IdentifierReference,
+    MethodDefinition, ReturnStatement, Statement, StaticBlock, SwitchCase, ThisExpression,
+    ThrowStatement, UnaryExpression, UnaryOperator, UpdateExpression, UpdateOperator,
+    VariableDeclarationKind, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_assignment_expression, walk_call_expression,
-    walk_do_while_statement, walk_for_in_statement, walk_for_of_statement, walk_function,
-    walk_static_block, walk_switch_case, walk_while_statement,
+    walk_computed_member_expression, walk_do_while_statement, walk_for_in_statement,
+    walk_for_of_statement, walk_function, walk_identifier_reference, walk_static_block,
+    walk_switch_case, walk_this_expression, walk_unary_expression, walk_update_expression,
+    walk_variable_declarator, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -255,6 +259,257 @@ impl<'a> LoopFlowCollector<'a, '_> {
             body.span(),
         );
     }
+
+    /// `S4138`: a `.length`-bounded counter whose body only reads the same
+    /// collection by counter index is a simple iteration that `for...of`
+    /// expresses directly.
+    fn check_simple_indexed_loop(&mut self, it: &ForStatement<'a>) {
+        let Some(shape) = indexed_loop_shape(it, self.source) else {
+            return;
+        };
+        let mut scan = IndexedBodyScan::new(&shape, self.source);
+        scan.visit_statement(&it.body);
+        if indexed_body_convertible(&shape, &scan) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S4138",
+                "Expected a \"for-of\" loop instead of a \"for\" loop with this simple iteration.",
+                it.span(),
+            );
+        }
+    }
+}
+
+/// The simple indexed-loop shape: one counter declared at `0`, tested
+/// against `< reference.length`, and stepped by exactly one.
+struct IndexedLoop {
+    counter: String,
+    /// Byte text of the collection reference in the test (`arr`,
+    /// `this.items`); body reads must index this exact reference.
+    collection_text: String,
+    /// Root name the collection resolves from (`arr`, `this` in
+    /// `this.items`).
+    collection_root: String,
+    /// `let`/`const` counters cannot leak a post-loop value, which keeps
+    /// the unused-counter form convertible.
+    block_scoped: bool,
+}
+
+/// Decomposes a `for` statement into the simple indexed-loop shape, or
+/// `None` when any clause deviates.
+fn indexed_loop_shape(it: &ForStatement<'_>, source: &str) -> Option<IndexedLoop> {
+    let ForStatementInit::VariableDeclaration(declaration) = it.init.as_ref()? else {
+        return None;
+    };
+    if declaration.declarations.len() != 1 {
+        return None;
+    }
+    let declarator = declaration.declarations.first()?;
+    let counter = binding_identifier_name(&declarator.id)?;
+    let initializer = declarator.init.as_ref().map(unparenthesized)?;
+    let Expression::NumericLiteral(zero) = initializer else {
+        return None;
+    };
+    if zero.value != 0.0 {
+        return None;
+    }
+    let test = unparenthesized(it.test.as_ref()?);
+    let Expression::BinaryExpression(binary) = test else {
+        return None;
+    };
+    if binary.operator != BinaryOperator::LessThan || identifier_name(&binary.left) != Some(counter)
+    {
+        return None;
+    }
+    let Expression::StaticMemberExpression(length) = unparenthesized(&binary.right) else {
+        return None;
+    };
+    if length.property.name != "length" || !plain_collection_reference(&length.object) {
+        return None;
+    }
+    let Expression::UpdateExpression(update) = unparenthesized(it.update.as_ref()?) else {
+        return None;
+    };
+    if update.operator != UpdateOperator::Increment || update_target_name(update) != Some(counter) {
+        return None;
+    }
+    Some(IndexedLoop {
+        counter: counter.to_string(),
+        collection_text: source_slice(source, length.object.span()).to_string(),
+        collection_root: collection_root_name(&length.object)?,
+        block_scoped: declaration.kind != VariableDeclarationKind::Var,
+    })
+}
+
+/// Whether the expression is a plain collection reference: an identifier,
+/// `this`, or a static member chain over such a base.
+fn plain_collection_reference(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::Identifier(_) | Expression::ThisExpression(_) => true,
+        Expression::StaticMemberExpression(member) => plain_collection_reference(&member.object),
+        _ => false,
+    }
+}
+
+/// Root name of a plain collection reference (`arr`, `this` in
+/// `this.items`).
+fn collection_root_name(expression: &Expression<'_>) -> Option<String> {
+    match unparenthesized(expression) {
+        Expression::Identifier(identifier) => Some(identifier.name.as_str().to_string()),
+        Expression::ThisExpression(_) => Some("this".to_string()),
+        Expression::StaticMemberExpression(member) => collection_root_name(&member.object),
+        _ => None,
+    }
+}
+
+/// Body facts for the `S4138` indexed-loop check: where the counter and
+/// the collection root are referenced, where writes happen, and whether
+/// anything defers or mutates beyond a plain element read.
+struct IndexedBodyScan<'shape> {
+    shape: &'shape IndexedLoop,
+    source: &'shape str,
+    function_depth: u32,
+    /// Spans of `collection[counter]` computed members in this iteration.
+    read_spans: Vec<Span>,
+    /// Spans of the counter identifier inside those reads.
+    index_spans: Vec<Span>,
+    /// Spans of every counter identifier reference in the body.
+    counter_refs: Vec<Span>,
+    /// Spans of every reference to the collection root.
+    root_refs: Vec<Span>,
+    /// Spans whose contents are written: assignment targets, update
+    /// arguments, and `delete` operands.
+    write_spans: Vec<Span>,
+    /// The collection itself is called as a method receiver.
+    collection_called: bool,
+    /// The collection root is referenced inside a nested function.
+    deferred_reference: bool,
+    /// The body declares a name shadowing the counter or collection root.
+    shadowed: bool,
+}
+
+impl<'shape> IndexedBodyScan<'shape> {
+    fn new(shape: &'shape IndexedLoop, source: &'shape str) -> Self {
+        Self {
+            shape,
+            source,
+            function_depth: 0,
+            read_spans: Vec::new(),
+            index_spans: Vec::new(),
+            counter_refs: Vec::new(),
+            root_refs: Vec::new(),
+            write_spans: Vec::new(),
+            collection_called: false,
+            deferred_reference: false,
+            shadowed: false,
+        }
+    }
+}
+
+impl<'a> Visit<'a> for IndexedBodyScan<'_> {
+    fn visit_identifier_reference(&mut self, it: &IdentifierReference<'a>) {
+        if it.name.as_str() == self.shape.counter {
+            self.counter_refs.push(it.span());
+        }
+        if it.name.as_str() == self.shape.collection_root {
+            self.root_refs.push(it.span());
+            self.deferred_reference |= self.function_depth > 0;
+        }
+        walk_identifier_reference(self, it);
+    }
+
+    fn visit_this_expression(&mut self, it: &ThisExpression) {
+        if self.shape.collection_root == "this" {
+            self.root_refs.push(it.span());
+            self.deferred_reference |= self.function_depth > 0;
+        }
+        walk_this_expression(self, it);
+    }
+
+    fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
+        if self.function_depth == 0
+            && source_slice(self.source, it.object.span()) == self.shape.collection_text
+            && identifier_name(&it.expression) == Some(self.shape.counter.as_str())
+        {
+            self.read_spans.push(it.span());
+            self.index_spans.push(it.expression.span());
+        }
+        walk_computed_member_expression(self, it);
+    }
+
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        self.write_spans.push(it.left.span());
+        walk_assignment_expression(self, it);
+    }
+
+    fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
+        self.write_spans.push(it.argument.span());
+        walk_update_expression(self, it);
+    }
+
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        if it.operator == UnaryOperator::Delete {
+            self.write_spans.push(it.argument.span());
+        }
+        walk_unary_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if let Expression::StaticMemberExpression(member) = unparenthesized(&it.callee)
+            && source_slice(self.source, member.object.span()) == self.shape.collection_text
+        {
+            self.collection_called = true;
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        if let Some(name) = binding_identifier_name(&it.id)
+            && (name == self.shape.counter || name == self.shape.collection_root)
+        {
+            self.shadowed = true;
+        }
+        walk_variable_declarator(self, it);
+    }
+
+    fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
+        self.function_depth += 1;
+        walk_function(self, it, flags);
+        self.function_depth -= 1;
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.function_depth += 1;
+        walk_arrow_function_expression(self, it);
+        self.function_depth -= 1;
+    }
+}
+
+/// Whether the scanned body keeps the loop safely expressible as
+/// `for...of`: every counter reference is exactly an element-read index,
+/// no element read is written through, the collection is neither called
+/// nor assigned, and an unused counter cannot leak.
+fn indexed_body_convertible(shape: &IndexedLoop, scan: &IndexedBodyScan<'_>) -> bool {
+    if scan.collection_called || scan.deferred_reference || scan.shadowed {
+        return false;
+    }
+    let written = |span: Span| {
+        scan.write_spans
+            .iter()
+            .any(|write| write.contains_inclusive(span))
+    };
+    if scan.read_spans.iter().copied().any(written) || scan.root_refs.iter().copied().any(written) {
+        return false;
+    }
+    if scan.counter_refs.iter().any(|reference| {
+        !scan
+            .index_spans
+            .iter()
+            .any(|index| index.start == reference.start && index.end == reference.end)
+    }) {
+        return false;
+    }
+    !scan.counter_refs.is_empty() || shape.block_scoped
 }
 
 fn identifier_tokens(source: &str) -> Vec<&str> {
@@ -376,6 +631,7 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.check_simple_indexed_loop(it);
         if let Some(test) = &it.test
             && let Expression::BinaryExpression(binary) = unparenthesized(test)
             // CE-parity: documented scope covers `==`/`!=`; the captured
@@ -926,7 +1182,8 @@ mod tests {
         // An unused block-scoped counter is a pure iteration (pinned
         // markdown-it emphasis loop), while a leaked `var` counter changes
         // its post-loop value under the conversion.
-        let unused_let = js_keys("for (let i = 0; i < scanned.length; i++) {\n  push('text');\n}\n");
+        let unused_let =
+            js_keys("for (let i = 0; i < scanned.length; i++) {\n  push('text');\n}\n");
         assert_eq!(count_key(&unused_let, "javascript:S4138"), 1);
 
         let unused_var =
@@ -942,8 +1199,7 @@ mod tests {
     #[test]
     fn s4138_unsafe_indexed_loops_stay_clean() {
         // Bound is not a `.length` member of a plain reference.
-        let numeric_bound =
-            js_keys("for (let i = 0; i < 10; i++) {\n  use(arr[i]);\n}\n");
+        let numeric_bound = js_keys("for (let i = 0; i < 10; i++) {\n  use(arr[i]);\n}\n");
         assert_eq!(count_key(&numeric_bound, "javascript:S4138"), 0);
 
         let computed_bound =
@@ -959,14 +1215,12 @@ mod tests {
             js_keys("for (let i = 0; i < arr.length; i++) {\n  use(i, arr[i]);\n}\n");
         assert_eq!(count_key(&counter_elsewhere, "javascript:S4138"), 0);
 
-        let step_two =
-            js_keys("for (let i = 0; i < arr.length; i += 2) {\n  use(arr[i]);\n}\n");
+        let step_two = js_keys("for (let i = 0; i < arr.length; i += 2) {\n  use(arr[i]);\n}\n");
         assert_eq!(count_key(&step_two, "javascript:S4138"), 0);
 
         // Elements written through the index, or the collection itself
         // grown/mutated, change under the conversion.
-        let element_write =
-            js_keys("for (let i = 0; i < arr.length; i++) {\n  arr[i] = 0;\n}\n");
+        let element_write = js_keys("for (let i = 0; i < arr.length; i++) {\n  arr[i] = 0;\n}\n");
         assert_eq!(count_key(&element_write, "javascript:S4138"), 0);
 
         let collection_mutated =
@@ -988,8 +1242,7 @@ mod tests {
             js_keys("for (let i = 0; i < arr.length; i++) {\n  use(other[i]);\n}\n");
         assert_eq!(count_key(&other_collection, "javascript:S4138"), 0);
 
-        let inclusive =
-            js_keys("for (let i = 0; i <= arr.length; i++) {\n  use(arr[i]);\n}\n");
+        let inclusive = js_keys("for (let i = 0; i <= arr.length; i++) {\n  use(arr[i]);\n}\n");
         assert_eq!(count_key(&inclusive, "javascript:S4138"), 0);
 
         let shadowed =
@@ -1012,7 +1265,9 @@ mod tests {
                 .collect()
         };
 
-        let express = js(include_str!("../../../fixtures/shapes/express-application.js"));
+        let express = js(include_str!(
+            "../../../fixtures/shapes/express-application.js"
+        ));
         assert_eq!(sites(&express), vec![(324, 4), (498, 2)]);
 
         let axios = js(include_str!("../../../fixtures/shapes/axios-cookies.js"));
@@ -1021,19 +1276,29 @@ mod tests {
         let util = ts(include_str!("../../../fixtures/shapes/zod-util.ts"));
         assert_eq!(sites(&util), vec![(1072, 2)]);
 
-        let block = ts(include_str!("../../../fixtures/shapes/markdown-it-parser_block.ts"));
+        let block = ts(include_str!(
+            "../../../fixtures/shapes/markdown-it-parser_block.ts"
+        ));
         assert_eq!(sites(&block), vec![(51, 4)]);
 
-        let core = ts(include_str!("../../../fixtures/shapes/markdown-it-parser_core.ts"));
+        let core = ts(include_str!(
+            "../../../fixtures/shapes/markdown-it-parser_core.ts"
+        ));
         assert_eq!(sites(&core), vec![(42, 4)]);
 
-        let inline = ts(include_str!("../../../fixtures/shapes/markdown-it-parser_inline.ts"));
+        let inline = ts(include_str!(
+            "../../../fixtures/shapes/markdown-it-parser_inline.ts"
+        ));
         assert_eq!(sites(&inline), vec![(78, 4), (82, 4)]);
 
-        let quotes = ts(include_str!("../../../fixtures/shapes/markdown-it-smartquotes.ts"));
+        let quotes = ts(include_str!(
+            "../../../fixtures/shapes/markdown-it-smartquotes.ts"
+        ));
         assert_eq!(sites(&quotes), vec![(66, 2)]);
 
-        let emphasis = ts(include_str!("../../../fixtures/shapes/markdown-it-emphasis.ts"));
+        let emphasis = ts(include_str!(
+            "../../../fixtures/shapes/markdown-it-emphasis.ts"
+        ));
         assert_eq!(sites(&emphasis), vec![(19, 2)]);
     }
 }
