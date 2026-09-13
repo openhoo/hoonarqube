@@ -28,7 +28,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 };
                 let created = simple_name(creation_type_text(value, source).split('[').next()?);
                 let covariant = created != element
-                    && graph_reaches(&graph, created, |current| current == element);
+                    && graph_reaches(&graph, &created, |current| *current == element);
                 if covariant {
                     return Some(value);
                 }

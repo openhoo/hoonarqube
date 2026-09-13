@@ -193,7 +193,7 @@ fn type_covers(
     if let Some(project) = project {
         project.type_reaches(base_name, derived_name)
     } else if let Some(graph) = graph {
-        graph_reaches(graph, base_name, |name| name == derived_name)
+        graph_reaches(graph, &base_name, |name| *name == derived_name)
     } else {
         false
     }

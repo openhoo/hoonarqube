@@ -1,10 +1,11 @@
 //! Syntax-level cross-file type index for project-scope C# rules.
 //!
-//! The per-file analyzer resolves base types through the analyzed file only.
-//! Project-scope rules (currently `csharpsquid:S4019`) need the same
-//! resolution across every accepted source file of a scan, so the CLI builds
-//! one immutable index per run and threads it through the analyzer options.
-//! The index is purely syntactic: files whose recovered tree contains parse
+//! The per-file analyzer resolves base types and type members through the
+//! analyzed file only. Project-scope rules (`csharpsquid:S4019`) and the
+//! cross-partial GitHub Code Quality shadow checks need the same resolution
+//! across every accepted source file of a scan, so the CLI builds one
+//! immutable index per run and threads it through the analyzer options. The
+//! index is purely syntactic: files whose recovered tree contains parse
 //! errors are skipped, mirroring the analyzer's incomplete-file handling.
 //!
 //! Index construction and lookup are deliberately mechanical: a stable
@@ -13,12 +14,20 @@
 
 use tree_sitter::Node;
 
-use crate::cst::{base_simple_names, is_error_tainted, node_text, parameter_signature_texts};
+use crate::cst::{
+    base_simple_names, canonical_identifier, is_error_tainted, modifiers_of, node_text,
+    parameter_signature_texts, range_of,
+};
 use crate::parse;
-use crate::rules::naming::support::{has_explicit_interface_specifier, type_members};
+use crate::rules::modifiers::has_modifier;
+use crate::rules::naming::support::{
+    full_type_identity, has_explicit_interface_specifier, type_members,
+};
 use crate::rules::tier_c::support::local_type_declarations;
 use crate::semantic::{SourceSnapshot, digest_bytes, is_razor_path};
+use hoonarqube_ir::Range;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::{Path, PathBuf};
 
 /// One indexed parameter: signature identity plus message spelling.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,13 +48,28 @@ pub(crate) struct IndexedMethod {
     pub(crate) parameters: Vec<IndexedParameter>,
 }
 
+/// One member (field, property, event) of an indexed type: the shadow
+/// checks need its staticness plus a cross-file anchor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IndexedMember {
+    pub(crate) name: String,
+    pub(crate) is_static: bool,
+    pub(crate) path: PathBuf,
+    pub(crate) range: Range,
+}
+
 /// One indexed type declaration.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct IndexedType {
+    /// Fully qualified syntactic identity (`namespace.outer.inner`), shared
+    /// by every partial declaration of the type.
+    pub(crate) identity: String,
     /// Simple names of every base in the type's base list.
     pub(crate) bases: Vec<String>,
     /// Declared methods grouped by simple name.
     pub(crate) methods: BTreeMap<String, Vec<IndexedMethod>>,
+    /// Declared fields, properties, and events.
+    pub(crate) members: Vec<IndexedMember>,
 }
 
 /// Cross-file table of accepted C# type declarations, keyed by simple name.
@@ -64,7 +88,7 @@ impl ProjectTypeIndex {
             if is_razor_path(&snapshot.path) {
                 continue;
             }
-            index_source(&snapshot.source, &mut types);
+            index_source(&snapshot.path, &snapshot.source, &mut types);
         }
         Self {
             digest: index_digest(&types),
@@ -111,6 +135,17 @@ impl ProjectTypeIndex {
         false
     }
 
+    /// Every indexed member (field, property, event) declared by any partial
+    /// declaration sharing `identity`, across all accepted files.
+    pub(crate) fn partial_members(&self, identity: &str) -> Vec<&IndexedMember> {
+        self.types
+            .values()
+            .flatten()
+            .filter(|declaration| declaration.identity == identity)
+            .flat_map(|declaration| declaration.members.iter())
+            .collect()
+    }
+
     /// Stable content digest; cache keys and equality compares use this.
     #[must_use]
     pub fn digest(&self) -> &str {
@@ -136,7 +171,7 @@ impl std::fmt::Debug for ProjectTypeIndex {
     }
 }
 
-fn index_source(source: &str, types: &mut BTreeMap<String, Vec<IndexedType>>) {
+fn index_source(path: &Path, source: &str, types: &mut BTreeMap<String, Vec<IndexedType>>) {
     let tree = parse(source);
     let root = tree.root_node();
     if root.has_error() {
@@ -149,16 +184,90 @@ fn index_source(source: &str, types: &mut BTreeMap<String, Vec<IndexedType>>) {
         let Some(name_node) = declaration.child_by_field_name("name") else {
             continue;
         };
+        let Some(identity) = full_type_identity(declaration, source) else {
+            continue;
+        };
         let name = node_text(name_node, source).to_string();
         let indexed = IndexedType {
+            identity,
             bases: base_simple_names(declaration, source)
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
             methods: indexed_methods(declaration, source),
+            members: indexed_members(declaration, path, source),
         };
         types.entry(name).or_default().push(indexed);
     }
+}
+
+/// Declared fields, properties, and events of one type declaration with the
+/// declaring file and range, so cross-file shadow findings can anchor the
+/// shadowed member.
+fn indexed_members(declaration: Node<'_>, path: &Path, source: &str) -> Vec<IndexedMember> {
+    let mut members = Vec::new();
+    for member in type_members(declaration) {
+        if is_error_tainted(member) {
+            continue;
+        }
+        match member.kind() {
+            "field_declaration" | "event_field_declaration" => {
+                let is_static = has_modifier(&modifiers_of(member, source), "static")
+                    || has_modifier(&modifiers_of(member, source), "const");
+                for declarator in direct_field_declarators(member) {
+                    let Some(anchor) = declarator
+                        .child_by_field_name("name")
+                        .filter(|name| name.kind() == "identifier")
+                    else {
+                        continue;
+                    };
+                    members.push(IndexedMember {
+                        name: canonical_identifier(node_text(anchor, source)).to_string(),
+                        is_static,
+                        path: path.to_path_buf(),
+                        range: range_of(anchor, source),
+                    });
+                }
+            }
+            "property_declaration" | "event_declaration" => {
+                let Some(name) = member
+                    .child_by_field_name("name")
+                    .filter(|name| name.kind() == "identifier")
+                else {
+                    continue;
+                };
+                members.push(IndexedMember {
+                    name: canonical_identifier(node_text(name, source)).to_string(),
+                    is_static: has_modifier(&modifiers_of(member, source), "static"),
+                    path: path.to_path_buf(),
+                    range: range_of(name, source),
+                });
+            }
+            _ => {}
+        }
+    }
+    members
+}
+
+fn direct_field_declarators(member: Node<'_>) -> Vec<Node<'_>> {
+    let Some(declaration) = direct_named_children(member)
+        .into_iter()
+        .find(|child| child.kind() == "variable_declaration")
+    else {
+        return Vec::new();
+    };
+    let mut cursor = declaration.walk();
+    declaration
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "variable_declarator")
+        .collect()
+}
+
+fn direct_named_children(node: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(tree_sitter::Node::is_named)
+        .collect()
 }
 
 fn indexed_methods(declaration: Node<'_>, source: &str) -> BTreeMap<String, Vec<IndexedMethod>> {
@@ -190,10 +299,12 @@ fn indexed_methods(declaration: Node<'_>, source: &str) -> BTreeMap<String, Vec<
 }
 
 fn index_digest(types: &BTreeMap<String, Vec<IndexedType>>) -> String {
-    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v1\0");
+    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v2\0");
     for (name, declarations) in types {
         for declaration in declarations {
             canonical.push_str(name);
+            canonical.push('\u{1}');
+            canonical.push_str(&declaration.identity);
             canonical.push('\u{1}');
             canonical.push_str(declaration.bases.join("\u{5}").as_str());
             canonical.push('\u{1}');
@@ -208,6 +319,23 @@ fn index_digest(types: &BTreeMap<String, Vec<IndexedType>>) -> String {
                     }
                     canonical.push('\u{4}');
                 }
+            }
+            canonical.push('\u{1}');
+            for member in &declaration.members {
+                canonical.push_str(&member.name);
+                canonical.push('\u{2}');
+                canonical.push_str(if member.is_static { "s" } else { "i" });
+                canonical.push('\u{3}');
+                canonical.push_str(member.path.to_string_lossy().as_ref());
+                canonical.push('\u{4}');
+                canonical.push_str(member.range.start.line.to_string().as_str());
+                canonical.push(':');
+                canonical.push_str(member.range.start.column.to_string().as_str());
+                canonical.push(':');
+                canonical.push_str(member.range.end.line.to_string().as_str());
+                canonical.push(':');
+                canonical.push_str(member.range.end.column.to_string().as_str());
+                canonical.push('\u{5}');
             }
             canonical.push('\n');
         }
