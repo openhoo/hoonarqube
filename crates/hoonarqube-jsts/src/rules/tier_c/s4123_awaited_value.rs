@@ -3,6 +3,7 @@ use crate::support::RuleScope;
 use crate::support::expression_root_name;
 use crate::support::unparenthesized;
 use oxc_ast::ast::Expression;
+use oxc_ast::ast::IdentifierReference;
 use oxc_span::GetSpan;
 
 impl TierCAwaitCollector<'_, '_> {
@@ -20,7 +21,7 @@ impl TierCAwaitCollector<'_, '_> {
             Expression::Identifier(identifier) => identifier.name == "undefined",
             Expression::CallExpression(call) => match &call.callee {
                 Expression::Identifier(callee) => {
-                    if self.is_known_sync_local(&callee.name) {
+                    if self.is_known_sync_local(callee) {
                         true
                     } else {
                         SYNC_GLOBAL_APIS.contains(&callee.name.as_str())
@@ -42,10 +43,9 @@ impl TierCAwaitCollector<'_, '_> {
         }
     }
 
-    fn is_known_sync_local(&self, name: &str) -> bool {
+    fn is_known_sync_local(&self, callee: &IdentifierReference) -> bool {
         self.census
-            .functions
-            .get(name)
+            .resolve(callee.name.as_str(), callee.span.start)
             .is_some_and(|facts| !facts.r#async)
     }
 }

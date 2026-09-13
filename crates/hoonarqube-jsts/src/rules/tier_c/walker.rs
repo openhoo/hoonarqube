@@ -133,7 +133,12 @@ fn flag_mixed_return_kinds(
     language: JstsLanguage,
     census: &FunctionCensus,
 ) {
-    for facts in census.functions.values() {
+    for facts in census
+        .functions
+        .values()
+        .flatten()
+        .map(|scoped| &scoped.facts)
+    {
         let mut kinds = facts.return_kinds.clone();
         kinds.sort();
         kinds.dedup();
@@ -155,7 +160,12 @@ fn flag_behavior_selector_parameters(
     language: JstsLanguage,
     census: &FunctionCensus,
 ) {
-    for facts in census.functions.values() {
+    for facts in census
+        .functions
+        .values()
+        .flatten()
+        .map(|scoped| &scoped.facts)
+    {
         if let Some(span) = facts.selector_span {
             issues.push(span_issue(
                 index,
@@ -592,40 +602,34 @@ mod tests {
         // #137: the nested synchronous `load` must not overwrite the async
         // outer `load` in the function census, so `await load()` in `main`
         // stays clean (issue fixture).
-        let shadowed = js(
-            "async function load() { return 1; }\n\
+        let shadowed = js("async function load() { return 1; }\n\
              function outer() {\n\
                function load() { return 1; }\n\
                return load();\n\
              }\n\
              async function main() { return await load(); }\n\
              main().then(console.log);\n\
-             console.log(outer());\n",
-        );
+             console.log(outer());\n");
         assert_eq!(filtered(&shadowed, "S4123").len(), 0);
 
         // Control: a call inside the declaring scope still resolves to the
         // nested synchronous binding.
-        let inner = js(
-            "async function outer() {\n\
+        let inner = js("async function outer() {\n\
                function load() { return 1; }\n\
                return await load();\n\
              }\n\
-             outer();\n",
-        );
+             outer();\n");
         assert_eq!(filtered(&inner, "S4123").len(), 1);
 
         // S3699 twin: the top-level call resolves to the outer void
         // handler, not to the valued nested same-name function.
-        let voided = js(
-            "function handler() { return; }\n\
+        let voided = js("function handler() { return; }\n\
              function outer() {\n\
                function handler() { return 1; }\n\
                return handler();\n\
              }\n\
              const total = handler();\n\
-             console.log(total);\n",
-        );
+             console.log(total);\n");
         assert_eq!(filtered(&voided, "S3699").len(), 1);
     }
 }

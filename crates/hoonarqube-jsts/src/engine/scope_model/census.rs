@@ -3,10 +3,10 @@ use super::{
     ClassElement, Declaration, Expression, Function, GetSpan, MethodDefinition,
     MethodDefinitionKind, ReturnStatement, ScopeFlags, Span, Statement, SwitchStatement,
     UnaryOperator, VariableDeclarator, Visit, binding_identifier_name, identifier_name,
-    property_key_name, unparenthesized, walk_binary_expression, walk_declaration,
-    walk_return_statement, walk_switch_statement, walk_variable_declarator,
+    property_key_name, unparenthesized, walk_binary_expression, walk_class, walk_declaration,
+    walk_function, walk_program, walk_return_statement, walk_switch_statement,
+    walk_variable_declarator,
 };
-
 // --- Tier C: operator/literal rules over a shared literal classifier ---
 
 /// Literal classification used by the Tier-C operator checks; `None` means
@@ -94,9 +94,44 @@ impl FnFacts {
 /// File-local function facts used by the Tier-C call checks: declaration and
 /// `const`-bound function/arrow names with their flags, spans, and the
 /// literal kinds of their valued `return`s.
+///
+/// Facts are grouped by spelling and indexed by the span of the function-like
+/// scope whose body lexically declares the binding, so a same-name nested
+/// declaration keeps separate facts instead of overwriting the outer ones.
 #[derive(Default)]
 pub(crate) struct FunctionCensus {
-    pub(crate) functions: BTreeMap<String, FnFacts>,
+    pub(crate) functions: BTreeMap<String, Vec<ScopedFnFacts>>,
+    /// Spans of the enclosing function-like scopes during the walk.
+    scopes: Vec<Span>,
+}
+
+/// One declared function's facts plus the scope that declares it.
+pub(crate) struct ScopedFnFacts {
+    pub(crate) facts: FnFacts,
+    /// Span of the enclosing function-like scope (the whole program for
+    /// top-level declarations).
+    pub(crate) scope: Span,
+}
+
+impl FunctionCensus {
+    /// Resolves `name` at byte `offset` through the innermost enclosing
+    /// declaration scope. Textually later same-scope declarations win, so
+    /// redeclared function names resolve to their override.
+    pub(crate) fn resolve(&self, name: &str, offset: u32) -> Option<&FnFacts> {
+        let candidates = self.functions.get(name)?;
+        let mut best: Option<(u32, &FnFacts)> = None;
+        for scoped in candidates {
+            if scoped.scope.start > offset || scoped.scope.end < offset {
+                continue;
+            }
+            let size = scoped.scope.end - scoped.scope.start;
+            match best {
+                Some((best_size, _)) if best_size < size => {}
+                _ => best = Some((size, &scoped.facts)),
+            }
+        }
+        best.map(|(_, facts)| facts)
+    }
 }
 
 /// Parameter names treated as behavior selectors by `S2301` (weak subset).
@@ -205,6 +240,12 @@ pub(crate) fn parameter_spans(params: &oxc_ast::ast::FormalParameters<'_>) -> Ve
 }
 
 impl<'a> Visit<'a> for FunctionCensus {
+    fn visit_program(&mut self, program: &oxc_ast::ast::Program<'a>) {
+        self.scopes.push(program.span);
+        walk_program(self, program);
+        self.scopes.pop();
+    }
+
     fn visit_declaration(&mut self, it: &Declaration<'a>) {
         if let Declaration::FunctionDeclaration(function) = it
             && let Some(id) = &function.id
@@ -222,9 +263,21 @@ impl<'a> Visit<'a> for FunctionCensus {
                 has_valued_return: scan.has_valued_return,
                 span: id.span(),
             };
-            self.functions.insert(id.name.to_string(), facts);
+            self.insert(id.name.to_string(), facts);
         }
         walk_declaration(self, it);
+    }
+
+    fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+        self.scopes.push(function.span);
+        walk_function(self, function, flags);
+        self.scopes.pop();
+    }
+
+    fn visit_class(&mut self, class: &Class<'a>) {
+        self.scopes.push(class.span);
+        walk_class(self, class);
+        self.scopes.pop();
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
@@ -254,7 +307,7 @@ impl<'a> Visit<'a> for FunctionCensus {
                         has_valued_return: scan.has_valued_return,
                         span: arrow.span,
                     };
-                    self.functions.insert(name.to_string(), facts);
+                    self.insert(name.to_string(), facts);
                 }
                 Expression::FunctionExpression(function) => {
                     let scan = function
@@ -270,12 +323,23 @@ impl<'a> Visit<'a> for FunctionCensus {
                         has_valued_return: scan.has_valued_return,
                         span: function.span,
                     };
-                    self.functions.insert(name.to_string(), facts);
+                    self.insert(name.to_string(), facts);
                 }
                 _ => {}
             }
         }
         walk_variable_declarator(self, it);
+    }
+}
+
+impl FunctionCensus {
+    /// Records one declared function under the innermost open scope.
+    fn insert(&mut self, name: String, facts: FnFacts) {
+        let scope = self.scopes.last().copied().unwrap_or_default();
+        self.functions
+            .entry(name)
+            .or_default()
+            .push(ScopedFnFacts { facts, scope });
     }
 }
 
