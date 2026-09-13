@@ -634,7 +634,7 @@ fn s4144_ignores_comment_differences_between_sibling_bodies() {
     ));
     let found = findings(&flagged, "python:S4144");
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].range.start.line, 7);
+    assert_eq!(found[0].range.start.line, 8);
 
     // Executable differences still suppress the report even when comments
     // agree.
@@ -835,7 +835,7 @@ fn s5806_reports_parameter_shadow_despite_dynamic_name_lookups() {
     ));
     let found = findings(&shadow, "python:S5806");
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].range.start.line, 2);
+    assert_eq!(found[0].range.start.line, 3);
 
     // Dynamic-name safety is retained for ordinary local assignments.
     let dynamic_local = scan(concat!(

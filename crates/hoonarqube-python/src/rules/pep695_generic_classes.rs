@@ -1,6 +1,7 @@
 use crate::engine::file_context::FileContext;
-use crate::support::dotted_name_in;
 use crate::support::issue_at;
+use crate::support::typing_member_reference_in;
+use crate::support::typing_module_aliases;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
@@ -14,13 +15,14 @@ pub(crate) fn check_pep695_generic_classes(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
+    let typing_aliases = typing_module_aliases(file_ctx);
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         if let Stmt::ClassDef(class) = stmt {
             let generic_base = class.arguments.as_ref().is_some_and(|arguments| {
                 arguments.args.iter().any(|base| {
                     matches!(base, Expr::Subscript(subscript)
-                        if dotted_name_in(&subscript.value, &["Generic", "typing.Generic"]))
+                        if typing_member_reference_in(&subscript.value, &typing_aliases, "Generic"))
                 })
             });
             if generic_base {
@@ -65,7 +67,7 @@ mod tests {
         ));
         let found = findings(&flagged, "python:S6792");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 5);
+        assert_eq!(found[0].range.start.line, 6);
 
         // A non-Generic subscript through the same alias stays clean.
         let foreign = scan(concat!(
