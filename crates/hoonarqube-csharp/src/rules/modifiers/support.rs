@@ -1,4 +1,6 @@
-use crate::cst::{attributes_of, collect_kinds, modifiers_of, node_text, simple_name, to_u32};
+use crate::cst::{
+    ancestors_of, attributes_of, collect_kinds, modifiers_of, node_text, simple_name, to_u32,
+};
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use tree_sitter::Node;
 
@@ -33,8 +35,9 @@ pub(crate) fn accessibility_rank(modifiers: &[&str]) -> u8 {
     }
 }
 
-/// Declared rank of a *type* declaration, applying C# defaults: nested types
-/// are private, types outside any other type are internal.
+/// Declared rank of a *type* declaration, applying C# defaults: nested
+/// types are private, types outside any other type are internal, and
+/// nested types of an interface are implicitly public.
 pub(crate) fn type_declared_rank(type_node: Node<'_>, source: &str) -> u8 {
     let modifiers = modifiers_of(type_node, source);
     if has_any_accessibility(&modifiers) {
@@ -43,11 +46,33 @@ pub(crate) fn type_declared_rank(type_node: Node<'_>, source: &str) -> u8 {
     let mut ancestor = type_node.parent();
     while let Some(node) = ancestor {
         if TYPE_DECLARATION_KINDS.contains(&node.kind()) {
-            return 1;
+            return if node.kind() == "interface_declaration" {
+                6
+            } else {
+                1
+            };
         }
         ancestor = node.parent();
     }
     3
+}
+
+/// Effective accessibility rank of a *member* declaration. Members of an
+/// interface are implicitly public contract when they declare no
+/// accessibility of their own.
+pub(crate) fn member_accessibility_rank(member: Node<'_>, source: &str) -> u8 {
+    let modifiers = modifiers_of(member, source);
+    if has_any_accessibility(&modifiers) {
+        return accessibility_rank(&modifiers);
+    }
+    if ancestors_of(member)
+        .find(|ancestor| TYPE_DECLARATION_KINDS.contains(&ancestor.kind()))
+        .is_some_and(|owner| owner.kind() == "interface_declaration")
+    {
+        6
+    } else {
+        accessibility_rank(&modifiers)
+    }
 }
 
 pub(crate) fn has_attribute(names: &[&str], wanted: &str) -> bool {
