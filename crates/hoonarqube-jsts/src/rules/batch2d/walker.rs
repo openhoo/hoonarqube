@@ -5,24 +5,27 @@ use super::collectors::{
 };
 use super::s3512_es_idioms::check_es_idioms;
 use super::s3796_s3796_call_expression::collect_s3796_call_spans;
+use super::s6594_s6594_call_expression::check_s6594_match_calls;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::collect_array_binding_names;
 use crate::support::{IssueSink, LineIndex};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
-
 /// All Batch2d checks in one place: the control-flow remainder groups D/E
 /// (`S3776`, `S3796`, `S3801`, `S3854`, `S3972`, `S3973`, `S4275`,
 /// `S4619`, `S4634`, `S4822`, `S6635`, `S6671`, `S6861`, `S1067`,
-/// `S1534`, `S1536`, `S1541`) and the ES2015+ idiom section (`S3358`,
+/// `S1534`, `S1536`, `S1541`), the ES2015+ idiom section (`S3358`,
 /// `S3498`, `S3499`, `S3512`, `S3513`, `S3514`, `S3523`, `S4158`,
-/// `S6582`, `S6594`).
+/// `S6582`), and the `S6594` match-call pass with regex-constant
+/// resolution.
 fn check_batch2d_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    path: &std::path::Path,
+    semantic: Option<&oxc_semantic::Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut issues = check_function_metrics(program, index, language);
     issues.extend(check_class_accessors(program, index, language));
@@ -30,6 +33,9 @@ fn check_batch2d_rules(
     issues.extend(check_promise_flows(program, index, language));
     issues.extend(check_duplications(program, index, language));
     issues.extend(check_es_idioms(program, index, language));
+    issues.extend(check_s6594_match_calls(
+        program, index, language, path, semantic,
+    ));
     issues
 }
 
@@ -121,7 +127,14 @@ fn check_duplications(
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_batch2d_rules(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_batch2d_rules(
+        ctx.program,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+        ctx.path,
+        ctx.semantic,
+    )
 }
 
 #[cfg(test)]

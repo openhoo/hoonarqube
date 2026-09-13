@@ -38,6 +38,116 @@ pub(crate) fn emit_concise_class_rewrite(
     );
 }
 
+/// Concise `\d` rewrite for a class made solely of the `0-9` range: in
+/// JavaScript both match exactly the ten ASCII digits. Negated classes and
+/// any wider member set keep their class form.
+pub(crate) fn emit_digit_range_rewrite(
+    sink: &mut IssueSink,
+    site: &RegexSite,
+    negated: bool,
+    items: &[ClassItem],
+    start: usize,
+    end: usize,
+) {
+    if negated {
+        return;
+    }
+    if !matches!(
+        items,
+        [ClassItem::Range {
+            low: '0',
+            high: '9',
+            ..
+        }]
+    ) {
+        return;
+    }
+    let actual = &site.pattern[start..end];
+    sink.emit_span(
+        RuleScope::Both,
+        "S6353",
+        &format!("Use concise character class syntax '\\d' instead of '{actual}'."),
+        site.sub_span(start, end),
+    );
+}
+
+/// `S6535` over regex patterns: reports escape sequences whose unescaped
+/// spelling parses to the same pattern. Runs on the raw pattern text after
+/// the mini parser accepted the pattern, so class boundaries and escape
+/// pairs are well-formed.
+///
+/// Inside a class, regex metacharacters are literal, so their escapes are
+/// unnecessary — except `\-` at the first or last item position and `^` as
+/// the first item, where unescaping would form a range or negate the
+/// class. Outside a class only `\-` is a needless identity escape; the
+/// remaining punctuation is significant there and shorthand/controlled
+/// escapes (`\d`, `\n`, `\]`, `\\`, …) are never touched.
+pub(crate) fn check_unnecessary_pattern_escapes(sink: &mut IssueSink, site: &RegexSite) {
+    let chars: Vec<(usize, char)> = site.pattern.char_indices().collect();
+    let mut index = 0usize;
+    let mut in_class = false;
+    let mut first_item_offset = 0usize;
+    while index < chars.len() {
+        let (offset, ch) = chars[index];
+        match ch {
+            '\\' => {
+                let Some(&(escaped_offset, escaped)) = chars.get(index + 1) else {
+                    return; // trailing backslash: unreachable after a successful parse
+                };
+                // Flagged escapes are one ASCII char after the backslash.
+                if escaped_offset == offset + 1 && escaped.is_ascii() {
+                    let last_item =
+                        chars.get(index + 2).is_some_and(|&(_, next)| next == ']') && in_class;
+                    let unnecessary = if in_class {
+                        class_escape_is_unnecessary(escaped, offset, first_item_offset, last_item)
+                    } else {
+                        escaped == '-'
+                    };
+                    if unnecessary {
+                        sink.emit_span(
+                            RuleScope::Both,
+                            "S6535",
+                            "Remove the unnecessary escape sequence from this regular expression.",
+                            site.sub_span(offset, offset + 2),
+                        );
+                    }
+                }
+                index += 2;
+            }
+            '[' if !in_class => {
+                in_class = true;
+                let negated = chars.get(index + 1).is_some_and(|&(_, next)| next == '^');
+                first_item_offset = offset + 1 + usize::from(negated);
+                index += 1;
+            }
+            ']' if in_class => {
+                in_class = false;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+}
+
+/// Whether unescaping `escaped` inside a class keeps the class semantics.
+fn class_escape_is_unnecessary(
+    escaped: char,
+    offset: usize,
+    first_item: usize,
+    last_item: bool,
+) -> bool {
+    match escaped {
+        // Unescaping a boundary `\-` (first item, or the item right before
+        // the class close) keeps it a literal dash; elsewhere it would form
+        // a range.
+        '-' => offset == first_item || last_item,
+        // A leading `^` would negate the class when unescaped.
+        '^' => offset != first_item,
+        '.' | '[' | '(' | ')' | '{' | '}' | '|' | '?' | '*' | '+' | '$' => true,
+        _ => false,
+    }
+}
+
 pub(crate) fn emit_space_runs_in_sequence(
     sink: &mut IssueSink,
     site: &RegexSite,

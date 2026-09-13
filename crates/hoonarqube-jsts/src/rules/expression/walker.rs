@@ -1,5 +1,9 @@
 // Family walker for 'expression' (generated).
-use super::collectors::{check_collection_and_object_calls, check_logging_and_binding_calls};
+use super::collectors::{
+    check_collection_and_object_calls, check_logging_and_binding_calls, check_proto_member_use,
+    collect_own_proto_bindings, emit_proto_member_use, proto_write_target,
+    test_references_set_prototype_of,
+};
 use super::s1125_binary_operators::{
     check_binary_operators, check_logical_operators, check_unary_boolean,
 };
@@ -22,11 +26,11 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
-    BinaryExpression, BinaryOperator, CallExpression, ConditionalExpression, DoWhileStatement,
-    Expression, ForStatement, Function, IfStatement, ImportExpression, LogicalExpression,
-    LogicalOperator, MemberExpression, NewExpression, NumericLiteral, ParenthesizedExpression,
-    RegExpLiteral, SequenceExpression, StaticBlock, StringLiteral, TSType, TemplateLiteral,
-    UnaryExpression, UnaryOperator, VariableDeclarator, WhileStatement,
+    AssignmentTarget, BinaryExpression, BinaryOperator, CallExpression, ConditionalExpression,
+    DoWhileStatement, Expression, ForStatement, Function, IfStatement, ImportExpression,
+    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, NumericLiteral,
+    ParenthesizedExpression, RegExpLiteral, SequenceExpression, StaticBlock, StringLiteral, TSType,
+    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -36,7 +40,7 @@ use oxc_ast_visit::walk::{
     walk_sequence_expression, walk_static_block, walk_template_literal, walk_ts_type,
     walk_unary_expression, walk_variable_declarator,
 };
-use oxc_semantic::Semantic;
+use oxc_semantic::{Semantic, SymbolId};
 use oxc_span::GetSpan;
 use oxc_syntax::precedence::{GetPrecedence, Precedence};
 use oxc_syntax::scope::ScopeFlags;
@@ -49,6 +53,7 @@ fn check_expression_rules(
     language: JstsLanguage,
     semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
+    let own_proto_bindings = collect_own_proto_bindings(program);
     let mut collector = ExpressionCollector {
         sink: IssueSink {
             index,
@@ -63,6 +68,9 @@ fn check_expression_rules(
         required_parenthesized_depth: 0,
         required_parenthesized_spans: HashSet::new(),
         template_depth: 0,
+        own_proto_bindings,
+        delete_depth: 0,
+        set_prototype_of_guard_depth: 0,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -86,6 +94,17 @@ struct ExpressionCollector<'index, 'semantic> {
     required_parenthesized_spans: HashSet<(u32, u32)>,
     /// Nesting depth of template literals for `S4624`.
     template_depth: u32,
+    /// Const bindings whose initializer declares an own `__proto__`
+    /// member; receiver references resolving here are own properties,
+    /// not the deprecated accessor (`S6654`).
+    own_proto_bindings: HashSet<SymbolId>,
+    /// `delete` operands: removing an own `__proto__` data property is
+    /// cleanup, not accessor use (`S6654`).
+    delete_depth: u32,
+    /// Depth of `if` statements whose test checks `Object.setPrototypeOf`
+    /// availability; the guarded `__proto__` fallback inside is deliberate
+    /// compatibility code (`S6654`).
+    set_prototype_of_guard_depth: u32,
 }
 impl ExpressionCollector<'_, '_> {
     fn visit_condition(&mut self, expression: &Expression<'_>) {
@@ -203,6 +222,14 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         self.with_non_condition_context(|collector| walk_function(collector, it, flags));
     }
 
+    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
+        self.with_non_condition_context(|collector| walk_static_block(collector, it));
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.visit_statement(&it.body);
+        self.visit_condition(&it.test);
+    }
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         if let Some(body) = it.body.as_expression() {
             self.mark_required_arrow_body_parentheses(body);
@@ -211,16 +238,18 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
             walk_arrow_function_expression(collector, it);
         });
     }
-
-    fn visit_static_block(&mut self, it: &StaticBlock<'a>) {
-        self.with_non_condition_context(|collector| walk_static_block(collector, it));
-    }
-
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
         self.visit_condition(&it.test);
+        let guarded_fallback = test_references_set_prototype_of(&it.test);
+        if guarded_fallback {
+            self.set_prototype_of_guard_depth += 1;
+        }
         self.visit_statement(&it.consequent);
         if let Some(alternate) = &it.alternate {
             self.visit_statement(alternate);
+        }
+        if guarded_fallback {
+            self.set_prototype_of_guard_depth -= 1;
         }
     }
 
@@ -242,17 +271,6 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         self.visit_statement(&it.body);
     }
 
-    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
-        self.visit_statement(&it.body);
-        self.visit_condition(&it.test);
-    }
-
-    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
-        self.grammar_parenthesized_depth += 1;
-        walk_import_expression(self, it);
-        self.grammar_parenthesized_depth -= 1;
-    }
-
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
         let object = match it {
             MemberExpression::ComputedMemberExpression(member) => &member.object,
@@ -260,7 +278,17 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
             MemberExpression::PrivateFieldExpression(member) => &member.object,
         };
         self.mark_required_parentheses(object, Precedence::Member, false);
+        // `delete obj.__proto__` removes an own data property; that is
+        // cleanup, not use of the deprecated accessor.
+        if self.delete_depth == 0 {
+            check_proto_member_use(&mut self.sink, it, &self.own_proto_bindings, self.semantic);
+        }
         walk_member_expression(self, it);
+    }
+    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
+        self.grammar_parenthesized_depth += 1;
+        walk_import_expression(self, it);
+        self.grammar_parenthesized_depth -= 1;
     }
 
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
@@ -362,6 +390,12 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         }
     }
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        // `delete obj.__proto__` removes an own data property; the operand
+        // is visited with delete tracking so `S6654` stays silent there.
+        let is_delete = it.operator == UnaryOperator::Delete;
+        if is_delete {
+            self.delete_depth += 1;
+        }
         check_unary_boolean(&mut self.sink, it);
         self.mark_required_parentheses(&it.argument, Precedence::Prefix, true);
         match it.operator {
@@ -415,6 +449,9 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
             _ => {}
         }
         walk_unary_expression(self, it);
+        if is_delete {
+            self.delete_depth -= 1;
+        }
     }
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         if let Some(Expression::UnaryExpression(unary)) = it.init.as_ref() {
@@ -425,7 +462,35 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
         check_assignment_rules(&mut self.sink, self.source, it);
-        walk_assignment_expression(self, it);
+        let Some((receiver, span)) = proto_write_target(&it.left) else {
+            walk_assignment_expression(self, it);
+            return;
+        };
+        // The guarded `setPrototypeOf` fallback writes `__proto__` on
+        // purpose; only unguarded writes are the deprecated accessor.
+        if self.set_prototype_of_guard_depth == 0 {
+            emit_proto_member_use(
+                &mut self.sink,
+                receiver,
+                span,
+                &self.own_proto_bindings,
+                self.semantic,
+            );
+        }
+        // The write target was reported here; visiting its subexpressions
+        // directly avoids re-reporting it as a read.
+        self.mark_required_parentheses(receiver, Precedence::Member, false);
+        match &it.left {
+            AssignmentTarget::StaticMemberExpression(member) => {
+                self.visit_expression(&member.object);
+            }
+            AssignmentTarget::ComputedMemberExpression(member) => {
+                self.visit_expression(&member.object);
+                self.visit_expression(&member.expression);
+            }
+            _ => {}
+        }
+        self.visit_expression(&it.right);
     }
 
     fn visit_parenthesized_expression(&mut self, it: &ParenthesizedExpression<'a>) {
@@ -774,5 +839,68 @@ host = '10.0.0.1';
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].range.start.line, 1);
         assert_eq!(findings[0].range.start.column, 15);
+    }
+
+    #[test]
+    fn s6654_reports_deprecated_prototype_accessor_reads_and_writes() {
+        // Issue #200 control: a bare read and a write of the inherited
+        // accessor both use `__proto__`.
+        let accessor = js_keys(
+            "const target = {};\nconst original = target.__proto__;\ntarget.__proto__ = null;\n",
+        );
+        assert_eq!(count_key(&accessor, "javascript:S6654"), 2);
+
+        let typescript = ts_keys("const target: any = {};\nconst original = target.__proto__;\n");
+        assert_eq!(count_key(&typescript, "typescript:S6654"), 1);
+
+        // Computed access with the literal key is the same accessor.
+        let computed = js_keys("const target = {};\nconst original = target[\"__proto__\"];\n");
+        assert_eq!(count_key(&computed, "javascript:S6654"), 1);
+
+        // Unresolved receivers keep the existing call-site behavior.
+        let unresolved = js_keys("x.__proto__();\n");
+        assert_eq!(count_key(&unresolved, "javascript:S6654"), 1);
+    }
+
+    #[test]
+    fn s6654_spares_own_proto_methods_and_properties() {
+        // Issue #200 control: an ordinary own method named `__proto__` is
+        // not the inherited accessor.
+        let own_method = js_keys(
+            "const custom = { __proto__() { return 'ok'; } };\nconsole.log(custom.__proto__());\n",
+        );
+        assert_eq!(count_key(&own_method, "javascript:S6654"), 0);
+
+        let own_read = js_keys(
+            "const custom = { __proto__() { return 'ok'; } };\nconst probe = custom.__proto__;\n",
+        );
+        assert_eq!(count_key(&own_read, "javascript:S6654"), 0);
+
+        // The colon form is the prototype setter, not an own property.
+        let proto_setter = js_keys(
+            "const base = {};\nconst derived = { __proto__: base };\nconst probe = derived.__proto__;\n",
+        );
+        assert_eq!(count_key(&proto_setter, "javascript:S6654"), 1);
+    }
+
+    #[test]
+    fn s6654_keeps_zod_compatibility_and_cleanup_shapes_clean() {
+        // The guarded fallback exists because setPrototypeOf may be
+        // unavailable; no unconditional replacement is recommended there.
+        let fallback = ts_keys(
+            "class ZodError extends Error {\n  constructor() {\n    super();\n    if (Object.setPrototypeOf) {\n      Object.setPrototypeOf(this, ZodError.prototype);\n    } else {\n      (this as any).__proto__ = ZodError.prototype;\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&fallback, "typescript:S6654"), 0);
+
+        // Deleting an own data property after a hasOwnProperty check is
+        // not use of the deprecated accessor.
+        let cleanup = js_keys(
+            "const obj = {};\nif (Object.prototype.hasOwnProperty.call(obj, '__proto__')) { delete obj.__proto__; }\n",
+        );
+        assert_eq!(count_key(&cleanup, "javascript:S6654"), 0);
+
+        // The same write without the guard is still the accessor.
+        let unguarded = ts_keys("const e: any = {};\n(e as any).__proto__ = Error.prototype;\n");
+        assert_eq!(count_key(&unguarded, "typescript:S6654"), 1);
     }
 }
