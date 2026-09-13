@@ -1104,6 +1104,8 @@ pub(crate) struct TsTypeCollector<'s, 'index> {
     /// Depth of enclosing try statements that have a catch or finally
     /// handler (`S4326` return-await exemption).
     pub(crate) try_guard_depth: u32,
+    /// Bounded in-file `type` alias expansions for `S6571` subsumption.
+    pub(crate) type_aliases: super::s4621_s6571_constituent_redundancy::TypeAliasTable,
 }
 
 impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
