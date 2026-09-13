@@ -1270,6 +1270,12 @@ fn ancestor<'tree>(mut node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
 }
 fn declaring_type(mut node: Node<'_>) -> Option<Node<'_>> {
     while let Some(parent) = node.parent() {
+        // Members of an enum-constant class body belong to that constant's
+        // anonymous subclass, not to the enum type shared with every other
+        // constant.
+        if parent.kind() == "enum_constant" {
+            return Some(parent);
+        }
         if matches!(
             parent.kind(),
             "class_declaration"
@@ -2244,6 +2250,91 @@ mod tests {
             ),
             1
         );
+    }
+    #[test]
+    fn enum_constant_override_bodies_are_distinct_declaring_types() {
+        let source = r#"
+import java.lang.reflect.Field;
+
+interface NamingStrategy {
+  String translateName(Field field);
+}
+
+enum EnumOverride implements NamingStrategy {
+  FIRST() {
+    @Override
+    public String translateName(Field field) {
+      return "first";
+    }
+  },
+  SECOND() {
+    @Override
+    public String translateName(Field field) {
+      return "second";
+    }
+  };
+}
+
+final class OrdinaryOverloads {
+  void translateName(Object value) {}
+  void translateName(String value) {}
+}
+"#;
+        let issues = github_issues(source);
+        let findings: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "java/confusing-method-signature")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            1,
+            "constant-specific overrides must not be reported; only the ordinary overload control remains: {issues:?}"
+        );
+        let control = findings[0];
+        assert_eq!(
+            control.range.start.line, 25,
+            "the surviving finding must be the OrdinaryOverloads control, not an enum constant body"
+        );
+        assert!(
+            control.message.contains("OrdinaryOverloads"),
+            "the surviving finding must be the ordinary overload control: {}",
+            control.message
+        );
+    }
+
+    #[test]
+    fn genuine_signature_conflicts_inside_enum_bodies_still_report() {
+        let same_constant = "enum MixedBody {\n  A() {\n    void handle(Object value) {}\n    void handle(String value) {}\n  },\n  B()\n}";
+        let issues = github_issues(same_constant);
+        assert_eq!(count_rule(&issues, "java/confusing-method-signature"), 1);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("A.handle")),
+            "a confusing overload pair inside one constant body reports under that constant: {issues:?}"
+        );
+
+        let static_body = "enum StaticBody {\n  X;\n\n  void handle(Object value) {}\n  void handle(String value) {}\n}";
+        let issues = github_issues(static_body);
+        assert_eq!(count_rule(&issues, "java/confusing-method-signature"), 1);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("StaticBody.handle")),
+            "a confusing overload pair in the enum's own body reports under the enum: {issues:?}"
+        );
+
+        let separate_constants = "enum SeparateConstants {\n  FIRST() {\n    public String toUri() { return \"\"; }\n  },\n  SECOND() {\n    public String toURI() { return \"\"; }\n  }\n}";
+        assert_eq!(
+            count_rule(
+                &github_issues(separate_constants),
+                "java/confusing-method-name"
+            ),
+            0
+        );
+        let same_constant_names = "enum SameConstantNames {\n  A() {\n    public String toUri() { return \"\"; }\n    public String toURI() { return \"\"; }\n  }\n}";
+        let issues = github_issues(same_constant_names);
+        assert_eq!(count_rule(&issues, "java/confusing-method-name"), 1);
     }
     #[test]
     fn type_parameter_javadoc_tags_require_exact_names() {
