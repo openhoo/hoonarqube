@@ -586,4 +586,46 @@ mod tests {
         // Both catalog scopes carry S2301.
         assert_eq!(count_key(&ts_keys(SWITCH_VIOLATION), "typescript:S2301"), 1);
     }
+
+    #[test]
+    fn nested_same_name_function_keeps_outer_binding_facts() {
+        // #137: the nested synchronous `load` must not overwrite the async
+        // outer `load` in the function census, so `await load()` in `main`
+        // stays clean (issue fixture).
+        let shadowed = js(
+            "async function load() { return 1; }\n\
+             function outer() {\n\
+               function load() { return 1; }\n\
+               return load();\n\
+             }\n\
+             async function main() { return await load(); }\n\
+             main().then(console.log);\n\
+             console.log(outer());\n",
+        );
+        assert_eq!(filtered(&shadowed, "S4123").len(), 0);
+
+        // Control: a call inside the declaring scope still resolves to the
+        // nested synchronous binding.
+        let inner = js(
+            "async function outer() {\n\
+               function load() { return 1; }\n\
+               return await load();\n\
+             }\n\
+             outer();\n",
+        );
+        assert_eq!(filtered(&inner, "S4123").len(), 1);
+
+        // S3699 twin: the top-level call resolves to the outer void
+        // handler, not to the valued nested same-name function.
+        let voided = js(
+            "function handler() { return; }\n\
+             function outer() {\n\
+               function handler() { return 1; }\n\
+               return handler();\n\
+             }\n\
+             const total = handler();\n\
+             console.log(total);\n",
+        );
+        assert_eq!(filtered(&voided, "S3699").len(), 1);
+    }
 }

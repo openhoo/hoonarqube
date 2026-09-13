@@ -333,4 +333,46 @@ mod tests {
         );
         assert_eq!(filtered(&let_shadow, "S1854").len(), 0);
     }
+
+    #[test]
+    fn s1854_reports_pinned_markdown_it_start_overwrites() {
+        // #139: verbatim sources of markdown-it at pinned revision
+        // 3c51991c32aaa2b002a52c009334ebe5752c84b3 (MIT), which SonarQube and
+        // CodeQL both flag at the listed `start` lines while the tracker
+        // missed them. Line numbers below match the pinned files exactly.
+        let image = ts(include_str!(
+            "../../../fixtures/flow/markdown-it-image.ts"
+        ));
+        let image_sites: Vec<(u32, u32)> = image
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S1854")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(image_sites, vec![(39, 4)], "pinned image.ts:39");
+
+        let link = ts(include_str!("../../../fixtures/flow/markdown-it-link.ts"));
+        let link_sites: Vec<(u32, u32)> = link
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S1854")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(link_sites, vec![(10, 6), (43, 4)], "pinned link.ts:10/43");
+    }
+
+    #[test]
+    fn s1854_branch_and_loop_controls_stay_clean() {
+        // A read on the skipped branch keeps the initial value live.
+        let conditional = js(
+            "function g(c) {\n  let x = a();\n  if (c) {\n    x = b();\n  }\n  return x;\n}\ng(true);\n",
+        );
+        assert_eq!(filtered(&conditional, "S1854").len(), 0);
+
+        // Loop bodies may re-read the previous iteration's value.
+        let loop_carried = js(
+            "function h(items) {\n  let current = items[0];\n  for (const item of items) {\n    use(current, item);\n    current = item;\n  }\n}\nh([]);\n",
+        );
+        assert_eq!(filtered(&loop_carried, "S1854").len(), 0);
+    }
 }
