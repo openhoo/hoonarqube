@@ -15,7 +15,10 @@ use std::thread;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use hoonarqube_catalog::Catalog;
-use hoonarqube_core::source_facts::{collect_source_facts, compiler_razor_facts};
+use hoonarqube_core::source_facts::{
+    BoundedSourceError, collect_source_facts, compiler_razor_facts, oversize_source_facts,
+    read_bounded_source, source_facts_bound_applies,
+};
 use hoonarqube_core::{AnalyzerOptions as CoreOptions, Language};
 use hoonarqube_ir::{FileClassification, MeasurementStatus, ProjectFileMeasurement};
 use sha2::{Digest as _, Sha256};
@@ -407,22 +410,26 @@ fn with_csharp_project_index(
     options: &AnalyzerOptionsBundle,
     collected: &CollectedProjectInputs,
 ) -> AnalyzerOptionsBundle {
-    let csharp_paths: Vec<PathBuf> = collected
+    let csharp_inputs: Vec<&ProjectInput> = collected
         .pending
         .iter()
         .filter(|input| {
             hoonarqube_core::language_for_path(&input.path) == Some(Language::CSharp)
                 && !hoonarqube_core::is_razor_path(&input.path)
         })
-        .map(|input| input.path.clone())
         .collect();
-    if csharp_paths.len() < 2 {
+    if csharp_inputs.len() < 2 {
         return options.clone();
     }
-    let mut snapshots = Vec::with_capacity(csharp_paths.len());
-    for path in &csharp_paths {
-        if let Ok(source) = fs::read_to_string(path) {
-            snapshots.push(hoonarqube_csharp::SourceSnapshot::new(path.clone(), source));
+    let mut snapshots = Vec::with_capacity(csharp_inputs.len());
+    for input in &csharp_inputs {
+        if let ProjectSourceRead::Source(source) =
+            read_project_source(&input.path, input.classification)
+        {
+            snapshots.push(hoonarqube_csharp::SourceSnapshot::new(
+                input.path.clone(),
+                source,
+            ));
         }
     }
     if snapshots.len() < 2 {
@@ -618,8 +625,8 @@ fn collect_retained_project_input(
     duplication_excluded: bool,
     collected: &mut CollectedProjectInputs,
 ) {
-    match fs::read_to_string(&path) {
-        Ok(source)
+    match read_project_source(&path, classification) {
+        ProjectSourceRead::Source(source)
             if collected
                 .retained_bytes
                 .checked_add(source.len())
@@ -639,7 +646,18 @@ fn collect_retained_project_input(
                 source_index: Some(source_index),
             });
         }
-        Ok(source) => {
+        ProjectSourceRead::Oversize(facts) => {
+            // A refused source cannot enter the compiler-backed inventory,
+            // so the semantic context degrades exactly like a failed read.
+            collected.semantic_input_complete = false;
+            collected.project_files.push(oversize_project_file(
+                path,
+                classification,
+                duplication_excluded,
+                facts,
+            ));
+        }
+        ProjectSourceRead::Source(source) => {
             collected.semantic_input_complete = false;
             collected.project_files.push(ProjectFile {
                 path,
@@ -653,7 +671,7 @@ fn collect_retained_project_input(
             });
             drop(source);
         }
-        Err(error) => {
+        ProjectSourceRead::Failure(error) => {
             collected.semantic_input_complete = false;
             collected.project_files.push(read_failure(
                 path,
@@ -1029,9 +1047,17 @@ fn read_and_analyze_project(
         };
         return analyze_project_source(input, &snapshot.source, options, semantic, cache);
     }
-    match fs::read_to_string(&input.path) {
-        Ok(source) => analyze_project_source(input, &source, options, semantic, cache),
-        Err(error) => read_failure(
+    match read_project_source(&input.path, input.classification) {
+        ProjectSourceRead::Source(source) => {
+            analyze_project_source(input, &source, options, semantic, cache)
+        }
+        ProjectSourceRead::Oversize(facts) => oversize_project_file(
+            input.path.clone(),
+            input.classification,
+            input.duplication_excluded,
+            facts,
+        ),
+        ProjectSourceRead::Failure(error) => read_failure(
             input.path.clone(),
             input.classification,
             input.duplication_excluded,
@@ -1157,16 +1183,78 @@ fn project_file_from_report(
     }
 }
 
+/// Outcome of reading one project input under the source-facts byte bound.
+enum ProjectSourceRead {
+    Source(String),
+    /// Refused at the bound before any content was read; carries the
+    /// structured rejected facts for the project inventory.
+    Oversize(hoonarqube_core::SourceFacts),
+    /// Open, read, or decode failure mapped like the previous plain reader.
+    Failure(BoundedSourceError),
+}
+
+/// Reads one project input with the source-facts byte bound enforced before
+/// any full allocation.  Only inputs the bound can reject (source or test
+/// scope under a registered non-Razor language) take the bounded reader, so
+/// every other input keeps its previous read and failure semantics.
+fn read_project_source(path: &Path, classification: FileClassification) -> ProjectSourceRead {
+    let bounded = matches!(
+        classification,
+        FileClassification::Source | FileClassification::Test
+    ) && source_facts_bound_applies(path);
+    if !bounded {
+        return match fs::read_to_string(path) {
+            Ok(source) => ProjectSourceRead::Source(source),
+            Err(error) => ProjectSourceRead::Failure(BoundedSourceError::Io(error)),
+        };
+    }
+    match read_bounded_source(path) {
+        Ok(source) => ProjectSourceRead::Source(source),
+        Err(BoundedSourceError::Oversize { bytes }) => {
+            match oversize_source_facts(path, bytes) {
+                Some(facts) => ProjectSourceRead::Oversize(facts),
+                // Unreachable while the gate above holds; keep the input
+                // rejected instead of analyzing an unregistered source.
+                None => ProjectSourceRead::Failure(BoundedSourceError::Oversize { bytes }),
+            }
+        }
+        Err(error) => ProjectSourceRead::Failure(error),
+    }
+}
+
+/// Builds the structured rejected outcome for an input refused at the
+/// source-facts byte bound before its content was read.  Mirrors the shape
+/// the post-read rejection produces, so aggregation, diagnostics, and the
+/// fail-closed exit stay identical.
+fn oversize_project_file(
+    path: PathBuf,
+    classification: FileClassification,
+    duplication_excluded: bool,
+    facts: hoonarqube_core::SourceFacts,
+) -> ProjectFile {
+    let error = facts.error.clone();
+    ProjectFile {
+        path,
+        classification,
+        report: None,
+        facts: Some(facts),
+        error,
+        duplication_excluded,
+    }
+}
+
 fn read_failure(
     path: PathBuf,
     classification: FileClassification,
     duplication_excluded: bool,
-    error: &std::io::Error,
+    error: &BoundedSourceError,
 ) -> ProjectFile {
-    let error = if error.kind() == ErrorKind::InvalidData {
-        "source is not valid UTF-8".to_owned()
-    } else {
-        format!("cannot read file: {error}")
+    let error = match error {
+        BoundedSourceError::Utf8 => "source is not valid UTF-8".to_owned(),
+        BoundedSourceError::Io(io_error) if io_error.kind() == ErrorKind::InvalidData => {
+            "source is not valid UTF-8".to_owned()
+        }
+        other => format!("cannot read file: {other}"),
     };
     ProjectFile {
         path,
@@ -2291,6 +2379,130 @@ mod tests {
         let paths: Vec<_> = report.files.iter().map(|file| file.path.clone()).collect();
         assert_eq!(paths, vec![local, through_parent]);
         assert!(warnings.is_empty());
+    }
+
+    /// Writes a file whose metadata size exceeds the source-facts byte
+    /// bound, sparse so the fixture occupies no real disk blocks.
+    fn write_oversized_source(path: &Path, bytes: u64) {
+        let file = fs::File::create(path).expect("create oversized fixture");
+        file.set_len(bytes).expect("size oversized fixture");
+    }
+
+    #[test]
+    fn oversized_source_is_rejected_before_reading() {
+        let fixture = TempDir::new("oversize-bound");
+        let oversized = fixture.0.join("oversized.py");
+        write_oversized_source(&oversized, 17 * 1024 * 1024);
+
+        let mut warnings = Vec::new();
+        let report = run_project(
+            std::slice::from_ref(&oversized),
+            &project_options(),
+            &mut warnings,
+        );
+
+        assert!(report.files.is_empty());
+        assert!(!report.project.complete);
+        let measurement = report
+            .project
+            .files
+            .iter()
+            .find(|file| file.path == oversized)
+            .expect("oversized source stays in the project inventory");
+        assert_eq!(measurement.status, MeasurementStatus::Failed);
+        // The rejection quotes the declared size with no scanned line count:
+        // the bound fired from file metadata before any content was read.
+        assert_eq!(
+            measurement.reason.as_deref(),
+            Some("source exceeds bounded facts input (17825792 bytes, 0 lines)"),
+        );
+    }
+
+    #[test]
+    fn bounded_sources_keep_normal_inputs_analyzing_unchanged() {
+        let fixture = TempDir::new("oversize-bound-normal");
+        let normal = fixture.write("normal.py", "x = 1\n");
+
+        let mut warnings = Vec::new();
+        let report = run_project(
+            std::slice::from_ref(&normal),
+            &project_options(),
+            &mut warnings,
+        );
+
+        assert!(warnings.is_empty());
+        assert!(report.project.complete);
+        let measurement = report
+            .project
+            .files
+            .iter()
+            .find(|file| file.path == normal)
+            .expect("normal source stays in the project inventory");
+        assert_eq!(measurement.status, MeasurementStatus::Complete);
+        let file_report = report
+            .files
+            .iter()
+            .find(|file| file.path == normal)
+            .expect("normal source report");
+        assert_eq!(file_report.metrics.lines, 1);
+    }
+
+    #[test]
+    fn oversized_unregistered_input_stays_inventory_only() {
+        let fixture = TempDir::new("oversize-bound-unregistered");
+        write_oversized_source(&fixture.0.join("notes.txt"), 17 * 1024 * 1024);
+        fixture.write("normal.py", "x = 1\n");
+
+        let mut warnings = Vec::new();
+        let report = run_project(
+            std::slice::from_ref(&fixture.0),
+            &project_options(),
+            &mut warnings,
+        );
+
+        assert!(report.project.complete);
+        assert!(
+            report
+                .project
+                .files
+                .iter()
+                .all(|file| file.status != MeasurementStatus::Failed),
+            "unregistered oversized input must not fail the project",
+        );
+    }
+
+    #[test]
+    fn retained_collection_rejects_oversized_source_before_retaining_it() {
+        let fixture = TempDir::new("oversize-bound-retained");
+        let oversized = fixture.0.join("oversized.py");
+        write_oversized_source(&oversized, 17 * 1024 * 1024);
+
+        let mut collected = CollectedProjectInputs {
+            project_files: Vec::new(),
+            source_inventory: Vec::new(),
+            pending: Vec::new(),
+            unsupported_inventory: Vec::new(),
+            retained_bytes: 0,
+            semantic_input_complete: true,
+        };
+        collect_retained_project_input(
+            oversized,
+            FileClassification::Source,
+            false,
+            &mut collected,
+        );
+
+        assert_eq!(collected.retained_bytes, 0);
+        assert!(collected.source_inventory.is_empty());
+        assert!(collected.pending.is_empty());
+        assert!(!collected.semantic_input_complete);
+        assert_eq!(collected.project_files.len(), 1);
+        assert!(collected.project_files[0].report.is_none());
+        assert!(collected.project_files[0].facts.is_some());
+        assert_eq!(
+            collected.project_files[0].error.as_deref(),
+            Some("source exceeds bounded facts input (17825792 bytes, 0 lines)"),
+        );
     }
 
     #[test]

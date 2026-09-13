@@ -19,7 +19,9 @@ pub use duplication::{
 };
 pub use project::{ProjectFile, analyze_project_file, build_project_report};
 pub use source_facts::{
-    NormalizedToken, SourceFacts, UnitDefinition, collect_source_facts, compiler_razor_facts,
+    BoundedSourceError, MAX_SOURCE_BYTES, NormalizedToken, SourceFacts, UnitDefinition,
+    collect_source_facts, compiler_razor_facts, oversize_source_facts, read_bounded_source,
+    source_facts_bound_applies,
 };
 
 use std::path::Path;
