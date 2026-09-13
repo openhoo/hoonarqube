@@ -144,6 +144,39 @@ pub(crate) fn simple_name(type_text: &str) -> &str {
     canonical_identifier(name)
 }
 
+/// Number of top-level type arguments in a written type reference
+/// (`Identity` → 0, `Table<T, int>` → 2, `Dictionary<string, List<int>>` → 2).
+/// Nested argument lists never count; only the depth-1 commas do.
+pub(crate) fn generic_arity(type_text: &str) -> usize {
+    let Some(open) = type_text.find('<') else {
+        return 0;
+    };
+    let mut depth = 0usize;
+    let mut arity = 1usize;
+    for character in type_text[open..].chars() {
+        match character {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            ',' if depth == 1 => arity += 1,
+            _ => {}
+        }
+    }
+    arity
+}
+
+/// Syntactic identity of a written type reference: simple name plus generic
+/// arity. Same-spelling references of different arity denote distinct types,
+/// so identity comparisons must pair the two (`Identity` ≠ `Identity<TFirst,
+/// …, TSeventh>`).
+pub(crate) fn type_reference_key(type_text: &str) -> (&str, usize) {
+    (simple_name(type_text), generic_arity(type_text))
+}
+
 /// Evaluates an `csharpsquid:S2342` naming format. Both catalog defaults are
 /// understood natively (`PascalCase` words, plural trailing `s` for flags);
 /// any custom format degrades to an exact literal match after stripping the

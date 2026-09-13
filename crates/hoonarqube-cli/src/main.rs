@@ -591,7 +591,7 @@ fn verify_projected_rewrite(
 }
 
 fn source_matches_plan(plan: &FileFixPlan, warnings: &mut Vec<String>) -> bool {
-    let current = match std::fs::read_to_string(&plan.path) {
+    let current = match hoonarqube_core::read_bounded_source(&plan.path) {
         Ok(current) => current,
         Err(error) => {
             warnings.push(format!("cannot re-read {}: {error}", plan.path.display()));
@@ -1102,7 +1102,7 @@ fn fix_plans(
     let mut plans = Vec::new();
     let mut used = std::collections::BTreeSet::new();
     for path in &files {
-        let source = match std::fs::read_to_string(path) {
+        let source = match hoonarqube_core::read_bounded_source(path) {
             Ok(source) => source,
             Err(error) => {
                 warnings.push(format!("cannot read {}: skipped ({error})", path.display()));
@@ -1903,7 +1903,7 @@ fn sonar_import_value(
         catalog,
         reports,
         &mut |path| {
-            std::fs::read_to_string(path)
+            hoonarqube_core::read_bounded_source(path)
                 .map_err(|error| format!("cannot read Sonar source {}: {error}", path.display()))
         },
         &mut source_cache,

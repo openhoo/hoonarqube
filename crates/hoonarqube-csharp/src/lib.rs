@@ -251,32 +251,43 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 ];
 
 /// Runs the independently identified GitHub Code Quality queries for one C#
-/// source file.  These findings use `CodeQL` IDs (`cs/...`) and are deliberately
-/// separate from the `SonarQube` `analyze` rule set.
+/// source string.  These findings use `CodeQL` IDs (`cs/...`) and are
+/// deliberately separate from the `SonarQube` `analyze` rule set; per-file
+/// behavior only.
 #[must_use]
 pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
     let tree = parse(source);
-    github_quality_issues(tree.root_node(), source)
+    github_quality_issues(tree.root_node(), source, None)
 }
 
 /// Runs GitHub Code Quality queries and computes file metrics from one parse.
+/// `project` extends the cross-partial shadow resolution across the accepted
+/// scan files; `None` keeps strictly per-file behavior.
 #[must_use]
-pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> hoonarqube_ir::FileReport {
+pub fn analyze_github_quality_report(
+    path: PathBuf,
+    source: &str,
+    project: Option<&ProjectTypeIndex>,
+) -> hoonarqube_ir::FileReport {
     let tree = parse(source);
     let root = tree.root_node();
     hoonarqube_ir::FileReport {
         path,
         language: CsLanguage::CSharp.prefix().to_owned(),
-        issues: github_quality_issues(root, source),
+        issues: github_quality_issues(root, source, project),
         metrics: metrics::file_metrics(root, source).0,
     }
 }
 
-fn github_quality_issues(root: tree_sitter::Node<'_>, source: &str) -> Vec<hoonarqube_ir::Issue> {
+fn github_quality_issues(
+    root: tree_sitter::Node<'_>,
+    source: &str,
+    project: Option<&ProjectTypeIndex>,
+) -> Vec<hoonarqube_ir::Issue> {
     if root.has_error() {
         return Vec::new();
     }
-    let issues = github_quality::check(root, source);
+    let issues = github_quality::check(root, source, project);
     debug_assert!(
         issues
             .iter()
@@ -1298,5 +1309,56 @@ class C
             .expect("unused label");
         assert_eq!(label.range.start.line, 7);
         assert_eq!(label.range.start.column, 8);
+    }
+
+    #[test]
+    fn static_field_written_by_instance_covers_null_coalescing_assignment() {
+        let found = analyze_github_quality(
+            r"
+class Database
+{
+    internal static System.Action<Database> tableConstructor;
+    internal static int commandTimeout;
+    internal void InitDatabase()
+    {
+        tableConstructor ??= CreateConstructorForTable();
+        commandTimeout = 30;
+    }
+    internal static System.Action<Database> CreateConstructorForTable() => null;
+}",
+        );
+        let writes: Vec<_> = found
+            .iter()
+            .filter(|issue| issue.rule_key == "cs/static-field-written-by-instance")
+            .collect();
+        assert_eq!(writes.len(), 2, "??= and = both write static fields");
+        assert_eq!(writes[0].range.start.line, 8);
+        assert_eq!(
+            writes[0].message,
+            "Write to static field from instance method, property, or constructor."
+        );
+        assert_eq!(writes[1].range.start.line, 9);
+    }
+
+    #[test]
+    fn static_field_written_by_instance_stays_clean_for_static_callables() {
+        let found = analyze_github_quality(
+            r"
+class StaticWriter
+{
+    private static int counter;
+    internal static void Reset(int value)
+    {
+        counter = value;
+        counter ??= value;
+    }
+}",
+        );
+        assert!(
+            found
+                .iter()
+                .all(|issue| issue.rule_key != "cs/static-field-written-by-instance"),
+            "static callables own their static-field writes"
+        );
     }
 }
