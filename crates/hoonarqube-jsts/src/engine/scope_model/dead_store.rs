@@ -21,22 +21,23 @@
 //! redundant assignment (`S4165`) instead.
 
 use super::{
-    AssignmentOperator, AssignmentTarget, BindingPattern, BlockStatement, CatchClause, Expression,
-    ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function, IfStatement,
-    MethodDefinition, SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement,
-    TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
-    VariableDeclarator, Visit, bound_names, source_slice, walk_arrow_function_expression,
-    walk_block_statement, walk_catch_clause, walk_expression, walk_for_statement, walk_function,
-    walk_method_definition, walk_program, walk_static_block,
+    AssignmentOperator, AssignmentTarget, BindingIdentifier, BindingPattern, BlockStatement,
+    CallExpression, CatchClause, Expression, ForInStatement, ForOfStatement, ForStatement,
+    FormalParameters, Function, IfStatement, MethodDefinition, SimpleAssignmentTarget, Span,
+    Statement, StaticBlock, SwitchStatement, TryStatement, UpdateExpression, VariableDeclaration,
+    VariableDeclarationKind, VariableDeclarator, Visit, bound_names, source_slice,
+    walk_arrow_function_expression, walk_block_statement, walk_catch_clause, walk_expression,
+    walk_for_statement, walk_function, walk_method_definition, walk_program, walk_static_block,
 };
 use oxc_ast::ast::{
     Argument, ArrayAssignmentTarget, ArrowFunctionBody, ArrowFunctionExpression,
     AssignmentTargetMaybeDefault, AssignmentTargetProperty, ForStatementInit, ForStatementLeft,
     IdentifierReference, ImportDeclarationSpecifier, ObjectAssignmentTarget, Program, PropertyKey,
 };
+use oxc_ast_visit::walk::walk_simple_assignment_target;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_assignment_target, walk_for_in_statement,
-    walk_for_of_statement, walk_simple_assignment_target,
+    walk_for_of_statement,
 };
 use oxc_span::GetSpan;
 use oxc_syntax::scope::ScopeFlags;
@@ -647,24 +648,7 @@ impl<'p> Analyzer<'p, '_> {
     ) -> Flow<'p> {
         match pattern {
             BindingPattern::BindingIdentifier(identifier) => {
-                let name = identifier.name.as_str();
-                match init {
-                    None => {
-                        if kind == VariableDeclarationKind::Var {
-                            // An initializer-less `var` is a runtime no-op.
-                            return after;
-                        }
-                        // A block-scoped declaration without initializer
-                        // stops the prior value from reaching later reads.
-                        after.live.remove(name);
-                        after.kill_values.retain(|(own, _, _, _)| *own != name);
-                        after
-                    }
-                    Some(init) => {
-                        let value = init.span();
-                        self.store_transfer(name, identifier.span, Some(value), after)
-                    }
-                }
+                self.identifier_declaration_store(identifier, init, kind, after)
             }
             BindingPattern::ObjectPattern(object) => {
                 for property in object.properties.iter().rev() {
@@ -694,44 +678,39 @@ impl<'p> Analyzer<'p, '_> {
         }
     }
 
+    /// One plain binding inside a declaration: an initializer stores, an
+    /// initializer-less `var` is a runtime no-op, and an initializer-less
+    /// block-scoped binding stops the prior value from reaching later reads.
+    fn identifier_declaration_store(
+        &mut self,
+        identifier: &BindingIdentifier<'p>,
+        init: Option<&Expression<'p>>,
+        kind: VariableDeclarationKind,
+        mut after: Flow<'p>,
+    ) -> Flow<'p> {
+        let name = identifier.name.as_str();
+        match init {
+            None => {
+                if kind == VariableDeclarationKind::Var {
+                    return after;
+                }
+                after.live.remove(name);
+                after.kill_values.retain(|(own, _, _, _)| *own != name);
+                after
+            }
+            Some(init) => {
+                let value = init.span();
+                self.store_transfer(name, identifier.span, Some(value), after)
+            }
+        }
+    }
+
     // --- expression transfer ---
 
     fn expression_backward(&mut self, expression: &Expression<'p>, after: Flow<'p>) -> Flow<'p> {
         match expression {
             Expression::AssignmentExpression(assign) => {
-                // `x = x++`: the update's effect is discarded (S2123
-                // territory); only the read is tracked.
-                if assign.operator == AssignmentOperator::Assign
-                    && let AssignmentTarget::AssignmentTargetIdentifier(id) = &assign.left
-                    && let Expression::UpdateExpression(update) = &assign.right
-                    && let SimpleAssignmentTarget::AssignmentTargetIdentifier(inner) =
-                        &update.argument
-                    && inner.name == id.name
-                {
-                    return self.subtree_reads_expression(&assign.right, after);
-                }
-                if assign.operator == AssignmentOperator::Assign {
-                    // The store kills first; the RHS reads (which may read the
-                    // variable itself, as in `x = f(x)`) generate afterwards.
-                    let after = self.assignment_target_backward(
-                        &assign.left,
-                        assign.span,
-                        assign.operator,
-                        Some(assign.right.span()),
-                        after,
-                    );
-                    self.expression_backward(&assign.right, after)
-                } else {
-                    // Compound operators read the old value first.
-                    let after = self.expression_backward(&assign.right, after);
-                    self.assignment_target_backward(
-                        &assign.left,
-                        assign.span,
-                        assign.operator,
-                        Some(assign.right.span()),
-                        after,
-                    )
-                }
+                self.assignment_expression_backward(assign, after)
             }
             Expression::SequenceExpression(sequence) => {
                 let mut after = after;
@@ -757,21 +736,65 @@ impl<'p> Analyzer<'p, '_> {
                 self.expression_reads(&logical.left, after)
             }
             Expression::UpdateExpression(update) => self.update_backward(update, after),
-            Expression::CallExpression(call) => {
-                let mut after = self.expression_backward(&call.callee, after);
-                for argument in call.arguments.iter().rev() {
-                    if let Argument::SpreadElement(spread) = argument {
-                        after = self.expression_backward(&spread.argument, after);
-                    } else if let Some(expression) = argument.as_expression() {
-                        after = self.expression_backward(expression, after);
-                    }
-                }
-                after
-            }
+            Expression::CallExpression(call) => self.call_expression_backward(call, after),
             other => self.subtree_reads_expression(other, after),
         }
     }
 
+    /// Assignment transfer. `x = x++`: the update's effect is discarded
+    /// (`S2123` territory); only the read is tracked. A plain `=` kills the
+    /// prior binding first and lets the RHS reads (which may read the
+    /// variable itself, as in `x = f(x)`) generate afterwards; compound
+    /// operators read the old value before writing.
+    fn assignment_expression_backward(
+        &mut self,
+        assign: &super::AssignmentExpression<'p>,
+        after: Flow<'p>,
+    ) -> Flow<'p> {
+        if assign.operator == AssignmentOperator::Assign
+            && let AssignmentTarget::AssignmentTargetIdentifier(id) = &assign.left
+            && let Expression::UpdateExpression(update) = &assign.right
+            && let SimpleAssignmentTarget::AssignmentTargetIdentifier(inner) = &update.argument
+            && inner.name == id.name
+        {
+            return self.subtree_reads_expression(&assign.right, after);
+        }
+        if assign.operator == AssignmentOperator::Assign {
+            let after = self.assignment_target_backward(
+                &assign.left,
+                assign.span,
+                assign.operator,
+                Some(assign.right.span()),
+                after,
+            );
+            self.expression_backward(&assign.right, after)
+        } else {
+            let after = self.expression_backward(&assign.right, after);
+            self.assignment_target_backward(
+                &assign.left,
+                assign.span,
+                assign.operator,
+                Some(assign.right.span()),
+                after,
+            )
+        }
+    }
+
+    fn call_expression_backward(
+        &mut self,
+        call: &CallExpression<'p>,
+        mut after: Flow<'p>,
+    ) -> Flow<'p> {
+        after = self.expression_backward(&call.callee, after);
+        for argument in call.arguments.iter().rev() {
+            if let Argument::SpreadElement(spread) = argument {
+                after = self.expression_backward(&spread.argument, after);
+            } else if let Some(expression) = argument.as_expression() {
+                after = self.expression_backward(expression, after);
+            }
+        }
+        after
+    }
     fn update_backward(&mut self, update: &UpdateExpression<'p>, after: Flow<'p>) -> Flow<'p> {
         if let SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &update.argument {
             let name = id.name.as_str();
@@ -1124,41 +1147,43 @@ fn collect_declaration_names<'p, E: Extend<&'p str>>(
     }
 }
 
-/// Names bound directly in one statement list (parameters handled by the
-/// caller): all declaration kinds plus function/class/import bindings.
 fn collect_region_names<'p, E: Extend<&'p str>>(statements: &[Statement<'p>], out: &mut E) {
     for statement in statements {
-        match statement {
-            Statement::VariableDeclaration(declaration) => {
-                collect_declaration_names(declaration, out);
-            }
-            Statement::FunctionDeclaration(function) => {
-                if let Some(id) = &function.id {
-                    out.extend(std::iter::once(id.name.as_str()));
-                }
-            }
-            Statement::ClassDeclaration(class) => {
-                if let Some(id) = &class.id {
-                    out.extend(std::iter::once(id.name.as_str()));
-                }
-            }
-            Statement::ImportDeclaration(import) => {
-                for specifier in import.specifiers.iter().flatten() {
-                    let local = match specifier {
-                        ImportDeclarationSpecifier::ImportSpecifier(specifier) => &specifier.local,
-                        ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
-                            &specifier.local
-                        }
-                        ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
-                            &specifier.local
-                        }
-                    };
-                    out.extend(std::iter::once(local.name.as_str()));
-                }
-            }
-            _ => {}
-        }
+        collect_region_statement_names(statement, out);
     }
+}
+
+fn collect_region_statement_names<'p, E: Extend<&'p str>>(statement: &Statement<'p>, out: &mut E) {
+    match statement {
+        Statement::VariableDeclaration(declaration) => {
+            collect_declaration_names(declaration, out);
+        }
+        Statement::FunctionDeclaration(function) => {
+            push_declaration_name(function.id.as_ref(), out);
+        }
+        Statement::ClassDeclaration(class) => push_declaration_name(class.id.as_ref(), out),
+        Statement::ImportDeclaration(import) => {
+            for specifier in import.specifiers.iter().flatten() {
+                out.extend(std::iter::once(import_local_name(specifier)));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn push_declaration_name<'p, E: Extend<&'p str>>(id: Option<&BindingIdentifier<'p>>, out: &mut E) {
+    if let Some(id) = id {
+        out.extend(std::iter::once(id.name.as_str()));
+    }
+}
+
+fn import_local_name<'p>(specifier: &ImportDeclarationSpecifier<'p>) -> &'p str {
+    let local = match specifier {
+        ImportDeclarationSpecifier::ImportSpecifier(specifier) => &specifier.local,
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => &specifier.local,
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => &specifier.local,
+    };
+    local.name.as_str()
 }
 
 /// Block-scoped bindings only: `var` keeps its enclosing-region identity.
