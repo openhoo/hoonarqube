@@ -13,10 +13,16 @@ pub(crate) fn check_identical_sibling_functions(
 ) -> Vec<Issue> {
     let module_body = parsed.syntax().body.as_slice();
     let mut issues = Vec::new();
-    flag_identical_function_pairs(module_body, &mut issues, index, source);
+    flag_identical_function_pairs(module_body, &mut issues, index, source, parsed.tokens());
     for_each_stmt(module_body, &mut |stmt| {
         if let Stmt::ClassDef(class) = stmt {
-            flag_identical_function_pairs(class.body.as_slice(), &mut issues, index, source);
+            flag_identical_function_pairs(
+                class.body.as_slice(),
+                &mut issues,
+                index,
+                source,
+                parsed.tokens(),
+            );
         }
     });
     issues
