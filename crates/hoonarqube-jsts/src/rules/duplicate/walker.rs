@@ -182,27 +182,13 @@ impl<'a> DuplicateCollector<'a, '_> {
         }
     }
     fn check_single_chain(&mut self, head: &'a IfStatement<'a>) {
-        // `S1871`: any link whose own branches are structurally equal.
-        let mut current = head;
-        loop {
-            if let Some(alternate) = current.alternate.as_ref()
-                && current.consequent.content_eq(alternate)
-            {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S1871",
-                    "This branch's code is identical to the previous branch's.",
-                    alternate.span(),
-                );
-            }
-            match current.alternate.as_ref() {
-                Some(Statement::IfStatement(next)) => current = next,
-                _ => break,
-            }
-        }
+        // Branch bodies in source order: each chain link's consequent, then
+        // the final else when present. Flattening across nested links is
+        // what lets `S1871` compare an `else if` consequent with the head
+        // branch instead of only a link with its own alternate.
         let mut tests: Vec<&Expression<'a>> = vec![&head.test];
         let mut branches: Vec<&Statement<'a>> = vec![&head.consequent];
-        current = head;
+        let mut current = head;
         while let Some(alternate) = current.alternate.as_ref() {
             match alternate {
                 Statement::IfStatement(next) => {
@@ -215,6 +201,22 @@ impl<'a> DuplicateCollector<'a, '_> {
                     break;
                 }
             }
+        }
+        // `S1871`: the second branch of every maximal run of identical
+        // consecutive branches, so a fully identical chain still reports
+        // once while separate duplicate runs each report one.
+        let mut previous_identical = false;
+        for pair in branches.windows(2) {
+            let identical = pair[0].content_eq(pair[1]);
+            if identical && !previous_identical {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1871",
+                    "This branch's code is identical to the previous branch's.",
+                    pair[1].span(),
+                );
+            }
+            previous_identical = identical;
         }
         // `S1862`: repeated conditions within the same chain.
         for (position, test) in tests.iter().enumerate().skip(1) {
@@ -533,5 +535,63 @@ switch (side) {
                 "unexpected {key}"
             );
         }
+    }
+    #[test]
+    fn s1871_flags_identical_nested_else_if_chain_branches_with_clean_controls() {
+        // Issue #196: the else-if consequent equals the head consequent,
+        // but per-link comparison only ever sees a link with its own
+        // alternate.
+        let nested = ts("declare const value: number;\n\
+             function choose(): number {\n\
+             if (value === 1) {\n\
+             return 2;\n\
+             } else if (value === 2) {\n\
+             return 2;\n\
+             } else {\n\
+             return 3;\n\
+             }\n\
+             }\n\
+             export { choose };\n");
+        let flagged: Vec<_> = nested
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S1871")
+            .collect();
+        assert_eq!(flagged.len(), 1);
+        // The second branch is reported, identical to the head branch.
+        assert_eq!(
+            flagged[0].range,
+            hoonarqube_ir::Range {
+                start: pos(5, 24),
+                end: pos(7, 1),
+            }
+        );
+
+        // The Markdown-it shape: two identical branches, no final else.
+        let no_else = ts_keys(
+            "declare const nextToken: { type: string; hidden: boolean; nesting: number; tag: string };\n\
+             declare const token: { tag: string };\n\
+             let needLf = true;\n\
+             if (nextToken.type === 'inline' || nextToken.hidden) {\n\
+             needLf = false;\n\
+             } else if (nextToken.nesting === -1 && nextToken.tag === token.tag) {\n\
+             needLf = false;\n\
+             }\n",
+        );
+        assert_eq!(count_key(&no_else, "typescript:S1871"), 1);
+
+        // Genuinely distinct branch bodies across the chain stay clean.
+        let distinct = ts_keys(
+            "function pick(value: number): number {\n\
+             if (value === 1) {\n\
+             return 2;\n\
+             } else if (value === 2) {\n\
+             return 4;\n\
+             } else {\n\
+             return 6;\n\
+             }\n\
+             }\n",
+        );
+        assert_eq!(count_key(&distinct, "typescript:S1871"), 0);
     }
 }

@@ -3,6 +3,7 @@ use super::collectors::{SecurityBindingResolver, SecurityHotspotCollector, TsTyp
 use super::collectors_hotspots::{MiscCollector, check_default_export_name, check_self_imports};
 use super::s2187_test_framework_rules::check_test_framework_rules;
 use super::s4036_s4721_shell_exec::ProcessBindingResolver;
+use super::s4621_s6571_constituent_redundancy::TypeAliasTable;
 use super::s6759_s6759_ts_interface_declaration::check_s6759;
 use super::s7059_s7059_await_expression::S7059State;
 use crate::JstsLanguage;
@@ -55,6 +56,7 @@ fn check_ts_type_rules(
         s7059: S7059State::default(),
         constructor_depth: 0,
         try_guard_depth: 0,
+        type_aliases: TypeAliasTable::collect(program),
     };
     collector.visit_program(program);
     check_s6759(program, &mut collector.sink);
@@ -581,5 +583,45 @@ mod tests {
         let normal = test_file_keys(normal);
         assert_eq!(count_key(&normal, "javascript:S1607"), 0);
         assert_eq!(count_key(&normal, "javascript:S6426"), 0);
+    }
+    #[test]
+    fn s6571_resolves_aliases_and_top_types_for_union_constituents() {
+        // Issue #194: alias-resolved and top-type constituents are
+        // semantically redundant but were classified as opaque `Other`.
+        let control = ts_keys(
+            "type Foo = { value: string };\n\
+             type Alias = string;\n\
+             type AliasUnion = Alias | 'x';\n\
+             type UnknownUnion = unknown | Foo;\n\
+             type DirectUnion = string | 'x';\n",
+        );
+        assert_eq!(count_key(&control, "typescript:S6571"), 3);
+
+        // The top type constituent itself overrides the other members.
+        let top = ts("type Foo = { value: string };\ntype T = Foo | unknown;\n");
+        let top_finding = top
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "typescript:S6571")
+            .expect("top-type finding");
+        assert_eq!(
+            top_finding.range,
+            hoonarqube_ir::Range {
+                start: pos(2, 15),
+                end: pos(2, 22),
+            }
+        );
+
+        // Chained aliases resolve through each other.
+        let chained =
+            ts_keys("type Alias = string;\ntype Indirect = Alias;\ntype T = Indirect | 'x';\n");
+        assert_eq!(count_key(&chained, "typescript:S6571"), 1);
+
+        // Unresolvable aliases and distinct keywords stay clean.
+        let opaque = ts_keys("type Opaque = { value: string };\ntype T = Opaque | 'x';\n");
+        assert_eq!(count_key(&opaque, "typescript:S6571"), 0);
+
+        let distinct = ts_keys("type Alias = string;\ntype T = Alias | number;\n");
+        assert_eq!(count_key(&distinct, "typescript:S6571"), 0);
     }
 }
