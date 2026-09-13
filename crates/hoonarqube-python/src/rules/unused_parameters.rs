@@ -1,7 +1,5 @@
 use crate::engine::scope::DefFlavor;
-use crate::engine::scope::FileFacts;
 use crate::engine::scope::SymbolTable;
-use crate::engine::scope::name_used_in_tokens;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -10,7 +8,6 @@ use ruff_source_file::LineIndex;
 
 pub(crate) fn check_unused_parameters(
     table: &SymbolTable,
-    facts: &FileFacts,
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
@@ -23,11 +20,14 @@ pub(crate) fn check_unused_parameters(
             if param_name.starts_with('_') || matches!(param_name.as_str(), "self" | "cls") {
                 continue;
             }
+            // A parameter is used when a load resolves to this function's
+            // own scope. Same-name tokens elsewhere in the file (other
+            // functions, annotations, unrelated scopes) must not veto the
+            // finding, so no file-wide token fallback runs here.
             let used = table
                 .resolved_loads
                 .iter()
-                .any(|load| load.target == Some(site.own_scope) && load.name == *param_name)
-                || name_used_in_tokens(facts, param_name, &[*param_range]);
+                .any(|load| load.target == Some(site.own_scope) && load.name == *param_name);
             if !used {
                 issues.push(issue_at(
                     "python:S1172",

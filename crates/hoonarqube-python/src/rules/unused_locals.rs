@@ -1,9 +1,7 @@
 use crate::AnalyzerOptions;
 use crate::engine::scope::BindingKind;
-use crate::engine::scope::FileFacts;
 use crate::engine::scope::ScopeKind;
 use crate::engine::scope::SymbolTable;
-use crate::engine::scope::name_used_in_tokens;
 use crate::engine::scope::scope_has_dynamic_declaration;
 use crate::support::issue_at;
 use crate::support::unused_name_matches_pattern;
@@ -18,7 +16,6 @@ use ruff_text_size::TextRange;
 pub(crate) fn check_unused_locals(
     parsed: &Parsed<ModModule>,
     table: &SymbolTable,
-    facts: &FileFacts,
     options: &AnalyzerOptions,
     exports: &[(String, TextRange)],
     index: &LineIndex,
@@ -46,11 +43,14 @@ pub(crate) fn check_unused_locals(
                 continue;
             }
             let ranges: Vec<TextRange> = bindings.iter().map(|binding| binding.range).collect();
+            // A local is used when a load resolves to this scope. Same-name
+            // tokens elsewhere in the file (other functions, annotations,
+            // unrelated scopes) must not veto the finding, so no file-wide
+            // token fallback runs here.
             let used = table
                 .resolved_loads
                 .iter()
-                .any(|load| load.target == Some(scope_idx) && load.name == *name)
-                || name_used_in_tokens(facts, name, &ranges);
+                .any(|load| load.target == Some(scope_idx) && load.name == *name);
             if !used {
                 let issue = issue_at(
                     "python:S1481",

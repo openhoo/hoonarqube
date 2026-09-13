@@ -596,9 +596,9 @@ pub(crate) fn check_tier_b_battery(
     let mut issues = Vec::new();
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(&table, &facts, index, source));
-        issues.extend(check_unused_parameters(&table, &facts, index, source));
+        issues.extend(check_unused_parameters(&table, index, source));
         issues.extend(check_unused_locals(
-            parsed, &table, &facts, options, &exports, index, source,
+            parsed, &table, options, &exports, index, source,
         ));
         issues.extend(check_use_before_definition(&table, &facts, index, source));
         issues.extend(check_dead_stores(
