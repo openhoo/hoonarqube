@@ -1,7 +1,7 @@
 // Rule module s2692_index_of_comparisons (generated).
 use super::walker::numeric_literal_value;
 use crate::rules::shared::call_property;
-use crate::support::{IssueSink, RuleScope};
+use crate::support::{IssueSink, RuleScope, source_slice, unparenthesized};
 use oxc_ast::ast::{BinaryExpression, BinaryOperator, Expression};
 use oxc_span::GetSpan;
 
@@ -38,6 +38,93 @@ pub(crate) fn check_index_of_comparisons(sink: &mut IssueSink, it: &BinaryExpres
             "Prefer \"startsWith()\"/\"includes()\" over this comparison.",
             it.span(),
         );
+    }
+}
+
+/// `S6557` direct-index form: comparing a single indexed character with a
+/// one-character string literal (`ext[0] !== '.'`) is semantically the
+/// same `startsWith`/`endsWith` recommendation. Kept conservative: only
+/// plain references indexed at the first character or their own
+/// `length - 1`, and exact one-character string literals qualify.
+pub(crate) fn check_direct_index_comparison(
+    sink: &mut IssueSink,
+    source: &str,
+    it: &BinaryExpression<'_>,
+) {
+    if !matches!(
+        it.operator,
+        BinaryOperator::Equality
+            | BinaryOperator::Inequality
+            | BinaryOperator::StrictEquality
+            | BinaryOperator::StrictInequality
+    ) {
+        return;
+    }
+    let boundary = is_boundary_comparison(&it.left, &it.right, source)
+        || is_boundary_comparison(&it.right, &it.left, source);
+    if boundary {
+        sink.emit_span(
+            RuleScope::Both,
+            "S6557",
+            "Use \"startsWith()\"/\"endsWith()\" instead of this comparison.",
+            it.span(),
+        );
+    }
+}
+
+/// Whether `indexed[...] (op) literal` is a single-character boundary
+/// check.
+fn is_boundary_comparison(
+    indexed: &Expression<'_>,
+    literal: &Expression<'_>,
+    source: &str,
+) -> bool {
+    if !single_character_literal(literal) {
+        return false;
+    }
+    let Expression::ComputedMemberExpression(member) = unparenthesized(indexed) else {
+        return false;
+    };
+    plain_reference(&member.object) && boundary_index(&member.expression, &member.object, source)
+}
+
+/// The qualifying indices: the first character, or the reference's own
+/// `length - 1` (suffix). Other positions are not boundary checks.
+fn boundary_index(index: &Expression<'_>, owner: &Expression<'_>, source: &str) -> bool {
+    if let Expression::NumericLiteral(numeric) = unparenthesized(index) {
+        return numeric.value == 0.0;
+    }
+    let Expression::BinaryExpression(binary) = unparenthesized(index) else {
+        return false;
+    };
+    if binary.operator != BinaryOperator::Subtraction {
+        return false;
+    }
+    let Expression::StaticMemberExpression(length) = unparenthesized(&binary.left) else {
+        return false;
+    };
+    length.property.name == "length"
+        && numeric_literal_value(&binary.right) == Some(1.0)
+        && plain_reference(&length.object)
+        && source_slice(source, length.object.span()) == source_slice(source, owner.span())
+}
+
+/// Whether the expression is a plain reference: an identifier, `this`, or
+/// a static member chain over such a base.
+fn plain_reference(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::Identifier(_) | Expression::ThisExpression(_) => true,
+        Expression::StaticMemberExpression(member) => plain_reference(&member.object),
+        _ => false,
+    }
+}
+
+/// Whether the expression is a string literal holding exactly one UTF-16
+/// code unit (so indexing actually compares that character).
+fn single_character_literal(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::StringLiteral(literal) => literal.value.encode_utf16().count() == 1,
+        _ => false,
     }
 }
 
@@ -90,7 +177,9 @@ mod tests {
         // lib/application.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
         // reports exactly one S6557 in this file, the direct first-character
         // prefix check at line 300.
-        let report = js(include_str!("../../../fixtures/shapes/express-application.js"));
+        let report = js(include_str!(
+            "../../../fixtures/shapes/express-application.js"
+        ));
         let sites: Vec<(u32, u32)> = report
             .issues
             .iter()

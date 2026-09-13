@@ -591,7 +591,9 @@ mod tests {
         // lib/application.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
         // reports exactly one S6582 in this file, the negated-OR member
         // guard at line 221.
-        let report = js(include_str!("../../../fixtures/shapes/express-application.js"));
+        let report = js(include_str!(
+            "../../../fixtures/shapes/express-application.js"
+        ));
         let sites: Vec<(u32, u32)> = report
             .issues
             .iter()
