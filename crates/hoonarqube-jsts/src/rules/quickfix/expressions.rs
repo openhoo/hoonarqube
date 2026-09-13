@@ -3,15 +3,15 @@ use crate::support::{identifier_name, static_property_name, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    AssignmentExpression, BinaryExpression, BinaryOperator, ConditionalExpression, Expression,
-    IfStatement, LogicalExpression, LogicalOperator, NewExpression, Statement, TSType, TSTypeName,
-    UnaryExpression, UnaryOperator, VariableDeclarator,
+    AssignmentExpression, AwaitExpression, BinaryExpression, BinaryOperator, ConditionalExpression,
+    Expression, IfStatement, LogicalExpression, LogicalOperator, NewExpression, Statement, TSType,
+    TSTypeName, UnaryExpression, UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_assignment_expression, walk_binary_expression, walk_conditional_expression,
-    walk_if_statement, walk_logical_expression, walk_new_expression, walk_unary_expression,
-    walk_variable_declarator,
+    walk_assignment_expression, walk_await_expression, walk_binary_expression,
+    walk_conditional_expression, walk_if_statement, walk_logical_expression, walk_new_expression,
+    walk_unary_expression, walk_variable_declarator,
 };
 use oxc_parser::{Kind, Token};
 use oxc_semantic::Semantic;
@@ -53,6 +53,11 @@ struct Collector<'ctx, 'ast> {
     condition_roots: Vec<(u32, u32)>,
     /// Number of unary-expression ancestors currently being visited.
     unary_depth: usize,
+    /// Number of binary/logical-expression ancestors. A comparison
+    /// inversion nested in one must stay parenthesized.
+    binary_depth: usize,
+    /// Number of await expressions containing the current expression.
+    await_depth: usize,
 }
 
 pub(super) fn collect<'a>(
@@ -98,6 +103,8 @@ pub(super) fn collect<'a>(
         out: Vec::new(),
         condition_roots: Vec::new(),
         unary_depth: 0,
+        binary_depth: 0,
+        await_depth: 0,
     };
     collector.visit_program(ctx.program);
     collector.out
@@ -425,14 +432,29 @@ impl Collector<'_, '_> {
         let Expression::BooleanLiteral(literal) = unparenthesized(operand) else {
             return;
         };
-        let (start, end) = Self::span_bounds(literal.span());
-        let Some(issue) = self.take_issue(Rule::S1125, start, end, false) else {
-            return;
-        };
-        let other = if expression.left.span() == operand.span() {
+        let operand_is_left = expression.left.span() == operand.span();
+        let other = if operand_is_left {
             &expression.right
         } else {
             &expression.left
+        };
+        let folds_to_constant = matches!(
+            (expression.operator, literal.value),
+            (LogicalOperator::And, false) | (LogicalOperator::Or, true)
+        );
+        if !operand_is_left
+            && (!self.is_condition_root(expression)
+                || (folds_to_constant && !Self::is_s1125_inert(other)))
+        {
+            // Right-literal rewrites preserve only truthiness, so they stay
+            // limited to condition roots. `X && false` / `X || true` also
+            // still evaluate X: folding to the constant must not discard
+            // calls, getters, coercions, or the operand's value. #100
+            return;
+        }
+        let (start, end) = Self::span_bounds(literal.span());
+        let Some(issue) = self.take_issue(Rule::S1125, start, end, false) else {
+            return;
         };
         let Some(other_text) = self.text(other.span()) else {
             return;
@@ -466,6 +488,22 @@ impl Collector<'_, '_> {
                 )],
             ),
         );
+    }
+
+    /// Whether an evaluated operand can be dropped without changing
+    /// behavior: only plain literals never run code, trigger coercions, or
+    /// observe temporal-dead-zone reads. Call-free syntax such as
+    /// identifiers or member reads is not proof. #100
+    fn is_s1125_inert(expression: &Expression<'_>) -> bool {
+        match unparenthesized(expression) {
+            Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::StringLiteral(_) => true,
+            Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+            _ => false,
+        }
     }
 
     fn check_unary_boolean(&mut self, expression: &UnaryExpression<'_>) {
@@ -657,7 +695,11 @@ impl Collector<'_, '_> {
             return;
         };
         let mut replacement = format!("{left} {inverted} {right}");
-        if self.unary_depth > 0 {
+        if self.unary_depth > 0 || self.binary_depth > 0 || self.await_depth > 0 {
+            // An inverted comparison binds looser than any enclosing unary,
+            // arithmetic, shift, logical, or `await` context, so the rewrite
+            // keeps explicit grouping rather than changing how the parent
+            // expression parses. #102
             replacement = format!("({replacement})");
         }
         self.emit(
@@ -926,7 +968,9 @@ impl<'a> Visit<'a> for Collector<'_, 'a> {
         self.check_dissimilar_equality(it);
         self.check_size_comparison(it);
         self.check_in_operator(it);
+        self.binary_depth += 1;
         walk_binary_expression(self, it);
+        self.binary_depth -= 1;
     }
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         self.check_unary_boolean(it);
@@ -938,7 +982,15 @@ impl<'a> Visit<'a> for Collector<'_, 'a> {
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
         self.check_logical(it);
+        self.binary_depth += 1;
         walk_logical_expression(self, it);
+        self.binary_depth -= 1;
+    }
+
+    fn visit_await_expression(&mut self, it: &AwaitExpression<'a>) {
+        self.await_depth += 1;
+        walk_await_expression(self, it);
+        self.await_depth -= 1;
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
