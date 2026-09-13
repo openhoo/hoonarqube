@@ -302,43 +302,58 @@ fn index_digest(types: &BTreeMap<String, Vec<IndexedType>>) -> String {
     let mut canonical = String::from("hoonarqube-csharp-project-type-index-v2\0");
     for (name, declarations) in types {
         for declaration in declarations {
-            canonical.push_str(name);
-            canonical.push('\u{1}');
-            canonical.push_str(&declaration.identity);
-            canonical.push('\u{1}');
-            canonical.push_str(declaration.bases.join("\u{5}").as_str());
-            canonical.push('\u{1}');
-            for (method_name, entries) in &declaration.methods {
-                canonical.push_str(method_name);
-                for entry in entries {
-                    for parameter in &entry.parameters {
-                        canonical.push('\u{2}');
-                        canonical.push_str(&parameter.ref_kind);
-                        canonical.push('\u{3}');
-                        canonical.push_str(&parameter.type_key);
-                    }
-                    canonical.push('\u{4}');
-                }
-            }
-            canonical.push('\u{1}');
-            for member in &declaration.members {
-                canonical.push_str(&member.name);
-                canonical.push('\u{2}');
-                canonical.push_str(if member.is_static { "s" } else { "i" });
-                canonical.push('\u{3}');
-                canonical.push_str(member.path.to_string_lossy().as_ref());
-                canonical.push('\u{4}');
-                canonical.push_str(member.range.start.line.to_string().as_str());
-                canonical.push(':');
-                canonical.push_str(member.range.start.column.to_string().as_str());
-                canonical.push(':');
-                canonical.push_str(member.range.end.line.to_string().as_str());
-                canonical.push(':');
-                canonical.push_str(member.range.end.column.to_string().as_str());
-                canonical.push('\u{5}');
-            }
-            canonical.push('\n');
+            push_indexed_declaration(&mut canonical, name, declaration);
         }
     }
     digest_bytes(canonical.as_bytes())
+}
+
+/// Appends one indexed type declaration to the canonical digest form.
+fn push_indexed_declaration(canonical: &mut String, name: &str, declaration: &IndexedType) {
+    canonical.push_str(name);
+    canonical.push('\u{1}');
+    canonical.push_str(&declaration.identity);
+    canonical.push('\u{1}');
+    canonical.push_str(declaration.bases.join("\u{5}").as_str());
+    canonical.push('\u{1}');
+    for (method_name, entries) in &declaration.methods {
+        push_indexed_method(canonical, method_name, entries);
+    }
+    canonical.push('\u{1}');
+    for member in &declaration.members {
+        push_indexed_member(canonical, member);
+    }
+    canonical.push('\n');
+}
+
+/// Appends one overloaded method name with its parameter signatures.
+fn push_indexed_method(canonical: &mut String, method_name: &str, entries: &[IndexedMethod]) {
+    canonical.push_str(method_name);
+    for entry in entries {
+        for parameter in &entry.parameters {
+            canonical.push('\u{2}');
+            canonical.push_str(&parameter.ref_kind);
+            canonical.push('\u{3}');
+            canonical.push_str(&parameter.type_key);
+        }
+        canonical.push('\u{4}');
+    }
+}
+
+/// Appends one member entry with its static flag, path, and range.
+fn push_indexed_member(canonical: &mut String, member: &IndexedMember) {
+    canonical.push_str(&member.name);
+    canonical.push('\u{2}');
+    canonical.push_str(if member.is_static { "s" } else { "i" });
+    canonical.push('\u{3}');
+    canonical.push_str(member.path.to_string_lossy().as_ref());
+    canonical.push('\u{4}');
+    canonical.push_str(member.range.start.line.to_string().as_str());
+    canonical.push(':');
+    canonical.push_str(member.range.start.column.to_string().as_str());
+    canonical.push(':');
+    canonical.push_str(member.range.end.line.to_string().as_str());
+    canonical.push(':');
+    canonical.push_str(member.range.end.column.to_string().as_str());
+    canonical.push('\u{5}');
 }
