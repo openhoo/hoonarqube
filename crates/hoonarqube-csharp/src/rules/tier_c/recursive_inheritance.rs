@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     for (name, successors) in &graph {
         if successors
             .iter()
-            .any(|successor| graph_reaches(&graph, successor, |current| current == *name))
+            .any(|successor| graph_reaches(&graph, successor, |current| *current == *name))
             && let Some(anchor) = anchors.get(*name)
         {
             issues.push(issue(

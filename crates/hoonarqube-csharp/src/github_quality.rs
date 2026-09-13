@@ -8,12 +8,13 @@ use crate::cst::{
     ancestors_of, canonical_identifier, collect_kinds, containing_namespace, modifiers_of,
     node_text, range_of, simple_name,
 };
+use crate::project_index::{IndexedMember, ProjectTypeIndex};
 use crate::rules::expressions::{callee_name, enclosing_callable, enclosing_type};
 use crate::rules::modifiers::has_modifier;
-use crate::rules::naming::{TYPE_DECLARATION_KINDS, type_members};
+use crate::rules::naming::support::{TYPE_DECLARATION_KINDS, full_type_identity, type_members};
 use crate::rules::structure::for_clauses;
 use hoonarqube_ir::{FlowLocation, Issue};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tree_sitter::Node;
 
 /// The identifier node of a type declaration, when tree-sitter recovered one.
@@ -41,19 +42,6 @@ fn enclosing_type_path(type_node: Node<'_>, source: &str) -> Vec<String> {
     path
 }
 
-fn type_identity(type_node: Node<'_>, source: &str) -> Option<String> {
-    let name = type_name(type_node, source)?;
-    let mut path = enclosing_type_path(type_node, source);
-    path.push(name.to_string());
-    let name = path.join(".");
-    let namespace = containing_namespace(type_node, source);
-    Some(if namespace.is_empty() {
-        name
-    } else {
-        format!("{namespace}.{name}")
-    })
-}
-
 fn base_type_nodes(type_node: Node<'_>) -> Vec<Node<'_>> {
     let Some(base_list) = direct_named_children(type_node)
         .into_iter()
@@ -71,7 +59,7 @@ fn source_type_declarations(root: Node<'_>) -> Vec<Node<'_>> {
 fn source_declares_type_identity(root: Node<'_>, wanted: &str, source: &str) -> bool {
     source_type_declarations(root)
         .into_iter()
-        .any(|type_node| type_identity(type_node, source).as_deref() == Some(wanted))
+        .any(|type_node| full_type_identity(type_node, source).as_deref() == Some(wanted))
 }
 
 fn source_declares_type_name(
@@ -175,9 +163,13 @@ fn is_known_system_type(
 
 /// Runs all C# CodeQL-quality checks in source order.
 #[must_use]
-pub(crate) fn check(root: Node<'_>, source: &str) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    project: Option<&ProjectTypeIndex>,
+) -> Vec<Issue> {
     let mut issues = Vec::new();
-    issues.extend(local_shadows_member(root, source));
+    issues.extend(local_shadows_member(root, source, project));
     issues.extend(nested_if_statements(root, source));
     issues.extend(static_field_written_by_instance(root, source));
     issues.extend(call_to_gc(root, source));
@@ -471,6 +463,7 @@ fn local_shadow_for_local<'t>(
     owner: Node<'t>,
     fields: &[Field<'t>],
     members: &[(&'t str, Node<'t>)],
+    foreign_members: &[&IndexedMember],
     owner_name: &str,
     local: Node<'t>,
     source: &'t str,
@@ -480,19 +473,33 @@ fn local_shadow_for_local<'t>(
     }
     let callable = enclosing_callable(local)?;
     let (local_name_node, local_name) = local_binding_name(local, source)?;
-    let member = members
-        .iter()
-        .find(|(name, _)| *name == local_name)
-        .map(|(_, anchor)| *anchor)?;
     if is_constructor_or_deconstruct_parameter(callable, local, source) {
         return None;
     }
-    if local_shadow_is_excluded(owner, fields, member, callable, local_name, source)
-        || has_explicit_this_qualification(callable, local_name, source)
-    {
+    if has_explicit_this_qualification(callable, local_name, source) {
         return None;
     }
-    Some(local_shadow_issue(
+    if let Some((_, member)) = members.iter().find(|(name, _)| *name == local_name) {
+        if local_shadow_is_excluded(owner, fields, *member, callable, local_name, source) {
+            return None;
+        }
+        return Some(local_shadow_issue(
+            owner_name,
+            local_name,
+            local_name_node,
+            *member,
+            source,
+        ));
+    }
+    let member = foreign_members
+        .iter()
+        .find(|member| member.name == local_name)?;
+    // Staticness of the foreign member is indexed, so the same
+    // static-callable exemption applies without the member's tree.
+    if callable_is_static(callable, source) && !member.is_static {
+        return None;
+    }
+    Some(foreign_local_shadow_issue(
         owner_name,
         local_name,
         local_name_node,
@@ -501,13 +508,51 @@ fn local_shadow_for_local<'t>(
     ))
 }
 
-fn local_shadows_for_owner<'t>(owner: Node<'t>, source: &'t str) -> Vec<Issue> {
+fn foreign_local_shadow_issue(
+    owner_name: &str,
+    local_name: &str,
+    local_name_node: Node<'_>,
+    member: &IndexedMember,
+    source: &str,
+) -> Issue {
+    let issue = Issue::new(
+        "cs/local-shadows-member",
+        format!("Local scope variable '{local_name}' shadows $@."),
+        range_of(local_name_node, source),
+    );
+    issue.with_flow(vec![FlowLocation {
+        path: Some(member.path.clone()),
+        message: format!("{owner_name}.{local_name}"),
+        range: member.range.clone(),
+    }])
+}
+
+fn local_shadows_for_owner<'t>(
+    owner: Node<'t>,
+    same_file_members: &HashMap<String, Vec<(&'t str, Node<'t>)>>,
+    project: Option<&ProjectTypeIndex>,
+    source: &'t str,
+) -> Vec<Issue> {
     let Some(owner_name) = type_name(owner, source) else {
         return Vec::new();
     };
+    let identity = full_type_identity(owner, source);
     let fields = fields_of(owner, source);
-    let members = owner_members(owner, &fields, source);
-    if members.is_empty() {
+    let mut members = owner_members(owner, &fields, source);
+    // Partial declarations merge into one type, so members declared by any
+    // other declaration of the same identity shadow exactly like own ones.
+    if let Some(identity) = identity.as_deref() {
+        for (name, node) in same_file_members.get(identity).into_iter().flatten() {
+            if !members.iter().any(|(existing, _)| existing == name) {
+                members.push((*name, *node));
+            }
+        }
+    }
+    let foreign_members = identity
+        .as_deref()
+        .and_then(|identity| project.map(|project| project.partial_members(identity)))
+        .unwrap_or_default();
+    if members.is_empty() && foreign_members.is_empty() {
         return Vec::new();
     }
     collect_kinds(
@@ -515,14 +560,48 @@ fn local_shadows_for_owner<'t>(owner: Node<'t>, source: &'t str) -> Vec<Issue> {
         &["variable_declarator", "parameter", "foreach_statement"],
     )
     .into_iter()
-    .filter_map(|local| local_shadow_for_local(owner, &fields, &members, owner_name, local, source))
+    .filter_map(|local| {
+        local_shadow_for_local(
+            owner,
+            &fields,
+            &members,
+            &foreign_members,
+            owner_name,
+            local,
+            source,
+        )
+    })
     .collect()
 }
 
-fn local_shadows_member(root: Node<'_>, source: &str) -> Vec<Issue> {
+/// Every member (field, property, event) declared by any type declaration in
+/// this file, grouped by the declaration's full type identity.
+fn same_file_member_index<'t>(
+    root: Node<'t>,
+    source: &'t str,
+) -> HashMap<String, Vec<(&'t str, Node<'t>)>> {
+    let mut index: HashMap<String, Vec<(&'t str, Node<'t>)>> = HashMap::new();
+    for declaration in collect_kinds(root, &TYPE_DECLARATION_KINDS) {
+        let Some(identity) = full_type_identity(declaration, source) else {
+            continue;
+        };
+        let fields = fields_of(declaration, source);
+        for member in owner_members(declaration, &fields, source) {
+            index.entry(identity.clone()).or_default().push(member);
+        }
+    }
+    index
+}
+
+fn local_shadows_member(
+    root: Node<'_>,
+    source: &str,
+    project: Option<&ProjectTypeIndex>,
+) -> Vec<Issue> {
+    let same_file_members = same_file_member_index(root, source);
     collect_kinds(root, &TYPE_DECLARATION_KINDS)
         .into_iter()
-        .flat_map(|owner| local_shadows_for_owner(owner, source))
+        .flat_map(|owner| local_shadows_for_owner(owner, &same_file_members, project, source))
         .collect()
 }
 
@@ -583,7 +662,7 @@ fn nested_if_statements(root: Node<'_>, source: &str) -> Vec<Issue> {
 }
 
 fn operator_kind(node: Node<'_>) -> Option<&'static str> {
-    const OPERATORS: [&str; 9] = ["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
+    const OPERATORS: [&str; 10] = ["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "??="];
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .find(|child| !child.is_named())
@@ -895,7 +974,7 @@ fn declared_type_named<'t>(
     source_type_declarations(root)
         .into_iter()
         .find(|type_node| {
-            type_identity(*type_node, source)
+            full_type_identity(*type_node, source)
                 .is_some_and(|identity| candidates.iter().any(|candidate| candidate == &identity))
         })
 }
@@ -915,7 +994,7 @@ fn derives_from(root: Node<'_>, derived: Node<'_>, base: &str, source: &str) -> 
             let Some(parent) = declared_type_named(root, &base_text, current, source) else {
                 continue;
             };
-            if type_identity(parent, source).as_deref() == Some(base) {
+            if full_type_identity(parent, source).as_deref() == Some(base) {
                 return true;
             }
             pending.push(parent);
@@ -994,7 +1073,7 @@ fn type_test_of_this(root: Node<'_>, source: &str) -> Vec<Issue> {
         let Some(current_name) = type_name(current_type, source) else {
             continue;
         };
-        let Some(current_identity) = type_identity(current_type, source) else {
+        let Some(current_identity) = full_type_identity(current_type, source) else {
             continue;
         };
         let checked_reference = normalized_type_name(node_text(checked_type, source));
@@ -1003,7 +1082,7 @@ fn type_test_of_this(root: Node<'_>, source: &str) -> Vec<Issue> {
         else {
             continue;
         };
-        if type_identity(checked_declaration, source).as_deref() == Some(&current_identity)
+        if full_type_identity(checked_declaration, source).as_deref() == Some(&current_identity)
             || !derives_from(root, checked_declaration, &current_identity, source)
         {
             continue;

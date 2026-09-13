@@ -402,16 +402,14 @@ pub(crate) fn analyze_project_paths(
 
 /// Builds one immutable C# project type index per scan and attaches it to
 /// the analyzer options, so project-scope C# rules (`csharpsquid:S4019`)
-/// resolve hidden base methods across accepted source files. Runs without a
-/// project index keep the strictly per-file behavior; the GitHub Code
-/// Quality profile never consults the index.
+/// resolve hidden base methods and the GitHub Code Quality shadow checks
+/// resolve members across accepted source files, including partial
+/// declarations split over several files. Runs without a project index keep
+/// the strictly per-file behavior.
 fn with_csharp_project_index(
     options: &AnalyzerOptionsBundle,
     collected: &CollectedProjectInputs,
 ) -> AnalyzerOptionsBundle {
-    if options.profile == hoonarqube_catalog::RuleProfile::GithubCodeQuality {
-        return options.clone();
-    }
     let csharp_inputs: Vec<&ProjectInput> = collected
         .pending
         .iter()
