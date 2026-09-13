@@ -720,6 +720,73 @@ fn s5797_flags_constant_conditions_but_not_while_true() {
         vec![1, 3]
     );
 }
+
+#[test]
+fn s5797_flags_condition_after_constant_local_assignment() {
+    // Issue #231: a local assigned one constant and never rebound makes a
+    // later same-scope condition constant (Requests `entdig = None` shape).
+    let flagged = scan(concat!(
+        "class HTTPDigestAuth:\n",
+        "    def build_digest_header(self, method, url):\n",
+        "        entdig = None\n",
+        "        p_parsed = urlparse(url)\n",
+        "        base = 'username'\n",
+        "        if entdig:\n",
+        "            base += ', digest'\n",
+        "        return base\n",
+    ));
+    let found = findings(&flagged, "python:S5797");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 6);
+    assert_eq!(found[0].range.start.column, 11);
+    assert_eq!(found[0].range.end.column, 17);
+    // Module-level assignments propagate the same way.
+    let module_level = scan("entdig = None\nif entdig:\n    pass\n");
+    assert_eq!(findings(&module_level, "python:S5797").len(), 1);
+    // While conditions are constant for the same reason.
+    let while_false = scan("def spin():\n    entdig = None\n    while entdig:\n        break\n");
+    assert_eq!(findings(&while_false, "python:S5797").len(), 1);
+}
+
+#[test]
+fn s5797_propagation_keeps_reassigned_and_closure_mutated_names_open() {
+    // Any second binding in the scope — reassignment or a nested function
+    // mutation (Click `join_options` shape) — keeps the condition open;
+    // parameters and non-constant values never propagate.
+    let reassigned = scan(concat!(
+        "def build(flag):\n",
+        "    entdig = None\n",
+        "    if flag:\n",
+        "        entdig = 1\n",
+        "    if entdig:\n",
+        "        return 1\n",
+        "    return 0\n",
+    ));
+    assert!(findings(&reassigned, "python:S5797").is_empty());
+    let closure_mutated = scan(concat!(
+        "def choose():\n",
+        "    any_prefix_is_slash = False\n",
+        "    def join_options():\n",
+        "        nonlocal any_prefix_is_slash\n",
+        "        any_prefix_is_slash = True\n",
+        "    join_options()\n",
+        "    if any_prefix_is_slash:\n",
+        "        return 1\n",
+        "    return 0\n",
+    ));
+    assert!(findings(&closure_mutated, "python:S5797").is_empty());
+    let parameter =
+        scan("def opaque_check(opaque):\n    if opaque:\n        return 1\n    return 0\n");
+    assert!(findings(&parameter, "python:S5797").is_empty());
+    let computed = scan(concat!(
+        "def computed(url):\n",
+        "    p_parsed = urlparse(url)\n",
+        "    if p_parsed:\n",
+        "        return 1\n",
+        "    return 0\n",
+    ));
+    assert!(findings(&computed, "python:S5797").is_empty());
+}
 // ------------------------------------------------------------------
 // Tier B — symbol group.
 // ------------------------------------------------------------------
@@ -1519,6 +1586,41 @@ fn regex_parser_rejects_python_syntax_errors() {
 }
 
 #[test]
+fn regex_parser_accepts_whitespace_escapes_inside_character_classes() {
+    // Issue #232: `\t`, `\n`, `\r`, `\f`, `\v`, `\a` are valid
+    // single-character escapes inside a class, exactly like Python's `re`.
+    for pattern in [
+        r"[ \t]+", r"[\n]", r"[\r]", r"[\f]", r"[\v]", r"[\a]", r"[\t-\r]",
+    ] {
+        assert_eq!(rx_errors(pattern), 0, "pattern should parse: {pattern}");
+    }
+    // Unknown alphabetic escapes remain class syntax errors.
+    assert_eq!(rx_errors(r"[\q]"), 1);
+}
+
+#[test]
+fn regex_class_whitespace_escapes_stay_literal_not_shorthand() {
+    use crate::engine::rx::{RxAtom, RxClassItem, RxNode};
+    // `\t` decodes to one literal tab character with a preserved span; it is
+    // never conflated with the `\s` shorthand class.
+    let units = rx_units(r"[ \t]+");
+    let parsed = super::parse_regex(&units).expect("class with tab escape parses");
+    let RxNode::Seq(seq) = &parsed.root else {
+        panic!("root should be a sequence");
+    };
+    let RxAtom::Class(class) = &seq.items[0].atom else {
+        panic!("first atom should be the class");
+    };
+    assert_eq!(
+        class.items,
+        vec![RxClassItem::Char(' '), RxClassItem::Char('\t')]
+    );
+    assert!(!class.negated);
+    assert_eq!(class.span.start(), ruff_text_size::TextSize::new(2));
+    assert_eq!(class.span.end(), ruff_text_size::TextSize::new(7));
+}
+
+#[test]
 fn regex_decoder_keeps_source_offsets_and_raw_semantics() {
     // Cooked: \n collapses to one unit placed at the backslash offset;
     // unknown escapes stay verbatim so `\d` reaches the parser intact.
@@ -1578,6 +1680,33 @@ fn s5856_reports_syntactically_invalid_patterns_only() {
     ));
     assert!(!regex_finds(
         "import re\nre.compile(r'(?#ok)a')\n",
+        "python:S5856"
+    ));
+}
+
+#[test]
+fn s5856_spares_tab_in_character_class_but_keeps_broken_classes() {
+    // Issue #232: `[ \t]+` is valid Python; the pinned PyYAML timestamp and
+    // resolver patterns rely on this escaped-whitespace form.
+    assert!(!regex_finds(
+        "import re\nre.compile(r'[ \\t]+')\n",
+        "python:S5856"
+    ));
+    assert!(!regex_finds(
+        concat!(
+            "import re\n",
+            "re.compile(\n",
+            "    r'''^(?P<year>[0-9][0-9][0-9][0-9])\n",
+            "        -(?P<month>[0-9][0-9]?)\n",
+            "        (?:(?:[Tt]|[ \\t]+)\n",
+            "        (?P<hour>[0-9][0-9]?))?$', re.X)\n",
+        ),
+        "python:S5856"
+    ));
+    // Genuine syntax errors stay reported.
+    assert!(regex_finds("import re\nre.compile(r'[')\n", "python:S5856"));
+    assert!(regex_finds(
+        "import re\nre.compile(r'[\\q]')\n",
         "python:S5856"
     ));
 }
