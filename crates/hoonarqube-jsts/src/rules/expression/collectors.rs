@@ -204,6 +204,91 @@ mod tests {
         let findings = js_keys("const f = function () {}.bind(this);\n");
         assert_eq!(count_key(&findings, "javascript:S6637"), 1);
     }
+
+    #[test]
+    fn s6666_reports_pinned_express_nonliteral_apply_sites() {
+        // #252: verbatim expressjs/express@53d4a0d606c0388f764f192b306ce0e90200e7e8
+        // lib/application.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
+        // reports exactly these three S6666 sites: the array-producing
+        // `slice.call(...)` argument and the array-valued `args` identifiers.
+        let report = js(include_str!(
+            "../../../fixtures/shapes/express-application.js"
+        ));
+        let sites: Vec<((u32, u32), (u32, u32))> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6666")
+            .map(|issue| {
+                (
+                    (issue.range.start.line, issue.range.start.column),
+                    (issue.range.end.line, issue.range.end.column),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sites,
+            vec![
+                ((479, 4), (479, 56)),
+                ((499, 4), (499, 40)),
+                ((605, 9), (605, 42)),
+            ]
+        );
+    }
+
+    #[test]
+    fn s6666_reports_pinned_axios_spread_site() {
+        // #252: verbatim axios/axios@18e7dfedf30c96e58652887f930642ae82e0130c
+        // lib/helpers/spread.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
+        // reports the `callback.apply(null, arr)` wrapper call at line 26.
+        let report = js(include_str!(
+            "../../../fixtures/shapes/axios-spread.js"
+        ));
+        let sites: Vec<((u32, u32), (u32, u32), &str)> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6666")
+            .map(|issue| {
+                (
+                    (issue.range.start.line, issue.range.start.column),
+                    (issue.range.end.line, issue.range.end.column),
+                    issue.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sites,
+            vec![(
+                (26, 11),
+                (26, 36),
+                "Use the spread operator instead of '.apply()'."
+            )]
+        );
+    }
+
+    #[test]
+    fn s6666_reports_spread_safe_nonliteral_array_arguments() {
+        let findings = js_keys(
+            "fn.apply(null, args);\n\
+             fn.apply(undefined, args);\n\
+             obj.method.apply(obj, values);\n\
+             obj.method.apply(obj, slice.call(arguments, 1));\n\
+             fn.apply(null, [1, 2]);\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6666"), 5);
+    }
+
+    #[test]
+    fn s6666_spread_unsafe_and_unrelated_calls_stay_clean() {
+        let findings = js_keys(
+            "h.apply(ctx, args);\n\
+             obj.method.apply(other, args);\n\
+             h.apply(args);\n\
+             h.call(null, args);\n\
+             Reflect.apply(h, this, args);\n\
+             h(...args);\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6666"), 0);
+    }
 }
 
 /// `S6654` for one member use: reads, call callees, and write targets of
