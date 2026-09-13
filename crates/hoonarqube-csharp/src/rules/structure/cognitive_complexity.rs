@@ -3,7 +3,7 @@ use super::support::binary_operator;
 use super::support::body_of;
 use super::support::is_else_alternative;
 use super::support::name_anchor;
-use crate::cst::{collect_kinds, is_error_tainted, issue, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, range_of};
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -91,13 +91,19 @@ fn structural_score(child: Node<'_>, nesting: u32, source: &str, else_if_link: b
 }
 
 /// Boolean operators charge once per consecutive identical sequence. Nested
-/// callable bodies reset that chain before their contents are traversed.
+/// callable bodies reset that chain before their contents are traversed,
+/// and nested `static` local functions are skipped entirely: they cannot
+/// capture the enclosing scope, so their flow is scored as its own callable
+/// boundary, never charged to the wrapper.
 fn non_structural_score<'a>(
     child: Node<'_>,
     nesting: u32,
     source: &'a str,
     logic_chain: Option<&'a str>,
 ) -> u32 {
+    if is_nested_static_local_function(child, source) {
+        return 0;
+    }
     let kind = child.kind();
     let mut increment = u32::from(matches!(
         kind,
@@ -115,6 +121,12 @@ fn non_structural_score<'a>(
         next_chain = None;
     }
     increment + cognitive_complexity(child, nesting, source, next_chain)
+}
+
+/// Whether `child` is a `static` local function declaration: an independent
+/// callable boundary whose contents the enclosing callable must not inherit.
+fn is_nested_static_local_function(child: Node<'_>, source: &str) -> bool {
+    child.kind() == "local_function_statement" && modifiers_of(child, source).contains(&"static")
 }
 
 #[cfg(test)]

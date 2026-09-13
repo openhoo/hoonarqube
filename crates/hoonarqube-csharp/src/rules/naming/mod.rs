@@ -10,7 +10,7 @@ pub(crate) mod logger_member_names;
 pub(crate) mod method_property_names;
 pub(crate) mod overloads_grouped;
 pub(crate) mod parameter_shadows_method;
-mod support;
+pub(crate) mod support;
 pub(crate) mod type_name_matches_namespace;
 pub(crate) mod type_names;
 mod walker;
