@@ -907,4 +907,133 @@ mod tests {
         );
         assert_eq!(count_key(&terminal, "javascript:S1751"), 1);
     }
+
+    #[test]
+    fn s4138_flags_simple_length_bounded_indexed_loops() {
+        // #250: a `.length`-bounded counter whose body only reads the same
+        // collection by counter index converts to `for...of`.
+        let counter_index = js_keys("for (var i = 0; i < arr.length; i++) {\n  use(arr[i]);\n}\n");
+        assert_eq!(count_key(&counter_index, "javascript:S4138"), 1);
+
+        let element_chain =
+            js_keys("for (let i = 0; i < items.length; i++) {\n  total += items[i].size;\n}\n");
+        assert_eq!(count_key(&element_chain, "javascript:S4138"), 1);
+
+        let member_collection =
+            js_keys("for (let i = 0; i < this.items.length; i++) {\n  use(this.items[i]);\n}\n");
+        assert_eq!(count_key(&member_collection, "javascript:S4138"), 1);
+
+        // An unused block-scoped counter is a pure iteration (pinned
+        // markdown-it emphasis loop), while a leaked `var` counter changes
+        // its post-loop value under the conversion.
+        let unused_let = js_keys("for (let i = 0; i < scanned.length; i++) {\n  push('text');\n}\n");
+        assert_eq!(count_key(&unused_let, "javascript:S4138"), 1);
+
+        let unused_var =
+            js_keys("for (var i = 0; i < scanned.length; i++) {\n  push('text');\n}\n");
+        assert_eq!(count_key(&unused_var, "javascript:S4138"), 0);
+
+        let typed = ts_keys(
+            "for (let i = 0; i < bytes.length; i++) {\n  out += String.fromCharCode(bytes[i]);\n}\n",
+        );
+        assert_eq!(count_key(&typed, "typescript:S4138"), 1);
+    }
+
+    #[test]
+    fn s4138_unsafe_indexed_loops_stay_clean() {
+        // Bound is not a `.length` member of a plain reference.
+        let numeric_bound =
+            js_keys("for (let i = 0; i < 10; i++) {\n  use(arr[i]);\n}\n");
+        assert_eq!(count_key(&numeric_bound, "javascript:S4138"), 0);
+
+        let computed_bound =
+            js_keys("for (let i = 0; i < parts[0].length; i++) {\n  use(parts[0][i]);\n}\n");
+        assert_eq!(count_key(&computed_bound, "javascript:S4138"), 0);
+
+        // Counter reassigned, referenced outside the index position, or
+        // stepped by other than one.
+        let counter_mutated = js_keys("for (let i = 0; i < arr.length; i++) {\n  i = 5;\n}\n");
+        assert_eq!(count_key(&counter_mutated, "javascript:S4138"), 0);
+
+        let counter_elsewhere =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  use(i, arr[i]);\n}\n");
+        assert_eq!(count_key(&counter_elsewhere, "javascript:S4138"), 0);
+
+        let step_two =
+            js_keys("for (let i = 0; i < arr.length; i += 2) {\n  use(arr[i]);\n}\n");
+        assert_eq!(count_key(&step_two, "javascript:S4138"), 0);
+
+        // Elements written through the index, or the collection itself
+        // grown/mutated, change under the conversion.
+        let element_write =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  arr[i] = 0;\n}\n");
+        assert_eq!(count_key(&element_write, "javascript:S4138"), 0);
+
+        let collection_mutated =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  arr.push(i);\n}\n");
+        assert_eq!(count_key(&collection_mutated, "javascript:S4138"), 0);
+
+        // Deferred reads and writes inside closures are not provable.
+        let deferred_read =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  queue(() => arr[i]);\n}\n");
+        assert_eq!(count_key(&deferred_read, "javascript:S4138"), 0);
+
+        let deferred_mutation =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  queue(() => arr.pop());\n}\n");
+        assert_eq!(count_key(&deferred_mutation, "javascript:S4138"), 0);
+
+        // Indexing a different collection, inclusive bounds, and shadowing
+        // declarations stay clean.
+        let other_collection =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  use(other[i]);\n}\n");
+        assert_eq!(count_key(&other_collection, "javascript:S4138"), 0);
+
+        let inclusive =
+            js_keys("for (let i = 0; i <= arr.length; i++) {\n  use(arr[i]);\n}\n");
+        assert_eq!(count_key(&inclusive, "javascript:S4138"), 0);
+
+        let shadowed =
+            js_keys("for (let i = 0; i < arr.length; i++) {\n  let i = 1;\n  use(i);\n}\n");
+        assert_eq!(count_key(&shadowed, "javascript:S4138"), 0);
+    }
+
+    #[test]
+    fn s4138_reports_pinned_project_indexed_loops() {
+        // #250: verbatim sources of express@53d4a0d6, axios@18e7dfed,
+        // zod@46da9572, and markdown-it@3c51991c (all MIT). SonarQube
+        // 26.8.0.126808 (Sonar way) reports exactly these loops; line and
+        // column numbers match the pinned files.
+        let sites = |report: &hoonarqube_ir::FileReport| -> Vec<(u32, u32)> {
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S4138"))
+                .map(|issue| (issue.range.start.line, issue.range.start.column))
+                .collect()
+        };
+
+        let express = js(include_str!("../../../fixtures/shapes/express-application.js"));
+        assert_eq!(sites(&express), vec![(324, 4), (498, 2)]);
+
+        let axios = js(include_str!("../../../fixtures/shapes/axios-cookies.js"));
+        assert_eq!(sites(&axios), vec![(39, 8)]);
+
+        let util = ts(include_str!("../../../fixtures/shapes/zod-util.ts"));
+        assert_eq!(sites(&util), vec![(1072, 2)]);
+
+        let block = ts(include_str!("../../../fixtures/shapes/markdown-it-parser_block.ts"));
+        assert_eq!(sites(&block), vec![(51, 4)]);
+
+        let core = ts(include_str!("../../../fixtures/shapes/markdown-it-parser_core.ts"));
+        assert_eq!(sites(&core), vec![(42, 4)]);
+
+        let inline = ts(include_str!("../../../fixtures/shapes/markdown-it-parser_inline.ts"));
+        assert_eq!(sites(&inline), vec![(78, 4), (82, 4)]);
+
+        let quotes = ts(include_str!("../../../fixtures/shapes/markdown-it-smartquotes.ts"));
+        assert_eq!(sites(&quotes), vec![(66, 2)]);
+
+        let emphasis = ts(include_str!("../../../fixtures/shapes/markdown-it-emphasis.ts"));
+        assert_eq!(sites(&emphasis), vec![(19, 2)]);
+    }
 }

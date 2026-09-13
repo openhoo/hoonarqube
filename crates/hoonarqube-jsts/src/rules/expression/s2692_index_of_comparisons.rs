@@ -63,4 +63,40 @@ mod tests {
         assert_eq!(count_key(&findings, "javascript:S6557"), 2);
         assert_eq!(count_key(&findings, "javascript:S2692"), 0);
     }
+
+    #[test]
+    fn s6557_flags_direct_index_boundary_comparisons() {
+        // #251: comparing a single indexed character with a one-character
+        // string is the direct form of the startsWith/endsWith
+        // recommendation, in both operand orders and equality flavors.
+        let findings = js_keys(
+            "if (ext[0] !== '.') {}\nif (s[0] === 'a') {}\nif ('a' == s[0]) {}\nif (s[s.length - 1] !== 'x') {}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6557"), 4);
+    }
+
+    #[test]
+    fn s6557_direct_index_controls_stay_clean() {
+        let findings = js_keys(
+            "if (s[0] === 'ab') {}\nif (s[0] === '') {}\nif (s[1] === 'a') {}\nif (arr[0] === 5) {}\nif (s[0] < 'a') {}\nif (s[0]) {}\nif (s[n] === 'a') {}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6557"), 0);
+        assert_eq!(count_key(&findings, "javascript:S2692"), 0);
+    }
+
+    #[test]
+    fn s6557_reports_pinned_express_direct_index_prefix() {
+        // #251: verbatim expressjs/express@53d4a0d606c0388f764f192b306ce0e90200e7e8
+        // lib/application.js (MIT). SonarQube 26.8.0.126808 (Sonar way)
+        // reports exactly one S6557 in this file, the direct first-character
+        // prefix check at line 300.
+        let report = js(include_str!("../../../fixtures/shapes/express-application.js"));
+        let sites: Vec<(u32, u32)> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6557")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(sites, vec![(300, 18)]);
+    }
 }
