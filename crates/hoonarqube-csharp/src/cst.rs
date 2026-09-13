@@ -327,6 +327,84 @@ pub(crate) fn parameters_of(declaration: Node<'_>) -> Vec<Node<'_>> {
         .collect()
 }
 
+/// Signature identity of every parameter of a callable, normalized over the
+/// grammar's proper `parameter` nodes and the flattened `params T name`
+/// spelling: `(ref_kind, type_key, display)` per parameter. `ref_kind`
+/// carries the ordered `ref`/`out`/`in`/`scoped`/`readonly` prefixes,
+/// `type_key` strips whitespace and trailing nullability annotations, and
+/// `display` is the written parameter type text for messages.
+pub(crate) fn parameter_signature_texts(
+    declaration: Node<'_>,
+    source: &str,
+) -> Vec<(String, String, String)> {
+    let Some(list) = declaration.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
+    let mut cursor = list.walk();
+    let children: Vec<Node<'_>> = list.children(&mut cursor).collect();
+    let mut groups: Vec<Vec<Node<'_>>> = vec![Vec::new()];
+    for child in children {
+        if child.kind() == "," {
+            groups.push(Vec::new());
+        } else if let Some(group) = groups.last_mut() {
+            group.push(child);
+        }
+    }
+    groups
+        .into_iter()
+        .filter(|group| group.iter().any(tree_sitter::Node::is_named))
+        .map(|group| parameter_signature_group(group, source))
+        .collect()
+}
+
+fn parameter_signature_group(mut group: Vec<Node<'_>>, source: &str) -> (String, String, String) {
+    let flattened_params = group.iter().any(|child| child.kind() == "params");
+    group.retain(tree_sitter::Node::is_named);
+    if !flattened_params
+        && let [only] = group.as_slice()
+        && only.kind() == "parameter"
+    {
+        return parameter_signature(only, source);
+    }
+    // Flattened `params T name`: the type is the sole named non-identifier
+    // child; `params` itself is calling sugar and not signature identity.
+    let display = group
+        .iter()
+        .find(|child| child.kind() != "identifier")
+        .map(|type_node| node_text(*type_node, source).trim().to_string())
+        .unwrap_or_default();
+    let type_key = normalize_type_key(&display);
+    (String::new(), type_key, display)
+}
+
+fn parameter_signature(parameter: &Node<'_>, source: &str) -> (String, String, String) {
+    let mut cursor = parameter.walk();
+    let ref_kind = parameter
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "modifier")
+        .map(|modifier| node_text(modifier, source))
+        .filter(|modifier| matches!(*modifier, "ref" | "out" | "in" | "scoped" | "readonly"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let display = parameter
+        .child_by_field_name("type")
+        .map(|type_node| node_text(type_node, source).trim().to_string())
+        .unwrap_or_default();
+    let type_key = normalize_type_key(&display);
+    (ref_kind, type_key, display)
+}
+
+/// Comparison identity of a written type text: all whitespace removed and
+/// trailing nullability annotations dropped (`DbConnection?` ≡
+/// `DbConnection`).
+pub(crate) fn normalize_type_key(type_text: &str) -> String {
+    let compact: String = type_text.chars().filter(|c| !c.is_whitespace()).collect();
+    compact
+        .trim_end_matches('?')
+        .trim_start_matches('@')
+        .to_string()
+}
+
 /// Return-type and parameter regions of a callable; scans over these stay
 /// out of bodies.
 pub(crate) fn signature_regions(declaration: Node<'_>) -> Vec<Node<'_>> {

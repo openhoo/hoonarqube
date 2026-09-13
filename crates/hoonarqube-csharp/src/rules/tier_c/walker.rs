@@ -30,6 +30,7 @@ use super::shared_lock_targets::check as check_shared_lock_targets;
 use super::shift_right_operand_kinds::check as check_shift_right_operand_kinds;
 use super::static_iv_usage::check as check_static_iv_usage;
 use super::static_password_salts::check as check_static_password_salts;
+use crate::AnalyzerOptions;
 use crate::CsLanguage;
 use crate::rules::tier_c_pending::{
     check_ambiguous_params_overload_calls, check_argument_order_mismatches,
@@ -48,6 +49,7 @@ pub(crate) fn tier_c_heuristic_issues(
     root: Node<'_>,
     source: &str,
     language: CsLanguage,
+    options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_redundant_to_string_calls(root, source, language));
@@ -80,7 +82,7 @@ pub(crate) fn tier_c_heuristic_issues(
         root, source, language,
     ));
     issues.extend(check_override_visibility_decrease(root, source, language));
-    issues.extend(check_hidden_base_methods(root, source, language));
+    issues.extend(check_hidden_base_methods(root, source, language, options));
     issues.extend(check_interface_member_collisions(root, source, language));
     issues.extend(check_parameter_names_drift_from_base(
         root, source, language,
