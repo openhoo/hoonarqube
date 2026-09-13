@@ -45,6 +45,7 @@ pub(crate) use support::has_any_accessibility;
 pub(crate) use support::has_any_attribute;
 pub(crate) use support::has_attribute;
 pub(crate) use support::has_modifier;
+pub(crate) use support::member_accessibility_rank;
 pub(crate) use support::subtree_contains_kind;
 pub(crate) use support::type_declared_rank;
 pub(crate) use support::type_parameter_list_of;
