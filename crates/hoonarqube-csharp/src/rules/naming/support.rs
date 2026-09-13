@@ -50,3 +50,25 @@ pub(crate) fn type_members(type_node: Node<'_>) -> Vec<Node<'_>> {
     let mut cursor = body.walk();
     body.children(&mut cursor).collect()
 }
+
+/// Fully qualified syntactic identity of a type declaration:
+/// `namespace.outer.inner` with canonicalized identifiers. Partial
+/// declarations of one type share this identity regardless of which file or
+/// declaration carries them.
+pub(crate) fn full_type_identity(type_node: Node<'_>, source: &str) -> Option<String> {
+    let name = type_node.child_by_field_name("name")?;
+    let mut path: Vec<String> = crate::cst::ancestors_of(type_node)
+        .filter(|ancestor| TYPE_DECLARATION_KINDS.contains(&ancestor.kind()))
+        .filter_map(|ancestor| ancestor.child_by_field_name("name"))
+        .map(|ancestor| crate::cst::canonical_identifier(node_text(ancestor, source)).to_string())
+        .collect();
+    path.reverse();
+    path.push(crate::cst::canonical_identifier(node_text(name, source)).to_string());
+    let joined = path.join(".");
+    let namespace = crate::cst::containing_namespace(type_node, source);
+    Some(if namespace.is_empty() {
+        joined
+    } else {
+        format!("{namespace}.{joined}")
+    })
+}

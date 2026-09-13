@@ -36,3 +36,4 @@ mod suite_3_s3329;
 mod suite_4_s3464;
 mod suite_5_s3776;
 mod suite_6_s4019_cross_file;
+mod suite_7_local_shadows_partials;

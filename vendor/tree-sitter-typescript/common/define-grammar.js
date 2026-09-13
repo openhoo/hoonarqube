@@ -1087,7 +1087,11 @@ module.exports = function defineGrammar(dialect) {
       ),
 
       type_parameter: $ => seq(
-        optional('const'),
+        // TypeScript 4.7 variance annotations: `in`, `out`, or the combined
+        // `in out` form immediately before the parameter name.  Repeated or
+        // reversed modifiers (`out in`, `out out`) stay parse errors so that
+        // fail-closed source facts keep flagging malformed input.
+        optional(choice('const', 'in', 'out', seq('in', 'out'))),
         field('name', $._type_identifier),
         field('constraint', optional($.constraint)),
         field('value', optional($.default_type)),

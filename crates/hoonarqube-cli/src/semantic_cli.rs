@@ -776,7 +776,7 @@ impl FixAnalysisContext {
         let mut sources = Vec::with_capacity(files.len());
         let mut retained_bytes = 0usize;
         for path in files {
-            let source = fs::read_to_string(&path).map_err(|error| {
+            let source = hoonarqube_core::read_bounded_source(&path).map_err(|error| {
                 format!(
                     "cannot read semantic fix source {}: {error}",
                     path.display()
@@ -1062,6 +1062,36 @@ mod tests {
         drop(file);
         fs::remove_file(path).unwrap();
         assert!(read_csharp_context_source(&std::env::temp_dir(), 4).is_err());
+    }
+
+    #[test]
+    fn semantic_fix_load_rejects_oversized_source_before_reading() {
+        let path = std::env::temp_dir().join(format!(
+            "hoonarqube-fix-oversize-{}-{}.py",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let file = fs::File::create(&path).unwrap();
+        file.set_len(17 * 1024 * 1024).unwrap();
+        let semantic = SemanticOptions {
+            typescript_project: Some(path.with_extension("json")),
+            ..SemanticOptions::default()
+        };
+        let error = FixAnalysisContext::load(
+            std::slice::from_ref(&path),
+            &semantic,
+            &AnalyzerOptionsBundle::default(),
+        )
+        .expect_err("oversized fix source must fail closed before reading");
+        assert!(
+            error.contains("exceeds the bounded"),
+            "unexpected error: {error}"
+        );
+        drop(file);
+        fs::remove_file(path).unwrap();
     }
 
     fn source(path: &str, text: &str) -> AnalyzedSource {

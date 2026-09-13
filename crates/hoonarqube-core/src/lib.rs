@@ -19,7 +19,9 @@ pub use duplication::{
 };
 pub use project::{ProjectFile, analyze_project_file, build_project_report};
 pub use source_facts::{
-    NormalizedToken, SourceFacts, UnitDefinition, collect_source_facts, compiler_razor_facts,
+    BoundedSourceError, MAX_SOURCE_BYTES, NormalizedToken, SourceFacts, UnitDefinition,
+    collect_source_facts, compiler_razor_facts, oversize_source_facts, read_bounded_source,
+    source_facts_bound_applies,
 };
 
 use std::path::Path;
@@ -199,7 +201,12 @@ pub fn analyze(
     }
     let path = path.to_path_buf();
     if options.profile == RuleProfile::GithubCodeQuality {
-        return Some(analyze_github_quality(path, source, language));
+        return Some(analyze_github_quality(
+            path,
+            source,
+            language,
+            options.csharp.project_type_index.as_deref(),
+        ));
     }
     let mut report = match language {
         Language::Python => hoonarqube_python::analyze(path, source, &options.python),
@@ -251,6 +258,7 @@ fn analyze_github_quality(
     path: std::path::PathBuf,
     source: &str,
     language: Language,
+    csharp_project: Option<&hoonarqube_csharp::ProjectTypeIndex>,
 ) -> hoonarqube_ir::FileReport {
     let mut report = match language {
         Language::Python => hoonarqube_python::analyze_github_quality_report(path, source),
@@ -260,7 +268,9 @@ fn analyze_github_quality(
         Language::TypeScript => {
             hoonarqube_jsts::analyze_github_quality_report(path, source, JstsLanguage::TypeScript)
         }
-        Language::CSharp => hoonarqube_csharp::analyze_github_quality_report(path, source),
+        Language::CSharp => {
+            hoonarqube_csharp::analyze_github_quality_report(path, source, csharp_project)
+        }
         Language::Go => hoonarqube_go::analyze_github_quality_report(path, source),
         Language::Java => hoonarqube_java::analyze_github_quality_report(path, source),
         Language::Ruby => hoonarqube_ruby::analyze_github_quality_report(path, source),
@@ -399,6 +409,78 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn csharp_local_shadows_member_joins_partial_declarations_across_files() {
+        let grid_reader = "public partial class GridReader\n{\n    private System.Data.DbDataReader reader;\n    private readonly System.Threading.CancellationToken cancel;\n}\n";
+        let grid_reader_async = "public partial class GridReader\n{\n    private async System.Threading.Tasks.Task ReadUnbufferedAsync<T>(int index, System.Threading.CancellationToken cancel)\n    {\n        await System.Threading.Tasks.Task.Delay(cancel);\n    }\n}\n";
+        let other_namespace = "namespace Other\n{\n    public partial class GridReader\n    {\n        private readonly System.Threading.CancellationToken cancel;\n    }\n}\n";
+        let options_for = |sources: &[(&str, &str)]| {
+            let snapshots: Vec<hoonarqube_csharp::SourceSnapshot> = sources
+                .iter()
+                .map(|(path, source)| {
+                    hoonarqube_csharp::SourceSnapshot::new(std::path::PathBuf::from(path), *source)
+                })
+                .collect();
+            AnalyzerOptions {
+                profile: RuleProfile::GithubCodeQuality,
+                csharp: hoonarqube_csharp::AnalyzerOptions {
+                    project_type_index: Some(std::sync::Arc::new(
+                        hoonarqube_csharp::ProjectTypeIndex::build(&snapshots),
+                    )),
+                    ..hoonarqube_csharp::AnalyzerOptions::default()
+                },
+                ..AnalyzerOptions::default()
+            }
+        };
+
+        let options = options_for(&[
+            ("GridReader.cs", grid_reader),
+            ("GridReader.Async.cs", grid_reader_async),
+        ]);
+        let report = analyze(
+            Path::new("GridReader.Async.cs"),
+            grid_reader_async,
+            &options,
+        )
+        .expect("csharp sources analyze in the github profile");
+        let shadows: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "cs/local-shadows-member")
+            .collect();
+        assert_eq!(shadows.len(), 1);
+        assert_eq!(shadows[0].range.start.line, 3);
+        assert_eq!(
+            shadows[0].message,
+            "Local scope variable 'cancel' shadows $@."
+        );
+        let location = &shadows[0].flows[0].locations[0];
+        assert_eq!(location.message, "GridReader.cancel");
+        assert_eq!(
+            location.path.as_deref(),
+            Some(Path::new("GridReader.cs")),
+            "the shadowed member is anchored in the declaring partial file"
+        );
+
+        let unrelated = options_for(&[
+            ("Other.cs", other_namespace),
+            ("GridReader.Async.cs", grid_reader_async),
+        ]);
+        let report = analyze(
+            Path::new("GridReader.Async.cs"),
+            grid_reader_async,
+            &unrelated,
+        )
+        .expect("csharp sources analyze in the github profile");
+        assert!(
+            report
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "cs/local-shadows-member"),
+            "an unrelated same-simple-name type never supplies shadowed members"
+        );
     }
 
     #[test]

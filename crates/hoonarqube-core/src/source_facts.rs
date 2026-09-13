@@ -7,7 +7,9 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
 use hoonarqube_ir::FileMetrics;
@@ -78,7 +80,8 @@ pub fn compiler_razor_facts(path: &Path, metrics: FileMetrics) -> Option<SourceF
 // Parsing is deliberately bounded before handing input to a grammar.  The
 // limit is large enough for ordinary repositories and makes a hostile single
 // file fail closed instead of reserving unbounded parser/tree memory.
-const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+// `read_bounded_source` enforces the byte bound before any full allocation.
+pub const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SOURCE_LINES: usize = 4 * 1024 * 1024;
 const MAX_TREE_NODES: usize = 8 * 1024 * 1024;
 const MAX_FACT_TOKENS: usize = 2 * 1024 * 1024;
@@ -92,6 +95,118 @@ pub(crate) fn source_exceeds_limits(path: &Path, source: &str) -> bool {
         return false;
     };
     source.len() > MAX_SOURCE_BYTES || semantic_line_count(source, language) > MAX_SOURCE_LINES
+}
+
+/// Formats the structured rejection message shared by the pre-read bound
+/// check and the post-read facts check, so both produce identical output.
+fn bounded_facts_oversize_error(bytes: usize, lines: usize) -> String {
+    format!("source exceeds bounded facts input ({bytes} bytes, {lines} lines)")
+}
+
+/// Returns whether the [`MAX_SOURCE_BYTES`] bound applies to a path at read
+/// time: a registered non-Razor language.  Callers combine this with the
+/// file classification they hand to analysis.
+#[must_use]
+pub fn source_facts_bound_applies(path: &Path) -> bool {
+    !crate::is_razor_path(path) && crate::language_for_path(path).is_some()
+}
+
+/// Failure modes of [`read_bounded_source`].
+#[derive(Debug)]
+pub enum BoundedSourceError {
+    /// The source exceeds [`MAX_SOURCE_BYTES`].  `bytes` is the size
+    /// declared by the opened file's metadata when the bound fired before
+    /// reading, otherwise the number of bytes read before the capped stream
+    /// overflowed the bound.
+    Oversize { bytes: u64 },
+    /// The file could not be opened, inspected, or read.
+    Io(std::io::Error),
+    /// The bytes read are not valid UTF-8.
+    Utf8,
+}
+
+impl fmt::Display for BoundedSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Oversize { bytes } => write!(
+                formatter,
+                "source exceeds the bounded {MAX_SOURCE_BYTES} byte input ({bytes} bytes)"
+            ),
+            Self::Io(error) => write!(formatter, "{error}"),
+            Self::Utf8 => write!(formatter, "source is not valid UTF-8"),
+        }
+    }
+}
+
+/// Reads one project source while enforcing the byte bound before any full
+/// allocation.
+///
+/// The bound check runs against the metadata of the opened file descriptor,
+/// so the decision cannot race a symlink or rename between a path-based
+/// `stat` and the read.  Inputs already known to exceed the bound are
+/// rejected without reading; every other input is read under a
+/// limit-plus-one growth cap, so a stream whose declared size is
+/// unreliable (pipes, procfs) or that grows after the check is rejected
+/// instead of allocated without bound.  UTF-8 validation preserves
+/// [`std::fs::read_to_string`] failure semantics.
+///
+/// # Errors
+/// Returns [`BoundedSourceError`] when the input exceeds the bound, cannot
+/// be read, or is not valid UTF-8.
+pub fn read_bounded_source(path: &Path) -> Result<String, BoundedSourceError> {
+    let mut file = File::open(path).map_err(BoundedSourceError::Io)?;
+    let declared_bytes = file.metadata().map_err(BoundedSourceError::Io)?.len();
+    read_bounded_source_from(&mut file, declared_bytes)
+}
+
+/// Bound enforcement over any byte stream, split from
+/// [`read_bounded_source`] so the metadata fast path and the growth cap are
+/// testable without multi-megabyte fixtures.
+pub(crate) fn read_bounded_source_from(
+    reader: &mut impl Read,
+    declared_bytes: u64,
+) -> Result<String, BoundedSourceError> {
+    if declared_bytes > MAX_SOURCE_BYTES as u64 {
+        return Err(BoundedSourceError::Oversize {
+            bytes: declared_bytes,
+        });
+    }
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_SOURCE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(BoundedSourceError::Io)?;
+    if bytes.len() > MAX_SOURCE_BYTES {
+        return Err(BoundedSourceError::Oversize {
+            bytes: bytes.len() as u64,
+        });
+    }
+    String::from_utf8(bytes).map_err(|_| BoundedSourceError::Utf8)
+}
+
+/// Builds the structured rejected facts for a source refused at the byte
+/// bound before its content was read.  `None` when no registered language
+/// claims the path, mirroring `source_exceeds_limits`.
+#[must_use]
+pub fn oversize_source_facts(path: &Path, bytes: u64) -> Option<SourceFacts> {
+    let language = crate::language_for_path(path)?;
+    Some(SourceFacts {
+        metrics: FileMetrics {
+            lines: 0,
+            code_lines: 0,
+            comment_lines: 0,
+        },
+        tokens: Vec::new(),
+        symbols: Vec::new(),
+        units: Vec::new(),
+        // No content was scanned for a pre-read rejection, so no line count
+        // is claimed.
+        error: Some(bounded_facts_oversize_error(
+            usize::try_from(bytes).unwrap_or(usize::MAX),
+            0,
+        )),
+        language,
+    })
 }
 
 /// Collect syntax facts for a supported source path.
@@ -136,11 +251,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             tokens: Vec::new(),
             symbols: Vec::new(),
             units: Vec::new(),
-            error: Some(format!(
-                "source exceeds bounded facts input ({} bytes, {} lines)",
-                source.len(),
-                physical_lines
-            )),
+            error: Some(bounded_facts_oversize_error(source.len(), physical_lines)),
             language,
         });
     }
@@ -151,11 +262,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             tokens: Vec::new(),
             symbols: Vec::new(),
             units: Vec::new(),
-            error: Some(format!(
-                "source exceeds bounded facts input ({} bytes, {} lines)",
-                source.len(),
-                physical_lines
-            )),
+            error: Some(bounded_facts_oversize_error(source.len(), physical_lines)),
             language,
         });
     }
@@ -1606,6 +1713,51 @@ type ImportedKeys = keyof import("./module").Widget;
     }
 
     #[test]
+    fn typescript_variance_modifiers_produce_complete_facts() {
+        // TypeScript 4.7+ variance annotations on type parameters.  Every
+        // source below is accepted by `tsc --noEmit` (compiler controls exit
+        // 0), including the real-project shapes used by colinhacks/zod v4
+        // (`out Output`/`out Input`, `in T`, `in out`, repeated `out`
+        // parameters, and a variance-annotated type-alias parameter).
+        let sources = [
+            "interface Box<out T> {\n  value: T;\n}\n",
+            "interface Box<in T> {\n  write(value: T): void;\n}\n",
+            "interface Processor<in out T> {\n  process(value: T): T;\n}\n",
+            "interface Pair<out T, out U> {\n  first: T;\n  second: U;\n}\n",
+            "type Holder<out T> = {\n  value: T;\n};\n",
+        ];
+        for source in sources {
+            for path in ["sample.ts", "sample.tsx"] {
+                let facts = facts(path, source);
+                assert!(!facts.tokens.is_empty(), "{path}: {source}");
+                assert!(facts.error.is_none(), "{path}: {:?}\n{source}", facts.error);
+            }
+        }
+    }
+
+    #[test]
+    fn plain_typescript_type_parameter_control_remains_complete() {
+        let source = "interface Box<T> {\n  value: T;\n}\n";
+        for path in ["sample.ts", "sample.tsx"] {
+            let facts = facts(path, source);
+            assert!(!facts.tokens.is_empty(), "{path}");
+            assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
+        }
+    }
+
+    #[test]
+    fn malformed_typescript_variance_input_remains_incomplete() {
+        // Truncated declaration after a variance modifier must keep the
+        // fail-closed incompleteness contract.
+        let truncated = facts("sample.ts", "interface Box<out T> {\n  value: T;\n");
+        assert!(truncated.error.is_some(), "{:?}", truncated.error);
+        // `out in` violates the TypeScript grammar (tsc TS1029: the `in`
+        // modifier must precede the `out` modifier) and must stay incomplete.
+        let reversed = facts("sample.ts", "interface Box<out in T> {\n  value: T;\n}\n");
+        assert!(reversed.error.is_some(), "{:?}", reversed.error);
+    }
+
+    #[test]
     fn jsx_reserved_attribute_names_produce_complete_original_ranges() {
         let source = r#"const el = <div class="x" foo="1"></div>;"#;
         let facts = facts("sample.jsx", source);
@@ -2143,5 +2295,83 @@ type ImportedKeys = keyof import("./module").Widget;
         assert_eq!(facts.metrics.comment_lines, 0);
         assert!(facts.tokens.is_empty());
         assert!(facts.symbols.is_empty());
+    }
+
+    #[test]
+    fn bounded_reader_rejects_declared_oversize_without_reading() {
+        struct PanickingReader;
+        impl Read for PanickingReader {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                panic!("oversized input must be rejected from metadata before any read");
+            }
+        }
+
+        let error = read_bounded_source_from(&mut PanickingReader, MAX_SOURCE_BYTES as u64 + 1)
+            .expect_err("declared oversize must fail closed");
+        let BoundedSourceError::Oversize { bytes } = error else {
+            panic!("expected the oversize failure, got {error}");
+        };
+        assert_eq!(bytes, MAX_SOURCE_BYTES as u64 + 1);
+    }
+
+    #[test]
+    fn bounded_reader_rejects_growth_beyond_the_cap() {
+        /// Yields `remaining` zero bytes from a fixed counter without ever
+        /// holding the whole stream, like a pipe or procfs input whose size
+        /// metadata is unreliable.
+        struct GrowingReader {
+            remaining: usize,
+        }
+        impl Read for GrowingReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let count = buf.len().min(self.remaining);
+                buf[..count].fill(0);
+                self.remaining -= count;
+                Ok(count)
+            }
+        }
+
+        let error = read_bounded_source_from(
+            &mut GrowingReader {
+                remaining: MAX_SOURCE_BYTES + 1,
+            },
+            0,
+        )
+        .expect_err("growth beyond the cap must fail closed");
+        let BoundedSourceError::Oversize { bytes } = error else {
+            panic!("expected the oversize failure, got {error}");
+        };
+        assert_eq!(bytes, MAX_SOURCE_BYTES as u64 + 1);
+
+        let exact = read_bounded_source_from(
+            &mut GrowingReader {
+                remaining: MAX_SOURCE_BYTES,
+            },
+            0,
+        )
+        .expect("a stream at exactly the limit stays acceptable");
+        assert_eq!(exact.len(), MAX_SOURCE_BYTES);
+    }
+
+    #[test]
+    fn bounded_reader_preserves_io_and_utf8_failure_semantics() {
+        struct FailingReader;
+        impl Read for FailingReader {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("refused"))
+            }
+        }
+
+        let error =
+            read_bounded_source_from(&mut FailingReader, 0).expect_err("io failure must surface");
+        assert!(matches!(error, BoundedSourceError::Io(_)));
+
+        let error = read_bounded_source_from(&mut std::io::Cursor::new([0xFF, 0xFE]), 0)
+            .expect_err("invalid UTF-8 must surface");
+        assert!(matches!(error, BoundedSourceError::Utf8));
+
+        let empty = read_bounded_source_from(&mut std::io::Cursor::new([0_u8; 0]), 0)
+            .expect("empty stream is acceptable");
+        assert!(empty.is_empty());
     }
 }
