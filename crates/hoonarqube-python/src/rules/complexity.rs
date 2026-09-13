@@ -522,4 +522,70 @@ mod tests {
         assert_eq!(findings(&report, "python:FunctionComplexity").len(), 2);
         assert!(findings(&scan(source), "python:FunctionComplexity").is_empty());
     }
+    #[test]
+    fn s3776_rolls_nested_definitions_into_the_parent_score() {
+        // SonarPython keeps counting control flow inside nested definitions
+        // toward the enclosing function; the nested `if` sits one nesting
+        // level deeper than `outer`'s own `if`.
+        let nested = "def outer(a):\n    def inner(x):\n        if x:\n            pass\n    if a:\n        pass\n";
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 2,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), nested, &options);
+        let found = findings(&report, "python:S3776");
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("from 3 to the 2 allowed."));
+
+        // A wrapper whose only other statements are plain `return name`
+        // lends the wrapper's own nesting level to the inner definition.
+        let wrapper = concat!(
+            "def make(a):\n",
+            "    def inner(x):\n",
+            "        if x:\n",
+            "            if a:\n",
+            "                pass\n",
+            "    return inner\n",
+        );
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 2,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), wrapper, &options);
+        let found = findings(&report, "python:S3776");
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("from 3 to the 2 allowed."));
+    }
+
+    #[test]
+    fn s3776_charges_flat_points_for_plain_else_and_elif() {
+        // A plain `else` costs one flat point.
+        let flat_else = "def f(a):\n    if a:\n        pass\n    else:\n        pass\n";
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 1,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), flat_else, &options);
+        let found = findings(&report, "python:S3776");
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("from 2 to the 1 allowed."));
+
+        // An `elif` link also stays flat even in nested contexts.
+        let chained = concat!(
+            "def f(a, b):\n",
+            "    if a:\n",
+            "        if b:\n",
+            "            pass\n",
+            "        elif a:\n",
+            "            pass\n",
+        );
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 3,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("t.py"), chained, &options);
+        let found = findings(&report, "python:S3776");
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("from 4 to the 3 allowed."));
+    }
 }
