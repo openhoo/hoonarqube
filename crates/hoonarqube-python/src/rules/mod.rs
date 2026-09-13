@@ -281,7 +281,6 @@ use crate::rules::world_writable_modes::check_world_writable_modes;
 use crate::rules::wrapping_collection_constructors::check_wrapping_collection_constructors;
 use crate::rules::yield_return_outside_function::check_yield_return_outside_function;
 use crate::support::issue_at;
-use crate::support::module_all_exports;
 use crate::support::run_structural_regex_rules;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -592,14 +591,11 @@ pub(crate) fn check_tier_b_battery(
 ) -> Vec<Issue> {
     let table = build_symbol_table(parsed);
     let facts = collect_file_facts(parsed, source);
-    let exports = module_all_exports(parsed);
     let mut issues = Vec::new();
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(&table, &facts, index, source));
         issues.extend(check_unused_parameters(&table, index, source));
-        issues.extend(check_unused_locals(
-            parsed, &table, options, &exports, index, source,
-        ));
+        issues.extend(check_unused_locals(parsed, &table, options, index, source));
         issues.extend(check_use_before_definition(&table, &facts, index, source));
         issues.extend(check_dead_stores(
             parsed, &table, &facts, options, index, source,

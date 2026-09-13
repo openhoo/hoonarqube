@@ -2472,4 +2472,60 @@ mod tests {
         let multiline = "if flag:\n    value = \"\"\"\n        same\n    \"\"\"\nelse:\n    value = \"\"\"\n        same\n    \"\"\"\n";
         assert_refused(multiline, "python:S3923", "s3923-remove-if-statement");
     }
+
+    #[test]
+    fn s1481_module_scope_removal_is_refused() {
+        // The pinned importer probe: `public_value` is part of the module's
+        // import surface, so the detector reports nothing and the CLI has no
+        // suggestion to plan.
+        let provider = concat!(
+            "\"\"\"Public API.\"\"\"\n",
+            "\n",
+            "def build_value():\n",
+            "    \"\"\"Create a public value.\"\"\"\n",
+            "    return object()\n",
+            "\n",
+            "public_value = build_value()\n",
+        );
+        assert!(findings(&scan(provider), "python:S1481").is_empty());
+        assert!(projected(provider, "python:S1481", "s1481-remove-assignment-target").is_none());
+
+        // Defense in depth: even a synthesized module-scope finding gets no
+        // rewrite, because deleting the target would break importers.
+        let parsed = parse(provider);
+        let index = LineIndex::from_source_text(provider);
+        let table = build_symbol_table(&parsed);
+        let issue = Issue::new(
+            "python:S1481",
+            "Remove the unused local variable \"public_value\".",
+            hoonarqube_ir::Range {
+                start: hoonarqube_ir::Pos { line: 7, column: 0 },
+                end: hoonarqube_ir::Pos {
+                    line: 7,
+                    column: 12,
+                },
+            },
+        );
+        assert!(bindings::alternatives_s1481(&parsed, &index, provider, &table, &issue).is_empty());
+    }
+
+    #[test]
+    fn s1481_assignment_removal_preserves_runtime_effects() {
+        // Inside a function the rewrite only drops the dead binding name and
+        // keeps the right-hand-side effects, so the projected source runs
+        // exactly like the original.
+        let local = concat!(
+            "def run():\n",
+            "    unused_value = print(\"kept-effect\")\n",
+            "    return \"done\"\n",
+            "\n",
+            "\n",
+            "result = run()\n",
+            "print(result)\n",
+        );
+        let projected_source = projected(local, "python:S1481", "s1481-remove-assignment-target")
+            .expect("function-local assignment removal expected");
+        assert!(!projected_source.contains("unused_value"));
+        assert_same_runtime(local, &projected_source);
+    }
 }

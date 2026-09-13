@@ -1,4 +1,4 @@
-use crate::engine::scope::{FileFacts, SymbolTable};
+use crate::engine::scope::{FileFacts, ScopeKind, SymbolTable};
 use crate::support::{child_bodies, for_each_expr, for_each_stmt, stmt_exprs, to_range, to_u32};
 use hoonarqube_ir::{Fix, FixAlternative, Issue, TextEdit};
 use ruff_python_ast::{ExceptHandler, Expr, ModModule, Stmt};
@@ -27,6 +27,12 @@ pub(crate) fn alternatives_s1481(
     let Some((scope_index, _name)) = binding_for_issue(table, issue_span) else {
         return Vec::new();
     };
+    // Removing a module-level assignment target deletes an importable name
+    // from the module surface (the pinned importer probe ends in
+    // ImportError), so the rewrite is withheld at module scope.
+    if matches!(table.scopes[scope_index].kind, ScopeKind::Module) {
+        return Vec::new();
+    }
     let Some(site) = find_binding_site(parsed.syntax().body.as_slice(), issue_span) else {
         return Vec::new();
     };

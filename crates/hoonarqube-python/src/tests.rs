@@ -330,18 +330,38 @@ fn s7512_flags_items_pairs_when_only_keys_used() {
 }
 
 #[test]
-fn s1192_flags_duplicated_literals_per_function_scope() {
-    // CE counts occurrences within one function; three module-level copies stay silent.
+fn s1192_groups_duplicates_file_wide_with_primary_at_first_occurrence() {
+    // One file-wide tally: module, class, and function scopes share the
+    // grouping, the first occurrence carries the primary finding, and later
+    // occurrences ride along as secondary locations.
+    let module_level = scan("a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n");
+    let primary = findings(&module_level, "python:S1192");
+    assert_eq!(primary.len(), 1);
+    assert_eq!(primary[0].range.start.line, 1);
     assert!(
-        findings(
-            &scan("a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n"),
-            "python:S1192"
-        )
-        .is_empty()
+        primary[0]
+            .message
+            .contains("Define a constant instead of duplicating this literal \"dup\" 3 times.")
     );
-    let flagged = scan("def run():\n    x = \"dup\" + \"dup\"\n    return \"dup\"\n\n\nrun()\n");
-    assert_eq!(findings(&flagged, "python:S1192").len(), 2);
-    // Occurrences in separate functions never accumulate across scopes.
+    assert_eq!(primary[0].flows.len(), 1);
+    let locations = &primary[0].flows[0].locations;
+    assert_eq!(locations.len(), 2);
+    assert_eq!(locations[0].range.start.line, 2);
+    assert_eq!(locations[1].range.start.line, 3);
+
+    let class_body = scan("class C:\n    a = \"dup\"\n    b = \"dup\"\n    c = \"dup\"\n");
+    let grouped = findings(&class_body, "python:S1192");
+    assert_eq!(grouped.len(), 1);
+    assert_eq!(grouped[0].range.start.line, 2);
+
+    let cross_function = scan(
+        "def a():\n    return \"dup\"\n\ndef b():\n    return \"dup\"\n\ndef c():\n    return \"dup\"\n",
+    );
+    let grouped = findings(&cross_function, "python:S1192");
+    assert_eq!(grouped.len(), 1);
+    assert_eq!(grouped[0].range.start.line, 2);
+
+    // Two occurrences stay below the threshold of three.
     let split = scan("def a():\n    return \"dup\"\n\ndef b():\n    return \"dup\"\n");
     assert!(findings(&split, "python:S1192").is_empty());
 }
@@ -774,6 +794,29 @@ fn s1481_ignores_unrelated_scope_tokens() {
     assert_eq!(findings(&renamed, "python:S1481").len(), 1);
     let used = scan("def target():\n    value = object()\n    return value\n");
     assert!(findings(&used, "python:S1481").is_empty());
+}
+
+#[test]
+fn s1481_spares_public_module_bindings() {
+    // Public module bindings are the import surface even without `__all__`
+    // (the pinned Flask globals.py proxy shape); S1481 only judges
+    // function locals.
+    let module = scan(concat!(
+        "def build_proxy(name):\n",
+        "    return name\n",
+        "\n",
+        "current_app: object = build_proxy(\"app\")\n",
+        "g: object = build_proxy(\"g\")\n",
+        "request: object = build_proxy(\"request\")\n",
+        "session: object = build_proxy(\"session\")\n",
+        "public_value = build_proxy(\"public\")\n",
+        "plain_value = build_proxy(\"plain\")\n",
+        "_private_value = build_proxy(\"private\")\n",
+    ));
+    assert!(findings(&module, "python:S1481").is_empty());
+    // Genuine unused locals inside functions keep reporting.
+    let local = scan("def run():\n    total = 1\n    result = 2\n    return result\n\n\nrun()\n");
+    assert_eq!(findings(&local, "python:S1481").len(), 1);
 }
 
 #[test]
@@ -2571,6 +2614,55 @@ fn s2638_flags_overrides_that_change_contracts() {
         "class Animal:\n",
         "    def speak(self, word, times=1):\n        return word * times\n",
         "class Dog(Animal):\n",
+        "    def speak(self, word, times=1):\n        return word * times\n",
+        "class Cat(Animal):\n",
+        "    def speak(self, word, times=1, tone=\"high\"):\n        return word * times\n"
+    );
+    assert!(findings_of(clean, "python:S2638").is_empty());
+}
+
+#[test]
+fn s2638_flags_overrides_that_drop_optional_parameters() {
+    // The pinned PyYAML UnsafeConstructor shape: the override removes the
+    // base method's optional `unsafe` parameter, which still changes the
+    // callable contract.
+    let flagged = concat!(
+        "class FullConstructor:\n",
+        "    def find_python_module(self, name, mark, unsafe=False):\n",
+        "        return name\n",
+        "    def set_python_instance_state(self, instance, state, unsafe=False):\n",
+        "        return state\n",
+        "\n",
+        "class UnsafeConstructor(FullConstructor):\n",
+        "    def find_python_module(self, name, mark):\n",
+        "        return name\n",
+        "    def set_python_instance_state(self, instance, state):\n",
+        "        return state\n"
+    );
+    let found = findings_of(flagged, "python:S2638");
+    assert_eq!(found.len(), 2);
+    assert!(
+        found
+            .iter()
+            .all(|message| message.contains("it drops an optional parameter"))
+    );
+
+    // Dropping a required parameter keeps its own reason.
+    let dropped_required = concat!(
+        "class Base:\n",
+        "    def pull(self, path, strict):\n        return path\n",
+        "class Child(Base):\n",
+        "    def pull(self, path):\n        return path\n"
+    );
+    assert!(
+        findings_of(dropped_required, "python:S2638")[0].contains("it drops a required parameter")
+    );
+
+    // Adding optional parameters stays accepted (changing an existing
+    // default keeps the documented `it changes a parameter's default`
+    // finding, pinned by s2638_flags_overrides_that_change_contracts).
+    let clean = concat!(
+        "class Animal:\n",
         "    def speak(self, word, times=1):\n        return word * times\n",
         "class Cat(Animal):\n",
         "    def speak(self, word, times=1, tone=\"high\"):\n        return word * times\n"
