@@ -23,10 +23,16 @@ pub(crate) fn check_shadowed_builtins(
             continue;
         }
         for (name, bindings) in &scope.bindings {
-            if !is_builtin_name(name)
-                || scope_has_dynamic_declaration(scope, name)
-                || facts.dynamic_names
-            {
+            if !is_builtin_name(name) || scope_has_dynamic_declaration(scope, name) {
+                continue;
+            }
+            // A file reaching for `globals()`/`locals()`/`eval`/`exec` may
+            // rebind builtins dynamically, so ordinary assignment shadows
+            // stay vetoed. Parameters are different: no dynamic mechanism can
+            // create, remove, or rename them, so a parameter-name rebinding
+            // always shadows the builtin regardless of unrelated dynamic
+            // lookups elsewhere in the file.
+            if facts.dynamic_names && !bindings.iter().any(|b| b.kind == BindingKind::Parameter) {
                 continue;
             }
             let Some(binding) = bindings

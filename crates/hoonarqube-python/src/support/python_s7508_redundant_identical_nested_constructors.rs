@@ -30,7 +30,7 @@ pub(crate) fn dotted_name(expr: &Expr) -> Option<String> {
 
 /// Segments of a pure `a.b.c` chain, root first; `None` when any link is a
 /// non-Name/non-Attribute expression (identical acceptance as [`dotted_name`]).
-fn dotted_segments(expr: &Expr) -> Option<Vec<&str>> {
+pub(crate) fn dotted_segments(expr: &Expr) -> Option<Vec<&str>> {
     let mut segments = Vec::new();
     let mut cursor = expr;
     loop {

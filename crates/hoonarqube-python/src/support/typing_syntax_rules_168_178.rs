@@ -1,5 +1,7 @@
 // --- Typing-syntax rules (#168–#178).
 
+use crate::engine::file_context::{AnyImport, FileContext};
+use crate::support::dotted_segments;
 use crate::support::{called_name, for_each_stmt, function_parameters};
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
@@ -23,6 +25,40 @@ pub(crate) fn for_each_annotation(module_body: &[Stmt], visit: &mut impl FnMut(&
         Stmt::AnnAssign(assign) => visit(&assign.annotation),
         _ => {}
     });
+}
+
+/// Local names bound to the `typing` module by plain module imports
+/// (`import typing`, `import typing as t`). From-imports are deliberately
+/// excluded: `typing.X` provenance is asserted for module aliases only.
+pub(crate) fn typing_module_aliases<'a>(file_ctx: &FileContext<'a>) -> Vec<&'a str> {
+    let mut aliases = Vec::new();
+    for import in &file_ctx.imports {
+        let AnyImport::Plain(import) = import else {
+            continue;
+        };
+        for entry in &import.names {
+            if entry.name.as_str() == "typing" {
+                aliases.push(entry.asname.as_ref().map_or("typing", |a| a.as_str()));
+            }
+        }
+    }
+    aliases
+}
+
+/// Whether `expr` references a `typing` member in any accepted spelling:
+/// the bare name (`Generic`), the qualified module path (`typing.Generic`),
+/// or a module alias path (`t.Generic` under `import typing as t`).
+pub(crate) fn typing_member_reference_in(expr: &Expr, aliases: &[&str], member: &str) -> bool {
+    let Some(segments) = dotted_segments(expr) else {
+        return false;
+    };
+    let is_member = |parts: &[&str]| parts.iter().copied().eq(member.split('.'));
+    if is_member(&segments) {
+        return true;
+    }
+    segments.len() >= 2
+        && (segments[0] == "typing" || aliases.contains(&segments[0]))
+        && is_member(&segments[1..])
 }
 
 /// Whether the syntax tree declares PEP 695 `type X = ...` aliases.
