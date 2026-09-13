@@ -254,7 +254,7 @@ pub(crate) const CSHARP_QUICKFIX_CONTRACTS: &[Contract] = &[
         key: "csharpsquid:S3257",
         actions: &["csharp.s3257.remove-array-element-type"],
         availability: Availability::Native,
-        prerequisite: "Implicit array creation with an explicit element type and initializer.",
+        prerequisite: "Prove the initializer's best common element type equals the declared element type.",
     },
     Contract {
         key: "csharpsquid:S3261",
@@ -990,7 +990,41 @@ fn s1128(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
     if text.starts_with("global ") || !text.trim_start().starts_with("using") {
         return Vec::new();
     }
-    let (start, end) = line_span(source, node.start_byte(), node.end_byte());
+    let (line_start, line_end) = line_span(source, node.start_byte(), node.end_byte());
+    let before = &source[line_start..node.start_byte()];
+    let after = &source[node.end_byte()..line_end];
+    if before.trim().is_empty() && after.trim().is_empty() {
+        // The directive is alone on its physical line, so removing the whole
+        // line cannot delete any other declaration.
+        add_range_action(
+            issue,
+            source,
+            line_start,
+            line_end,
+            "csharp.s1128.remove-unnecessary-using",
+            "Remove this unnecessary 'using'.",
+            "",
+        );
+        return Vec::new();
+    }
+    // Live code shares the line: remove only the directive plus its adjacent
+    // horizontal whitespace so a same-line declaration keeps its exact
+    // tokens. Whitespace is dropped on one side only, and a line break is
+    // always preserved.
+    let bytes = source.as_bytes();
+    let mut start = node.start_byte();
+    let mut end = node.end_byte();
+    let mut trailing = end;
+    while trailing < line_end && matches!(bytes[trailing], b' ' | b'\t' | b'\r') {
+        trailing += 1;
+    }
+    if trailing > end {
+        end = trailing;
+    } else {
+        while start > line_start && matches!(bytes[start - 1], b' ' | b'\t' | b'\r') {
+            start -= 1;
+        }
+    }
     add_range_action(
         issue,
         source,
@@ -1526,46 +1560,269 @@ fn s3257(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
         if issue_start < creation.start_byte() || issue_end > creation.end_byte() {
             continue;
         }
-        let text = node_text(creation, source);
-        let Some(after_new) = text.strip_prefix("new ") else {
-            continue;
-        };
-        let Some(brackets) = after_new.find("[]") else {
-            continue;
-        };
-        if !after_new[brackets + 2..].contains('{') {
-            continue;
+        if let Some((start, end)) = s3257_type_identical_span(source, creation) {
+            add_range_action(
+                issue,
+                source,
+                start,
+                end,
+                "csharp.s3257.remove-array-element-type",
+                "Remove the array type; it is redundant.",
+                "new[]",
+            );
         }
-        let start = creation.start_byte();
-        let end = start + 4 + brackets + 2;
-        add_range_action(
-            issue,
-            source,
-            start,
-            end,
-            "csharp.s3257.remove-array-element-type",
-            "Remove the array type; it is redundant.",
-            "new[]",
-        );
         break;
     }
     Vec::new()
+}
+
+/// Computes the `new T[]` span an S3257 edit may remove, but only when the
+/// implicitly typed projection provably keeps the same runtime element type.
+/// `new[] { .. }` infers the best common type of its elements, so `object[]`
+/// would silently become `Int32[]` unless that proof succeeds.
+fn s3257_type_identical_span(source: &str, creation: Node<'_>) -> Option<(usize, usize)> {
+    let text = node_text(creation, source);
+    let after_new = text.strip_prefix("new ")?;
+    let brackets = after_new.find("[]")?;
+    let tail = &after_new[brackets + 2..];
+    let trimmed_tail = tail.trim_start();
+    if !trimmed_tail.starts_with('{') || !tail[..tail.len() - trimmed_tail.len()].trim().is_empty()
+    {
+        // `new T[] { .. }` must directly precede the initializer; jagged or
+        // multi-rank suffixes (`new T[][] { .. }`) would not stay valid C#.
+        return None;
+    }
+    let mut cursor = creation.walk();
+    let initializer = creation
+        .children(&mut cursor)
+        .find(|child| child.kind() == "initializer_expression")?;
+    let mut cursor = initializer.walk();
+    let mut classes: Vec<&str> = Vec::new();
+    for element in initializer.children(&mut cursor) {
+        if !element.is_named() || element.kind() == "comment" {
+            continue;
+        }
+        classes.push(s3257_element_type(element, source)?);
+    }
+    if classes.is_empty() {
+        // `new[] { }` has no best common type and would not compile.
+        return None;
+    }
+    let declared = after_new[..brackets].trim();
+    let inferred = s3257_best_common_type(&classes)?;
+    let proven = match (
+        s3257_canonical_type(declared),
+        s3257_canonical_type(inferred),
+    ) {
+        (Some(declared), Some(inferred)) => declared == inferred,
+        _ => declared == inferred,
+    };
+    proven.then(|| {
+        let start = creation.start_byte();
+        (start, start + 4 + brackets + 2)
+    })
+}
+
+/// Static type of one initializer element when it can be proven
+/// syntactically; `None` withholds the edit.
+fn s3257_element_type<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
+    let text = || node_text(node, source);
+    match node.kind() {
+        "parenthesized_expression" => {
+            let mut cursor = node.walk();
+            let inner = node.named_children(&mut cursor).next()?;
+            s3257_element_type(inner, source)
+        }
+        "prefix_unary_expression" => {
+            if !matches!(text().as_bytes().first(), Some(b'-' | b'+')) {
+                return None;
+            }
+            let mut cursor = node.walk();
+            let operand = node.named_children(&mut cursor).next()?;
+            s3257_element_type(operand, source)
+        }
+        "integer_literal" => Some(s3257_integer_literal_type(text())),
+        "real_literal" => Some(s3257_real_literal_type(text())),
+        "character_literal" => Some("char"),
+        "boolean_literal" => Some("bool"),
+        "interpolated_string_expression" => Some("string"),
+        "string_literal" | "verbatim_string_literal" | "raw_string_literal" => {
+            (!text().ends_with("u8")).then_some("string")
+        }
+        "cast_expression" | "default_expression" => {
+            let declared = node.child_by_field_name("type")?;
+            let name = node_text(declared, source).trim();
+            Some(s3257_canonical_type(name).unwrap_or(name))
+        }
+        _ => None,
+    }
+}
+
+fn s3257_integer_literal_type(text: &str) -> &'static str {
+    let mut unsigned = false;
+    let mut long = false;
+    for byte in text.bytes().rev() {
+        match byte {
+            b'u' | b'U' => unsigned = true,
+            b'l' | b'L' => long = true,
+            _ => break,
+        }
+    }
+    match (unsigned, long) {
+        (true, true) => "ulong",
+        (true, false) => "uint",
+        (false, true) => "long",
+        (false, false) => "int",
+    }
+}
+
+fn s3257_real_literal_type(text: &str) -> &'static str {
+    match text.bytes().last() {
+        Some(b'f' | b'F') => "float",
+        Some(b'm' | b'M') => "decimal",
+        // `d`/`D` suffixes and bare real literals are double.
+        _ => "double",
+    }
+}
+
+/// Maps primitive spellings (keyword, wrapper, or fully qualified) onto one
+/// canonical name so inferred types can be compared with the declaration.
+fn s3257_canonical_type(text: &str) -> Option<&'static str> {
+    match text {
+        "bool" | "Boolean" | "System.Boolean" => Some("bool"),
+        "byte" | "Byte" | "System.Byte" => Some("byte"),
+        "char" | "Char" | "System.Char" => Some("char"),
+        "decimal" | "Decimal" | "System.Decimal" => Some("decimal"),
+        "double" | "Double" | "System.Double" => Some("double"),
+        "float" | "Single" | "System.Single" => Some("float"),
+        "int" | "Int32" | "System.Int32" => Some("int"),
+        "long" | "Int64" | "System.Int64" => Some("long"),
+        "object" | "Object" | "System.Object" => Some("object"),
+        "sbyte" | "SByte" | "System.SByte" => Some("sbyte"),
+        "short" | "Int16" | "System.Int16" => Some("short"),
+        "string" | "String" | "System.String" => Some("string"),
+        "uint" | "UInt32" | "System.UInt32" => Some("uint"),
+        "ulong" | "UInt64" | "System.UInt64" => Some("ulong"),
+        "ushort" | "UInt16" | "System.UInt16" => Some("ushort"),
+        _ => None,
+    }
+}
+
+/// C# best common type: the unique candidate every other element converts
+/// to via a predefined implicit conversion. Named types only match exactly.
+fn s3257_best_common_type<'a>(types: &[&'a str]) -> Option<&'a str> {
+    let first = types.first()?;
+    if types.iter().all(|candidate| *candidate == *first) {
+        return Some(first);
+    }
+    let mut candidate: Option<&'a str> = None;
+    for &target in types {
+        let converts = types
+            .iter()
+            .all(|source| *source == target || s3257_implicit_numeric_conversion(source, target));
+        if converts {
+            if candidate.is_some_and(|found| found != target) {
+                return None;
+            }
+            candidate = Some(target);
+        }
+    }
+    candidate
+}
+
+fn s3257_implicit_numeric_conversion(from: &str, to: &str) -> bool {
+    matches!(
+        (from, to),
+        (
+            "sbyte",
+            "short" | "int" | "long" | "float" | "double" | "decimal",
+        ) | (
+            "byte",
+            "short" | "ushort" | "int" | "uint" | "long" | "ulong" | "float" | "double" | "decimal",
+        ) | ("short", "int" | "long" | "float" | "double" | "decimal")
+            | (
+                "ushort",
+                "int" | "uint" | "long" | "ulong" | "float" | "double" | "decimal",
+            )
+            | ("int", "long" | "float" | "double" | "decimal")
+            | ("uint", "long" | "ulong" | "float" | "double" | "decimal")
+            | ("long" | "ulong", "float" | "double" | "decimal")
+            | (
+                "char",
+                "ushort" | "int" | "uint" | "long" | "ulong" | "float" | "double" | "decimal",
+            )
+            | ("float", "double")
+    )
 }
 
 fn s3261(root: Node<'_>, source: &str, issue: &mut Issue) -> Vec<()> {
     let Some(namespace) = semantic_node(root, &issue.range, source, "namespace_declaration") else {
         return Vec::new();
     };
-    let (start, end) = line_span(source, namespace.start_byte(), namespace.end_byte());
-    add_range_action(
-        issue,
-        source,
-        start,
-        end,
-        "csharp.s3261.remove-empty-namespace",
-        "Remove empty namespace",
-        "",
-    );
+    let start_byte = namespace.start_byte();
+    let end_byte = namespace.end_byte();
+    let (start_line_start, _) = line_span(source, start_byte, start_byte);
+    let (_, end_line_end) = line_span(source, end_byte, end_byte);
+    let before = source[start_line_start..start_byte].trim();
+    let after = source[end_byte..end_line_end].trim();
+    if !before.is_empty() || !after.is_empty() {
+        // Live code shares a boundary line: remove only the namespace plus
+        // adjacent horizontal whitespace so the same-line declarations keep
+        // their exact tokens. Whitespace is dropped on one side only, and a
+        // line break is always preserved.
+        let bytes = source.as_bytes();
+        let mut start = start_byte;
+        let mut end = end_byte;
+        let mut trailing = end;
+        while trailing < end_line_end && matches!(bytes[trailing], b' ' | b'\t' | b'\r') {
+            trailing += 1;
+        }
+        if trailing > end {
+            end = trailing;
+        } else {
+            while start > start_line_start && matches!(bytes[start - 1], b' ' | b'\t' | b'\r') {
+                start -= 1;
+            }
+        }
+        add_range_action(
+            issue,
+            source,
+            start,
+            end,
+            "csharp.s3261.remove-empty-namespace",
+            "Remove empty namespace",
+            "",
+        );
+        return Vec::new();
+    }
+    // Both boundary lines belong to the namespace alone. Whole lines may go
+    // only when the braces enclose nothing but whitespace.
+    let interior_blank = namespace.child_by_field_name("body").is_some_and(|body| {
+        source[body.start_byte() + 1..body.end_byte() - 1]
+            .trim()
+            .is_empty()
+    });
+    if interior_blank {
+        add_range_action(
+            issue,
+            source,
+            start_line_start,
+            end_line_end,
+            "csharp.s3261.remove-empty-namespace",
+            "Remove empty namespace",
+            "",
+        );
+    } else {
+        add_range_action(
+            issue,
+            source,
+            start_byte,
+            end_byte,
+            "csharp.s3261.remove-empty-namespace",
+            "Remove empty namespace",
+            "",
+        );
+    }
     Vec::new()
 }
 
@@ -2184,5 +2441,217 @@ mod tests {
             report.issues[0].alternatives.is_empty(),
             "documentation comments must remain unavailable"
         );
+    }
+
+    fn apply_s1128(source: &str) -> String {
+        let start = source.find("using").expect("using directive marker");
+        let end = start + source[start..].find(';').expect("directive semicolon") + 1;
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S1128",
+            "Remove this unnecessary 'using'.",
+            start,
+            end,
+        );
+        let facts = TestSemanticFacts::new("csharpsquid:S1128", start, end, Vec::new());
+        attach_fixes(
+            source,
+            &AnalyzerOptions::default(),
+            &mut report,
+            Some(&facts),
+        );
+        let alternative = report.issues[0]
+            .alternatives
+            .first()
+            .expect("S1128 action should be reachable for an unused directive");
+        assert_eq!(alternative.id, "csharp.s1128.remove-unnecessary-using");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        hoonarqube_ir::apply_fixes(source, &edits).expect("S1128 edit should apply")
+    }
+
+    #[test]
+    fn s1128_preserves_public_type_on_the_directive_line() {
+        let source =
+            "namespace Rev;\nusing System.Text; public class Api { public int Value => 1; }\n";
+        assert_eq!(
+            apply_s1128(source),
+            "namespace Rev;\npublic class Api { public int Value => 1; }\n"
+        );
+    }
+
+    #[test]
+    fn s1128_removes_a_solitary_directive_line() {
+        let source = "using System.Text;\nclass C { }\n";
+        assert_eq!(apply_s1128(source), "class C { }\n");
+    }
+
+    #[test]
+    fn s1128_keeps_comment_after_midline_directive() {
+        let source = "using System.Text; // gateway note\nclass C { }\n";
+        assert_eq!(apply_s1128(source), "// gateway note\nclass C { }\n");
+    }
+
+    #[test]
+    fn s1128_preserves_code_on_both_sides_of_the_directive() {
+        let source = "class A { }\nclass B { } using System.Text; class C { }\n";
+        assert_eq!(
+            apply_s1128(source),
+            "class A { }\nclass B { } class C { }\n"
+        );
+    }
+
+    fn s3257_projection(source: &str, marker: &str) -> Option<String> {
+        let start = source.find(marker).expect("declared element type marker");
+        let end = start + marker.len();
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S3257",
+            "Remove the array type; it is redundant.",
+            start,
+            end,
+        );
+        attach_fixes(source, &AnalyzerOptions::default(), &mut report, None);
+        let alternative = report.issues[0].alternatives.first()?;
+        assert_eq!(alternative.id, "csharp.s3257.remove-array-element-type");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        Some(hoonarqube_ir::apply_fixes(source, &edits).expect("S3257 edit should apply"))
+    }
+
+    fn assert_s3257_refused(source: &str, marker: &str) {
+        assert!(
+            s3257_projection(source, marker).is_none(),
+            "S3257 must withhold the edit when element-type identity is unprovable: {source}"
+        );
+    }
+
+    #[test]
+    fn s3257_refuses_type_changing_object_arrays() {
+        assert_s3257_refused(
+            "class A\n{\n    void M()\n    {\n        var values = new object[] { 1, 2 };\n    }\n}\n",
+            "object",
+        );
+    }
+
+    #[test]
+    fn s3257_keeps_type_identical_int_array_removal() {
+        assert_eq!(
+            s3257_projection(
+                "class A\n{\n    void M()\n    {\n        var values = new int[] { 1, 2 };\n    }\n}\n",
+                "int",
+            )
+            .expect("int literals prove the int[] element type"),
+            "class A\n{\n    void M()\n    {\n        var values = new[] { 1, 2 };\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn s3257_accepts_object_arrays_with_object_casts() {
+        assert_eq!(
+            s3257_projection(
+                "class A\n{\n    void M()\n    {\n        var values = new object[] { (object)1, (object)2 };\n    }\n}\n",
+                "object",
+            )
+            .expect("object casts prove the object[] element type"),
+            "class A\n{\n    void M()\n    {\n        var values = new[] { (object)1, (object)2 };\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn s3257_accepts_double_arrays_from_widening_literals() {
+        assert_eq!(
+            s3257_projection(
+                "class A\n{\n    void M()\n    {\n        var values = new double[] { 1, 2.5 };\n    }\n}\n",
+                "double",
+            )
+            .expect("int and real literals prove the double[] element type"),
+            "class A\n{\n    void M()\n    {\n        var values = new[] { 1, 2.5 };\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn s3257_refuses_byte_arrays_from_int_literals() {
+        assert_s3257_refused(
+            "class A\n{\n    void M()\n    {\n        var values = new byte[] { 1, 2 };\n    }\n}\n",
+            "byte",
+        );
+    }
+
+    #[test]
+    fn s3257_refuses_long_arrays_from_int_literals() {
+        assert_s3257_refused(
+            "class A\n{\n    void M()\n    {\n        var values = new long[] { 1, 2 };\n    }\n}\n",
+            "long",
+        );
+    }
+
+    #[test]
+    fn s3257_refuses_empty_initializers() {
+        assert_s3257_refused(
+            "class A\n{\n    void M()\n    {\n        var values = new int[] { };\n    }\n}\n",
+            "int",
+        );
+    }
+
+    #[test]
+    fn s3257_refuses_jagged_shapes() {
+        assert_s3257_refused(
+            "class A\n{\n    void M()\n    {\n        var grid = new int[][] { new int[] { 1 } };\n    }\n}\n",
+            "int",
+        );
+    }
+
+    #[test]
+    fn s3257_refuses_null_elements() {
+        assert_s3257_refused(
+            "class A\n{\n    void M()\n    {\n        var values = new object[] { null };\n    }\n}\n",
+            "object",
+        );
+    }
+
+    fn apply_s3261(source: &str) -> String {
+        let start = source.find("namespace").expect("namespace keyword");
+        let end = start + source[start..].find('}').expect("closing brace") + 1;
+        let mut report = report_with_issue(
+            source,
+            "csharpsquid:S3261",
+            "Remove this empty namespace.",
+            start,
+            end,
+        );
+        attach_fixes(source, &AnalyzerOptions::default(), &mut report, None);
+        let alternative = report.issues[0]
+            .alternatives
+            .first()
+            .expect("S3261 action should be reachable for an empty namespace");
+        assert_eq!(alternative.id, "csharp.s3261.remove-empty-namespace");
+        let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
+        hoonarqube_ir::apply_fixes(source, &edits).expect("S3261 edit should apply")
+    }
+
+    #[test]
+    fn s3261_preserves_public_type_on_the_namespace_line() {
+        let source = "namespace Rev { } public class Review { public int Api => 1; }\n";
+        assert_eq!(
+            apply_s3261(source),
+            "public class Review { public int Api => 1; }\n"
+        );
+    }
+
+    #[test]
+    fn s3261_removes_solitary_multi_line_empty_namespace() {
+        let source = "class A { }\nnamespace Rev\n{\n}\nclass B { }\n";
+        assert_eq!(apply_s3261(source), "class A { }\nclass B { }\n");
+    }
+
+    #[test]
+    fn s3261_preserves_type_after_the_closing_brace_line() {
+        let source = "namespace Rev\n{\n} public class Api { }\n";
+        assert_eq!(apply_s3261(source), "public class Api { }\n");
+    }
+
+    #[test]
+    fn s3261_keeps_comment_after_same_line_namespace() {
+        let source = "namespace Rev { } // anchor\nclass C { }\n";
+        assert_eq!(apply_s3261(source), "// anchor\nclass C { }\n");
     }
 }
