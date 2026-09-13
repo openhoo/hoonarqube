@@ -494,3 +494,42 @@ fn parse_ipv6(run: &str) -> Option<String> {
             .all(|group| group.len() <= 4 && group.bytes().all(|byte| byte.is_ascii_hexdigit()));
     if valid { Some(run.to_string()) } else { None }
 }
+
+/// Text range of a suite's leading documentation string statement, if any.
+fn suite_docstring_range(suite: &[Stmt]) -> Option<TextRange> {
+    let first = suite.first()?;
+    ruff_python_ast::helpers::is_docstring_stmt(first).then(|| first.range())
+}
+
+/// Ranges of the module, class, and function docstring statements in the
+/// tree. Strings in these positions are documentation, not code values.
+fn docstring_stmt_ranges(stmts: &[Stmt]) -> Vec<TextRange> {
+    let mut ranges = Vec::new();
+    if let Some(range) = suite_docstring_range(stmts) {
+        ranges.push(range);
+    }
+    for_each_stmt(stmts, &mut |stmt| {
+        let suite = match stmt {
+            Stmt::FunctionDef(function) => &function.body,
+            Stmt::ClassDef(class) => &class.body,
+            _ => return,
+        };
+        if let Some(range) = suite_docstring_range(suite) {
+            ranges.push(range);
+        }
+    });
+    ranges
+}
+
+/// Decoded text and source span of plain string literals in value position.
+/// Unlike [`collect_string_contents`], documentation strings (the module,
+/// class, and function docstrings) are excluded: Sphinx prose such as
+/// `.. versionchanged::` is not a hardcoded address, and documentation URLs
+/// are not cleartext communication.
+pub(crate) fn collect_value_string_contents(stmts: &[Stmt]) -> Vec<(String, TextRange)> {
+    let docstrings = docstring_stmt_ranges(stmts);
+    collect_string_contents(stmts)
+        .into_iter()
+        .filter(|(_, range)| !docstrings.contains(range))
+        .collect()
+}
