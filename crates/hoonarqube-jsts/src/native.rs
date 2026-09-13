@@ -15,7 +15,8 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_assignment_expression, walk_call_expression, walk_do_while_statement,
     walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_import_declaration,
-    walk_new_expression, walk_switch_statement, walk_variable_declarator, walk_while_statement,
+    walk_labeled_statement, walk_new_expression, walk_switch_statement, walk_variable_declarator,
+    walk_while_statement,
 };
 use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType, Span};
@@ -36,6 +37,16 @@ pub(crate) fn analyze(source: &str, language: JstsLanguage) -> Vec<Issue> {
         JstsLanguage::TypeScript => SourceType::ts(),
     };
     let parsed = Parser::new(&allocator, source, source_type).parse();
+    // The ordinary dispatch parses each file with the path-derived source
+    // type, which enables JSX for `.js`/`.jsx`/`.tsx`. The native pass
+    // re-parses without the path, so mirror that tolerance for valid
+    // JSX/TSX before giving up; genuinely unparsable sources still return
+    // an empty list exactly as before.
+    let parsed = if parsed.diagnostics.errors().next().is_some() {
+        Parser::new(&allocator, source, source_type.with_jsx(true)).parse()
+    } else {
+        parsed
+    };
     if parsed.diagnostics.errors().next().is_some() {
         return Vec::new();
     }
@@ -405,6 +416,10 @@ struct ShiftingBody<'a> {
     counter_adjustments: Vec<u32>,
     iteration_exits: Vec<u32>,
     nested_break_depth: usize,
+    /// Labels declared inside the inspected loop body. A labeled `break`
+    /// whose target resolves here stays inside the iteration instead of
+    /// exiting the loop.
+    local_labels: Vec<String>,
 }
 
 impl<'a> ShiftingBody<'a> {
@@ -416,6 +431,7 @@ impl<'a> ShiftingBody<'a> {
             counter_adjustments: Vec::new(),
             iteration_exits: Vec::new(),
             nested_break_depth: 0,
+            local_labels: Vec::new(),
         }
     }
 }
@@ -463,9 +479,28 @@ impl<'a> Visit<'a> for ShiftingBody<'_> {
     }
 
     fn visit_break_statement(&mut self, statement: &oxc_ast::ast::BreakStatement) {
-        if self.nested_break_depth == 0 || statement.label.is_some() {
+        let exits = match &statement.label {
+            // An unlabeled break exits the iteration only when it belongs to
+            // the inspected loop rather than a nested loop or switch.
+            None => self.nested_break_depth == 0,
+            // A labeled break exits when its target lies outside the body:
+            // the inspected loop itself or an enclosing construct. A label
+            // declared inside the body (block or nested loop) does not exit.
+            Some(label) => !self
+                .local_labels
+                .iter()
+                .any(|name| *name == label.name.as_str()),
+        };
+        if exits {
             self.iteration_exits.push(statement.span.start);
         }
+    }
+
+    fn visit_labeled_statement(&mut self, statement: &oxc_ast::ast::LabeledStatement<'a>) {
+        self.local_labels
+            .push(statement.label.name.as_str().to_owned());
+        walk_labeled_statement(self, statement);
+        self.local_labels.pop();
     }
 
     fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
@@ -803,6 +838,124 @@ mod tests {
                 .iter()
                 .any(|key| key.ends_with("loop-iteration-skipped-due-to-shifting")),
             "nested breaks must not suppress the outer-loop finding: {found:?}",
+        );
+    }
+
+    #[test]
+    fn jsx_and_tsx_sources_keep_native_findings() {
+        // #136: a valid JSX element must not silence every native rule. The
+        // ordinary parser accepts JSX via the path-derived source type, so
+        // the paired JSX/TSX variants must emit the same findings as their
+        // non-JSX controls.
+        let control = "new Promise(async () => 1);\nconst element = null;\n";
+        let jsx = "new Promise(async () => 1);\nconst element = <div />;\n";
+        let control_keys = || {
+            let mut found: Vec<String> = analyze(control, JstsLanguage::JavaScript)
+                .into_iter()
+                .map(|issue| issue.rule_key)
+                .collect();
+            found.sort();
+            found
+        };
+        assert_eq!(control_keys().len(), 2);
+
+        let mut jsx_keys: Vec<String> = analyze(jsx, JstsLanguage::JavaScript)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect();
+        jsx_keys.sort();
+        assert_eq!(
+            jsx_keys,
+            control_keys(),
+            ".js JSX must keep native findings"
+        );
+
+        let mut tsx_keys: Vec<String> = analyze(jsx, JstsLanguage::TypeScript)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect();
+        tsx_keys.sort();
+        let mut ts_control: Vec<String> = analyze(control, JstsLanguage::TypeScript)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect();
+        ts_control.sort();
+        assert_eq!(tsx_keys, ts_control, ".tsx must keep native findings");
+
+        // A genuinely unparsable source still produces no findings and no
+        // panic; the parse failure semantics are unchanged.
+        assert!(analyze("const element = <div", JstsLanguage::JavaScript).is_empty());
+    }
+
+    #[test]
+    fn labeled_break_to_inner_label_keeps_shifting_finding() {
+        // #138: the inner labeled block does not exit the inspected loop, so
+        // the shifting warning must survive (issue fixture: `plain` reports,
+        // and `labelled` must report too).
+        let found = keys(concat!(
+            "function plain(parts) {\n",
+            "  for (let i = 0; i < parts.length; ++i) {\n",
+            "    parts.splice(i, 1);\n",
+            "  }\n",
+            "}\n",
+            "function labelled(parts) {\n",
+            "  for (let i = 0; i < parts.length; ++i) {\n",
+            "    parts.splice(i, 1);\n",
+            "    inner: { break inner; }\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.ends_with("loop-iteration-skipped-due-to-shifting"))
+                .count(),
+            2,
+            "inner labeled block break must not suppress: {found:?}"
+        );
+    }
+
+    #[test]
+    fn labeled_break_to_nested_loop_label_keeps_shifting_finding() {
+        // #138 control: a break targeting a nested labeled loop must not
+        // suppress the warning either.
+        let found = keys(concat!(
+            "for (let i = 0; i < parts.length; ++i) {\n",
+            "  parts.splice(i, 1);\n",
+            "  inner: while (ready) { break inner; }\n",
+            "}\n",
+        ));
+        assert!(
+            found
+                .iter()
+                .any(|key| key.ends_with("loop-iteration-skipped-due-to-shifting")),
+            "nested labeled loop break must not suppress: {found:?}"
+        );
+    }
+
+    #[test]
+    fn labeled_break_to_enclosing_construct_still_suppresses() {
+        // #138 controls: breaks that terminate the inspected loop itself (by
+        // its own label) or an enclosing construct keep suppressing.
+        let own = keys(
+            "loop: for (let i = 0; i < parts.length; ++i) { parts.splice(i, 1); break loop; }",
+        );
+        assert!(
+            own.is_empty(),
+            "own-loop labeled break must suppress: {own:?}"
+        );
+
+        let enclosing = keys(concat!(
+            "outer: for (let i = 0; i < parts.length; ++i) {\n",
+            "  for (let j = 0; j < parts.length; ++j) {\n",
+            "    parts.splice(j, 1);\n",
+            "    if (done) break outer;\n",
+            "  }\n",
+            "}\n",
+        ));
+        assert!(
+            enclosing.is_empty(),
+            "enclosing-label break must suppress: {enclosing:?}"
         );
     }
 }
