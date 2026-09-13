@@ -252,6 +252,71 @@ m = n = 1;
     }
 
     #[test]
+    fn s905_flags_pure_member_read_statements() {
+        // #140: static member chains over a pure base are provably pure
+        // reads (pinned Zod shape plus the plain-object control).
+        let findings = js_keys("errorUtil.errToObj;\nobj.value;\na.b.c;\n");
+        assert_eq!(count_key(&findings, "javascript:S905"), 3);
+
+        let typed = ts_keys("errorUtil.errToObj;\n");
+        assert_eq!(count_key(&typed, "typescript:S905"), 1);
+
+        let control = js_keys(
+            "const obj = { value: 42 };\nobj.value;\nobj;\n42;\nconsole.log(obj.value);\n",
+        );
+        assert_eq!(count_key(&control, "javascript:S905"), 3);
+    }
+
+    #[test]
+    fn s905_accessor_like_and_impure_member_reads_stay_clean() {
+        // Calls and potentially effectful link shapes stay unreported.
+        assert_eq!(count_key(&js_keys("foo.bar();\n"), "javascript:S905"), 0);
+        assert_eq!(count_key(&js_keys("a?.b;\n"), "javascript:S905"), 0);
+        assert_eq!(count_key(&js_keys("obj[key];\n"), "javascript:S905"), 0);
+        assert_eq!(
+            count_key(&js_keys("class C { #x = 1; read() { this.#x; } }\n"), "javascript:S905"),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("class C extends B { read() { super.x; } }\n"),
+                "javascript:S905"
+            ),
+            0
+        );
+
+        // A declared accessor of the same name makes the read potentially
+        // effectful, so it stays unreported.
+        let class_getter =
+            js_keys("class C { get value() { return 1; } }\nconst obj = new C();\nobj.value;\n");
+        assert_eq!(count_key(&class_getter, "javascript:S905"), 0);
+
+        let object_getter =
+            js_keys("const gate = { get value() { return 1; } };\ngate.value;\n");
+        assert_eq!(count_key(&object_getter, "javascript:S905"), 0);
+
+        let object_setter =
+            js_keys("const gate = { set value(v) {} };\ngate.value;\n");
+        assert_eq!(count_key(&object_setter, "javascript:S905"), 0);
+    }
+
+    #[test]
+    fn s905_reports_pinned_zod_errorutil_member_read() {
+        // #140: verbatim colinhacks/zod@46da95720b7293f156ad9c683c14bd8ab9664c2f
+        // packages/zod/src/v3/types.ts (MIT). CodeQL and SonarQube
+        // 26.8.0.126808 both flag exactly one S905 in this file, the pure
+        // member read at line 2575.
+        let report = ts(include_str!("../../../fixtures/shapes/zod-types.ts"));
+        let sites: Vec<(u32, u32)> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S905")
+            .map(|issue| (issue.range.start.line, issue.range.start.column))
+            .collect();
+        assert_eq!(sites, vec![(2575, 4)]);
+    }
+
+    #[test]
     fn s881_flags_updates_inside_sequence_statement_roots() {
         // The sequence expression is the statement root; both updates sit
         // one level deeper and are embedded.
