@@ -1,14 +1,19 @@
-use super::support::mentions_identifier_outside_parameter_list;
 use crate::CsLanguage;
 use crate::cst::{
-    collect_kinds, is_error_tainted, issue, modifiers_of, node_text, parameters_of, range_of,
+    ancestors_of, collect_kinds, is_error_tainted, issue, modifiers_of, node_text, parameters_of,
+    range_of,
 };
+use crate::rules::modifiers::has_any_accessibility;
+use crate::rules::naming::TYPE_DECLARATION_KINDS;
+use crate::rules::usage::support::mentions_identifier_outside_parameter_list;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1172 — parameters no body ever reads mislead callers.
 /// Visible, virtual, abstract, partial, and extern callables keep their
-/// signatures; discard names (`_`) are exempt by convention.
+/// signatures; interface methods are pure contract declarations, so their
+/// parameters are never candidates; discard names (`_`) are exempt by
+/// convention.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["method_declaration", "constructor_declaration"])
         .into_iter()
@@ -18,6 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .iter()
                 .any(|modifier| SIGNATURE_KEEPING_MODIFIERS.contains(modifier))
         })
+        .filter(|callable| !interface_signature_without_accessibility(callable, source))
         .flat_map(|callable| {
             parameters_of(callable)
                 .into_iter()
@@ -40,6 +46,16 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             )
         })
         .collect()
+}
+
+/// Interface methods without an explicit accessibility modifier are
+/// implicitly public contract; implementers must keep their signatures
+/// regardless of any body read.
+fn interface_signature_without_accessibility(callable: &Node<'_>, source: &str) -> bool {
+    !has_any_accessibility(&modifiers_of(*callable, source))
+        && ancestors_of(*callable)
+            .find(|ancestor| TYPE_DECLARATION_KINDS.contains(&ancestor.kind()))
+            .is_some_and(|owner| owner.kind() == "interface_declaration")
 }
 
 /// Modifiers whose callables keep their signatures regardless of usage.
@@ -118,5 +134,24 @@ mod tests {
             "class C\n{\n    int value;\n    void M(int value)\n    {\n        this.value = 1;\n    }\n}\n",
         );
         assert_eq!(with_key(&report, "csharpsquid:S1172").len(), 1);
+    }
+
+    #[test]
+    fn s1172_interface_contract_parameters_are_not_unused() {
+        // Issue #244: Dapper ICustomQueryParameter.AddParameter — interface
+        // declarations have no implementation body reading the parameters.
+        let interface = analyze_default(
+            "public interface ICustomQueryParameter\n{\n\
+                 void AddParameter(System.Data.IDbCommand command, string name);\n\
+             }\n",
+        );
+        assert!(with_key(&interface, "csharpsquid:S1172").is_empty());
+
+        // Control: an unused parameter of a private concrete method still
+        // reports.
+        let concrete = analyze_default(
+            "class C\n{\n    void Handle(int value)\n    {\n        Log();\n    }\n}\n",
+        );
+        assert_eq!(with_key(&concrete, "csharpsquid:S1172").len(), 1);
     }
 }

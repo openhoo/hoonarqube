@@ -5,7 +5,7 @@ use crate::cst::{
     ancestors_of, attributes_of, collect_kinds, is_error_tainted, issue, modifiers_of, node_text,
     range_of,
 };
-use crate::rules::modifiers::{accessibility_rank, has_modifier, type_declared_rank};
+use crate::rules::modifiers::{has_modifier, member_accessibility_rank, type_declared_rank};
 use crate::rules::naming::{
     TYPE_DECLARATION_KINDS, has_explicit_interface_specifier, type_members,
 };
@@ -101,7 +101,7 @@ fn private_member_candidates<'t>(root: Node<'t>, source: &str) -> Vec<PrivateMem
 
 fn private_named_member<'t>(member: Node<'t>, source: &str) -> Option<PrivateMember<'t>> {
     let name_node = member.child_by_field_name("name")?;
-    if accessibility_rank(&modifiers_of(member, source)) != 1
+    if member_accessibility_rank(member, source) != 1
         || !attributes_of(member, source).is_empty()
         || node_text(name_node, source) == "Main"
         || has_explicit_interface_specifier(member)
@@ -122,7 +122,7 @@ fn private_named_member<'t>(member: Node<'t>, source: &str) -> Option<PrivateMem
 }
 
 fn is_private_field_like(member: Node<'_>, source: &str, exclude_constants: bool) -> bool {
-    accessibility_rank(&modifiers_of(member, source)) == 1
+    member_accessibility_rank(member, source) == 1
         && attributes_of(member, source).is_empty()
         && (!exclude_constants || !has_modifier(&modifiers_of(member, source), "const"))
 }
@@ -262,5 +262,25 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S1144");
         assert_eq!(flagged.len(), 1);
         assert!(flagged[0].message.contains("'value'"));
+    }
+
+    #[test]
+    fn s1144_spares_implicitly_public_interface_members() {
+        // Issue #243: Dapper ICustomQueryParameter — interface members are
+        // implicitly public contract, never unused private members.
+        let interface = analyze_default(
+            "public interface ICustomQueryParameter\n{\n\
+                 void AddParameter(System.Data.IDbCommand command, string name);\n\n\
+                 int Count { get; }\n\n\
+                 event System.EventHandler Done;\n\n\
+                 int this[int index] { get; }\n\n\
+                 class Helper\n                {\n                }\n\
+             }\n",
+        );
+        assert!(with_key(&interface, "csharpsquid:S1144").is_empty());
+
+        // Control: a genuinely unused private class method still reports.
+        let private = analyze_default("class C\n{\n    void Gone()\n    {\n    }\n}\n");
+        assert_eq!(with_key(&private, "csharpsquid:S1144").len(), 1);
     }
 }

@@ -5,6 +5,8 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S1121 — assignments belong in dedicated statements.
+/// Object-initializer members are initializer syntax, not embedded
+/// assignments.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for assignment in collect_kinds(root, &["assignment_expression"]) {
@@ -12,8 +14,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         let parent_kind = assignment.parent().map(|parent| parent.kind());
-        if matches!(parent_kind, Some("expression_statement" | "for_statement"))
-            || inside_if_condition(assignment)
+        if matches!(
+            parent_kind,
+            Some("expression_statement" | "for_statement" | "initializer_expression")
+        ) || inside_if_condition(assignment)
         {
             continue;
         }
@@ -71,5 +75,31 @@ mod tests {
             "class C { bool M(int[] items) { int value; if (items.Any(_ => (value = 1) > 0)) return true; return false; } }",
         );
         assert_eq!(with_key(&report, "csharpsquid:S1121").len(), 1);
+    }
+
+    #[test]
+    fn s1121_object_initializer_members_are_not_embedded_assignments() {
+        // Issue #242: Dapper DynamicParameters — initializer members use
+        // initializer syntax, not assignments embedded in a statement's
+        // expression.
+        let initializer = analyze_default(
+            "class C {\n    object M(string name, object value, System.Collections.Generic.Dictionary<string, object> map) {\n\
+                 var info = new Param\n                {\n\
+                     Name = name,\n\
+                     Value = value\n\
+                 };\n\
+                 map[\"key\"] = new Param\n                {\n\
+                     Name = name\n\
+                 };\n\
+                 return info;\n\
+             }\n}\n",
+        );
+        assert!(with_key(&initializer, "csharpsquid:S1121").is_empty());
+
+        // Control: an assignment genuinely embedded in an expression still
+        // reports.
+        let embedded =
+            analyze_default("class C { bool M() { int value; return (value = 1) > 0; } }");
+        assert_eq!(with_key(&embedded, "csharpsquid:S1121").len(), 1);
     }
 }
