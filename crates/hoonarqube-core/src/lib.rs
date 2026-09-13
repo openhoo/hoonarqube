@@ -724,7 +724,11 @@ mod tests {
             ("sample.js", "/*@cc_on @*/\n", "js/"),
             ("sample.ts", "const n: number = 1; n = 2;\n", "js/"),
             ("sample.py", "global value\n", "py/"),
-            ("sample.rb", "def f\n  value.length\nend\n", "rb/"),
+            (
+                "sample.rb",
+                "def f\n  if cond\n    value = data\n  end\n  value.length\nend\n",
+                "rb/",
+            ),
         ];
         for (path, source, prefix) in cases {
             let report = analyze(Path::new(path), source, &options).unwrap();

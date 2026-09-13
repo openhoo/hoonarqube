@@ -528,30 +528,68 @@ fn collect_lhs(
 ) {
     let mut pending = vec![node];
     while let Some(node) = pending.pop() {
-        if node.kind() == "call" {
-            if let Some(receiver) = node.child_by_field_name("receiver") {
-                collect_expression_reads(receiver, scope, map, facts);
-            }
-            if let Some(arguments) = node.child_by_field_name("arguments") {
-                collect_expression_reads(arguments, scope, map, facts);
-            }
+        if collect_lhs_target(node, scope, map, facts, kind) {
             continue;
         }
-        if node.kind() == "identifier" {
+        schedule_lhs_children(node, &mut pending);
+    }
+}
+
+/// Collects one assignment-target node; returns true when fully handled.
+fn collect_lhs_target(
+    node: Node<'_>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+    kind: BindingKind,
+) -> bool {
+    match node.kind() {
+        "call" => {
+            collect_lhs_call_reads(node, scope, map, facts);
+            true
+        }
+        "element_reference" => {
+            // An indexed write mutates the receiver object; the receiver and
+            // its index expressions are reads, never local bindings (#174).
+            collect_element_reference_reads(node, scope, map, facts);
+            true
+        }
+        "identifier" => {
             add_local_with_kind(facts, map, node, LocalFactKind::Write, scope, kind);
-            continue;
+            true
         }
-        if matches!(
-            node.kind(),
-            "instance_variable" | "class_variable" | "global_variable"
-        ) {
-            continue;
-        }
-        let mut cursor = node.walk();
-        let children: Vec<_> = node.named_children(&mut cursor).collect();
-        for child in children.into_iter().rev() {
-            pending.push(child);
-        }
+        "instance_variable" | "class_variable" | "global_variable" => true,
+        _ => false,
+    }
+}
+
+fn collect_lhs_call_reads(node: Node<'_>, scope: usize, map: &SourceMap, facts: &mut RubyFacts) {
+    if let Some(receiver) = node.child_by_field_name("receiver") {
+        collect_expression_reads(receiver, scope, map, facts);
+    }
+    if let Some(arguments) = node.child_by_field_name("arguments") {
+        collect_expression_reads(arguments, scope, map, facts);
+    }
+}
+
+fn collect_element_reference_reads(
+    node: Node<'_>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+) {
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.named_children(&mut cursor).collect();
+    for child in children {
+        collect_expression_reads(child, scope, map, facts);
+    }
+}
+
+fn schedule_lhs_children<'tree>(node: Node<'tree>, pending: &mut Vec<Node<'tree>>) {
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.named_children(&mut cursor).collect();
+    for child in children.into_iter().rev() {
+        pending.push(child);
     }
 }
 
@@ -1215,7 +1253,7 @@ fn process_cfg_statement<'tree>(
     let mut child_path = path;
     child_path.push(node.id());
     match node.kind() {
-        "if" | "unless" | "conditional" | "if_modifier" | "unless_modifier" => {
+        "if" | "unless" | "conditional" | "elsif" | "if_modifier" | "unless_modifier" => {
             process_cfg_branch_statement(node, loop_header, child_path, processor);
         }
         "while" | "until" | "for" | "while_modifier" | "until_modifier" => {
@@ -1268,10 +1306,13 @@ fn process_cfg_branch_statement<'tree>(
         .child_by_field_name("consequence")
         .map(sequence_children)
         .unwrap_or_default();
-    let alternative = node
-        .child_by_field_name("alternative")
-        .map(sequence_children)
-        .unwrap_or_default();
+    let alternative = match node.child_by_field_name("alternative") {
+        // An `elsif` clause is itself a branch statement with its own
+        // condition; keep it nested instead of linearizing its body (#173).
+        Some(alternative) if alternative.kind() == "elsif" => vec![alternative],
+        Some(alternative) => sequence_children(alternative),
+        None => Vec::new(),
+    };
     processor.tasks.push(CfgBuildTask::BranchAfterThen {
         condition,
         alternative,
@@ -2240,16 +2281,21 @@ fn report_uninitialized(
         .iter()
         .filter(|local| local.kind == LocalFactKind::Read && !local.name.starts_with('_'))
     {
-        if let Some(binding_scope) = local.binding_scope
-            && facts.scopes[binding_scope]
-                .bindings
-                .get(&local.name)
-                .is_some_and(|binding| {
-                    matches!(
-                        binding.kind,
-                        BindingKind::Parameter | BindingKind::BlockParameter
-                    )
-                })
+        let Some(binding_scope) = local.binding_scope else {
+            // No write of this name exists in any visible scope, so Ruby
+            // parses the identifier as a zero-argument method call, not a
+            // local variable (#172).
+            continue;
+        };
+        if facts.scopes[binding_scope]
+            .bindings
+            .get(&local.name)
+            .is_some_and(|binding| {
+                matches!(
+                    binding.kind,
+                    BindingKind::Parameter | BindingKind::BlockParameter
+                )
+            })
         {
             continue;
         }
@@ -3072,17 +3118,25 @@ def build_with_block(seed, callback = proc { seed.length })\n  callback\nend\n";
         );
     }
     #[test]
-    fn only_call_receiver_reads_are_checked_for_uninitialized_use() {
-        let issues = github_quality("def f\n  value.length\nend\n");
+    fn only_lexically_bound_receiver_reads_are_checked_for_uninitialized_use() {
+        // A receiver identifier with no lexical binding in any visible scope is
+        // a zero-argument method call, not an uninitialized local (#172).
         assert!(
-            issues
+            github_quality("def f\n  value.length\nend\n")
                 .iter()
-                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable")
+                .all(|issue| issue.rule_key != "rb/uninitialized-local-variable")
         );
         assert!(
             github_quality("def f\n  puts value\nend\n")
                 .iter()
                 .all(|issue| issue.rule_key != "rb/uninitialized-local-variable")
+        );
+        // A lexically bound, conditionally assigned local remains a finding.
+        let issues = github_quality("def f(flag)\n  value = \"x\" if flag\n  value.length\nend\n");
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable")
         );
     }
 
@@ -3243,6 +3297,73 @@ def build_with_block(seed, callback = proc { seed.length })\n  callback\nend\n";
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn method_call_receivers_without_lexical_binding_are_not_uninitialized_locals() {
+        let source = "class Probe\n  def options\n    self\n  end\n\n  def custom_call\n    \"ok\"\n  end\n\n  def false_positive\n    options.custom_call\n  end\n\n  def true_positive(flag)\n    value = \"ok\" if flag\n    value.length\n  end\nend\n";
+        let issues = github_quality(source);
+        let hits: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rb/uninitialized-local-variable")
+            .collect();
+        assert_eq!(hits.len(), 1, "{issues:?}");
+        assert_eq!(hits[0].range.start.line, 16, "{issues:?}");
+    }
+
+    #[test]
+    fn branch_assignments_consumed_after_elsif_joins_are_not_useless() {
+        let rake_shape = "def rake_branch(task_name, initial_scope)\n  if task_name =~ /^rake:/\n    scopes = Scope.make\n    task_name = task_name.sub(/^rake:/, \"\")\n  elsif task_name =~ /^(\\^+)/\n    scopes = initial_scope.trim($1.size)\n    task_name = task_name.sub(/^(\\^+)/, \"\")\n  else\n    scopes = initial_scope\n  end\n  lookup_in_scope(task_name, scopes)\nend\n";
+        let minimal = "def f(flag, other)\n  if flag\n    value = 1\n  elsif other\n    value = 2\n  else\n    value = 3\n  end\n  puts value\nend\n";
+        let open_ended = "def f(flag, other)\n  value = 0\n  if flag\n    value = 1\n  elsif other\n    value = 2\n  end\n  puts value\nend\n";
+        for source in [rake_shape, minimal, open_ended] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+                "branch writes consumed after the join stay live: {source}"
+            );
+        }
+        let dead =
+            "def f(initial_scope)\n  scopes = initial_scope\n  scopes = 1\n  puts scopes\nend\n";
+        let issues = github_quality(dead);
+        let useless: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rb/useless-assignment-to-local")
+            .collect();
+        assert_eq!(useless.len(), 1, "{issues:?}");
+        assert_eq!(useless[0].range.start.line, 2, "{issues:?}");
+    }
+
+    #[test]
+    fn indexed_mutation_keys_are_counted_as_reads() {
+        let probe = "def indexed_mutation(hash, key, value)\n  original = hash[key]\n  unless value\n    value = 1\n    hash[original] = value\n  end\n  hash[key] = value\nend\n";
+        assert!(
+            github_quality(probe)
+                .iter()
+                .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+            "the indexed key read keeps `original` live"
+        );
+        for form in [
+            "def bump(hash, key)\n  hash[key] += 1\nend\n",
+            "def append(hash, key)\n  hash[key] << \"v\"\nend\n",
+            "def store(hash, key, value)\n  hash[key] = value\nend\n",
+        ] {
+            assert!(
+                github_quality(form)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+                "indexed mutation forms count as reads: {form}"
+            );
+        }
+        let dead = "def f\n  unused = 1\nend\n";
+        let issues = github_quality(dead);
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.rule_key == "rb/useless-assignment-to-local"),
+            "{issues:?}"
+        );
     }
 
     #[test]
@@ -3513,13 +3634,17 @@ end\n";
     }
     #[test]
     fn local_dataflow_is_keyed_by_callable_scope() {
-        let issues =
-            github_quality("def first\n  value = 1\nend\n\ndef second\n  value.length\nend\n");
-        assert!(
-            issues
-                .iter()
-                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable")
+        let issues = github_quality(
+            "def first\n  value = 1\nend\n\ndef second(flag)\n  value = \"x\" if flag\n  value.length\nend\n",
         );
+        let hits: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rb/uninitialized-local-variable")
+            .collect();
+        // `first` initializes its own `value`, but that binding must not leak
+        // into `second`: its conditional local still reports at the read.
+        assert_eq!(hits.len(), 1, "{issues:?}");
+        assert_eq!(hits[0].range.start.line, 7, "{issues:?}");
     }
 
     #[test]
