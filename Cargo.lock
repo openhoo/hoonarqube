@@ -957,6 +957,7 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "oxc_syntax",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "sha2",

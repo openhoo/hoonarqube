@@ -333,6 +333,145 @@ fn project_context_uses_typescript_resolution_for_file_references_and_package_ex
 }
 
 #[test]
+fn project_context_marks_missing_compiler_references_incomplete() {
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping missing compiler-reference regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let root = issue36_temp_dir("missing-reference");
+    write_issue36_file(
+        &root.join("tsconfig.json"),
+        r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["hoonarqube-missing-reference"],
+    "strict": true,
+    "noEmit": true
+  },
+  "files": ["src/main.ts"]
+}"#,
+    );
+    let main_path = root.join("src/main.ts");
+    let main_source = "export const value: number = 1;\n".to_owned();
+    let sources = ProjectSemanticSources::from_pairs([(main_path.clone(), main_source.clone())]);
+    let config =
+        TypeScriptProjectConfig::new(root.clone()).with_typescript_package(typescript_package);
+    let context =
+        ProjectSemanticContext::load(&config, &sources).expect("context should be returned");
+    assert!(
+        !context.is_complete(),
+        "missing compiler references must make context incomplete"
+    );
+    assert!(
+        context
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.code.starts_with("TS_CONFIG_")),
+        "missing-reference diagnostic was not retained: {:?}",
+        context.diagnostics()
+    );
+    let analysis = context.analyze(main_path, &main_source, &AnalyzerOptions::default());
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "JS_CONTEXT_INCOMPLETE"),
+        "analysis must preserve the incomplete project context: {:?}",
+        analysis.diagnostics
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn project_context_keeps_global_diagnostic_failure_incomplete() {
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping global-diagnostics failure regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let root = issue36_temp_dir("global-diagnostics-failure");
+    let wrapper_package = root.join("typescript");
+    fs::create_dir_all(&wrapper_package).expect("wrapper package should be creatable");
+    write_issue36_file(
+        &wrapper_package.join("package.json"),
+        r#"{"name":"typescript","version":"6.0.3","main":"index.js"}"#,
+    );
+    let pinned_literal = serde_json::to_string(&typescript_package.to_string_lossy())
+        .expect("TypeScript package path should be JSON encodable");
+    let wrapper_source = format!(
+        r"const real = require({pinned_literal});
+const createProgram = real.createProgram.bind(real);
+module.exports = new Proxy(real, {{
+  get(target, key, receiver) {{
+    if (key === 'createProgram') {{
+      return function (...args) {{
+        const program = createProgram(...args);
+        program.getGlobalDiagnostics = () => {{
+          throw new Error('forced global diagnostics failure');
+        }};
+        return program;
+      }};
+    }}
+    return Reflect.get(target, key, receiver);
+  }},
+}});
+"
+    );
+    write_issue36_file(&wrapper_package.join("index.js"), &wrapper_source);
+    write_issue36_file(
+        &root.join("tsconfig.json"),
+        r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true
+  },
+  "files": ["main.ts"]
+}"#,
+    );
+    let main_path = root.join("main.ts");
+    let main_source = "export const value: number = 1;\n".to_owned();
+    let sources = ProjectSemanticSources::from_pairs([(main_path.clone(), main_source.clone())]);
+    let config =
+        TypeScriptProjectConfig::new(root.clone()).with_typescript_package(wrapper_package);
+    let context =
+        ProjectSemanticContext::load(&config, &sources).expect("context should be returned");
+    assert!(
+        !context.is_complete(),
+        "compiler diagnostic failures must not become complete contexts"
+    );
+    assert!(
+        context.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == "TS_HELPER_FATAL"
+                && diagnostic
+                    .message
+                    .contains("forced global diagnostics failure")
+        }),
+        "global diagnostics failure was not retained: {:?}",
+        context.diagnostics()
+    );
+    let analysis = context.analyze(main_path, &main_source, &AnalyzerOptions::default());
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "JS_CONTEXT_INCOMPLETE"),
+        "analysis must preserve the failed project context: {:?}",
+        analysis.diagnostics
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn project_context_serves_frozen_root_config_during_helper_race() {
     let Some(typescript_package) = pinned_typescript_package_for_tests() else {
         eprintln!(
