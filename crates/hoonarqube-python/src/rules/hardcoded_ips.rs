@@ -1,4 +1,4 @@
-use crate::support::collect_string_contents;
+use crate::support::collect_value_string_contents;
 use crate::support::ip_addresses;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
@@ -16,7 +16,7 @@ pub(crate) fn check_hardcoded_ips(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
+    for (text, range) in collect_value_string_contents(parsed.syntax().body.as_slice()) {
         if let Some(address) = ip_addresses(&text).into_iter().next() {
             issues.push(Issue {
                 rule_key: "python:S1313".to_string(),
@@ -70,5 +70,38 @@ mod compressed_ipv6_tests {
     fn s1313_time_stamps_still_clean_with_compression_fix() {
         // HH:MM:SS has 3 groups but no double colon → still clean.
         assert!(findings(&scan("T = \"12:34:56\"\n"), "python:S1313").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod docstring_prose_tests {
+    use crate::test_support::{findings, scan};
+
+    // Issue #111: Sphinx/reStructuredText prose inside documentation strings
+    // contains IPv6-looking fragments (`versionchanged::` yields `ed::`).
+    // Docstrings are documentation, not hardcoded address values.
+
+    #[test]
+    fn s1313_module_docstring_prose_is_clean() {
+        let flagged = scan("\"\"\"Documentation.\n\n.. versionchanged:: 1.0\n\"\"\"\n");
+        assert!(findings(&flagged, "python:S1313").is_empty());
+    }
+
+    #[test]
+    fn s1313_docstring_prose_is_clean_but_value_literals_still_flag() {
+        let source = concat!(
+            "def send_file():\n",
+            "    \"\"\"Serve a file.\n",
+            "\n",
+            "    .. deprecated:: 2.0\n",
+            "    Prose such as be:: de:: ead:: stays documentation only.\n",
+            "    \"\"\"\n",
+            "    host = \"2001:db8::1\"\n",
+            "    return host\n",
+        );
+        let flagged = scan(source);
+        let found = findings(&flagged, "python:S1313");
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("2001:db8::1"));
     }
 }

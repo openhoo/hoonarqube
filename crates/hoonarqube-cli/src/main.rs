@@ -15,6 +15,9 @@ use clap::{Parser, Subcommand};
 use hoonarqube_catalog::{
     Catalog, NativeRuleRecord, RuleProfile, RuleRecord, embedded, native_rule, native_rules,
 };
+use hoonarqube_ir::assessment::{
+    SourceLineStyle, line_content_end, line_style_for_path, line_terminator_width,
+};
 use hoonarqube_ir::{Range, TextEdit, apply_fixes};
 use sha2::{Digest as _, Sha256};
 
@@ -1915,17 +1918,27 @@ struct SonarSourceCache {
 struct SonarSource {
     text: String,
     line_starts: Vec<usize>,
+    line_style: SourceLineStyle,
 }
 
 impl SonarSource {
-    fn new(text: String) -> Self {
+    fn new(text: String, line_style: SourceLineStyle) -> Self {
+        let bytes = text.as_bytes();
         let mut line_starts = vec![0];
-        for (offset, byte) in text.bytes().enumerate() {
-            if byte == b'\n' {
-                line_starts.push(offset + 1);
+        let mut offset = 0;
+        while offset < bytes.len() {
+            if let Some(width) = line_terminator_width(bytes, offset, line_style) {
+                offset += width;
+                line_starts.push(offset);
+            } else {
+                offset += 1;
             }
         }
-        Self { text, line_starts }
+        Self {
+            text,
+            line_starts,
+            line_style,
+        }
     }
 
     fn line(&self, line: u32) -> Result<&str, String> {
@@ -1938,19 +1951,15 @@ impl SonarSource {
             .line_starts
             .get(line_index)
             .ok_or_else(|| format!("Sonar source has no line {line}"))?;
-        let end = self
+        let next = self
             .line_starts
             .get(line_index + 1)
             .copied()
             .unwrap_or(self.text.len());
-        let mut line_text = &self.text[start..end];
-        if line_text.ends_with('\n') {
-            line_text = &line_text[..line_text.len() - 1];
-        }
-        if line_text.ends_with('\r') {
-            line_text = &line_text[..line_text.len() - 1];
-        }
-        Ok(line_text)
+        let end = line_content_end(self.text.as_bytes(), start, next, self.line_style);
+        self.text
+            .get(start..end)
+            .ok_or_else(|| format!("Sonar source line {line} is not valid UTF-8"))
     }
 }
 
@@ -1962,8 +1971,10 @@ impl SonarSourceCache {
     ) -> Result<&'a SonarSource, String> {
         if !self.sources.contains_key(path) {
             let source = loader(path)?;
-            self.sources
-                .insert(path.to_path_buf(), SonarSource::new(source));
+            self.sources.insert(
+                path.to_path_buf(),
+                SonarSource::new(source, line_style_for_path(path, None)),
+            );
         }
         Ok(self
             .sources
@@ -3287,7 +3298,7 @@ mod tests {
                 column: u32::MAX,
             },
         };
-        let source = SonarSource::new("x".to_owned());
+        let source = SonarSource::new("x".to_owned(), SourceLineStyle::Generic);
         let converted = sonar_text_range(&boundary, &source);
         assert!(converted.is_err());
         let error = sonar_import_value_for_test(
@@ -3382,6 +3393,78 @@ mod tests {
             assert_eq!(range["endColumn"], expected_end, "{label} end");
             let _ = std::fs::remove_dir_all(directory);
         }
+    }
+
+    #[test]
+    fn sonar_import_accepts_ecmascript_line_terminators_without_rewriting_source() {
+        let options = analyze::analyzer_options_bundle(embedded());
+        let directory = temp_fix_path("ecmascript-line-terminators");
+        std::fs::create_dir_all(&directory).expect("create Sonar fixture directory");
+        for (label, separator) in [
+            ("lf", "\n"),
+            ("crlf", "\r\n"),
+            ("cr", "\r"),
+            ("line-separator", "\u{2028}"),
+            ("paragraph-separator", "\u{2029}"),
+        ] {
+            let source = format!("let value = 1;{separator}debugger;{separator}");
+            let path = directory.join(format!("{label}.js"));
+            std::fs::write(&path, source.as_bytes()).expect("write Sonar fixture");
+            let report =
+                hoonarqube_core::analyze(&path, &source, &options).expect("JavaScript report");
+            let native_issue = report
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == "javascript:S1525")
+                .expect("debugger finding");
+            assert_eq!(
+                native_issue.range.start.line, 2,
+                "{label} native start line"
+            );
+            assert_eq!(native_issue.range.end.line, 2, "{label} native end line");
+
+            let value = sonar_import_value(embedded(), &[report]).expect("Sonar output");
+            let finding = value["issues"]
+                .as_array()
+                .expect("Sonar issues")
+                .iter()
+                .find(|issue| issue["ruleId"] == "javascript:S1525")
+                .expect("Sonar debugger finding");
+            let range = &finding["primaryLocation"]["textRange"];
+            assert_eq!(range["startLine"], 2, "{label} Sonar start line");
+            assert_eq!(range["endLine"], 2, "{label} Sonar end line");
+            assert_eq!(range["startColumn"], 0, "{label} Sonar start column");
+            assert_eq!(range["endColumn"], 9, "{label} Sonar end column");
+            assert_eq!(
+                std::fs::read(&path).expect("read source fixture"),
+                source.as_bytes(),
+                "{label} source bytes"
+            );
+        }
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn sonar_import_keeps_unicode_separators_generic_for_other_languages() {
+        let issue = Issue::new(
+            "python:S1",
+            "finding",
+            Range {
+                start: Pos { line: 2, column: 0 },
+                end: Pos { line: 2, column: 5 },
+            },
+        );
+        let report = sample_report("sample.py", "python", vec![issue]);
+        let source = "value = 1;\u{2028}value = 2;".to_owned();
+        let mut source_cache = SonarSourceCache::default();
+        let error = sonar_import_value_with_source_loader(
+            embedded(),
+            &[report],
+            &mut |_| Ok(source.clone()),
+            &mut source_cache,
+        )
+        .expect_err("non-ECMAScript line separators must not create Sonar lines");
+        assert!(error.contains("Sonar source has no line 2"));
     }
 
     #[test]
