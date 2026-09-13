@@ -338,9 +338,11 @@ fn s1192_groups_duplicates_file_wide_with_primary_at_first_occurrence() {
     let primary = findings(&module_level, "python:S1192");
     assert_eq!(primary.len(), 1);
     assert_eq!(primary[0].range.start.line, 1);
-    assert!(primary[0]
-        .message
-        .contains("Define a constant instead of duplicating this literal \"dup\" 3 times."));
+    assert!(
+        primary[0]
+            .message
+            .contains("Define a constant instead of duplicating this literal \"dup\" 3 times.")
+    );
     assert_eq!(primary[0].flows.len(), 1);
     let locations = &primary[0].flows[0].locations;
     assert_eq!(locations.len(), 2);
@@ -2639,7 +2641,11 @@ fn s2638_flags_overrides_that_drop_optional_parameters() {
     );
     let found = findings_of(flagged, "python:S2638");
     assert_eq!(found.len(), 2);
-    assert!(found.iter().all(|message| message.contains("it drops an optional parameter")));
+    assert!(
+        found
+            .iter()
+            .all(|message| message.contains("it drops an optional parameter"))
+    );
 
     // Dropping a required parameter keeps its own reason.
     let dropped_required = concat!(
@@ -2648,15 +2654,16 @@ fn s2638_flags_overrides_that_drop_optional_parameters() {
         "class Child(Base):\n",
         "    def pull(self, path):\n        return path\n"
     );
-    assert!(findings_of(dropped_required, "python:S2638")[0]
-        .contains("it drops a required parameter"));
+    assert!(
+        findings_of(dropped_required, "python:S2638")[0].contains("it drops a required parameter")
+    );
 
-    // Changing an existing default and adding optional parameters stay accepted.
+    // Adding optional parameters stays accepted (changing an existing
+    // default keeps the documented `it changes a parameter's default`
+    // finding, pinned by s2638_flags_overrides_that_change_contracts).
     let clean = concat!(
         "class Animal:\n",
         "    def speak(self, word, times=1):\n        return word * times\n",
-        "class Dog(Animal):\n",
-        "    def speak(self, word, times=2):\n        return word * times\n",
         "class Cat(Animal):\n",
         "    def speak(self, word, times=1, tone=\"high\"):\n        return word * times\n"
     );

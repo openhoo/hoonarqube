@@ -17,13 +17,15 @@ pub(crate) fn check_unused_locals(
     parsed: &Parsed<ModModule>,
     table: &SymbolTable,
     options: &AnalyzerOptions,
-    exports: &[(String, TextRange)],
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for (scope_idx, scope) in table.scopes.iter().enumerate() {
-        if !matches!(scope.kind, ScopeKind::Module | ScopeKind::Function) {
+        // Module-level bindings are the import surface: every name the
+        // module binds stays importable from other files, so S1481 only
+        // judges function locals (the pinned Flask globals.py contract).
+        if !matches!(scope.kind, ScopeKind::Function) {
             continue;
         }
         for (name, bindings) in &scope.bindings {
@@ -39,9 +41,7 @@ pub(crate) fn check_unused_locals(
             {
                 continue;
             }
-            if scope_idx == 0 && exports.iter().any(|(exported, _)| exported == name) {
-                continue;
-            }
+
             let ranges: Vec<TextRange> = bindings.iter().map(|binding| binding.range).collect();
             // A local is used when a load resolves to this scope. Same-name
             // tokens elsewhere in the file (other functions, annotations,

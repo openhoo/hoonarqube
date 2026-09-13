@@ -840,17 +840,27 @@ fn positional_contract_change(base: &MethodShape, derived: &MethodShape) -> Opti
             _ => {}
         }
     }
-    if derived.positional_defaults[shared..]
-        .iter()
-        .any(Option::is_none)
+    if derived.positional_names.len() > shared
+        && derived.positional_defaults[shared..]
+            .iter()
+            .any(Option::is_none)
     {
         return Some("it adds a required parameter");
     }
-    if base.positional_defaults[shared..]
-        .iter()
-        .any(Option::is_none)
-    {
-        return Some("it drops a required parameter");
+    if base.positional_names.len() > shared {
+        // Removing any base parameter changes the callable contract, even
+        // when the removed parameter had a default: keyword callers of the
+        // base signature break (the pinned PyYAML UnsafeConstructor shape).
+        return Some(
+            if base.positional_defaults[shared..]
+                .iter()
+                .any(Option::is_none)
+            {
+                "it drops a required parameter"
+            } else {
+                "it drops an optional parameter"
+            },
+        );
     }
     None
 }

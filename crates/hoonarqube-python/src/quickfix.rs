@@ -2495,30 +2495,18 @@ mod tests {
         let parsed = parse(provider);
         let index = LineIndex::from_source_text(provider);
         let table = build_symbol_table(&parsed);
-        let binding_start = TextSize::try_from(
-            provider
-                .find("public_value")
-                .expect("binding present in provider"),
-        )
-        .expect("offset fits");
         let issue = Issue::new(
             "python:S1481",
             "Remove the unused local variable \"public_value\".",
             hoonarqube_ir::Range {
-                start: hoonarqube_ir::Pos {
-                    line: 7,
-                    column: 0,
-                },
+                start: hoonarqube_ir::Pos { line: 7, column: 0 },
                 end: hoonarqube_ir::Pos {
                     line: 7,
                     column: 12,
                 },
             },
         );
-        assert!(bindings::alternatives_s1481(
-            &parsed, &index, provider, &table, &issue
-        )
-        .is_empty());
+        assert!(bindings::alternatives_s1481(&parsed, &index, provider, &table, &issue).is_empty());
     }
 
     #[test]

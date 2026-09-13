@@ -21,11 +21,14 @@ use ruff_text_size::Ranged;
 // One shared unit measurer drives the whole family. Cyclomatic counts follow
 // the catalog decision-point enumeration (if/elif, loops, except handlers,
 // boolean operator chains, comprehension filters, match cases) with a +1
-// baseline per function; nested definitions are units of their own. Cognitive
-// weights follow the Sonar model already used by the jsts crate: control
-// structures add `1 + nesting` with contents nested one level deeper,
-// `elif` chains stay flat, `else` is free, and logical-operator chains count
-// once per consecutive run of the same operator.
+// baseline per function; nested definitions are units of their own and never
+// inflate the enclosing cyclomatic count. Cognitive weights follow the
+// SonarPython CognitiveComplexityVisitor: `if` costs `1 + nesting`, `elif`
+// links and plain `else` branches cost one flat point, control structures
+// nest their contents one level deeper, logical-operator chains count once
+// per consecutive run of the same operator, and the control flow inside
+// nested definitions rolls into the enclosing score with the nested nesting
+// level (wrapper functions lend their own level, class bodies reset it).
 
 pub(crate) fn check_cognitive_complexity(
     parsed: &Parsed<ModModule>,
@@ -162,16 +165,33 @@ fn measure_unit(body: &[Stmt]) -> (u32, u32) {
         cyclomatic: 0,
         nesting: 0,
         logic_chain: None,
+        nested_definitions: 0,
+        frames: vec![Frame::Function(body)],
     };
     measurer.walk_suite(body);
     (measurer.cognitive, measurer.cyclomatic)
 }
 
-struct Measurer {
+struct Measurer<'a> {
     cognitive: u32,
     cyclomatic: u32,
     nesting: u32,
     logic_chain: Option<BoolOp>,
+    /// Depth of nested definition bodies currently walked. Structures inside
+    /// a nested definition keep contributing cognitive weight to the
+    /// enclosing unit (the `SonarPython` visitor never skips them), while their
+    /// decision points stay owned by the inner unit's own cyclomatic score.
+    nested_definitions: u32,
+    /// Directly enclosing definitions for the `SonarPython` nesting rules: a
+    /// nested function inherits a wrapper function's level, otherwise adds
+    /// one over a function parent, and class bodies reset the level to zero.
+    frames: Vec<Frame<'a>>,
+}
+
+enum Frame<'a> {
+    /// Enclosing function with its direct body statements (wrapper check).
+    Function(&'a [Stmt]),
+    Class,
 }
 
 enum ExprWork<'a> {
@@ -180,12 +200,47 @@ enum ExprWork<'a> {
     RestoreNesting(u32),
 }
 
-impl Measurer {
-    fn walk_suite(&mut self, suite: &[Stmt]) {
+impl<'a> Measurer<'a> {
+    fn walk_suite(&mut self, suite: &'a [Stmt]) {
         for stmt in suite {
             match stmt {
-                // Nested definitions are units of their own.
-                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => continue,
+                // Nested definitions roll their control flow into the
+                // enclosing cognitive score without inflating its
+                // cyclomatic count.
+                Stmt::FunctionDef(function) => {
+                    let level = match self.frames.last() {
+                        Some(Frame::Function(body)) if is_wrapper_function(body, stmt) => {
+                            self.nesting
+                        }
+                        Some(Frame::Function(_)) => self.nesting + 1,
+                        // Class bodies and the file root reset the level.
+                        _ => 0,
+                    };
+                    let saved_nesting = self.nesting;
+                    let saved_definitions = self.nested_definitions;
+                    self.nesting = level;
+                    self.nested_definitions += 1;
+                    self.frames.push(Frame::Function(&function.body));
+                    self.walk_suite(&function.body);
+                    self.frames.pop();
+                    self.nested_definitions = saved_definitions;
+                    self.nesting = saved_nesting;
+                    continue;
+                }
+                Stmt::ClassDef(_) => {
+                    let saved_nesting = self.nesting;
+                    let saved_definitions = self.nested_definitions;
+                    self.nesting = 0;
+                    self.nested_definitions += 1;
+                    self.frames.push(Frame::Class);
+                    for body in child_bodies(stmt) {
+                        self.walk_suite(body);
+                    }
+                    self.frames.pop();
+                    self.nested_definitions = saved_definitions;
+                    self.nesting = saved_nesting;
+                    continue;
+                }
                 Stmt::If(if_) => {
                     self.process_if(if_);
                     continue;
@@ -221,37 +276,43 @@ impl Measurer {
         }
     }
 
-    /// One `if` increment; `elif` links are processed flat so a chained
-    /// conditional adds no extra nesting weight, and a plain `else` is free.
-    fn process_if(&mut self, if_: &ruff_python_ast::StmtIf) {
+    /// One `if` increment at `1 + nesting`; `elif` links and plain `else`
+    /// branches cost one flat point each, matching the `SonarPython`
+    /// cognitive fixture.
+    fn process_if(&mut self, if_: &'a ruff_python_ast::StmtIf) {
         self.cognitive += 1 + self.nesting;
-        self.cyclomatic += 1;
+        if self.nested_definitions == 0 {
+            self.cyclomatic += 1;
+        }
         self.walk_expr(&if_.test);
         let saved = self.nesting;
         self.nesting += 1;
         self.walk_suite(&if_.body);
         for clause in &if_.elif_else_clauses {
-            match &clause.test {
-                Some(test) => {
-                    self.cognitive += 1 + saved;
-                    self.cyclomatic += 1;
-                    self.walk_expr(test);
-                    self.walk_suite(&clause.body);
-                }
-                None => self.walk_suite(&clause.body),
+            self.cognitive += 1;
+            if clause.test.is_some() && self.nested_definitions == 0 {
+                self.cyclomatic += 1;
             }
+            if let Some(test) = &clause.test {
+                self.walk_expr(test);
+            }
+            self.nesting += 1;
+            self.walk_suite(&clause.body);
+            self.nesting = saved;
         }
         self.nesting = saved;
     }
 
     /// The `try` body shares its nesting level; each handler costs
     /// `1 + nesting` and nests its contents one level deeper.
-    fn process_try(&mut self, try_: &ruff_python_ast::StmtTry) {
+    fn process_try(&mut self, try_: &'a ruff_python_ast::StmtTry) {
         self.walk_suite(&try_.body);
         for handler in &try_.handlers {
             let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
             self.cognitive += 1 + self.nesting;
-            self.cyclomatic += 1;
+            if self.nested_definitions == 0 {
+                self.cyclomatic += 1;
+            }
             if let Some(type_) = &handler.type_ {
                 self.walk_expr(type_);
             }
@@ -266,9 +327,11 @@ impl Measurer {
 
     /// A `match` behaves like a switch: one increment plus one per case,
     /// with every case body nested.
-    fn process_match(&mut self, match_: &ruff_python_ast::StmtMatch) {
+    fn process_match(&mut self, match_: &'a ruff_python_ast::StmtMatch) {
         self.cognitive += 1 + self.nesting;
-        self.cyclomatic += u32::try_from(match_.cases.len()).unwrap_or(u32::MAX);
+        if self.nested_definitions == 0 {
+            self.cyclomatic += u32::try_from(match_.cases.len()).unwrap_or(u32::MAX);
+        }
         let saved = self.nesting;
         self.nesting += 1;
         for case in &match_.cases {
@@ -284,25 +347,29 @@ impl Measurer {
     /// contents nested one level deeper.
     fn enter_nested(&mut self, walk_children: impl FnOnce(&mut Self)) {
         self.cognitive += 1 + self.nesting;
-        self.cyclomatic += 1;
+        if self.nested_definitions == 0 {
+            self.cyclomatic += 1;
+        }
         let saved = self.nesting;
         self.nesting += 1;
         walk_children(self);
         self.nesting = saved;
     }
 
-    fn walk_expr(&mut self, expr: &Expr) {
+    fn walk_expr(&mut self, expr: &'a Expr) {
         let mut pending = vec![ExprWork::Visit(expr)];
         while let Some(work) = pending.pop() {
             match work {
                 ExprWork::Visit(expr) => match expr {
                     Expr::BoolOp(bool_op) => {
-                        self.cyclomatic += bool_op
-                            .values
-                            .len()
-                            .saturating_sub(1)
-                            .try_into()
-                            .unwrap_or(u32::MAX);
+                        if self.nested_definitions == 0 {
+                            self.cyclomatic += bool_op
+                                .values
+                                .len()
+                                .saturating_sub(1)
+                                .try_into()
+                                .unwrap_or(u32::MAX);
+                        }
                         if self.logic_chain != Some(bool_op.op) {
                             self.cognitive += 1;
                         }
@@ -348,14 +415,15 @@ impl Measurer {
             }
         }
     }
-
-    fn push_comprehensions<'a>(
+    fn push_comprehensions<'b>(
         &mut self,
-        generators: &'a [Comprehension],
-        pending: &mut Vec<ExprWork<'a>>,
+        generators: &'b [Comprehension],
+        pending: &mut Vec<ExprWork<'b>>,
     ) {
-        for generator in generators {
-            self.cyclomatic += u32::try_from(generator.ifs.len()).unwrap_or(u32::MAX);
+        if self.nested_definitions == 0 {
+            for generator in generators {
+                self.cyclomatic += u32::try_from(generator.ifs.len()).unwrap_or(u32::MAX);
+            }
         }
         for generator in generators.iter().rev() {
             pending.extend(generator.ifs.iter().rev().map(ExprWork::Visit));
@@ -363,6 +431,20 @@ impl Measurer {
             pending.push(ExprWork::Visit(&generator.target));
         }
     }
+}
+
+/// The `SonarPython` wrapper rule: a nested function whose enclosing function
+/// holds nothing besides it and plain `return name` statements inherits the
+/// enclosing nesting level instead of adding one.
+fn is_wrapper_function(body: &[Stmt], nested: &Stmt) -> bool {
+    body.iter()
+        .filter(|stmt| !std::ptr::eq(*stmt, nested))
+        .all(|stmt| {
+            matches!(
+                stmt,
+                Stmt::Return(return_) if matches!(return_.value.as_deref(), Some(Expr::Name(_)))
+            )
+        })
 }
 
 #[cfg(test)]
@@ -553,8 +635,14 @@ mod tests {
         };
         let report = analyze(PathBuf::from("t.py"), wrapper, &options);
         let found = findings(&report, "python:S3776");
-        assert_eq!(found.len(), 1);
-        assert!(found[0].message.contains("from 3 to the 2 allowed."));
+        assert_eq!(found.len(), 2);
+        // Without the wrapper rule `make` would score 5 (2 + 3); inheriting
+        // the wrapper's level keeps both units at 3.
+        assert!(
+            found
+                .iter()
+                .all(|issue| issue.message.contains("from 3 to the 2 allowed."))
+        );
     }
 
     #[test]
