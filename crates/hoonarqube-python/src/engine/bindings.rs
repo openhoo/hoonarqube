@@ -1,5 +1,8 @@
-use crate::support::{child_bodies, collect_target_names, named_parameters, stmt_store_names};
-use ruff_python_ast::{Expr, ExprCall, ModModule, Stmt};
+use crate::support::{
+    child_bodies, collect_target_names, for_each_expr, named_parameters, stmt_exprs,
+    stmt_store_names,
+};
+use ruff_python_ast::{ExceptHandler, Expr, ExprCall, ModModule, Pattern, Stmt};
 use ruff_python_parser::Parsed;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use std::collections::HashMap;
@@ -126,6 +129,7 @@ impl KnownBindings {
     }
 
     fn record_statement(&mut self, scope: usize, statement: &Stmt) {
+        self.record_walrus_targets(scope, statement);
         match statement {
             Stmt::Import(import) => self.record_import(scope, import),
             Stmt::ImportFrom(import) => self.record_import_from(scope, import),
@@ -186,6 +190,14 @@ impl KnownBindings {
                 }
                 self.record_nested_bodies(scope, statement);
             }
+            Stmt::Try(try_stmt) => {
+                self.record_except_targets(scope, try_stmt);
+                self.record_nested_bodies(scope, statement);
+            }
+            Stmt::Match(match_stmt) => {
+                self.record_match_captures(scope, match_stmt);
+                self.record_nested_bodies(scope, statement);
+            }
             _ => {
                 let activation = self.activation_range(scope, statement.range());
                 for name in stmt_store_names(statement) {
@@ -193,6 +205,53 @@ impl KnownBindings {
                 }
                 self.record_nested_bodies(scope, statement);
             }
+        }
+    }
+
+    /// An except target rebinds the name when the handler is entered and
+    /// Python deletes it when the handler exits, so the imported identity
+    /// cannot survive in either direction.
+    fn record_except_targets(&mut self, scope: usize, try_stmt: &ruff_python_ast::StmtTry) {
+        for handler in &try_stmt.handlers {
+            let ExceptHandler::ExceptHandler(handler) = handler;
+            if let Some(name) = &handler.name {
+                let activation = scope_body_range(&handler.body, handler.range());
+                self.bind(scope, name.as_str(), KnownBinding::Unknown, activation);
+            }
+        }
+    }
+
+    /// Match captures bind in the enclosing scope when their case pattern
+    /// matches; the guard and body of that case (and any later statement)
+    /// conservatively observe the capture.
+    fn record_match_captures(&mut self, scope: usize, match_stmt: &ruff_python_ast::StmtMatch) {
+        for case in &match_stmt.cases {
+            let mut captures = Vec::new();
+            collect_pattern_captures(&case.pattern, &mut captures);
+            for (name, range) in captures {
+                self.bind(scope, &name, KnownBinding::Unknown, range);
+            }
+        }
+    }
+
+    /// Assignment expressions (`(name := value)`) rebind their targets in the
+    /// enclosing scope at evaluation time, wherever they appear in a
+    /// statement's expressions. Scanning the canonical expression inventory
+    /// keeps the events on the existing lexical binding model instead of a
+    /// second name-event list.
+    fn record_walrus_targets(&mut self, scope: usize, statement: &Stmt) {
+        for expr in stmt_exprs(statement) {
+            for_each_expr(expr, &mut |expr| {
+                if let Expr::Named(named) = expr {
+                    self.bind_assignment_targets(
+                        scope,
+                        &named.target,
+                        KnownBinding::Unknown,
+                        false,
+                        named.range(),
+                    );
+                }
+            });
         }
     }
 
@@ -527,6 +586,70 @@ impl KnownBindings {
             })
             .min_by_key(|(_, scope)| u32::from(scope.range.end()) - u32::from(scope.range.start()))
             .map_or(0, |(index, _)| index)
+    }
+}
+
+/// Captures of a mapping pattern: nested subpatterns plus the `**rest` name.
+fn collect_mapping_pattern_captures(
+    pattern: &ruff_python_ast::PatternMatchMapping,
+    captures: &mut Vec<(String, TextRange)>,
+) {
+    for subpattern in &pattern.patterns {
+        collect_pattern_captures(subpattern, captures);
+    }
+    if let Some(rest) = &pattern.rest {
+        push_capture(rest, captures);
+    }
+}
+
+/// Captures of a class pattern: positional and keyword subpatterns.
+fn collect_class_pattern_captures(
+    pattern: &ruff_python_ast::PatternMatchClass,
+    captures: &mut Vec<(String, TextRange)>,
+) {
+    for subpattern in &pattern.arguments.patterns {
+        collect_pattern_captures(subpattern, captures);
+    }
+    for keyword in &pattern.arguments.keywords {
+        collect_pattern_captures(&keyword.pattern, captures);
+    }
+}
+
+fn push_capture(name: &ruff_python_ast::Identifier, captures: &mut Vec<(String, TextRange)>) {
+    captures.push((name.as_str().to_string(), name.range()));
+}
+
+/// Capture names bound by a match pattern with their activation ranges,
+/// including nested sequence, mapping, class, alternative, starred, and `as`
+/// subpatterns.
+fn collect_pattern_captures(pattern: &Pattern, captures: &mut Vec<(String, TextRange)>) {
+    match pattern {
+        Pattern::MatchValue(_) | Pattern::MatchSingleton(_) => {}
+        Pattern::MatchSequence(pattern) => {
+            for subpattern in &pattern.patterns {
+                collect_pattern_captures(subpattern, captures);
+            }
+        }
+        Pattern::MatchMapping(pattern) => collect_mapping_pattern_captures(pattern, captures),
+        Pattern::MatchClass(pattern) => collect_class_pattern_captures(pattern, captures),
+        Pattern::MatchStar(pattern) => {
+            if let Some(name) = &pattern.name {
+                push_capture(name, captures);
+            }
+        }
+        Pattern::MatchAs(pattern) => {
+            if let Some(subpattern) = &pattern.pattern {
+                collect_pattern_captures(subpattern, captures);
+            }
+            if let Some(name) = &pattern.name {
+                push_capture(name, captures);
+            }
+        }
+        Pattern::MatchOr(pattern) => {
+            for subpattern in &pattern.patterns {
+                collect_pattern_captures(subpattern, captures);
+            }
+        }
     }
 }
 
