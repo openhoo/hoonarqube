@@ -1713,6 +1713,51 @@ type ImportedKeys = keyof import("./module").Widget;
     }
 
     #[test]
+    fn typescript_variance_modifiers_produce_complete_facts() {
+        // TypeScript 4.7+ variance annotations on type parameters.  Every
+        // source below is accepted by `tsc --noEmit` (compiler controls exit
+        // 0), including the real-project shapes used by colinhacks/zod v4
+        // (`out Output`/`out Input`, `in T`, `in out`, repeated `out`
+        // parameters, and a variance-annotated type-alias parameter).
+        let sources = [
+            "interface Box<out T> {\n  value: T;\n}\n",
+            "interface Box<in T> {\n  write(value: T): void;\n}\n",
+            "interface Processor<in out T> {\n  process(value: T): T;\n}\n",
+            "interface Pair<out T, out U> {\n  first: T;\n  second: U;\n}\n",
+            "type Holder<out T> = {\n  value: T;\n};\n",
+        ];
+        for source in sources {
+            for path in ["sample.ts", "sample.tsx"] {
+                let facts = facts(path, source);
+                assert!(!facts.tokens.is_empty(), "{path}: {source}");
+                assert!(facts.error.is_none(), "{path}: {:?}\n{source}", facts.error);
+            }
+        }
+    }
+
+    #[test]
+    fn plain_typescript_type_parameter_control_remains_complete() {
+        let source = "interface Box<T> {\n  value: T;\n}\n";
+        for path in ["sample.ts", "sample.tsx"] {
+            let facts = facts(path, source);
+            assert!(!facts.tokens.is_empty(), "{path}");
+            assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
+        }
+    }
+
+    #[test]
+    fn malformed_typescript_variance_input_remains_incomplete() {
+        // Truncated declaration after a variance modifier must keep the
+        // fail-closed incompleteness contract.
+        let truncated = facts("sample.ts", "interface Box<out T> {\n  value: T;\n");
+        assert!(truncated.error.is_some(), "{:?}", truncated.error);
+        // `out in` violates the TypeScript grammar (tsc TS1029: the `in`
+        // modifier must precede the `out` modifier) and must stay incomplete.
+        let reversed = facts("sample.ts", "interface Box<out in T> {\n  value: T;\n}\n");
+        assert!(reversed.error.is_some(), "{:?}", reversed.error);
+    }
+
+    #[test]
     fn jsx_reserved_attribute_names_produce_complete_original_ranges() {
         let source = r#"const el = <div class="x" foo="1"></div>;"#;
         let facts = facts("sample.jsx", source);
