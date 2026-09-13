@@ -775,7 +775,8 @@ fn s5797_propagation_keeps_reassigned_and_closure_mutated_names_open() {
         "    return 0\n",
     ));
     assert!(findings(&closure_mutated, "python:S5797").is_empty());
-    let parameter = scan("def opaque_check(opaque):\n    if opaque:\n        return 1\n    return 0\n");
+    let parameter =
+        scan("def opaque_check(opaque):\n    if opaque:\n        return 1\n    return 0\n");
     assert!(findings(&parameter, "python:S5797").is_empty());
     let computed = scan(concat!(
         "def computed(url):\n",
@@ -1588,7 +1589,9 @@ fn regex_parser_rejects_python_syntax_errors() {
 fn regex_parser_accepts_whitespace_escapes_inside_character_classes() {
     // Issue #232: `\t`, `\n`, `\r`, `\f`, `\v`, `\a` are valid
     // single-character escapes inside a class, exactly like Python's `re`.
-    for pattern in [r"[ \t]+", r"[\n]", r"[\r]", r"[\f]", r"[\v]", r"[\a]", r"[\t-\r]"] {
+    for pattern in [
+        r"[ \t]+", r"[\n]", r"[\r]", r"[\f]", r"[\v]", r"[\a]", r"[\t-\r]",
+    ] {
         assert_eq!(rx_errors(pattern), 0, "pattern should parse: {pattern}");
     }
     // Unknown alphabetic escapes remain class syntax errors.
@@ -1685,7 +1688,10 @@ fn s5856_reports_syntactically_invalid_patterns_only() {
 fn s5856_spares_tab_in_character_class_but_keeps_broken_classes() {
     // Issue #232: `[ \t]+` is valid Python; the pinned PyYAML timestamp and
     // resolver patterns rely on this escaped-whitespace form.
-    assert!(!regex_finds("import re\nre.compile(r'[ \\t]+')\n", "python:S5856"));
+    assert!(!regex_finds(
+        "import re\nre.compile(r'[ \\t]+')\n",
+        "python:S5856"
+    ));
     assert!(!regex_finds(
         concat!(
             "import re\n",
@@ -1699,7 +1705,10 @@ fn s5856_spares_tab_in_character_class_but_keeps_broken_classes() {
     ));
     // Genuine syntax errors stay reported.
     assert!(regex_finds("import re\nre.compile(r'[')\n", "python:S5856"));
-    assert!(regex_finds("import re\nre.compile(r'[\\q]')\n", "python:S5856"));
+    assert!(regex_finds(
+        "import re\nre.compile(r'[\\q]')\n",
+        "python:S5856"
+    ));
 }
 
 #[test]
