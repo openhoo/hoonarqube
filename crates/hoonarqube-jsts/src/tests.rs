@@ -2620,3 +2620,488 @@ export { matches };\n"
 
     let _ = fs::remove_dir_all(fixture.root);
 }
+
+fn quickfix_node_stdout(label: &str, source: &str) -> Option<String> {
+    let probe = std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .ok()?;
+    if !probe.status.success() {
+        return None;
+    }
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must be after the Unix epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "hoonarqube-jsts-quickfix-{label}-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&dir).expect("quickfix runtime fixture directory should be creatable");
+    let fixture = dir.join("fixture.js");
+    fs::write(&fixture, source).expect("quickfix runtime fixture should be writable");
+    let run = std::process::Command::new("node")
+        .arg(&fixture)
+        .output()
+        .expect("node should execute the quickfix runtime fixture");
+    let _ = fs::remove_dir_all(&dir);
+    assert!(
+        run.status.success(),
+        "node fixture should exit cleanly: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    Some(String::from_utf8_lossy(&run.stdout).into_owned())
+}
+
+fn rule_counts(report: &hoonarqube_ir::FileReport) -> std::collections::BTreeMap<String, u32> {
+    let mut counts = std::collections::BTreeMap::new();
+    for issue in &report.issues {
+        *counts.entry(issue.rule_key.clone()).or_default() += 1;
+    }
+    counts
+}
+
+fn assert_no_new_findings(
+    before: &std::collections::BTreeMap<String, u32>,
+    after: &std::collections::BTreeMap<String, u32>,
+) {
+    let regressions: Vec<String> = after
+        .iter()
+        .filter_map(|(key, after_count)| {
+            let before_count = before.get(key).copied().unwrap_or(0);
+            (*after_count > before_count).then(|| format!("{key}: {before_count} -> {after_count}"))
+        })
+        .collect();
+    assert!(
+        regressions.is_empty(),
+        "projected source must not gain findings: {}",
+        regressions.join(", ")
+    );
+}
+
+fn s1125_action_edits(report: &hoonarqube_ir::FileReport) -> Vec<hoonarqube_ir::TextEdit> {
+    let mut edits = Vec::new();
+    for issue in &report.issues {
+        for alternative in &issue.alternatives {
+            if alternative.id == "s1125-remove-boolean" {
+                edits.extend(alternative.fix.edits.iter().cloned());
+            }
+        }
+    }
+    edits
+}
+
+fn withheld_s1125(issue: &hoonarqube_ir::Issue) -> bool {
+    issue
+        .alternatives
+        .iter()
+        .all(|alternative| alternative.id != "s1125-remove-boolean")
+}
+
+const S1125_CALL_FOLD: &str = "\
+function record() {
+  console.log('effect');
+  return true;
+}
+const value = record() && false;
+console.log(value);
+";
+
+const S1125_MEMBER_FOLD: &str =
+    "const config = readConfig();\nconst enabled = config.enabled && false;\n";
+
+const S1125_COERCION_FOLD: &str = "\
+function check(input) {
+  if (+input && false) {
+    return 1;
+  }
+  return 0;
+}
+";
+
+const S1125_CONDITION_RIGHT_TRUE: &str = "\
+function record() {
+  console.log('effect');
+  return true;
+}
+function check() {
+  if (record() || true) {
+    return 1;
+  }
+  return 0;
+}
+";
+
+const S1125_VALUE_RIGHT_TRUE: &str = "const flag = readFlag() && true;\n";
+
+const S1125_SHORT_CIRCUIT_FOLDS: &str = "\
+function record() {
+  console.log('effect');
+  return true;
+}
+const first = false && record();
+const second = true && record();
+console.log(first, second);
+";
+
+fn find_issue<'a>(
+    report: &'a hoonarqube_ir::FileReport,
+    rule_key: &str,
+    label: &str,
+) -> &'a hoonarqube_ir::Issue {
+    report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == rule_key)
+        .unwrap_or_else(|| panic!("{label} should report {rule_key}"))
+}
+
+#[test]
+fn s1125_quickfix_withholds_unsafe_right_boolean_folds() {
+    // #100: `X && false` / `X || true` evaluate X, so folding to the
+    // constant is withheld unless the discarded operand is provably inert;
+    // folds that keep X are limited to truthiness (condition) positions.
+    let call_report = js(S1125_CALL_FOLD);
+    assert_eq!(
+        count_key(&report_keys(&call_report), "javascript:S1125"),
+        1,
+        "right-false over an evaluated call must still report S1125"
+    );
+    assert!(
+        withheld_s1125(find_issue(
+            &call_report,
+            "javascript:S1125",
+            "right-false over a call"
+        )),
+        "`record() && false` must be withheld: folding deletes the call"
+    );
+
+    let member_report = js(S1125_MEMBER_FOLD);
+    assert!(
+        withheld_s1125(find_issue(
+            &member_report,
+            "javascript:S1125",
+            "right-false over a member read"
+        )),
+        "call-free member reads can be getters; folding must be withheld"
+    );
+
+    let coercion_report = js(S1125_COERCION_FOLD);
+    assert!(
+        withheld_s1125(find_issue(
+            &coercion_report,
+            "javascript:S1125",
+            "right-false over a coercion"
+        )),
+        "unary-plus can invoke valueOf; folding must be withheld even in a condition"
+    );
+
+    let condition_report = js(S1125_CONDITION_RIGHT_TRUE);
+    assert!(
+        withheld_s1125(find_issue(
+            &condition_report,
+            "javascript:S1125",
+            "condition-position right-true"
+        )),
+        "`record() || true` must be withheld: the call is still evaluated"
+    );
+
+    let value_report = js(S1125_VALUE_RIGHT_TRUE);
+    assert!(
+        withheld_s1125(find_issue(
+            &value_report,
+            "javascript:S1125",
+            "value-position right-true"
+        )),
+        "`x && true` outside a condition changes the resulting value; withhold"
+    );
+
+    let typed_report = ts(S1125_CALL_FOLD);
+    assert!(
+        withheld_s1125(find_issue(
+            &typed_report,
+            "typescript:S1125",
+            "TypeScript right-false over a call"
+        )),
+        "TypeScript shares the S1125 quickfix path and must withhold too"
+    );
+}
+
+#[test]
+fn s1125_quickfix_keeps_value_preserving_folds_and_runtime() {
+    // Controls: folds that keep the evaluated operand stay available at
+    // condition roots, and left-literal folds keep evaluation order.
+    let keep_fixture = "\
+function work() {
+  return 1;
+}
+function check(x) {
+  if (x && true) {
+    return work();
+  }
+  return 0;
+}
+";
+    let keep_report = js(keep_fixture);
+    let keep_issue = find_issue(
+        &keep_report,
+        "javascript:S1125",
+        "condition-root right-true over a plain operand",
+    );
+    let keep_action = keep_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1125-remove-boolean")
+        .expect("`if (x && true)` should still fold to `if (x)`");
+    let [keep_edit] = keep_action.fix.edits.as_slice() else {
+        panic!("keep-operand fold should contain one edit");
+    };
+    assert_eq!(keep_edit.replacement, "x");
+    let keep_projected = hoonarqube_ir::apply_fixes(keep_fixture, &[keep_edit])
+        .expect("keep-operand fold should apply");
+    assert!(
+        keep_projected.contains("if (x) {"),
+        "keep-operand fold projection mismatch: {keep_projected}"
+    );
+    let keep_after = js(&keep_projected);
+    assert_eq!(count_key(&report_keys(&keep_after), "javascript:S1125"), 0);
+    assert_no_new_findings(&rule_counts(&keep_report), &rule_counts(&keep_after));
+
+    let short_report = js(S1125_SHORT_CIRCUIT_FOLDS);
+    assert_eq!(
+        count_key(&report_keys(&short_report), "javascript:S1125"),
+        2,
+        "left literal folds should stay available for both operands"
+    );
+    let short_edits = s1125_action_edits(&short_report);
+    assert_eq!(
+        short_edits.len(),
+        2,
+        "both left-literal folds should be offered"
+    );
+    let short_refs: Vec<&hoonarqube_ir::TextEdit> = short_edits.iter().collect();
+    let short_projected = hoonarqube_ir::apply_fixes(S1125_SHORT_CIRCUIT_FOLDS, &short_refs)
+        .expect("short-circuit folds should apply");
+    assert!(
+        short_projected.contains("const first = false;")
+            && short_projected.contains("const second = record();"),
+        "left-literal folds must preserve evaluation order: {short_projected}"
+    );
+    let short_after = js(&short_projected);
+    assert_eq!(count_key(&report_keys(&short_after), "javascript:S1125"), 0);
+    assert_no_new_findings(&rule_counts(&short_report), &rule_counts(&short_after));
+
+    let Some(before_output) = quickfix_node_stdout("s1125-before", S1125_SHORT_CIRCUIT_FOLDS)
+    else {
+        eprintln!("skipping S1125 runtime control: node is unavailable");
+        return;
+    };
+    let after_output = quickfix_node_stdout("s1125-after", &short_projected)
+        .expect("node should stay available for the projected control");
+    assert_eq!(
+        after_output, before_output,
+        "folding must preserve runtime behavior including the evaluated call"
+    );
+
+    let or_fixture = "\
+function check(x) {
+  if (x || false) {
+    return 1;
+  }
+  return 0;
+}
+";
+    let or_report = js(or_fixture);
+    assert!(
+        find_issue(&or_report, "javascript:S1125", "right-false disjunction")
+            .alternatives
+            .iter()
+            .any(|alternative| alternative.id == "s1125-remove-boolean"),
+        "`if (x || false)` should still fold to `if (x)`"
+    );
+}
+
+#[test]
+fn s1940_quickfix_restores_grouping_in_tighter_binding_parents() {
+    // #102: the inverted comparison binds looser than arithmetic; the
+    // action must restore grouping so the rewrite keeps the runtime value.
+    let arithmetic_fixture = "\
+function score(a, b) {
+  return 2 * !(a > b);
+}
+console.log(score(1, 2));
+";
+    let arithmetic_report = js(arithmetic_fixture);
+    assert_eq!(
+        count_key(&report_keys(&arithmetic_report), "javascript:S1940"),
+        1,
+        "negated comparison under multiplication must report S1940"
+    );
+    let arithmetic_issue = find_issue(
+        &arithmetic_report,
+        "javascript:S1940",
+        "arithmetic negation",
+    );
+    let arithmetic_action = arithmetic_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1940-invert-comparison")
+        .expect("inverted comparison should stay actionable");
+    let [arithmetic_edit] = arithmetic_action.fix.edits.as_slice() else {
+        panic!("S1940 arithmetic action should contain one edit");
+    };
+    assert_eq!(
+        arithmetic_edit.replacement, "(a <= b)",
+        "multiplication binds tighter than `<=`; grouping must survive"
+    );
+    let arithmetic_projected = hoonarqube_ir::apply_fixes(arithmetic_fixture, &[arithmetic_edit])
+        .expect("S1940 arithmetic action should apply");
+    assert!(
+        arithmetic_projected.contains("return 2 * (a <= b);"),
+        "projected source must keep the original grouping: {arithmetic_projected}"
+    );
+    let arithmetic_after = js(&arithmetic_projected);
+    assert_eq!(
+        count_key(&report_keys(&arithmetic_after), "javascript:S1940"),
+        0,
+        "the accepted action must remove its finding"
+    );
+    assert_no_new_findings(
+        &rule_counts(&arithmetic_report),
+        &rule_counts(&arithmetic_after),
+    );
+
+    let Some(before_output) = quickfix_node_stdout("s1940-before", arithmetic_fixture) else {
+        eprintln!("skipping S1940 runtime control: node is unavailable");
+        return;
+    };
+    let after_output = quickfix_node_stdout("s1940-after", &arithmetic_projected)
+        .expect("node should stay available for the projected control");
+    assert_eq!(
+        after_output, before_output,
+        "score(1, 2) must stay numeric 2 after the rewrite"
+    );
+}
+
+#[test]
+fn s1940_quickfix_wraps_unary_logical_and_await_parents() {
+    let double_fixture = "function f(a, b) {\n  return !!(a > b);\n}\n";
+    let double_report = js(double_fixture);
+    let double_issue = find_issue(&double_report, "javascript:S1940", "double negation");
+    let double_action = double_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1940-invert-comparison")
+        .expect("double negation should stay actionable");
+    let [double_edit] = double_action.fix.edits.as_slice() else {
+        panic!("S1940 double-negation action should contain one edit");
+    };
+    assert_eq!(double_edit.replacement, "(a <= b)");
+
+    let await_fixture = "async function f(a, b) {\n  return await !(a > b);\n}\n";
+    let await_report = js(await_fixture);
+    let await_action = find_issue(&await_report, "javascript:S1940", "awaited negation")
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1940-invert-comparison")
+        .expect("awaited negation should stay actionable");
+    let [await_edit] = await_action.fix.edits.as_slice() else {
+        panic!("S1940 await action should contain one edit");
+    };
+    assert_eq!(
+        await_edit.replacement, "(a <= b)",
+        "`await a <= b` would await `a` instead; grouping must survive"
+    );
+    let await_projected = hoonarqube_ir::apply_fixes(await_fixture, &[await_edit])
+        .expect("S1940 await action should apply");
+    assert!(
+        await_projected.contains("return await (a <= b);"),
+        "await projection mismatch: {await_projected}"
+    );
+    assert_no_new_findings(
+        &rule_counts(&await_report),
+        &rule_counts(&js(&await_projected)),
+    );
+
+    let logical_fixture = "function f(a, b, ok) {\n  return ok && !(a > b);\n}\n";
+    let logical_report = js(logical_fixture);
+    let logical_action = find_issue(
+        &logical_report,
+        "javascript:S1940",
+        "negation under a logical operator",
+    )
+    .alternatives
+    .iter()
+    .find(|alternative| alternative.id == "s1940-invert-comparison")
+    .expect("negation under `&&` should stay actionable");
+    let [logical_edit] = logical_action.fix.edits.as_slice() else {
+        panic!("S1940 logical action should contain one edit");
+    };
+    assert_eq!(
+        logical_edit.replacement, "(a <= b)",
+        "comparisons inside logical operands must keep explicit grouping"
+    );
+
+    let typed_fixture =
+        "function score(a: number, b: number): number {\n  return 2 * !(a > b);\n}\n";
+    let typed_report = ts(typed_fixture);
+    let typed_action = find_issue(&typed_report, "typescript:S1940", "TypeScript negation")
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1940-invert-comparison")
+        .expect("TypeScript inverted comparison should stay actionable");
+    let [typed_edit] = typed_action.fix.edits.as_slice() else {
+        panic!("TypeScript S1940 action should contain one edit");
+    };
+    assert_eq!(typed_edit.replacement, "(a <= b)");
+}
+
+#[test]
+fn s1940_quickfix_keeps_bare_comparison_in_loose_contexts() {
+    // Contexts that accept a bare comparison keep the unparenthesized form.
+    let bare_contexts: [(&str, &str, &str); 3] = [
+        (
+            "call",
+            "function f(a, b) {\n  return Boolean(!(a > b));\n}\n",
+            "return Boolean(a <= b);",
+        ),
+        (
+            "conditional",
+            "function f(a, b, c) {\n  return c ? !(a > b) : false;\n}\n",
+            "return c ? a <= b : false;",
+        ),
+        (
+            "member",
+            "function f(a, b) {\n  return (!(a > b)).toString();\n}\n",
+            "return (a <= b).toString();",
+        ),
+    ];
+    for (label, source, expected_line) in bare_contexts {
+        let report = js(source);
+        let action = find_issue(&report, "javascript:S1940", label)
+            .alternatives
+            .iter()
+            .find(|alternative| alternative.id == "s1940-invert-comparison")
+            .unwrap_or_else(|| panic!("{label} context should stay actionable"));
+        let [edit] = action.fix.edits.as_slice() else {
+            panic!("{label} context action should contain one edit");
+        };
+        assert_eq!(
+            edit.replacement, "a <= b",
+            "{label} context must not add parentheses"
+        );
+        let projected = hoonarqube_ir::apply_fixes(source, &[edit])
+            .unwrap_or_else(|error| panic!("{label} context action should apply: {error}"));
+        assert!(
+            projected.contains(expected_line),
+            "{label} context projection mismatch: {projected}"
+        );
+        let after = js(&projected);
+        assert_eq!(
+            count_key(&report_keys(&after), "javascript:S1940"),
+            0,
+            "{label} context action must remove its finding"
+        );
+        assert_no_new_findings(&rule_counts(&report), &rule_counts(&after));
+    }
+}
