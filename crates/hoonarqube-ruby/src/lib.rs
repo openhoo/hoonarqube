@@ -95,14 +95,15 @@ mod tests {
                 .any(|issue| issue.rule_key == "rb/useless-assignment-to-local")
         );
 
-        let uninitialized = analyze_github_quality("def f\n  value.length\nend\n");
+        let uninitialized =
+            analyze_github_quality("def f(flag)\n  value = \"x\" if flag\n  value.length\nend\n");
         assert!(
             uninitialized
                 .iter()
                 .any(|issue| issue.rule_key == "rb/uninitialized-local-variable")
         );
         assert!(
-            analyze_github_quality("def f\n  value.to_s\nend\n")
+            analyze_github_quality("def f(flag)\n  value = \"x\" if flag\n  value.to_s\nend\n")
                 .iter()
                 .all(|issue| issue.rule_key != "rb/uninitialized-local-variable")
         );
