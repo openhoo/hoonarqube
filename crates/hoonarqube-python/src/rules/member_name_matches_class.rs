@@ -2,6 +2,7 @@ use crate::support::binding_stmt_targets;
 use crate::support::child_bodies;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
@@ -9,12 +10,10 @@ use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-// --- python:S1700 — members sharing their class's name -------------------------
-//
 // Methods and class-body fields whose name equals the enclosing class name,
 // compared case-insensitively, invite confusion between instance members and
-// the type itself. Only the immediate class scope counts.
-
+// the type itself. Only the immediate class scope counts, including instance
+// attributes assigned to `self` inside `__init__`.
 pub(crate) fn check_member_name_matches_class(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -59,7 +58,7 @@ fn flag_matching_members(
             Stmt::FunctionDef(_) => {}
             _ => {
                 for target in binding_stmt_targets(stmt) {
-                    if let ruff_python_ast::Expr::Name(name) = target
+                    if let Expr::Name(name) = target
                         && name.id.to_lowercase() == lowered_class
                     {
                         push(name.id.as_str(), name.range());
@@ -67,6 +66,59 @@ fn flag_matching_members(
                 }
             }
         }
+    }
+    for stmt in &class.body {
+        if let Stmt::FunctionDef(function) = stmt
+            && function.name.id.as_str() == "__init__"
+            && function.decorator_list.is_empty()
+        {
+            let instance = function
+                .parameters
+                .posonlyargs
+                .first()
+                .or_else(|| function.parameters.args.first())
+                .map_or("self", |parameter| parameter.parameter.name.id.as_str());
+            flag_matching_instance_attributes(&function.body, instance, &lowered_class, &mut push);
+        }
+    }
+}
+
+/// Flags `instance.<name>` assignment targets inside `__init__` whose
+/// attribute name matches the class name case-insensitively. Nested
+/// definitions inside `__init__` are separate functions and are skipped.
+fn flag_matching_instance_attributes(
+    suite: &[Stmt],
+    instance: &str,
+    lowered_class: &str,
+    push: &mut impl FnMut(&str, ruff_text_size::TextRange),
+) {
+    for stmt in suite {
+        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            continue;
+        }
+        for target in attribute_assignment_targets(stmt) {
+            if let Expr::Attribute(attribute) = target
+                && let Expr::Name(base) = attribute.value.as_ref()
+                && base.id.as_str() == instance
+                && attribute.attr.id.to_lowercase() == lowered_class
+            {
+                push(attribute.attr.id.as_str(), attribute.attr.range());
+            }
+        }
+        for body in child_bodies(stmt) {
+            flag_matching_instance_attributes(body, instance, lowered_class, push);
+        }
+    }
+}
+
+/// Assignment target expressions of plain assignment statements, including
+/// attribute targets such as `self.editor` that name-leaf helpers drop.
+fn attribute_assignment_targets(stmt: &Stmt) -> Vec<&Expr> {
+    match stmt {
+        Stmt::Assign(assign) => assign.targets.iter().collect(),
+        Stmt::AnnAssign(assignment) => vec![&assignment.target],
+        Stmt::AugAssign(assignment) => vec![&assignment.target],
+        _ => Vec::new(),
     }
 }
 
@@ -94,5 +146,28 @@ mod tests {
     fn s1700_unrelated_members_stay_clean() {
         let clean = "class Router:\n    def route(self):\n        pass\n    TIMEOUT = 5\n";
         assert!(findings(&scan(clean), "python:S1700").is_empty());
+    }
+
+    #[test]
+    fn s1700_flags_init_instance_attribute_matching_class_name() {
+        let flagged = scan(concat!(
+            "class Editor:\n",
+            "    def __init__(self, editor=None):\n",
+            "        self.editor = editor\n",
+            "\n",
+            "class Config:\n",
+            "    CONFIG = 1\n",
+            "\n",
+            "class Method:\n",
+            "    def Editor(self):\n",
+            "        return None\n"
+        ));
+        let found = findings(&flagged, "python:S1700");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 6);
+        let unrelated_attribute =
+            scan("class Editor:\n    def __init__(self):\n        self.env = {}\n");
+        assert!(findings(&unrelated_attribute, "python:S1700").is_empty());
     }
 }

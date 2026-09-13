@@ -94,17 +94,20 @@ pub(crate) struct Binding {
 pub(crate) struct SymbolScope {
     pub(crate) kind: ScopeKind,
     pub(crate) parent: Option<usize>,
+    /// Text span of the scope's own statement suite (module: whole file),
+    /// used by flow-sensitive rules to locate a scope's statements.
+    pub(crate) body_range: Option<TextRange>,
     pub(crate) bindings: HashMap<String, Vec<Binding>>,
     pub(crate) loads: Vec<(String, TextRange, bool)>,
     global_names: Vec<String>,
     nonlocal_names: Vec<String>,
 }
-
 impl SymbolScope {
     fn new(kind: ScopeKind, parent: Option<usize>) -> Self {
         Self {
             kind,
             parent,
+            body_range: None,
             bindings: HashMap::new(),
             loads: Vec::new(),
             global_names: Vec::new(),
@@ -192,9 +195,18 @@ pub(crate) fn build_symbol_table(parsed: &Parsed<ModModule>) -> SymbolTable {
         def_sites: Vec::new(),
         attr_writes: Vec::new(),
     };
+    table.scopes[0].body_range = Some(parsed.syntax().range());
     collect_scope_stmts(&mut table, 0, parsed.syntax().body.as_slice(), 0);
     resolve_symbol_loads(&mut table);
     table
+}
+
+/// Inclusive span of a statement suite.
+pub(crate) fn suite_range(suite: &[Stmt]) -> TextRange {
+    match (suite.first(), suite.last()) {
+        (Some(first), Some(last)) => TextRange::new(first.start(), last.end()),
+        _ => TextRange::default(),
+    }
 }
 
 fn collect_scope_stmts(table: &mut SymbolTable, current: usize, suite: &[Stmt], loop_depth: u32) {
@@ -551,6 +563,7 @@ fn collect_function_def(
         loop_depth,
     );
     let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
+    table.scopes[fn_scope].body_range = Some(suite_range(&function.body));
     let mut header_exprs: Vec<&Expr> = Vec::new();
     push_parameter_exprs(&function.parameters, &mut header_exprs);
     for expr in header_exprs {
@@ -611,6 +624,7 @@ fn collect_class_def(
         loop_depth,
     );
     let class_scope = push_symbol_scope(table, ScopeKind::Class, current);
+    table.scopes[class_scope].body_range = Some(suite_range(&class.body));
     collect_scope_stmts(table, class_scope, &class.body, 0);
     table.def_sites.push(DefSite {
         enclosing_scope: current,
@@ -839,6 +853,7 @@ fn record_lambda_scope(
         }
     }
     let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
+    table.scopes[fn_scope].body_range = Some(lambda.body.range());
     if let Some(parameters) = &lambda.parameters {
         for parameter in named_parameters(parameters) {
             bind_symbol(
