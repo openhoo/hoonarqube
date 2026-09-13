@@ -32,12 +32,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 mod bindings;
 mod builder;
 mod census;
+mod dead_store;
 mod flow;
 mod helpers;
 
 pub(crate) use bindings::*;
 pub(crate) use builder::*;
 pub(crate) use census::*;
+pub(crate) use dead_store::*;
 pub(crate) use flow::*;
 pub(crate) use helpers::*;
 
