@@ -72,4 +72,97 @@ mod tests {
         let default_expression = "def eval(value=eval(source)):\n    return value\n";
         assert_eq!(findings(&scan(default_expression), "python:S1523").len(), 1);
     }
+    #[test]
+    fn s1523_finds_dynamic_exec_in_every_executable_position() {
+        // Issue #134: the shared expression inventory previously reported only
+        // the direct call while silently dropping the identical call from an
+        // assert message, an except selector, an f-string interpolation, and a
+        // nested format spec, even though Python executes all five.
+        let flagged = concat!(
+            "value = 2\n",
+            "eval(user_input)\n",
+            "assert value, eval(user_input)\n",
+            "try:\n",
+            "    pass\n",
+            "except eval(user_input):\n",
+            "    pass\n",
+            "first = f\"{eval(user_input)}\"\n",
+            "second = f\"{first:{eval(user_input)}}\"\n",
+        );
+        assert_eq!(findings(&scan(flagged), "python:S1523").len(), 5);
+    }
+
+    #[test]
+    fn s1523_keeps_non_executable_string_segments_opaque() {
+        // Control: the literal text of the same call in assert messages and
+        // f-strings is a value, not executable code, and stays unreported.
+        let clean = concat!(
+            "assert value, \"eval(user_input)\"\n",
+            "first = f\"eval(user_input)\"\n",
+            "try:\n",
+            "    pass\n",
+            "except ValueError:\n",
+            "    pass\n",
+        );
+        assert!(findings(&scan(clean), "python:S1523").is_empty());
+    }
+
+    #[test]
+    fn s1523_clears_imported_eval_identity_after_local_rebinding() {
+        // Issue #135: exception aliases, walrus assignments, and match
+        // captures rebind an imported eval alias to a user callable. Calls
+        // before the rebinding keep the imported identity (exactly one
+        // finding); calls after it resolve to the harmless rebinding.
+        let exception_rebind = concat!(
+            "from builtins import eval as run\n",
+            "class Handler(Exception):\n",
+            "    def __call__(self, value):\n",
+            "        return value\n",
+            "run(user_input)\n",
+            "try:\n",
+            "    raise Handler()\n",
+            "except Handler as run:\n",
+            "    run(user_input)\n",
+        );
+        assert_eq!(findings(&scan(exception_rebind), "python:S1523").len(), 1);
+
+        let walrus_rebind = concat!(
+            "from builtins import eval as execute\n",
+            "execute(user_input)\n",
+            "(execute := lambda value: value)\n",
+            "execute(user_input)\n",
+        );
+        assert_eq!(findings(&scan(walrus_rebind), "python:S1523").len(), 1);
+
+        let match_rebind = concat!(
+            "from builtins import eval as evaluate\n",
+            "evaluate(user_input)\n",
+            "match probe():\n",
+            "    case evaluate:\n",
+            "        evaluate(user_input)\n",
+        );
+        assert_eq!(findings(&scan(match_rebind), "python:S1523").len(), 1);
+    }
+
+    #[test]
+    fn s1523_keeps_imported_identity_without_local_rebinding() {
+        // Controls: an untouched from-import alias keeps its API identity, and
+        // a plain assignment rebinding (already modeled) clears it.
+        let untouched = concat!("from builtins import eval as run\n", "run(user_input)\n",);
+        assert_eq!(findings(&scan(untouched), "python:S1523").len(), 1);
+
+        let plain_assign_rebind = concat!(
+            "from builtins import eval as run\n",
+            "run(user_input)\n",
+            "run = lambda value: value\n",
+            "run(user_input)\n",
+        );
+        assert_eq!(
+            findings(&scan(plain_assign_rebind), "python:S1523").len(),
+            1
+        );
+
+        let genuine_builtin = "eval(user_input)\n";
+        assert_eq!(findings(&scan(genuine_builtin), "python:S1523").len(), 1);
+    }
 }

@@ -159,4 +159,27 @@ mod tests {
         // test-thread stack, so the deep chain is deliberately leaked.
         std::mem::forget(parsed);
     }
+
+    /// Differential inventory control for the shared traversal: the identical
+    /// call is collected exactly once from every executable position — direct
+    /// statement, assert message, except selector, f-string interpolation, and
+    /// nested format spec — while the literal text of the same call in plain
+    /// string segments stays out of the inventory.
+    #[test]
+    fn collect_all_counts_identical_call_in_each_executable_position() {
+        let source = concat!(
+            "eval(v)\n",
+            "assert c, eval(v)\n",
+            "try:\n",
+            "    pass\n",
+            "except eval(v):\n",
+            "    pass\n",
+            "first = f\"{eval(v)}\"\n",
+            "second = f\"{first:{eval(v)}}\"\n",
+            "third = \"eval(v)\" f\"plain segment\"\n",
+        );
+        let parsed = parse(source);
+        let ctx = FileContext::build(&parsed);
+        assert_eq!(ctx.calls.len(), 5);
+    }
 }
