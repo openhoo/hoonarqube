@@ -245,4 +245,57 @@ function silent() {
         );
         assert_eq!(count_key(&nested, "javascript:S2432"), 0);
     }
+
+    #[test]
+    fn s2486_reports_pinned_axios_comment_only_catch() {
+        // #253: verbatim axios/axios@18e7dfedf30c96e58652887f930642ae82e0130c
+        // lib/helpers/deprecatedMethod.js (MIT). SonarQube 26.8.0.126808
+        // (Sonar way) reports the comment-only catch at lines 28-30 because
+        // its try body holds two statements.
+        let report = js(include_str!(
+            "../../../fixtures/shapes/axios-deprecated-method.js"
+        ));
+        let sites: Vec<((u32, u32), (u32, u32), &str)> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S2486")
+            .map(|issue| {
+                (
+                    (issue.range.start.line, issue.range.start.column),
+                    (issue.range.end.line, issue.range.end.column),
+                    issue.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sites,
+            vec![(
+                (28, 4),
+                (30, 3),
+                "Handle this exception or don't catch it at all."
+            )]
+        );
+    }
+
+    #[test]
+    fn s2486_scales_comment_only_catch_tolerance_with_try_size() {
+        // Same-server control shapes: a single-statement try body keeps the
+        // comment-only catch tolerated, a two-statement body does not.
+        let single = "function one() {\n  try {\n    doOne();\n  } catch (error) {\n    /* Ignore */\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(single), "javascript:S2486"), 0);
+
+        let two = "function two() {\n  try {\n    doOne();\n    doTwo();\n  } catch (error) {\n    /* Ignore */\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(two), "javascript:S2486"), 1);
+
+        let handled = "function handled() {\n  try {\n    doOne();\n  } catch (error) {\n    log(error);\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(handled), "javascript:S2486"), 0);
+
+        // A zero-statement try body stays tolerated.
+        let zero = "function zero() {\n  try {\n  } catch (error) {\n    /* Ignore */\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(zero), "javascript:S2486"), 0);
+
+        // An uncommented empty catch stays flagged regardless of the try size.
+        let empty = "function empty() {\n  try {\n    doOne();\n    doTwo();\n  } catch (error) {\n  }\n}\n";
+        assert_eq!(count_key(&js_keys(empty), "javascript:S2486"), 1);
+    }
 }
