@@ -38,4 +38,18 @@ mod tests {
         let flagged = scan("X: TypeAlias = int\nY = int\n");
         assert_eq!(findings(&flagged, "python:S6794").len(), 1);
     }
+    #[test]
+    fn s6794_flags_typealias_annotation_through_typing_module_alias() {
+        let flagged =
+            scan("import typing as t\n\nAliased: t.TypeAlias = int\nUnrelated = int\n");
+        let found = findings(&flagged, "python:S6794");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 2);
+
+        // Only the typing module's alias resolves; foreign modules with the
+        // same local spelling stay clean.
+        let foreign =
+            scan("import other as t\n\nMissing: t.TypeAlias = int\n");
+        assert!(findings(&foreign, "python:S6794").is_empty());
+    }
 }
