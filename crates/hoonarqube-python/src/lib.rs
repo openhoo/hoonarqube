@@ -111,6 +111,10 @@ pub struct AnalyzerOptions {
     /// Extends `python:S4487` to single-underscore attributes; mirrors the
     /// catalog `enableSingleUnderscoreIssues` parameter (default `false`).
     pub enable_single_underscore_attribute_issues: bool,
+    /// Reports `python:S905` findings for no-effect string statements;
+    /// mirrors the catalog `reportOnStrings` parameter (default `false`),
+    /// so docstrings and attribute documentation strings stay clean.
+    pub report_on_strings: bool,
     /// Maximum complexity for `python:S5843` over parsed regular-expression
     /// patterns; mirrors the catalog `maxComplexity` parameter (default `20`).
     pub regex_maximum_complexity: u32,
@@ -136,6 +140,7 @@ impl Default for AnalyzerOptions {
             require_type_hints: false,
             unused_local_ignore_pattern: String::from("(_[a-zA-Z0-9_]*|dummy|unused|ignored)"),
             enable_single_underscore_attribute_issues: false,
+            report_on_strings: false,
             regex_maximum_complexity: 20,
         }
     }
@@ -193,7 +198,9 @@ pub fn analyze_with_context(
     issues.extend(check_keyword_parentheses(&parsed, &index, source));
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
-    issues.extend(check_tier_a_battery(&parsed, &index, source, &file_ctx));
+    issues.extend(check_tier_a_battery(
+        &parsed, &index, source, options, &file_ctx,
+    ));
     issues.extend(check_tier_a_battery_2(
         &parsed, &index, source, options, &file_ctx,
     ));

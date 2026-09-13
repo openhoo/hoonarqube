@@ -146,22 +146,51 @@ pub(crate) fn visit_suites_for_no_effect(
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
+    report_on_strings: bool,
+) {
+    visit_suite_for_no_effect(suite, issues, index, source, report_on_strings, false);
+}
+
+fn visit_suite_for_no_effect(
+    suite: &[Stmt],
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+    report_on_strings: bool,
+    in_function_body: bool,
 ) {
     for (position, stmt) in suite.iter().enumerate() {
-        if let Stmt::Expr(value) = stmt
-            && !(position == 0 && matches!(value.value.as_ref(), Expr::StringLiteral(_)))
-            && statement_has_no_effect(&value.value)
-        {
-            issues.push(issue_at(
-                "python:S905",
-                "Remove or refactor this statement; it has no side effects.",
-                stmt.range(),
+        if let Stmt::Expr(value) = stmt {
+            let value_expr = value.value.as_ref();
+            // Leading strings stay docstrings under every setting; further
+            // strings are only reported when `reportOnStrings` is enabled,
+            // and a bare ellipsis directly in a function body is a valid
+            // overload/protocol stub, not a no-effect statement.
+            let exempt = match value_expr {
+                Expr::StringLiteral(_) => !report_on_strings || position == 0,
+                Expr::EllipsisLiteral(_) => in_function_body,
+                _ => false,
+            };
+            if !exempt && statement_has_no_effect(value_expr) {
+                issues.push(issue_at(
+                    "python:S905",
+                    "Remove or refactor this statement; it has no side effects.",
+                    stmt.range(),
+                    index,
+                    source,
+                ));
+            }
+        }
+        let nested_function = matches!(stmt, Stmt::FunctionDef(_));
+        for body in child_bodies(stmt) {
+            visit_suite_for_no_effect(
+                body,
+                issues,
                 index,
                 source,
-            ));
-        }
-        for body in child_bodies(stmt) {
-            visit_suites_for_no_effect(body, issues, index, source);
+                report_on_strings,
+                nested_function,
+            );
         }
     }
 }
