@@ -1022,6 +1022,13 @@ impl<'a> RxParser<'a> {
                 Ok(RxClassItem::Char(self.scan_named_char_body()?))
             }
             '0'..='7' => self.class_octal(),
+            // `\t`, `\n`, `\r`, `\f`, `\v`, `\a` decode to single literal
+            // control characters inside a class; they are never `\s`
+            // shorthand (issue #232).
+            't' | 'n' | 'r' | 'f' | 'v' | 'a' => {
+                self.bump();
+                Ok(RxClassItem::Char(class_escape_char(next.ch)))
+            }
             ch if ch.is_ascii_alphabetic() => Err(self.err_at(Some(next))),
             _ => {
                 self.bump();
@@ -1060,6 +1067,20 @@ impl<'a> RxParser<'a> {
         Ok(RxClassItem::Char(
             char::from_u32(value).unwrap_or('\u{fffd}'),
         ))
+    }
+}
+
+/// Python `re` decodes these alphabetic escapes to single control
+/// characters; inside a class they stay literal characters, never the `\s`
+/// shorthand set.
+fn class_escape_char(letter: char) -> char {
+    match letter {
+        't' => '\t',
+        'n' => '\n',
+        'r' => '\r',
+        'f' => '\u{0c}',
+        'v' => '\u{0b}',
+        _ => '\u{07}',
     }
 }
 
