@@ -174,6 +174,50 @@ pub struct FindingIdentity {
     pub ambiguous: bool,
 }
 
+/// Line-boundary contract used to map raw source bytes to 1-based
+/// [`crate::Pos`] lines.
+///
+/// `Generic` recognizes LF and CRLF only. `Ecmascript` additionally
+/// recognizes the remaining ECMAScript line terminators — lone CR, U+2028
+/// LINE SEPARATOR, and U+2029 PARAGRAPH SEPARATOR — matching the positions
+/// reported for JavaScript and TypeScript sources.
+#[derive(Clone, Copy)]
+pub enum SourceLineStyle {
+    Generic,
+    Ecmascript,
+}
+
+/// Selects the line-boundary contract for one source path, preferring the
+/// analyzer-reported `language` and falling back to the file extension.
+#[must_use]
+pub fn line_style_for_path(path: &Path, language: Option<&str>) -> SourceLineStyle {
+    if let Some(language) = language {
+        if language.eq_ignore_ascii_case("javascript")
+            || language.eq_ignore_ascii_case("js")
+            || language.eq_ignore_ascii_case("typescript")
+            || language.eq_ignore_ascii_case("ts")
+        {
+            return SourceLineStyle::Ecmascript;
+        }
+        return SourceLineStyle::Generic;
+    }
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    if extension.is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("js")
+            || extension.eq_ignore_ascii_case("jsx")
+            || extension.eq_ignore_ascii_case("mjs")
+            || extension.eq_ignore_ascii_case("cjs")
+            || extension.eq_ignore_ascii_case("ts")
+            || extension.eq_ignore_ascii_case("tsx")
+            || extension.eq_ignore_ascii_case("mts")
+            || extension.eq_ignore_ascii_case("cts")
+    }) {
+        SourceLineStyle::Ecmascript
+    } else {
+        SourceLineStyle::Generic
+    }
+}
+
 /// One analyzed source snapshot and all findings produced for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSnapshot {
@@ -207,7 +251,8 @@ impl SourceSnapshot {
             });
         }
         let issues = report.map_or(&[][..], |report| report.issues.as_slice());
-        Self::from_source_and_issues(&path, source, issues)
+        let line_style = line_style_for_path(&path, report.map(|report| report.language.as_str()));
+        Self::from_source_and_issues(&path, source, issues, line_style)
     }
 
     /// Builds a snapshot from source bytes and an issue slice.
@@ -223,28 +268,30 @@ impl SourceSnapshot {
         issues: &[crate::Issue],
     ) -> Result<Self, AssessmentError> {
         let path = normalize_path(path.as_ref())?;
-        Self::from_source_and_issues(&path, source, issues)
+        let line_style = line_style_for_path(&path, None);
+        Self::from_source_and_issues(&path, source, issues, line_style)
     }
 
     fn from_source_and_issues(
         path: &Path,
         source: &[u8],
         issues: &[crate::Issue],
+        line_style: SourceLineStyle,
     ) -> Result<Self, AssessmentError> {
         let text = std::str::from_utf8(source).map_err(|error| AssessmentError::InvalidSource {
             path: path.to_path_buf(),
             reason: format!("source is not valid UTF-8: {error}"),
         })?;
-        let line_digests = split_lines(source).map(line_digest).collect::<Vec<_>>();
-        let line_starts = std::iter::once(0)
-            .chain(text.match_indices('\n').map(|(offset, _)| offset + 1))
+        let line_digests = split_lines(source, line_style)
+            .map(line_digest)
             .collect::<Vec<_>>();
+        let starts = source_line_starts(source, line_style);
         let content_digest = digest_parts(&[b"content", source]);
         let mut findings = issues
             .iter()
             .enumerate()
             .map(|(issue_index, issue)| {
-                finding_identity(issue_index, issue, text, source, &line_starts)
+                finding_identity(issue_index, issue, text, source, &starts, line_style)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -1089,6 +1136,7 @@ fn finding_identity(
     text: &str,
     source: &[u8],
     line_starts: &[usize],
+    line_style: SourceLineStyle,
 ) -> Result<FindingIdentity, AssessmentError> {
     let range = issue.range.clone();
     let (start_line, end_line, source_digest, context_digest) = if range.is_file_level() {
@@ -1096,21 +1144,23 @@ fn finding_identity(
             0,
             0,
             digest_parts(&[b"file-level"]),
-            digest_parts(&[b"context", without_final_line_ending(source)]),
+            digest_parts(&[b"context", without_final_line_ending(source, line_style)]),
         )
     } else {
-        let start = position_to_offset(text, line_starts, range.start).ok_or_else(|| {
-            AssessmentError::Invalid {
-                artifact: "finding identity",
-                reason: format!("finding {issue_index} starts outside source"),
-            }
-        })?;
-        let end = position_to_offset(text, line_starts, range.end).ok_or_else(|| {
-            AssessmentError::Invalid {
-                artifact: "finding identity",
-                reason: format!("finding {issue_index} ends outside source"),
-            }
-        })?;
+        let start =
+            position_to_offset(text, line_starts, range.start, line_style).ok_or_else(|| {
+                AssessmentError::Invalid {
+                    artifact: "finding identity",
+                    reason: format!("finding {issue_index} starts outside source"),
+                }
+            })?;
+        let end =
+            position_to_offset(text, line_starts, range.end, line_style).ok_or_else(|| {
+                AssessmentError::Invalid {
+                    artifact: "finding identity",
+                    reason: format!("finding {issue_index} ends outside source"),
+                }
+            })?;
         if start > end {
             return Err(AssessmentError::Invalid {
                 artifact: "finding identity",
@@ -1141,7 +1191,7 @@ fn finding_identity(
             digest_parts(&[b"range", bytes]),
             digest_parts(&[
                 b"context",
-                without_final_line_ending(&source[context_start..context_end]),
+                without_final_line_ending(&source[context_start..context_end], line_style),
             ]),
         )
     };
@@ -1164,14 +1214,107 @@ fn finding_identity(
     })
 }
 
-fn split_lines(source: &[u8]) -> impl Iterator<Item = &[u8]> {
-    source.split_inclusive(|byte| *byte == b'\n').map(|line| {
-        let line = line.strip_suffix(b"\n").unwrap_or(line);
-        line.strip_suffix(b"\r").unwrap_or(line)
+fn split_lines(source: &[u8], line_style: SourceLineStyle) -> impl Iterator<Item = &[u8]> {
+    let mut start = 0;
+    let mut offset = 0;
+    std::iter::from_fn(move || {
+        if start >= source.len() {
+            return None;
+        }
+        while offset < source.len() {
+            if let Some(width) = line_terminator_width(source, offset, line_style) {
+                let line_end = offset;
+                offset += width;
+                let line = &source[start..line_end];
+                start = offset;
+                return Some(line);
+            }
+            offset += 1;
+        }
+        let line = &source[start..];
+        start = source.len();
+        Some(line)
     })
 }
 
-fn position_to_offset(source: &str, starts: &[usize], pos: crate::Pos) -> Option<usize> {
+fn source_line_starts(source: &[u8], line_style: SourceLineStyle) -> Vec<usize> {
+    let mut starts = vec![0];
+    let mut offset = 0;
+    while offset < source.len() {
+        if let Some(width) = line_terminator_width(source, offset, line_style) {
+            offset += width;
+            starts.push(offset);
+        } else {
+            offset += 1;
+        }
+    }
+    starts
+}
+
+/// Byte width of the line terminator starting at `offset` under
+/// `line_style`, or `None` when the bytes continue the current line.
+#[must_use]
+pub fn line_terminator_width(
+    source: &[u8],
+    offset: usize,
+    line_style: SourceLineStyle,
+) -> Option<usize> {
+    match source.get(offset).copied()? {
+        b'\n' => Some(1),
+        b'\r' if source.get(offset + 1) == Some(&b'\n') => Some(2),
+        b'\r' if matches!(line_style, SourceLineStyle::Ecmascript) => Some(1),
+        0xe2 if matches!(line_style, SourceLineStyle::Ecmascript)
+            && source
+                .get(offset..)
+                .is_some_and(|rest| rest.starts_with(b"\xe2\x80\xa8")) =>
+        {
+            Some(3)
+        }
+        0xe2 if matches!(line_style, SourceLineStyle::Ecmascript)
+            && source
+                .get(offset..)
+                .is_some_and(|rest| rest.starts_with(b"\xe2\x80\xa9")) =>
+        {
+            Some(3)
+        }
+        _ => None,
+    }
+}
+
+/// End offset of one line's content, excluding the trailing terminator
+/// bytes between `start` and `next`.
+#[must_use]
+pub fn line_content_end(
+    source: &[u8],
+    start: usize,
+    next: usize,
+    line_style: SourceLineStyle,
+) -> usize {
+    let mut end = next;
+    if end > start && source[end - 1] == b'\n' {
+        end -= 1;
+        if end > start && source[end - 1] == b'\r' {
+            end -= 1;
+        }
+    } else if end > start && source[end - 1] == b'\r' {
+        end -= 1;
+    } else if end >= start + 3
+        && matches!(line_style, SourceLineStyle::Ecmascript)
+        && source
+            .get(end - 3..end)
+            .is_some_and(|suffix| suffix == b"\xe2\x80\xa8" || suffix == b"\xe2\x80\xa9")
+    {
+        end -= 3;
+    }
+    end
+}
+
+fn position_to_offset(
+    source: &str,
+    starts: &[usize],
+    pos: crate::Pos,
+    line_style: SourceLineStyle,
+) -> Option<usize> {
     if pos.line == 0 {
         return None;
     }
@@ -1179,13 +1322,7 @@ fn position_to_offset(source: &str, starts: &[usize], pos: crate::Pos) -> Option
     let bytes = source.as_bytes();
     let start = *starts.get(line_index)?;
     let next = starts.get(line_index + 1).copied().unwrap_or(bytes.len());
-    let mut end = next;
-    if end > start && bytes[end - 1] == b'\n' {
-        end -= 1;
-    }
-    if end > start && bytes[end - 1] == b'\r' {
-        end -= 1;
-    }
+    let end = line_content_end(bytes, start, next, line_style);
     let content = source.get(start..end)?;
     let column = usize::try_from(pos.column).ok()?;
     content
@@ -1195,9 +1332,17 @@ fn position_to_offset(source: &str, starts: &[usize], pos: crate::Pos) -> Option
         .nth(column)
 }
 
-fn without_final_line_ending(bytes: &[u8]) -> &[u8] {
+fn without_final_line_ending(bytes: &[u8], line_style: SourceLineStyle) -> &[u8] {
     let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-    bytes.strip_suffix(b"\r").unwrap_or(bytes)
+    let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+    if matches!(line_style, SourceLineStyle::Ecmascript) {
+        bytes
+            .strip_suffix(b"\xe2\x80\xa8")
+            .or_else(|| bytes.strip_suffix(b"\xe2\x80\xa9"))
+            .unwrap_or(bytes)
+    } else {
+        bytes
+    }
 }
 
 fn is_digest(value: &str) -> bool {
@@ -1267,6 +1412,55 @@ mod tests {
                 },
             },
         )
+    }
+
+    #[test]
+    fn assessment_line_identity_accepts_ecmascript_terminators() {
+        let issue = crate::Issue::new(
+            "javascript:S1525",
+            "Unexpected 'debugger' statement.",
+            crate::Range {
+                start: crate::Pos { line: 2, column: 0 },
+                end: crate::Pos { line: 2, column: 9 },
+            },
+        );
+        let lf = SourceSnapshot::from_source(
+            "sample.js",
+            b"let value = 1;\ndebugger;\n",
+            std::slice::from_ref(&issue),
+        )
+        .expect("ECMAScript LF");
+        for separator in ["\r", "\r\n", "\u{2028}", "\u{2029}"] {
+            let source = format!("let value = 1;{separator}debugger;{separator}");
+            let snapshot = SourceSnapshot::from_source(
+                "sample.js",
+                source.as_bytes(),
+                std::slice::from_ref(&issue),
+            )
+            .expect("ECMAScript line terminator");
+            assert_eq!(snapshot.line_digests.len(), 2, "{separator:?}");
+            assert_eq!(snapshot.findings[0].start_line, 2);
+            assert_eq!(snapshot.findings[0].identity, lf.findings[0].identity);
+        }
+    }
+
+    #[test]
+    fn assessment_line_identity_keeps_unicode_separators_generic_for_other_languages() {
+        let issue = crate::Issue::new(
+            "python:S1",
+            "finding",
+            crate::Range {
+                start: crate::Pos { line: 2, column: 0 },
+                end: crate::Pos { line: 2, column: 5 },
+            },
+        );
+        let error = SourceSnapshot::from_source(
+            "sample.py",
+            "value = 1;\u{2028}value = 2;".as_bytes(),
+            std::slice::from_ref(&issue),
+        )
+        .expect_err("non-ECMAScript line separators must not create source lines");
+        assert!(error.to_string().contains("starts outside source"));
     }
 
     #[test]
