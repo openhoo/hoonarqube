@@ -121,7 +121,9 @@ fn block_declared_local_names(block: Node<'_>, source: &str) -> Vec<String> {
 }
 
 /// Consumes every pending store whose name this statement reads. Pure
-/// write occurrences do not consume; `out`/`ref` positions do.
+/// `=` writes do not consume; `out`/`ref` positions do, and so does the
+/// read component of a `++`/`--` operand, which observes the previous
+/// value before overwriting it.
 fn consume_reads<'t>(
     statement: Node<'t>,
     source: &str,
@@ -130,7 +132,8 @@ fn consume_reads<'t>(
 ) {
     for identifier in collect_owned_kinds(statement, &["identifier"]) {
         let name = node_text(identifier, source);
-        if tracked.contains(name) && identifier_write(identifier).is_none() {
+        let reads = identifier_write(identifier).is_none_or(|kind| kind == WriteKind::Increment);
+        if tracked.contains(name) && reads {
             pending.retain(|(pending_name, _, _)| pending_name != name);
         }
     }
@@ -283,13 +286,46 @@ mod tests {
     }
 
     #[test]
-    fn s2123_useless_increment_reports_increment_rule() {
+    fn s2123_self_assignment_reports_the_wasted_increment() {
         let report = analyze_default(
-            "class C {\n    void M() {\n        int ticks = 0;\n        ticks++;\n        Reset();\n    }\n}\n",
+            "class C {\n    void M() {\n        int ticks = 0;\n        ticks = ticks++;\n        Reset();\n    }\n}\n",
         );
-        // The increment also displaces the initializer's pending store,
-        // so the masked `= 0` is reported under S1854.
-        assert_eq!(with_key(&report, "csharpsquid:S1854").len(), 1);
+        assert_eq!(with_key(&report, "csharpsquid:S2123").len(), 1);
+        // The increment reads the initializer's value, so only the
+        // overwritten `ticks =` store is dead.
+        let masked = with_key(&report, "csharpsquid:S1854");
+        assert_eq!(masked.len(), 1);
+        assert_eq!(masked[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s1854_increment_read_consumes_the_pending_store() {
+        // Issue #245: Dapper TypeDeserializerCache — `reader.GetName(index++)`
+        // consumes the old `index`, so the initializer is not a dead store.
+        let repro = analyze_default(
+            "class C {\n    void M(int startBound, int length, IReader reader, System.Text.StringBuilder sb) {\n\
+                 int index = startBound;\n\
+                 for (int i = 0; i < length; i++)\n\
+                 {\n\
+                     sb.Append(reader.GetName(index++));\n\
+                 }\n\
+             }\n}\n",
+        );
+        assert!(with_key(&repro, "csharpsquid:S1854").is_empty());
+
+        // Prefix increments read the previous value as well.
+        let prefix = analyze_default(
+            "class C {\n    void M() {\n        int offset = 0;\n        Use(lines[++offset]);\n    }\n}\n",
+        );
+        assert!(with_key(&prefix, "csharpsquid:S1854").is_empty());
+
+        // Control: a genuinely overwritten unread store still reports.
+        let dead = analyze_default(
+            "class C {\n    void M() {\n        int a = 1;\n        a = 2;\n        Log(a);\n    }\n}\n",
+        );
+        let dead_found = with_key(&dead, "csharpsquid:S1854");
+        assert_eq!(dead_found.len(), 1);
+        assert_eq!(dead_found[0].range.start.line, 3);
     }
 
     #[test]
