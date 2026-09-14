@@ -1105,6 +1105,15 @@ pub struct Snapshot {
     pub source_total_rules: usize,
     /// Rule count exposed by the shipped catalog.
     pub total_rules: usize,
+    /// Snapshot digest of the pre-supplement frozen catalog (schema 5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_catalog_sha256: Option<String>,
+    /// Rule-file digests of the pre-supplement frozen catalog (schema 5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_rule_files: Option<BTreeMap<String, String>>,
+    /// Supplemented key counts per language (schema 5).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub selected_rules: BTreeMap<String, usize>,
     pub unverified_rules: BTreeMap<String, Vec<String>>,
     pub languages: BTreeMap<String, SnapshotLanguage>,
     pub endpoints: BTreeMap<String, ResponseReceipt>,
@@ -1134,6 +1143,31 @@ pub struct SnapshotLanguage {
     pub pages_sha256: String,
     pub keys_sha256: String,
     pub shows_sha256: String,
+    /// Adds-only supplement receipts keyed by capture digest (schema 5).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub supplements: BTreeMap<String, SnapshotLanguageSupplement>,
+}
+
+/// Snapshot receipt for one adds-only supplement applied to a frozen
+/// language, keyed by capture digest inside [`SnapshotLanguage`] (schema 5).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotLanguageSupplement {
+    pub capture_sha256: String,
+    pub captured_at_utc: String,
+    pub server_version: String,
+    pub instance_mode: String,
+    pub page_size: u64,
+    pub approval_id: String,
+    pub source_total: u64,
+    pub page_count: usize,
+    pub query_sha256: String,
+    pub pages_sha256: String,
+    pub keys_sha256: String,
+    pub shows_sha256: String,
+    pub selected_count: usize,
+    pub selected_keys_sha256: String,
+    pub selected_rows_sha256: String,
 }
 
 /// Byte-level receipt for one captured HTTP response.
@@ -1170,7 +1204,33 @@ pub struct RuleCatalog {
     pub language: String,
     pub source_capture_sha256: String,
     pub classification: String,
+    /// Adds-only supplement receipts (schema 2 supplemented files).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supplements: Vec<RuleCatalogSupplement>,
     pub rules: Vec<RuleRecord>,
+}
+
+/// Rule-file receipt for one adds-only supplement applied to a frozen
+/// language; `selected_keys` pins the exact captured key surface and
+/// `selected_rows_sha256` pins the exact imported rows (schema 2).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleCatalogSupplement {
+    pub capture_sha256: String,
+    pub captured_at_utc: String,
+    pub server_version: String,
+    pub instance_mode: String,
+    pub page_size: u64,
+    pub approval_id: String,
+    pub source_total: u64,
+    pub page_count: usize,
+    pub query_sha256: String,
+    pub pages_sha256: String,
+    pub keys_sha256: String,
+    pub shows_sha256: String,
+    pub selected_keys: Vec<String>,
+    pub selected_keys_sha256: String,
+    pub selected_rows_sha256: String,
 }
 
 /// One `SonarQube` rule, stripped to classification-safe facts.
@@ -1373,7 +1433,8 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 8]) -> Result<Catalog, String>
         scoped_total += language.len();
         languages.push(language);
     }
-    if source_total != snapshot.source_total_rules {
+    let selected_total: usize = snapshot.selected_rules.values().sum();
+    if source_total != snapshot.source_total_rules + selected_total {
         return Err("snapshot total rule count mismatch".to_owned());
     }
     if scoped_total != snapshot.total_rules {
@@ -1389,8 +1450,14 @@ fn verify(snapshot_text: &str, rule_texts: [&str; 8]) -> Result<Catalog, String>
 }
 
 fn verify_snapshot(snapshot: &Snapshot) -> Result<(), String> {
-    if snapshot.schema_version != 4 {
+    if !matches!(snapshot.schema_version, 4 | 5) {
         return Err("unsupported catalog snapshot schema".to_owned());
+    }
+    let supplemented = snapshot.schema_version == 5;
+    if supplemented != snapshot.base_catalog_sha256.is_some()
+        || supplemented != snapshot.base_rule_files.is_some()
+    {
+        return Err("snapshot schema version and supplement receipts disagree".to_owned());
     }
     if snapshot.scope_classification != SCOPE_CLASSIFICATION {
         return Err("snapshot has invalid scope classification".to_owned());
@@ -1475,8 +1542,11 @@ fn verify_language(
 ) -> Result<LanguageCatalog, String> {
     let catalog: RuleCatalog = serde_json::from_str(rule_text)
         .map_err(|error| format!("invalid catalog file {language_name}.json: {error}"))?;
-    if catalog.schema_version != 1 {
+    if !matches!(catalog.schema_version, 1 | 2) {
         return Err("unsupported rule catalog schema".to_owned());
+    }
+    if (catalog.schema_version == 2) == catalog.supplements.is_empty() {
+        return Err("rule catalog schema and supplement receipts disagree".to_owned());
     }
     if catalog.language != language_id {
         return Err("catalog language mismatch".to_owned());
@@ -1525,9 +1595,18 @@ fn verify_language(
         return Err("rule verification classification mismatch".to_owned());
     }
     verify_rule_facts(&catalog, language_id, repository)?;
-    if !counts_match(receipt.source_total, catalog.rules.len())
-        || !counts_match(receipt.total, catalog.rules.len())
-    {
+    if !counts_match(receipt.total, catalog.rules.len()) {
+        return Err("catalog count mismatch".to_owned());
+    }
+    // Supplemented languages grow `total` by the summed selected counts
+    // while `source_total` keeps describing the immutable base capture.
+    let expected_total = receipt.source_total
+        + receipt
+            .supplements
+            .values()
+            .map(|supplement| u64::try_from(supplement.selected_count).unwrap_or(u64::MAX))
+            .sum::<u64>();
+    if receipt.total != expected_total {
         return Err("catalog count mismatch".to_owned());
     }
     if snapshot.rule_files.get(language_name) != Some(&sha256(rule_text.as_bytes())) {
@@ -1596,8 +1675,14 @@ fn verify_rule_facts(
     {
         return Err("catalog rule identity mismatch".to_owned());
     }
+    let supplement_captures: std::collections::BTreeSet<&str> = catalog
+        .supplements
+        .iter()
+        .map(|supplement| supplement.capture_sha256.as_str())
+        .collect();
     if catalog.rules.iter().any(|rule| {
         rule.provenance_id != catalog.source_capture_sha256
+            && !supplement_captures.contains(rule.provenance_id.as_str())
             || rule.status.is_empty()
             || rule.scope.is_empty()
             || rule.severity.is_empty()
@@ -1695,7 +1780,7 @@ mod tests {
     fn embedded_catalog_passes_full_verification() {
         let catalog = super::embedded();
         let snapshot = catalog.snapshot();
-        assert_eq!(snapshot.schema_version, 4);
+        assert_eq!(snapshot.schema_version, 5);
         assert_eq!(snapshot.oracle_edition, "community");
         assert_eq!(snapshot.scope_classification, super::SCOPE_CLASSIFICATION);
         assert_eq!(snapshot.server_version, "2025.4.4.119049");
@@ -1714,7 +1799,7 @@ mod tests {
         );
         assert_eq!(
             catalog.snapshot().total_rules,
-            1741 + JAVA_RULES + RUBY_RULES
+            1747 + JAVA_RULES + RUBY_RULES
         );
     }
 
@@ -1727,12 +1812,12 @@ mod tests {
         );
         assert_eq!(
             catalog.snapshot().total_rules,
-            1741 + JAVA_RULES + RUBY_RULES
+            1747 + JAVA_RULES + RUBY_RULES
         );
         let expected = [
             ("csharp", 467),
-            ("javascript", 406),
-            ("typescript", 412),
+            ("javascript", 407),
+            ("typescript", 417),
             ("python", 335),
             ("go", 36),
             ("rust", 85),
@@ -1769,7 +1854,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(seen.len(), 1741 + JAVA_RULES + RUBY_RULES);
+        assert_eq!(seen.len(), 1747 + JAVA_RULES + RUBY_RULES);
     }
 
     #[test]
@@ -1976,11 +2061,24 @@ mod tests {
 
     #[test]
     fn unsupported_per_language_schema_fails_verification() {
-        let tampered = PYTHON_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
+        let tampered = PYTHON_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 3", 1);
         let mut rule_texts = PRISTINE;
         rule_texts[3] = &tampered;
         let error = verify(SNAPSHOT_TOML, rule_texts).expect_err("unknown schema must fail");
         assert_eq!(error, "unsupported rule catalog schema");
+    }
+
+    #[test]
+    fn supplemented_schema_without_receipts_fails_verification() {
+        let tampered = PYTHON_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
+        let mut rule_texts = PRISTINE;
+        rule_texts[3] = &tampered;
+        let error =
+            verify(SNAPSHOT_TOML, rule_texts).expect_err("schema 2 without receipts must fail");
+        assert_eq!(
+            error,
+            "rule catalog schema and supplement receipts disagree"
+        );
     }
 
     #[test]

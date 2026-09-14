@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "language": "js",
   "source_capture_sha256": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0",
   "classification": "community-plus-enterprise-unverified",
@@ -10768,6 +10768,35 @@
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
+      "external_key": "javascript:S7726",
+      "language": "js",
+      "repository": "javascript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "IDENTIFIABLE",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention",
+        "es2015",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "df6b82d51fe00e17a90952edbda3ac822bef3a91dea88e3c04379f4ec14048a4"
+    },
+    {
       "external_key": "javascript:S878",
       "language": "js",
       "repository": "javascript",
@@ -10926,6 +10955,27 @@
       "education_principles": [],
       "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+    }
+  ],
+  "supplements": [
+    {
+      "capture_sha256": "df6b82d51fe00e17a90952edbda3ac822bef3a91dea88e3c04379f4ec14048a4",
+      "captured_at_utc": "2026-09-14T12:01:14.284734013Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 514,
+      "page_count": 2,
+      "query_sha256": "84e5065f7c57a49d4e86f3c9093938500febfb63a3261daec17a814b9c719252",
+      "pages_sha256": "c8db626d1050b3664ab9ba2b6d718e53ffcb91fd224aa89824a5af79a84e1ff5",
+      "keys_sha256": "13d0300dbf526da95b5a80963ba184a92f57f969214de4f6526c5aa58f140c30",
+      "shows_sha256": "4e2cce5fd5fe14320fd4fd60b9a72e363cec500c2c029d311cd83330e8de0fae",
+      "selected_keys": [
+        "javascript:S7726"
+      ],
+      "selected_keys_sha256": "e9e4e26e4f07577b79b593d308805da0d162900de23bfdfa9a9ce47ce2ecef2a",
+      "selected_rows_sha256": "72137defe06cb6c597a5910c86b5c6f610603566d703d97cc000fbbf4cc85998"
     }
   ]
 }
