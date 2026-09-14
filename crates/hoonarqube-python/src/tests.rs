@@ -4453,3 +4453,274 @@ fn s9073_accepts_single_condition_assertions() {
     ));
     assert!(findings(&non_pytest_file, "python:S9073").is_empty());
 }
+
+#[test]
+fn s9075_flags_underspecified_warns_assertions() {
+    // Pinned pallets/flask tests/test_basic.py#L1556 @ d73fa1cd (columns
+    // 9-23): `with pytest.warns() if subdomain_matching else nullcontext():`.
+    // Pinned psf/requests tests/test_requests.py#L1046 @ dae7ef63 (columns
+    // 13-27): `with pytest.warns() as warning_records:`. The reference check
+    // anchors the bare `pytest.warns()` call and, for the base `Warning`
+    // type, the warning argument itself; a non-falsy `match=` suppresses the
+    // finding.
+    let flagged = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "\n",
+        "def test_subdomain(matching):\n",
+        "    with pytest.warns() if matching else nullcontext():\n",
+        "        process(\"x\")\n",
+        "\n",
+        "\n",
+        "class TestRecords:\n",
+        "    def test_records(self):\n",
+        "        with pytest.warns() as warning_records:\n",
+        "            process(\"y\")\n",
+        "\n",
+        "\n",
+        "def test_broad_base_type():\n",
+        "    with pytest.warns(Warning):\n",
+        "        process(\"z\")\n",
+    ));
+    let found = findings(&flagged, "python:S9075");
+    assert_eq!(found.len(), 3);
+    assert_eq!(
+        found[0].message,
+        "This assertion is too broad; use a more specific warning type or check the warning message."
+    );
+    assert_eq!(found[0].range.start, pos(5, 9));
+    assert_eq!(found[0].range.end, pos(5, 23));
+    assert_eq!(found[1].range.start, pos(11, 13));
+    assert_eq!(found[1].range.end, pos(11, 27));
+    assert_eq!(found[2].range.start, pos(16, 22));
+    assert_eq!(found[2].range.end, pos(16, 29));
+}
+
+#[test]
+fn s9075_accepts_specific_warning_and_match_forms() {
+    // Controls: a specific warning type without `match=`, `match=` without a
+    // type, the base `Warning` narrowed by `match=`, a tuple of specific
+    // types, and unrelated `warnings.warn` calls all stay silent.
+    let clean = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "def test_specific(value):\n",
+        "    with pytest.warns(UserWarning):\n",
+        "        process(value)\n",
+        "\n",
+        "def test_match_only(value):\n",
+        "    with pytest.warns(match=\"deprecated\"):\n",
+        "        process(value)\n",
+        "\n",
+        "def test_base_with_match(value):\n",
+        "    with pytest.warns(Warning, match=\"deprecated\"):\n",
+        "        process(value)\n",
+        "\n",
+        "def test_specific_tuple(value):\n",
+        "    with pytest.warns((UserWarning, DeprecationWarning)):\n",
+        "        process(value)\n",
+    ));
+    assert!(findings(&clean, "python:S9075").is_empty());
+    let other = scan("import warnings\nwarnings.warn(\"x\", UserWarning)\n");
+    assert!(findings(&other, "python:S9075").is_empty());
+}
+
+#[test]
+fn s9078_flags_duplicate_parametrize_cases() {
+    // Pinned psf/requests tests/test_utils.py#L722 @ dae7ef63 (columns 8-18):
+    // a repeated `("T", "T")` entry. Pinned psf/requests
+    // tests/test_requests.py#L951 (columns 12-36): a repeated `("/get", …)`
+    // entry. Pinned pallets/click tests/test_termui.py#L199 @ 6aabf099
+    // (columns 8-44): a repeated progress-bar case. The reference check
+    // anchors each repeated entry; the first occurrence stays silent.
+    let flagged = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "\n",
+        "@pytest.mark.parametrize(\"value\", [(\"T\", \"T\"), (\"T\", \"T\")])\n",
+        "def test_t(value):\n",
+        "    assert value\n",
+        "\n",
+        "\n",
+        "@pytest.mark.parametrize(\n",
+        "    \"row\",\n",
+        "    [\n",
+        "        (\"/get\", {\"føø\": \"føø\"}),\n",
+        "        (\"/get\", {\"føø\": \"føø\"}),\n",
+        "        (0, False, False, 0, \"  [--------]\"),\n",
+        "        (0, False, False, 0, \"  [--------]\"),\n",
+        "    ],\n",
+        ")\n",
+        "def test_progress(row):\n",
+        "    assert row\n",
+    ));
+    let found = findings(&flagged, "python:S9078");
+    assert_eq!(found.len(), 3);
+    assert_eq!(found[0].message, "Remove this duplicate test case.");
+    assert_eq!(found[0].range.start, pos(4, 47));
+    assert_eq!(found[0].range.end, pos(4, 57));
+    assert_eq!(found[1].range.start, pos(13, 8));
+    assert_eq!(found[1].range.end, pos(13, 32));
+    assert_eq!(found[2].range.start, pos(15, 8));
+    assert_eq!(found[2].range.end, pos(15, 44));
+}
+
+#[test]
+fn s9078_accepts_distinct_and_non_sequence_parametrize() {
+    // Controls: distinct literals, an empty value list (S8998's shape), a
+    // non-sequence `argvalues` call, distinct name tuples, a keyword
+    // `argvalues=` form without duplicates, and non-parametrize decorators
+    // all stay silent.
+    let clean = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "@pytest.mark.parametrize(\"n\", [1, 2, 3])\n",
+        "def test_double(n):\n",
+        "    assert n\n",
+        "\n",
+        "@pytest.mark.parametrize(\"n\", [])\n",
+        "def test_empty(n):\n",
+        "    assert n\n",
+        "\n",
+        "@pytest.mark.parametrize(\"n\", product(a, b))\n",
+        "def test_call(n):\n",
+        "    assert n\n",
+        "\n",
+        "@pytest.mark.parametrize(\"a, b\", [(t1, t2), (t3, t4)])\n",
+        "def test_names(a, b):\n",
+        "    assert a\n",
+        "\n",
+        "@pytest.mark.parametrize(argnames=\"n\", argvalues=[1, 2])\n",
+        "def test_keyword(n):\n",
+        "    assert n\n",
+        "\n",
+        "@pytest.mark.usefixtures(\"db\")\n",
+        "def test_fixture():\n",
+        "    assert db\n",
+    ));
+    assert!(findings(&clean, "python:S9078").is_empty());
+}
+
+#[test]
+fn s9083_flags_argument_free_fixture_and_mark_decorators() {
+    // Pinned pallets/flask tests/test_user_error_handler.py#L223 @ d73fa1cd
+    // (columns 19-21) and pallets/click tests/test_shell_completion.py#L342
+    // and #L506 @ 6aabf099 (columns 15-17): argument-free `@pytest.fixture()`
+    // calls. The reference check anchors the empty parentheses pair, so a
+    // custom `pytest.mark.*` marker with empty parentheses matches too.
+    let flagged = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "\n",
+        "@pytest.fixture()\n",
+        "def sample():\n",
+        "    return 1\n",
+        "\n",
+        "\n",
+        "class TestUser:\n",
+        "    @pytest.fixture()\n",
+        "    def other(self):\n",
+        "        return 2\n",
+        "\n",
+        "\n",
+        "@pytest.mark.slow()\n",
+        "def test_slow(sample):\n",
+        "    assert sample\n",
+    ));
+    let found = findings(&flagged, "python:S9083");
+    assert_eq!(found.len(), 3);
+    assert_eq!(
+        found[0].message,
+        "Remove empty parentheses from this decorator."
+    );
+    assert_eq!(found[0].range.start, pos(4, 15));
+    assert_eq!(found[0].range.end, pos(4, 17));
+    assert_eq!(found[1].range.start, pos(10, 19));
+    assert_eq!(found[1].range.end, pos(10, 21));
+    assert_eq!(found[2].range.start, pos(15, 17));
+    assert_eq!(found[2].range.end, pos(15, 19));
+}
+
+#[test]
+fn s9083_accepts_argument_bearing_bare_and_foreign_decorators() {
+    // Controls: argument-bearing fixture/mark calls, the bare no-parentheses
+    // style, a keyword-only fixture call, and decorators outside the
+    // pytest.fixture / pytest.mark.* family all stay silent.
+    let clean = scan_test_file(concat!(
+        "import functools\n",
+        "import pytest\n",
+        "\n",
+        "@pytest.fixture(scope=\"module\")\n",
+        "def db():\n",
+        "    return object()\n",
+        "\n",
+        "@pytest.fixture\n",
+        "def sample():\n",
+        "    return 1\n",
+        "\n",
+        "@pytest.fixture(autouse=True)\n",
+        "def auto():\n",
+        "    return 2\n",
+        "\n",
+        "@pytest.mark.parametrize(\"value\", [1, 2])\n",
+        "def test_values(value):\n",
+        "    assert value\n",
+        "\n",
+        "@pytest.mark.usefixtures(\"db\")\n",
+        "def test_with_db(db):\n",
+        "    assert db\n",
+        "\n",
+        "@functools.cache()\n",
+        "def cached():\n",
+        "    return 3\n",
+    ));
+    assert!(findings(&clean, "python:S9083").is_empty());
+}
+
+#[test]
+fn s9083_require_parentheses_parameter_inverts_style() {
+    // Configuration proof for the reference `requireParentheses` parameter:
+    // with `require_pytest_decorator_parentheses`, the bare form is flagged
+    // on the decorator expression (reference message "Add empty parentheses
+    // to this decorator.") and the empty-parentheses form turns silent.
+    let options = AnalyzerOptions {
+        require_pytest_decorator_parentheses: true,
+        ..Default::default()
+    };
+    let flagged = scan_with_options(
+        concat!(
+            "import pytest\n",
+            "\n",
+            "\n",
+            "@pytest.fixture\n",
+            "def sample():\n",
+            "    return 1\n",
+            "\n",
+            "\n",
+            "@pytest.mark.slow\n",
+            "def test_slow(sample):\n",
+            "    assert sample\n",
+        ),
+        &options,
+    );
+    let found = findings(&flagged, "python:S9083");
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].message, "Add empty parentheses to this decorator.");
+    // The bare form anchors on the decorator expression without the `@`.
+    assert_eq!(found[0].range.start, pos(4, 1));
+    assert_eq!(found[0].range.end, pos(4, 15));
+    assert_eq!(found[1].range.start, pos(9, 1));
+    assert_eq!(found[1].range.end, pos(9, 17));
+    let clean = scan_with_options(
+        concat!(
+            "import pytest\n",
+            "\n",
+            "\n",
+            "@pytest.fixture()\n",
+            "def sample():\n",
+            "    return 1\n",
+        ),
+        &options,
+    );
+    assert!(findings(&clean, "python:S9083").is_empty());
+}

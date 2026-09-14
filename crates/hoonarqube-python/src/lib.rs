@@ -22,6 +22,7 @@ use crate::engine::rx::parse_regex;
 use crate::quickfix::attach_quick_fixes;
 use crate::rules::assign_plus_minus::check_assign_plus_minus;
 use crate::rules::check_future_reference_battery;
+use crate::rules::check_future_test_contract_battery;
 use crate::rules::check_naming_convention_battery;
 use crate::rules::check_pytest_contract_battery;
 use crate::rules::check_regex_battery;
@@ -76,6 +77,9 @@ mod native;
 /// S1481 unused-local ignore pattern, S4487 single-underscore opt-in,
 /// S5843 maximum regular-expression complexity `20`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+// A parameter bag mirroring catalog rule parameters; several rules expose a
+// boolean knob, so the struct legitimately accumulates them.
+#[allow(clippy::struct_excessive_bools)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: u32,
     pub maximum_lines_of_code: u32,
@@ -121,6 +125,11 @@ pub struct AnalyzerOptions {
     /// Maximum complexity for `python:S5843` over parsed regular-expression
     /// patterns; mirrors the catalog `maxComplexity` parameter (default `20`).
     pub regex_maximum_complexity: u32,
+    /// Requires empty parentheses on argument-free `pytest.fixture` /
+    /// `pytest.mark.*` decorators for `python:S9083`; mirrors the catalog
+    /// `requireParentheses` parameter (default `false`, which flags the
+    /// empty-parentheses style instead).
+    pub require_pytest_decorator_parentheses: bool,
 }
 
 impl Default for AnalyzerOptions {
@@ -145,6 +154,7 @@ impl Default for AnalyzerOptions {
             enable_single_underscore_attribute_issues: false,
             report_on_strings: false,
             regex_maximum_complexity: 20,
+            require_pytest_decorator_parentheses: false,
         }
     }
 }
@@ -241,6 +251,9 @@ pub fn analyze_with_context(
         source,
         path.as_path(),
     ));
+    issues.extend(check_future_test_contract_battery(
+        &parsed, &index, source, options,
+    ));
     issues.extend(check_future_reference_battery(
         &parsed, &index, source, &file_ctx,
     ));
@@ -275,6 +288,7 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
     "py/explicit-call-to-delete",
+    "py/file-not-closed",
     "py/implicit-string-concatenation-in-list",
     "py/redundant-global-declaration",
     "py/regex/backspace-escape",
