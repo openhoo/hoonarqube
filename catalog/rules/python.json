@@ -9290,6 +9290,150 @@
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
+      "external_key": "python:S8502",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "performance",
+        "pythonic",
+        "idiom"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
+    },
+    {
+      "external_key": "python:S8510",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        },
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "confusing",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
+    },
+    {
+      "external_key": "python:S8513",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "performance",
+        "pythonic"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
+    },
+    {
+      "external_key": "python:S8714",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "tests"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
+    },
+    {
+      "external_key": "python:S8786",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "regex",
+        "performance"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
+    },
+    {
       "external_key": "python:S905",
       "language": "py",
       "repository": "python",
@@ -9385,6 +9529,29 @@
     }
   ],
   "supplements": [
+    {
+      "capture_sha256": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434",
+      "captured_at_utc": "2026-09-14T14:23:57.160776518Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 433,
+      "page_count": 1,
+      "query_sha256": "0807b46df1f135a11cb3c3c52291f2d3e82155e6978c618d6513a163c111ce72",
+      "pages_sha256": "abf31d5bf1db7304c6235b67cf1843af26585c49981577c210b677dc8aaaeb1e",
+      "keys_sha256": "879309d7aee558cd32971480642faddd738612f5508835adf636cca4d19fcb34",
+      "shows_sha256": "d545da531614887d49405da3451f9178ab677548a4c13cfea6ad39cbeeade099",
+      "selected_keys": [
+        "python:S8502",
+        "python:S8510",
+        "python:S8513",
+        "python:S8714",
+        "python:S8786"
+      ],
+      "selected_keys_sha256": "8b9ddc0a290a7ed48f8bf3d6ba5cbc03e63e0f01eb7c4b901272ff317ebd3821",
+      "selected_rows_sha256": "71d87734aa890c5d5ca5f1cc3f999d1df66d1f785c7bb62170a7f3fcca3faa8e"
+    },
     {
       "capture_sha256": "382d0dade5debb830885510cf0e55b5498918e9bdc4c4e89a4a0f9954efc3f0c",
       "captured_at_utc": "2026-09-14T12:06:48.220271336Z",
