@@ -67,6 +67,36 @@ enum CatalogCommand {
         #[arg(long)]
         merge: bool,
     },
+    /// Bootstrap new catalog languages from one verified Community MQR capture.
+    ImportSelected {
+        #[arg(long)]
+        capture: PathBuf,
+        #[arg(long, default_value = "catalog/community-artifact-resolution.json")]
+        community_resolution: PathBuf,
+        #[arg(long, default_value = "catalog")]
+        output: PathBuf,
+        /// Bootstrap only these new catalog names; comma- or space-separated.
+        #[arg(long = "lang", required = true, value_delimiter = ',')]
+        languages: Vec<String>,
+        /// Restrict to exactly these rule keys; defaults to the complete captured surface.
+        #[arg(long = "key", value_delimiter = ',')]
+        keys: Vec<String>,
+    },
+    /// Add captured rules to already-frozen catalog languages (adds-only).
+    Supplement {
+        #[arg(long)]
+        capture: PathBuf,
+        #[arg(long, default_value = "catalog/community-artifact-resolution.json")]
+        community_resolution: PathBuf,
+        #[arg(long, default_value = "catalog")]
+        output: PathBuf,
+        /// Supplement only these frozen catalog names; comma- or space-separated.
+        #[arg(long = "lang", required = true, value_delimiter = ',')]
+        languages: Vec<String>,
+        /// Rule keys to add; must exactly describe the selected surface.
+        #[arg(long = "key", required = true, value_delimiter = ',')]
+        keys: Vec<String>,
+    },
     /// Verify committed catalog closure and deterministic hashes.
     Audit {
         #[arg(long, default_value = "catalog/snapshot.toml")]
@@ -76,7 +106,7 @@ enum CatalogCommand {
     },
     /// Audit implemented-rule coverage of the analyzer crates against the frozen catalogs.
     Coverage {
-        /// Restrict the audit to one catalog language (csharp, javascript, typescript, python, go, rust).
+        /// Restrict the audit to one catalog language (csharp, javascript, typescript, python, go, rust, java, ruby).
         #[arg(long)]
         lang: Option<String>,
         /// Exit nonzero when any audited language has unimplemented rules.
@@ -262,6 +292,26 @@ fn main() -> Result<()> {
                 output,
                 merge,
             } => catalog::import(&capture, &community_resolution, &output, merge),
+            CatalogCommand::ImportSelected {
+                capture,
+                community_resolution,
+                output,
+                languages,
+                keys,
+            } => catalog::import_selected(
+                &capture,
+                &community_resolution,
+                &output,
+                &languages,
+                &keys,
+            ),
+            CatalogCommand::Supplement {
+                capture,
+                community_resolution,
+                output,
+                languages,
+                keys,
+            } => catalog::supplement(&capture, &community_resolution, &output, &languages, &keys),
             CatalogCommand::Audit {
                 snapshot,
                 require_pages_complete,
@@ -1317,5 +1367,40 @@ mod tests {
             Command::Catalog { .. } => panic!("unexpected command"),
         }
         assert!(Cli::try_parse_from(["xtask", "catalog", "coverage", "--allow-infra"]).is_err());
+    }
+
+    #[test]
+    fn clap_dispatch_parses_supplement_keys_and_languages() {
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "catalog",
+            "supplement",
+            "--capture",
+            ".oracle/captures-supplement",
+            "--lang",
+            "javascript",
+            "--key",
+            "javascript:S7722,javascript:S7723",
+        ])
+        .expect("supplement invocation should parse");
+        match cli.command {
+            Command::Catalog {
+                command:
+                    CatalogCommand::Supplement {
+                        languages, keys, ..
+                    },
+            } => {
+                assert_eq!(languages, vec!["javascript".to_owned()]);
+                assert_eq!(
+                    keys,
+                    vec!["javascript:S7722".to_owned(), "javascript:S7723".to_owned()]
+                );
+            }
+            Command::Catalog { .. } => panic!("unexpected command"),
+        }
+        assert!(
+            Cli::try_parse_from(["xtask", "catalog", "supplement", "--capture", "c"]).is_err(),
+            "supplement without languages and keys must fail"
+        );
     }
 }

@@ -192,6 +192,3106 @@
     "typescript:S6627": {
       "reason": "internal API import detection requires cross-file module resolution",
       "implementation_gap": false
+    },
+    "java:NoSonar": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S100": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S101": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S103": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S104": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S105": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S106": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1065": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1066": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1067": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1068": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S107": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1075": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S108": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S109": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S110": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1104": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1105": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1106": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1107": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1108": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1109": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1110": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1111": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1113": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1114": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1116": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1117": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1118": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1119": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S112": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1120": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1121": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1123": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1124": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1125": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1126": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1128": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S113": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1130": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1132": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1133": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1134": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1135": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S114": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1141": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1142": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1143": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1144": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1147": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1149": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S115": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1150": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1151": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1153": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1155": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1157": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1158": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S116": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1160": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1161": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1162": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1163": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1165": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1166": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1168": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S117": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1170": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1171": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1172": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1174": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1175": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1176": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S118": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1181": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1182": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1185": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1186": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1188": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S119": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1190": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1191": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1192": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1193": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1194": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1195": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1197": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1199": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S120": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1200": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1201": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1206": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S121": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1210": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1213": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1214": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1215": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1217": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1219": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S122": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1220": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1221": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1223": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1226": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1228": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1244": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S125": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1258": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S126": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1264": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S127": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S128": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1301": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1309": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S131": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1310": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1312": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1313": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1314": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1315": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1317": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1319": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S134": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S135": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S138": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S139": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1444": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1448": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1449": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1450": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1451": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1452": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1479": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1481": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1488": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1541": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1596": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1598": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1602": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1604": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1607": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1610": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1611": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1612": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1640": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1641": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1643": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1656": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1659": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1694": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1695": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1696": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1698": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1699": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1700": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1710": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1711": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1751": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1764": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1774": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1820": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1821": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1844": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1845": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1849": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1854": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1858": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1860": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1862": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1871": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1872": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1874": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1905": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1939": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1940": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1941": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1942": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1943": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1948": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1989": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1994": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S1996": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2039": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2047": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2053": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2055": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2057": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2059": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2060": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2061": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2062": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2063": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2065": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2066": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2068": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2077": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2092": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2093": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2094": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2095": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2096": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2097": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2109": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2110": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2111": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2112": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2114": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2115": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2116": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2118": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2119": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2121": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2122": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2123": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2127": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2129": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2130": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2131": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2133": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2134": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2139": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2140": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2141": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2142": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2143": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2147": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2148": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2151": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2153": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2154": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2156": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2157": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2159": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2160": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2162": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2164": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2165": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2166": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2167": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2168": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2175": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2176": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2177": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2178": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2183": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2184": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2185": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2186": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2187": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2188": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2189": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2196": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2197": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2200": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2201": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2203": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2204": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2206": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2208": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2209": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2211": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2221": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2222": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2225": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2226": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2229": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2230": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2232": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2234": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2235": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2236": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2245": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2250": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2251": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2252": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2254": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2257": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2259": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2260": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2272": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2273": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2274": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2275": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2276": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2293": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2301": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2308": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2309": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2325": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2326": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2333": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2384": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2386": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2387": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2388": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2390": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2437": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2438": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2440": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2441": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2442": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2444": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2445": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2446": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2447": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2479": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2583": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2589": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2612": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2629": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2637": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2638": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2639": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2647": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2654": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2658": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2674": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2675": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2676": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2677": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2681": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2689": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2692": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2693": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2694": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2695": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2696": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2698": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2699": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2701": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2718": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2737": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2755": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2757": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2761": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2786": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2789": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2864": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2885": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2886": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2924": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2925": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2959": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2970": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2972": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2973": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2974": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S2975": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3008": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3010": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3011": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3012": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3014": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3020": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3024": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3030": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3032": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3033": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3034": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3038": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3039": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3042": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3046": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3047": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3051": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3052": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3063": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3064": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3065": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3066": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3067": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3077": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3078": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3242": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3252": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3254": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3305": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3306": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3329": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3330": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3346": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3358": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3366": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3398": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3400": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3414": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3415": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3416": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3436": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3437": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3457": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3516": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3518": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3551": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3553": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3577": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3578": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3599": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3626": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3631": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3655": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3658": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3706": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3725": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3740": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3749": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3750": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3751": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3752": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3753": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3776": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3824": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3864": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3878": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3923": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3937": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3958": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3959": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3972": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3973": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3981": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3984": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3985": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S3986": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4030": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4032": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4034": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4036": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4042": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4065": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4087": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4143": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4144": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4165": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4174": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4201": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4248": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4266": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4274": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4275": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4276": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4288": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4347": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4348": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4349": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4351": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4423": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4425": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4426": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4433": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4434": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4449": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4454": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4488": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4502": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4507": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4512": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4517": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4524": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4544": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4551": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4601": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4602": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4604": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4605": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4635": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4682": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4684": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4719": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4738": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4790": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4830": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4838": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4925": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4926": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4929": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4968": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4970": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4973": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S4977": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5042": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5122": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5128": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5164": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5194": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5247": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5261": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5301": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5320": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5322": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5324": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5329": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5332": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5344": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5361": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5411": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5413": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5443": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5445": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5527": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5542": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5547": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5612": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5659": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5663": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5664": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5665": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5669": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5673": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5679": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5689": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5693": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5738": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5776": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5777": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5778": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5779": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5783": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5785": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5786": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5790": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5793": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5803": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5804": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5808": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5810": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5826": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5831": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5833": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5838": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5841": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5842": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5843": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5845": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5846": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5850": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5852": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5853": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5854": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5855": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5856": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5857": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5860": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5863": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5866": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5867": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5868": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5869": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5876": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5917": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5958": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5960": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5961": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5967": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5969": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5970": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5973": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5976": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5977": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5979": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5993": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5994": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5996": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S5998": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6001": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6002": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6019": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6035": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6068": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6070": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6073": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6103": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6104": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6126": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6201": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6202": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6203": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6204": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6205": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6206": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6207": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6208": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6209": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6211": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6212": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6213": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6216": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6217": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6218": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6219": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6241": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6242": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6243": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6244": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6246": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6262": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6263": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6288": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6293": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6301": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6326": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6331": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6353": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6355": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6362": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6363": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6373": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6374": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6376": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6377": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6395": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6396": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6397": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6411": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6418": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6432": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6437": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6485": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6539": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6541": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6548": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6665": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6804": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6806": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6809": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6810": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6813": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6814": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6816": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6817": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6818": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6829": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6830": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6831": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6832": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6833": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6837": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6838": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6856": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6857": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6862": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6863": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6876": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6877": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6878": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6880": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6881": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6885": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6889": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6891": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6898": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6901": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6904": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6905": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6906": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6909": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6912": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6913": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6914": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6915": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6916": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6923": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S6926": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7158": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7177": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7178": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7179": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7180": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7183": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7184": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7185": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7186": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7190": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7409": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7435": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7466": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7467": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7474": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7475": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7476": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7477": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7478": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7479": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7481": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7482": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S7629": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S818": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8220": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8346": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8432": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8433": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8444": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8445": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8446": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8447": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8450": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8465": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8469": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8491": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S864": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8688": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8692": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8694": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8695": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8696": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8700": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8714": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8715": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8745": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8786": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S881": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S888": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8908": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8909": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8910": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8911": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8912": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8913": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8924": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8947": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8948": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8954": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8975": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8983": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S8989": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S899": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S9015": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S9016": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S9017": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S9021": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S9024": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S9068": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "java:S923": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:ParsingError": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S100": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S101": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S103": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S104": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S105": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1066": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1067": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S107": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S108": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1110": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1134": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1135": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1145": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1151": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S117": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1172": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1186": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1192": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S122": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S126": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S131": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1313": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1314": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S134": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S138": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1451": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1479": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1481": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1656": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1763": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1764": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1821": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1862": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1871": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S1940": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S2068": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S2757": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S3776": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S3923": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S4144": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
+    },
+    "ruby:S4663": {
+      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
+      "implementation_gap": true
     }
   }
 }
