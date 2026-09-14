@@ -14,9 +14,9 @@ use std::collections::HashMap;
 use crate::engine::file_context::FileContext;
 use crate::engine::rx::{RxUnit, decode_string_part, for_each_class, parse_regex};
 use crate::support::{
-    called_name, child_bodies, child_exprs, collect_target_names, for_each_stmt_in_scope, issue_at,
-    named_parameters, parse, significant_tokens, sort_issues, stmt_exprs, stmt_store_names,
-    string_value_text,
+    called_name, child_bodies, child_exprs, collect_target_names, for_each_expr, for_each_stmt,
+    for_each_stmt_expr_in_scope, for_each_stmt_in_scope, issue_at, named_parameters, parse,
+    significant_tokens, sort_issues, stmt_exprs, stmt_store_names, string_value_text,
 };
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum BindingValue {
@@ -682,6 +682,7 @@ pub(crate) fn analyze_parsed(
     check_redundant_globals(parsed, index, source, &mut issues);
     check_explicit_del(parsed, index, source, &mut issues);
     check_mixed_format_fields(index, source, &file_ctx, &facts, &mut issues);
+    check_file_not_closed(parsed, index, source, &mut issues);
     sort_issues(&mut issues);
     issues
 }
@@ -1210,6 +1211,423 @@ fn is_explicit_field_name(field_name: &[char]) -> bool {
         .split(|ch| *ch == '.')
         .next()
         .is_some_and(|part| !part.is_empty() && part.iter().all(char::is_ascii_digit))
+}
+
+// ---------------------------------------------------------------------------
+// py/file-not-closed
+// ---------------------------------------------------------------------------
+
+const FILE_NOT_CLOSED_KEY: &str = "py/file-not-closed";
+const FILE_NOT_CLOSED_OPEN: &str = "File is opened but is not closed.";
+const FILE_NOT_CLOSED_ON_EXCEPTION: &str =
+    "File may not be closed if this operation raises an exception.";
+
+/// A file object opened inside a function scope: the builtin `open` bound to
+/// a local name. `os.open` is deliberately out of scope: it yields a bare
+/// descriptor whose ownership routinely crosses call boundaries, which the
+/// descriptor-modeling side of the reference query handles separately.
+/// Shadowed `open` bindings stay unresolved rather than guessed.
+struct FileOpenBinding {
+    name: String,
+    range: TextRange,
+}
+
+/// A method call on an opened file. Every call except `close` may raise —
+/// the reference query's approximation of a raising operation.
+struct FileUse {
+    name: String,
+    range: TextRange,
+    is_close: bool,
+}
+
+/// Per-function-scope facts feeding the `py/file-not-closed` decision.
+#[derive(Default)]
+struct FileScopeFacts {
+    bindings: Vec<FileOpenBinding>,
+    uses: Vec<FileUse>,
+    /// `with <name>:` context names and the body range they guard.
+    with_guards: Vec<(String, TextRange)>,
+    /// `try` statement ranges paired with their finally suite, if any.
+    try_ranges: Vec<(TextRange, Option<TextRange>)>,
+    /// Names whose ownership left this scope before closing mattered.
+    transferred: Vec<String>,
+}
+
+/// `python:py/file-not-closed` — the `CodeQL` resource contract for opened
+/// files. A file that is never closed and never handed off stays open on
+/// every path (`File is opened but is not closed.`); a file whose close does
+/// not guard a raising operation on it (`File may not be closed if this
+/// operation raises an exception.`) leaks on that exception path, so a
+/// sequential open/write/close reports just like the reference query. The
+/// open call anchors both variants. Ownership transfer exempts a file:
+/// returning it (bare, or inside a tuple/list), storing it in a field,
+/// passing it to a constructor-style call, or wrapping it with `os.fdopen`
+/// makes the receiver responsible. Context managers and finally closes guard
+/// the operations they cover, and a captured nested scope counts as escape.
+/// Analysis is per function scope, deliberately separate from the strict
+/// native `hoonarqube-python:file-not-closed` detector; module-level opens
+/// are long-lived process state and stay unreported.
+fn check_file_not_closed(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    visit_file_scopes(parsed.syntax().body.as_slice(), &[], index, source, issues);
+}
+
+fn visit_file_scopes(
+    suite: &[Stmt],
+    shadowed: &[String],
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for stmt in suite {
+        let Stmt::FunctionDef(function) = stmt else {
+            for body in child_bodies(stmt) {
+                visit_file_scopes(body, shadowed, index, source, issues);
+            }
+            continue;
+        };
+        let shadow = file_open_shadowing(function, shadowed);
+        let facts = collect_file_scope_facts(function, &shadow);
+        report_file_not_closed(function, &facts, index, source, issues);
+        visit_file_scopes(&function.body, &shadow, index, source, issues);
+    }
+}
+
+/// Names that shadow the builtin `open` in this scope chain: the inherited
+/// shadow plus this function's parameters and stored names.
+fn file_open_shadowing(
+    function: &ruff_python_ast::StmtFunctionDef,
+    shadowed: &[String],
+) -> Vec<String> {
+    let mut shadow = shadowed.to_vec();
+    for parameter in function
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&function.parameters.args)
+        .chain(&function.parameters.kwonlyargs)
+    {
+        shadow.push(parameter.parameter.name.as_str().to_string());
+    }
+    if let Some(parameter) = function.parameters.vararg.as_deref() {
+        shadow.push(parameter.name.as_str().to_string());
+    }
+    if let Some(parameter) = function.parameters.kwarg.as_deref() {
+        shadow.push(parameter.name.as_str().to_string());
+    }
+    for_each_stmt_in_scope(&function.body, &mut |statement| {
+        shadow.extend(stmt_store_names(statement));
+    });
+    shadow
+}
+
+fn collect_file_scope_facts(
+    function: &ruff_python_ast::StmtFunctionDef,
+    shadowed: &[String],
+) -> FileScopeFacts {
+    let mut facts = FileScopeFacts::default();
+    collect_file_scope_statements(function, shadowed, &mut facts);
+    collect_file_scope_uses(function, &mut facts);
+    facts
+}
+
+/// Statement-level facts: open bindings, ownership transfer, and the guard
+/// structures (`with` items and `try`/finally suites).
+fn collect_file_scope_statements(
+    function: &ruff_python_ast::StmtFunctionDef,
+    shadowed: &[String],
+    facts: &mut FileScopeFacts,
+) {
+    for_each_stmt_in_scope(&function.body, &mut |statement| {
+        collect_file_scope_statement(statement, shadowed, facts);
+    });
+}
+
+fn collect_file_scope_statement(statement: &Stmt, shadowed: &[String], facts: &mut FileScopeFacts) {
+    match statement {
+        Stmt::Assign(assign) => collect_assign_facts(assign, shadowed, facts),
+        Stmt::AnnAssign(assign) => collect_ann_assign_facts(assign, shadowed, facts),
+        Stmt::Return(return_stmt) => collect_return_facts(return_stmt, facts),
+        Stmt::Try(try_stmt) => collect_try_facts(try_stmt, facts),
+        Stmt::With(with_stmt) => collect_with_facts(with_stmt, facts),
+        _ => {}
+    }
+}
+
+fn collect_assign_facts(
+    assign: &ruff_python_ast::StmtAssign,
+    shadowed: &[String],
+    facts: &mut FileScopeFacts,
+) {
+    if is_file_open(&assign.value, shadowed) {
+        for target in &assign.targets {
+            let Expr::Name(name) = target else {
+                // `self.f = open(...)` stores the file in a field: another
+                // method owns closing it.
+                if let Some(name) = contained_bare_name(&assign.value) {
+                    facts.transferred.push(name);
+                }
+                continue;
+            };
+            facts.bindings.push(FileOpenBinding {
+                name: name.id.to_string(),
+                range: assign.value.range(),
+            });
+        }
+        return;
+    }
+    if let Some(name) = assigned_field_value_name(assign) {
+        // `self.f = f` hands the handle to an instance field.
+        facts.transferred.push(name);
+    }
+}
+
+fn collect_ann_assign_facts(
+    assign: &ruff_python_ast::StmtAnnAssign,
+    shadowed: &[String],
+    facts: &mut FileScopeFacts,
+) {
+    let Some(Expr::Name(name)) = Some(assign.target.as_ref()) else {
+        return;
+    };
+    let Some(value) = assign.value.as_deref() else {
+        return;
+    };
+    if is_file_open(value, shadowed) {
+        facts.bindings.push(FileOpenBinding {
+            name: name.id.to_string(),
+            range: value.range(),
+        });
+    }
+}
+
+fn collect_return_facts(return_stmt: &ruff_python_ast::StmtReturn, facts: &mut FileScopeFacts) {
+    let Some(value) = return_stmt.value.as_deref() else {
+        return;
+    };
+    if let Some(name) = returned_bare_name(value) {
+        facts.transferred.push(name);
+    }
+}
+
+fn collect_try_facts(try_stmt: &ruff_python_ast::StmtTry, facts: &mut FileScopeFacts) {
+    let finally = (!try_stmt.finalbody.is_empty()).then(|| range_of_suite(&try_stmt.finalbody));
+    facts.try_ranges.push((try_stmt.range(), finally));
+}
+
+fn collect_with_facts(with_stmt: &ruff_python_ast::StmtWith, facts: &mut FileScopeFacts) {
+    for item in &with_stmt.items {
+        if let Some(name) = contained_bare_name(&item.context_expr) {
+            facts
+                .with_guards
+                .push((name, range_of_suite(&with_stmt.body)));
+        }
+    }
+}
+
+/// Expression-level facts: method calls on opened files (closes included)
+/// and constructor-style/`os.fdopen` argument transfers.
+fn collect_file_scope_uses(
+    function: &ruff_python_ast::StmtFunctionDef,
+    facts: &mut FileScopeFacts,
+) {
+    for_each_stmt_expr_in_scope(&function.body, &mut |expr| {
+        let Expr::Call(call) = expr else {
+            return;
+        };
+        if let Expr::Attribute(attribute) = call.func.as_ref()
+            && let Expr::Name(name) = attribute.value.as_ref()
+        {
+            facts.uses.push(FileUse {
+                name: name.id.to_string(),
+                range: call.range(),
+                is_close: attribute.attr.as_str() == "close",
+            });
+        }
+        let wrapper = called_name(&call.func).is_some_and(|name| {
+            name == "os.fdopen"
+                || name
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|segment| segment.starts_with(|ch: char| ch.is_ascii_uppercase()))
+        });
+        if wrapper {
+            for argument in call
+                .arguments
+                .args
+                .iter()
+                .chain(call.arguments.keywords.iter().map(|keyword| &keyword.value))
+            {
+                if let Some(name) = contained_bare_name(argument) {
+                    facts.transferred.push(name);
+                }
+            }
+        }
+    });
+}
+
+/// Emits at most one finding per open binding: the never-closed variant when
+/// no close exists, otherwise the exception-path variant when some raising
+/// operation on the file is not guarded by any close.
+fn report_file_not_closed(
+    function: &ruff_python_ast::StmtFunctionDef,
+    facts: &FileScopeFacts,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for binding in &facts.bindings {
+        if nested_scope_uses(&function.body, &binding.name) {
+            // A nested function or class captures the file; ownership left
+            // this scope.
+            continue;
+        }
+        if facts.transferred.iter().any(|name| name == &binding.name) {
+            continue;
+        }
+        let closes: Vec<&FileUse> = facts
+            .uses
+            .iter()
+            .filter(|file_use| file_use.is_close && file_use.name == binding.name)
+            .collect();
+        if closes.is_empty() {
+            issues.push(issue_at(
+                FILE_NOT_CLOSED_KEY,
+                FILE_NOT_CLOSED_OPEN,
+                binding.range,
+                index,
+                source,
+            ));
+            continue;
+        }
+        let guarded_by_with = facts
+            .with_guards
+            .iter()
+            .any(|(name, body)| name == &binding.name && body.contains_range(binding.range));
+        let unguarded = facts
+            .uses
+            .iter()
+            .filter(|file_use| !file_use.is_close && file_use.name == binding.name)
+            .any(|operation| {
+                if guarded_by_with
+                    && facts.with_guards.iter().any(|(name, body)| {
+                        name == &binding.name && body.contains_range(operation.range)
+                    })
+                {
+                    return false;
+                }
+                !closes.iter().any(|close| {
+                    close.range.start() < operation.range.start()
+                        || try_finally_covers(&facts.try_ranges, operation.range, close.range)
+                })
+            });
+        if unguarded {
+            issues.push(issue_at(
+                FILE_NOT_CLOSED_KEY,
+                FILE_NOT_CLOSED_ON_EXCEPTION,
+                binding.range,
+                index,
+                source,
+            ));
+        }
+    }
+}
+
+/// Holds if a close inside a try's finally suite guards an operation raised
+/// anywhere inside the same try statement.
+fn try_finally_covers(
+    try_ranges: &[(TextRange, Option<TextRange>)],
+    operation: TextRange,
+    close: TextRange,
+) -> bool {
+    try_ranges.iter().any(|(statement, finally)| {
+        let Some(finally) = finally else {
+            return false;
+        };
+        finally.contains_range(close) && statement.contains_range(operation)
+    })
+}
+
+fn range_of_suite(suite: &[Stmt]) -> TextRange {
+    match (suite.first(), suite.last()) {
+        (Some(first), Some(last)) => TextRange::new(first.start(), last.end()),
+        _ => TextRange::default(),
+    }
+}
+
+/// Holds if `expr` opens a file: the builtin `open`, unshadowed in this
+/// scope chain.
+fn is_file_open(expr: &Expr, shadowed: &[String]) -> bool {
+    let Expr::Call(call) = expr else {
+        return false;
+    };
+    match call.func.as_ref() {
+        Expr::Name(name) => {
+            name.id.as_str() == "open" && !shadowed.iter().any(|candidate| candidate == "open")
+        }
+        _ => false,
+    }
+}
+
+/// The bare file name a returned value hands on: `return f`, or a tuple or
+/// list whose element is the file itself. A method call result such as
+/// `f.read()` is not the file.
+fn returned_bare_name(value: &Expr) -> Option<String> {
+    match value {
+        Expr::Name(name) => Some(name.id.to_string()),
+        Expr::Tuple(tuple) => tuple.elts.iter().find_map(returned_bare_name),
+        Expr::List(list) => list.elts.iter().find_map(returned_bare_name),
+        _ => None,
+    }
+}
+
+/// The file name of `attribute = f` assignments (field hand-off).
+fn assigned_field_value_name(assign: &ruff_python_ast::StmtAssign) -> Option<String> {
+    if assign.targets.len() != 1 {
+        return None;
+    }
+    if !matches!(&assign.targets[0], Expr::Attribute(_)) {
+        return None;
+    }
+    contained_bare_name(&assign.value)
+}
+
+/// The bare name of an expression that is exactly one name.
+fn contained_bare_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Name(name) => Some(name.id.to_string()),
+        _ => None,
+    }
+}
+
+/// Holds if any nested function or class body references `name`, so the
+/// binding escapes this scope. Each nested definition's whole subtree is
+/// searched: a grandchild closure capturing the file also escapes it.
+fn nested_scope_uses(suite: &[Stmt], name: &str) -> bool {
+    let mut found = false;
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if !matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            return;
+        }
+        let mut referenced = false;
+        for body in child_bodies(stmt) {
+            for_each_stmt(body, &mut |nested| {
+                for expr in stmt_exprs(nested) {
+                    for_each_expr(expr, &mut |inner| {
+                        if let Expr::Name(name_expr) = inner {
+                            referenced |= name_expr.id.as_str() == name;
+                        }
+                    });
+                }
+            });
+        }
+        found |= referenced;
+    });
+    found
 }
 
 #[cfg(test)]

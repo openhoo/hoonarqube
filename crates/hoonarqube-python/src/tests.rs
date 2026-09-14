@@ -4557,8 +4557,8 @@ fn s9078_flags_duplicate_parametrize_cases() {
     let found = findings(&flagged, "python:S9078");
     assert_eq!(found.len(), 3);
     assert_eq!(found[0].message, "Remove this duplicate test case.");
-    assert_eq!(found[0].range.start, pos(4, 45));
-    assert_eq!(found[0].range.end, pos(4, 55));
+    assert_eq!(found[0].range.start, pos(4, 47));
+    assert_eq!(found[0].range.end, pos(4, 57));
     assert_eq!(found[1].range.start, pos(13, 8));
     assert_eq!(found[1].range.end, pos(13, 32));
     assert_eq!(found[2].range.start, pos(15, 8));
@@ -4637,8 +4637,8 @@ fn s9083_flags_argument_free_fixture_and_mark_decorators() {
     assert_eq!(found[0].range.end, pos(4, 17));
     assert_eq!(found[1].range.start, pos(10, 19));
     assert_eq!(found[1].range.end, pos(10, 21));
-    assert_eq!(found[2].range.start, pos(15, 18));
-    assert_eq!(found[2].range.end, pos(15, 20));
+    assert_eq!(found[2].range.start, pos(15, 17));
+    assert_eq!(found[2].range.end, pos(15, 19));
 }
 
 #[test]
@@ -4674,5 +4674,53 @@ fn s9083_accepts_argument_bearing_bare_and_foreign_decorators() {
         "def cached():\n",
         "    return 3\n",
     ));
+    assert!(findings(&clean, "python:S9083").is_empty());
+}
+
+#[test]
+fn s9083_require_parentheses_parameter_inverts_style() {
+    // Configuration proof for the reference `requireParentheses` parameter:
+    // with `require_pytest_decorator_parentheses`, the bare form is flagged
+    // on the decorator expression (reference message "Add empty parentheses
+    // to this decorator.") and the empty-parentheses form turns silent.
+    let options = AnalyzerOptions {
+        require_pytest_decorator_parentheses: true,
+        ..Default::default()
+    };
+    let flagged = scan_with_options(
+        concat!(
+            "import pytest\n",
+            "\n",
+            "\n",
+            "@pytest.fixture\n",
+            "def sample():\n",
+            "    return 1\n",
+            "\n",
+            "\n",
+            "@pytest.mark.slow\n",
+            "def test_slow(sample):\n",
+            "    assert sample\n",
+        ),
+        &options,
+    );
+    let found = findings(&flagged, "python:S9083");
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].message, "Add empty parentheses to this decorator.");
+    // The bare form anchors on the decorator expression without the `@`.
+    assert_eq!(found[0].range.start, pos(4, 1));
+    assert_eq!(found[0].range.end, pos(4, 15));
+    assert_eq!(found[1].range.start, pos(9, 1));
+    assert_eq!(found[1].range.end, pos(9, 17));
+    let clean = scan_with_options(
+        concat!(
+            "import pytest\n",
+            "\n",
+            "\n",
+            "@pytest.fixture()\n",
+            "def sample():\n",
+            "    return 1\n",
+        ),
+        &options,
+    );
     assert!(findings(&clean, "python:S9083").is_empty());
 }

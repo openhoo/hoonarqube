@@ -1,14 +1,39 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::engine::file_context::FileContext;
 use crate::support::{
-    child_bodies, for_each_expr, for_each_stmt_in_scope, issue_at, stmt_exprs, stmt_store_names,
+    child_bodies, collect_target_names, for_each_expr, for_each_stmt_in_scope, issue_at,
+    stmt_exprs, stmt_store_names,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, Stmt, StmtFunctionDef};
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
-use std::collections::{HashMap, HashSet};
 
-pub(crate) fn check_s2245_prng_security_contexts(
+const RULE_KEY: &str = "python:S2245";
+const MESSAGE: &str = "Make sure that using this pseudorandom number generator is safe here.";
+
+/// Pseudorandom function names of the reference hotspots checker, flagged on
+/// both the `random.<fn>` and the `random.Random.<fn>` qualifier. `uniform`
+/// is deliberately absent: the reference set does not contain it.
+const PRNG_FUNCTIONS: [&str; 9] = [
+    "random",
+    "getrandbits",
+    "randint",
+    "sample",
+    "choice",
+    "choices",
+    "randbytes",
+    "randrange",
+    "shuffle",
+];
+
+/// python:S2245 — using a pseudorandom number generator is
+/// security-sensitive: every resolved `random`/`random.Random` pseudorandom
+/// call is reported as a security hotspot regardless of the enclosing scope,
+/// while `random.SystemRandom` and equivalent explicitly safe identities stay
+/// excluded, matching the reference checker.
+pub(crate) fn check_s2245_pseudorandom_calls(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
@@ -18,8 +43,6 @@ pub(crate) fn check_s2245_prng_security_contexts(
     visit_scope(
         file_ctx.module_body,
         &mut module_bindings,
-        false,
-        true,
         index,
         source,
         &mut issues,
@@ -46,8 +69,6 @@ struct ScopeBindings {
 fn visit_scope(
     suite: &[Stmt],
     bindings: &mut ScopeBindings,
-    security_context: bool,
-    module_scope: bool,
     index: &LineIndex,
     source: &str,
     issues: &mut Vec<Issue>,
@@ -56,16 +77,9 @@ fn visit_scope(
         for expression in stmt_exprs(statement) {
             for_each_expr(expression, &mut |expression| {
                 if let Expr::Call(call) = expression
-                    && (module_scope || security_context)
                     && is_unsafe_random_call(call, bindings)
                 {
-                    issues.push(issue_at(
-                        "python:S2245",
-                        "Make sure that using this pseudorandom number generator is safe here.",
-                        call.range(),
-                        index,
-                        source,
-                    ));
+                    issues.push(issue_at(RULE_KEY, MESSAGE, call.range(), index, source));
                 }
             });
         }
@@ -73,32 +87,15 @@ fn visit_scope(
         match statement {
             Stmt::FunctionDef(function) => {
                 let mut child = child_scope(bindings, &function.body, Some(function));
-                let security = is_security_context(function.name.as_str());
-                visit_scope(
-                    &function.body,
-                    &mut child,
-                    security,
-                    false,
-                    index,
-                    source,
-                    issues,
-                );
+                visit_scope(&function.body, &mut child, index, source, issues);
             }
             Stmt::ClassDef(class) => {
                 let mut child = child_scope(bindings, &class.body, None);
-                visit_scope(&class.body, &mut child, false, false, index, source, issues);
+                visit_scope(&class.body, &mut child, index, source, issues);
             }
             _ => {
                 for body in child_bodies(statement) {
-                    visit_scope(
-                        body,
-                        bindings,
-                        security_context,
-                        module_scope,
-                        index,
-                        source,
-                        issues,
-                    );
+                    visit_scope(body, bindings, index, source, issues);
                 }
             }
         }
@@ -214,7 +211,7 @@ fn bind_target(target: &Expr, identity: RandomIdentity, bindings: &mut ScopeBind
             .insert(name.id.as_str().to_string(), identity);
     } else {
         let mut names = Vec::new();
-        crate::support::collect_target_names(target, &mut names);
+        collect_target_names(target, &mut names);
         for name in names {
             bindings.values.insert(name, RandomIdentity::Unknown);
         }
@@ -260,34 +257,9 @@ fn is_unsafe_random_call(call: &ruff_python_ast::ExprCall, bindings: &ScopeBindi
     }
     matches!(
         identity_of_expr(&attribute.value, bindings),
-        RandomIdentity::RandomModule | RandomIdentity::RandomInstance
+        RandomIdentity::RandomModule | RandomIdentity::RandomInstance | RandomIdentity::RandomClass
     )
 }
-
-fn is_security_context(name: &str) -> bool {
-    name.to_lowercase()
-        .split('_')
-        .any(|word| SECURITY_CONTEXT_WORDS.contains(&word))
-}
-
-// --- python:S2245 — PRNGs in security contexts ---------------------------------
-
-const SECURITY_CONTEXT_WORDS: [&str; 8] = [
-    "token", "password", "secret", "key", "nonce", "salt", "cert", "auth",
-];
-
-const PRNG_FUNCTIONS: [&str; 10] = [
-    "random",
-    "getrandbits",
-    "randint",
-    "randrange",
-    "choice",
-    "choices",
-    "uniform",
-    "shuffle",
-    "sample",
-    "randbytes",
-];
 
 #[cfg(test)]
 mod tests {

@@ -158,7 +158,7 @@ use crate::rules::s2053_static_salt::check_s2053_static_salt;
 use crate::rules::s2077_sql_formatting::check_s2077_sql_formatting;
 use crate::rules::s2115_empty_database_password::check_s2115_empty_database_password;
 use crate::rules::s2201_ignored_pure_returns::check_s2201_ignored_pure_returns;
-use crate::rules::s2245_prng_security_contexts::check_s2245_prng_security_contexts;
+use crate::rules::s2245_pseudorandom_calls::check_s2245_pseudorandom_calls;
 use crate::rules::s2257_custom_cryptography::check_s2257_custom_cryptography;
 use crate::rules::s2638_override_contracts::check_s2638_override_contracts;
 use crate::rules::s2755_xxe_parsers::check_s2755_xxe_parsers;
@@ -238,6 +238,9 @@ use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global
 use crate::rules::s9000_raises_context_manager::check_s9000_raises_context_manager;
 use crate::rules::s9001_xfail_reason::check_s9001_xfail_reason;
 use crate::rules::s9073_composite_assertion::check_s9073_composite_assertion;
+use crate::rules::s9075_specific_warning_assertion::check_s9075_specific_warning_assertion;
+use crate::rules::s9078_duplicate_parametrize_cases::check_s9078_duplicate_parametrize_cases;
+use crate::rules::s9083_pytest_decorator_parentheses::check_s9083_pytest_decorator_parentheses;
 use crate::rules::self_assignment::check_self_assignment;
 use crate::rules::shadowed_builtins::check_shadowed_builtins;
 use crate::rules::similar_names_scope::check_similar_names_scope;
@@ -748,7 +751,7 @@ fn tier_c_web_crypto_checks(
     issues.extend(check_s5547_weak_ciphers(index, source, file_ctx));
     issues.extend(check_s5659_jwt_signing(index, source, file_ctx));
     issues.extend(check_s5344_plaintext_passwords(index, source, file_ctx));
-    issues.extend(check_s2245_prng_security_contexts(index, source, file_ctx));
+    issues.extend(check_s2245_pseudorandom_calls(index, source, file_ctx));
     issues.extend(check_s5443_public_temp_files(index, source, file_ctx));
     issues.extend(check_s2755_xxe_parsers(index, source, file_ctx));
     issues.extend(check_s6377_weak_xml_signature_transforms(
@@ -974,6 +977,33 @@ pub(crate) fn check_pytest_contract_battery(
     ));
     issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
     issues.extend(check_s9073_composite_assertion(parsed, index, source, path));
+    issues
+}
+
+/// Aggregates the future test-suite detectors (python:S9075,
+/// python:S9078, python:S9083) added ahead of their catalog entries. All
+/// three mirror reference checks whose scope is every file, so unlike the
+/// pytest-contract battery they do not gate on the pytest file name, and
+/// S9083 reads the `requireParentheses` parameter.
+pub(crate) fn check_future_test_contract_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_s9075_specific_warning_assertion(
+        parsed, index, source,
+    ));
+    issues.extend(check_s9078_duplicate_parametrize_cases(
+        parsed, index, source,
+    ));
+    issues.extend(check_s9083_pytest_decorator_parentheses(
+        parsed,
+        index,
+        source,
+        options.require_pytest_decorator_parentheses,
+    ));
     issues
 }
 
@@ -1373,7 +1403,7 @@ mod s2115_empty_database_password;
 
 mod s2201_ignored_pure_returns;
 
-mod s2245_prng_security_contexts;
+mod s2245_pseudorandom_calls;
 
 mod s2257_custom_cryptography;
 
@@ -1533,6 +1563,12 @@ mod s9000_raises_context_manager;
 mod s9001_xfail_reason;
 
 mod s9073_composite_assertion;
+
+mod s9075_specific_warning_assertion;
+
+mod s9078_duplicate_parametrize_cases;
+
+mod s9083_pytest_decorator_parentheses;
 
 mod s930_arity_mismatches;
 
