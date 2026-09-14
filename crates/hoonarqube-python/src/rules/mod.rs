@@ -229,6 +229,11 @@ use crate::rules::s6463_unrestricted_egress::check_s6463_unrestricted_egress;
 use crate::rules::s6662_unhashable_collection_literals::check_s6662_unhashable_collection_literals;
 use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
+use crate::rules::s8502_set_update_instead_of_add_loop::check_s8502_set_update_instead_of_add_loop;
+use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_shadows_outer;
+use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
+use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
+use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
 use crate::rules::self_assignment::check_self_assignment;
 use crate::rules::shadowed_builtins::check_shadowed_builtins;
 use crate::rules::similar_names_scope::check_similar_names_scope;
@@ -925,6 +930,28 @@ pub(crate) fn check_test_assertion_battery(
     issues
 }
 
+/// Aggregates the future-reference detectors (python:S8502,
+/// python:S8510, python:S8513, python:S8714, python:S8786) added ahead
+/// of their catalog entries; S8786 reads the shared call inventory.
+pub(crate) fn check_future_reference_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_s8502_set_update_instead_of_add_loop(
+        parsed, index, source,
+    ));
+    issues.extend(check_s8510_loop_variable_shadows_outer(
+        parsed, index, source,
+    ));
+    issues.extend(check_s8513_chained_startswith_calls(parsed, index, source));
+    issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
+    issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
+    issues
+}
+
 // ---------------------------------------------------------------------------
 // Battery aggregation: the structural Tier-A gap rules (python:S1066 …
 // python:S6799), each in its own per-rule module.
@@ -1463,6 +1490,16 @@ mod s6663_sequence_index_type;
 
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
+
+mod s8502_set_update_instead_of_add_loop;
+
+mod s8510_loop_variable_shadows_outer;
+
+mod s8513_chained_startswith_calls;
+
+mod s8714_pytest_raises_try_except;
+
+mod s8786_super_linear_regex;
 
 mod s930_arity_mismatches;
 
