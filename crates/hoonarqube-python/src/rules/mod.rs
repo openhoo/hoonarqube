@@ -165,6 +165,7 @@ use crate::rules::s2755_xxe_parsers::check_s2755_xxe_parsers;
 use crate::rules::s2876_iter_returns::check_s2876_iter_returns;
 use crate::rules::s3329_static_cbc_iv::check_s3329_static_cbc_iv;
 use crate::rules::s3403_identity_dissimilar_types::check_s3403_identity_dissimilar_types;
+use crate::rules::s3415_assertion_argument_order::check_s3415_assertion_argument_order;
 use crate::rules::s3699_used_void_outputs::check_s3699_used_void_outputs;
 use crate::rules::s3752_route_methods::check_s3752_route_methods;
 use crate::rules::s3862_iterating_non_iterables::check_s3862_iterating_non_iterables;
@@ -198,9 +199,13 @@ use crate::rules::s5707_raise_from_non_exception::check_s5707_raise_from_non_exc
 use crate::rules::s5708_excepting_non_exceptions::check_s5708_excepting_non_exceptions;
 use crate::rules::s5713_parent_child_except_pairs::check_s5713_parent_child_except_pairs;
 use crate::rules::s5756_non_callable_callees::check_s5756_non_callable_callees;
+use crate::rules::s5778_single_invocation_runtime_exception::check_s5778_single_invocation_runtime_exception;
+use crate::rules::s5779_assertion_in_try::check_s5779_assertion_in_try;
 use crate::rules::s5795_identity_cached_types::check_s5795_identity_cached_types;
+use crate::rules::s5863_identical_assertion_arguments::check_s5863_identical_assertion_arguments;
 use crate::rules::s5886_return_hint_mismatches::check_s5886_return_hint_mismatches;
 use crate::rules::s5890_annotated_assignment_kinds::check_s5890_annotated_assignment_kinds;
+use crate::rules::s5958_specific_exception_assertion::check_s5958_specific_exception_assertion;
 use crate::rules::s6245_s3_encryption_configuration::check_s6245_s3_encryption_configuration;
 use crate::rules::s6252_s3_versioning::check_s6252_s3_versioning;
 use crate::rules::s6265_s3_public_acl::check_s6265_s3_public_acl;
@@ -894,6 +899,31 @@ pub(crate) fn check_naming_convention_battery(
     issues.extend(check_parameter_and_local_names(parsed, index, source));
     issues
 }
+/// Aggregates the test-assertion detector family (python:S3415,
+/// python:S5778, python:S5779, python:S5863, python:S5958), whose pytest
+/// gating needs the analyzed file name.
+pub(crate) fn check_test_assertion_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    path: &std::path::Path,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_s3415_assertion_argument_order(
+        parsed, index, source, path,
+    ));
+    issues.extend(check_s5778_single_invocation_runtime_exception(
+        parsed, index, source,
+    ));
+    issues.extend(check_s5779_assertion_in_try(parsed, index, source));
+    issues.extend(check_s5863_identical_assertion_arguments(
+        parsed, index, source, path,
+    ));
+    issues.extend(check_s5958_specific_exception_assertion(
+        parsed, index, source,
+    ));
+    issues
+}
 
 // ---------------------------------------------------------------------------
 // Battery aggregation: the structural Tier-A gap rules (python:S1066 …
@@ -1359,6 +1389,8 @@ mod s5642_membership_operands;
 
 mod s5644_literal_item_operations;
 
+mod s3415_assertion_argument_order;
+
 mod s5655_argument_kind_mismatches;
 
 mod s5659_jwt_signing;
@@ -1368,6 +1400,14 @@ mod s5707_raise_from_non_exception;
 mod s5708_excepting_non_exceptions;
 
 mod s5713_parent_child_except_pairs;
+
+mod s5778_single_invocation_runtime_exception;
+
+mod s5779_assertion_in_try;
+
+mod s5863_identical_assertion_arguments;
+
+mod s5958_specific_exception_assertion;
 
 mod s5756_non_callable_callees;
 
