@@ -1653,4 +1653,89 @@ mod tests {
             (3, 4)
         );
     }
+
+    #[test]
+    fn file_not_closed_flags_unprotected_open_operations() {
+        // Pinned pallets/click src/click/_termui_impl.py#L937-L962 @
+        // 6aabf099 (raw_terminal): `f = open("/dev/tty")` is followed by the
+        // raising `f.fileno()` while `f.close()` only runs in a finally that
+        // cannot cover the fileno call, so the query reports the open with
+        // "File may not be closed if this operation raises an exception.".
+        let source = concat!(
+            "import contextlib\n",
+            "\n",
+            "\n",
+            "@contextlib.contextmanager\n",
+            "def raw_terminal():\n",
+            "    if not isatty(sys.stdin):\n",
+            "        f = open(\"/dev/tty\")\n",
+            "        fd = f.fileno()\n",
+            "    else:\n",
+            "        fd = sys.stdin.fileno()\n",
+            "        f = None\n",
+            "    try:\n",
+            "        old = termios.tcgetattr(fd)\n",
+            "        try:\n",
+            "            yield fd\n",
+            "        finally:\n",
+            "            if f is not None:\n",
+            "                f.close()\n",
+            "    except termios.error:\n",
+            "        pass\n",
+        );
+        assert_single_issue(
+            source,
+            "py/file-not-closed",
+            "File may not be closed if this operation raises an exception.",
+            (7, 12),
+            (7, 28),
+        );
+        // A file that is neither closed nor handed off stays open on every
+        // path: returning `f.read()` returns the read result, not the file.
+        assert_single_issue(
+            "def load():\n    f = open(\"data.bin\")\n    return f.read()\n",
+            "py/file-not-closed",
+            "File is opened but is not closed.",
+            (2, 8),
+            (2, 24),
+        );
+        // A sequential close does not guard the earlier write: an exception
+        // between them leaks the handle, exactly like the reference query.
+        assert_single_issue(
+            "def save(payload):\n    f = open(\"data.bin\", \"w\")\n    f.write(payload)\n    f.close()\n",
+            "py/file-not-closed",
+            "File may not be closed if this operation raises an exception.",
+            (2, 8),
+            (2, 29),
+        );
+    }
+
+    #[test]
+    fn file_not_closed_accepts_with_transfer_and_guaranteed_close() {
+        // A context manager closes on every path.
+        assert_clean("with open(\"data.bin\") as f:\n    f.read()\n");
+        // Re-opening an existing binding through `with` guards its body too.
+        assert_clean("f = open(\"data.bin\")\nwith f:\n    f.read()\n");
+        // A finally close guards the operations in the try body.
+        assert_clean(
+            "f = open(\"data.bin\")\ntry:\n    f.write(payload)\nfinally:\n    f.close()\n",
+        );
+        // Ownership transfer: a returned file is the caller's responsibility.
+        assert_clean("def load():\n    f = open(\"data.bin\")\n    return f\n");
+        // Ownership transfer: wrapper construction and os.fdopen hand the
+        // handle on.
+        assert_clean("def wrap():\n    f = open(\"data.bin\")\n    return LineWrapper(f)\n");
+        assert_clean("def wrap(fd):\n    f = os.fdopen(fd, \"w\")\n    f.write(payload)\n");
+        // Ownership transfer: a field-stored file is another method's
+        // responsibility.
+        assert_clean("class S:\n    def load(self):\n        self.f = open(\"data.bin\")\n");
+        assert_clean("def store(self):\n    f = open(\"data.bin\")\n    self.f = f\n");
+        // A file that is closed before any later raising operation is fine.
+        assert_clean("def name():\n    f = open(\"data.bin\")\n    f.close()\n    audit(f)\n");
+        // Caller-owned resources are not this function's open.
+        assert_clean("def consume(f):\n    return f.read()\n");
+        // A shadowed builtin `open` stays unresolved rather than guessed.
+        assert_clean("def load(open):\n    f = open(\"data.bin\")\n    return f.read()\n");
+        assert_clean("def load(fake):\n    f = fake.open(\"data.bin\")\n    return f.read()\n");
+    }
 }
