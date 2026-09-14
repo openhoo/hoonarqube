@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use super::{AnalyzerOptions, analyze};
-use crate::test_support::{findings, findings_of, pos, regex_finds, scan, scan_with_options};
+use crate::test_support::{
+    findings, findings_of, pos, regex_finds, scan, scan_test_file, scan_with_options,
+};
 
 #[test]
 fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
@@ -3443,4 +3445,411 @@ fn tracked_python_oracle_gap_pairs_trigger_only_the_bad_control() {
             "good oracle control for {key}",
         );
     }
+}
+// ------------------------------------------------------------------
+// New detector contracts: python:S3415, python:S5778, python:S5779,
+// python:S5863, and python:S5958 (issues #154–#158).
+// ------------------------------------------------------------------
+
+#[test]
+fn s3415_flags_literal_expected_on_the_left_of_pytest_equality() {
+    // Pinned psf/requests tests/test_adapters.py#L7-L8 @ dae7ef63: the
+    // computed request_url is the actual value and the literal is the
+    // expected value, so the operands sit in inverted order.
+    let flagged = scan_test_file(concat!(
+        "import requests.adapters\n",
+        "\n",
+        "\n",
+        "def test_request_url_handles_leading_path_separators():\n",
+        "    \"\"\"See also https://github.com/psf/requests/issues/6643.\"\"\"\n",
+        "    a = requests.adapters.HTTPAdapter()\n",
+        "    p = requests.Request(method=\"GET\", url=\"http://127.0.0.1:10000//v:h\").prepare()\n",
+        "    assert \"//v:h\" == a.request_url(p, {})\n",
+    ));
+    let found = findings(&flagged, "python:S3415");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Swap these 2 sides so they are in the correct order: actual value, expected value."
+    );
+    assert_eq!(found[0].range.start, pos(8, 11));
+    assert_eq!(found[0].range.end, pos(8, 42));
+    // The flow labels the literal as the expected value and the call as
+    // the actual value, matching the pinned Sonar evidence.
+    assert_eq!(found[0].flows.len(), 1);
+    let locations = &found[0].flows[0].locations;
+    assert_eq!(locations.len(), 2);
+    assert_eq!(locations[0].message, "Expected value.");
+    assert_eq!(locations[0].range.start, pos(8, 11));
+    assert_eq!(locations[1].message, "Actual value.");
+    assert_eq!(locations[1].range.start, pos(8, 22));
+    // The rule targets test sources: the same assert in a non-pytest file
+    // inside a non-test function stays silent.
+    let non_test = scan("def check(value):\n    assert \"//v:h\" == url(value)\n");
+    assert!(findings(&non_test, "python:S3415").is_empty());
+}
+
+#[test]
+fn s3415_flags_unittest_equality_called_with_constant_first() {
+    let flagged = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class SampleTests(unittest.TestCase):\n",
+        "    def test_values(self):\n",
+        "        self.assertEqual(\"expected\", compute())\n",
+    ));
+    let found = findings(&flagged, "python:S3415");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Swap these 2 arguments so they are in the correct order: actual value, expected value."
+    );
+    assert_eq!(found[0].range.start, pos(5, 8));
+    assert_eq!(found[0].range.end, pos(5, 47));
+    // Identity checks follow the same argument order.
+    let identity = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class SampleTests(unittest.TestCase):\n",
+        "    def test_identity(self):\n",
+        "        self.assertIs(42, answer())\n",
+    ));
+    assert_eq!(findings(&identity, "python:S3415").len(), 1);
+}
+
+#[test]
+fn s3415_accepts_actual_first_and_ambiguous_operand_pairs() {
+    // Actual-first is the requested convention and stays silent.
+    let ordered = scan_test_file("def test_ok():\n    assert build_url() == \"/ok\"\n");
+    assert!(findings(&ordered, "python:S3415").is_empty());
+    // Two expected values or two computed values carry no order signal.
+    let both_constant = scan_test_file("def test_both():\n    assert \"a\" == \"b\"\n");
+    assert!(findings(&both_constant, "python:S3415").is_empty());
+    let both_computed = scan_test_file("def test_open():\n    assert left() == right()\n");
+    assert!(findings(&both_computed, "python:S3415").is_empty());
+    // Non-equality comparisons and non-test functions are out of scope.
+    let membership = scan_test_file("def test_in():\n    assert \"x\" in words()\n");
+    assert!(findings(&membership, "python:S3415").is_empty());
+    let non_test = scan_test_file("def helper():\n    assert \"x\" == words()\n");
+    assert!(findings(&non_test, "python:S3415").is_empty());
+}
+
+#[test]
+fn s3415_propagates_single_constant_assignments_as_expected_values() {
+    let flagged = scan_test_file(concat!(
+        "def test_expected():\n",
+        "    expected = \"/ok\"\n",
+        "    assert expected == build_url()\n",
+    ));
+    let found = findings(&flagged, "python:S3415");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(3, 11));
+    assert_eq!(found[0].range.end, pos(3, 34));
+    // A name bound to a computed value is not an expected value.
+    let computed = scan_test_file(concat!(
+        "def test_computed():\n",
+        "    expected = build_url()\n",
+        "    assert expected == other()\n",
+    ));
+    assert!(findings(&computed, "python:S3415").is_empty());
+    // A second binding destroys the single-assignment fact.
+    let rebound = scan_test_file(concat!(
+        "def test_rebound(flag):\n",
+        "    expected = \"/ok\"\n",
+        "    if flag:\n",
+        "        expected = \"/other\"\n",
+        "    assert expected == build_url()\n",
+    ));
+    assert!(findings(&rebound, "python:S3415").is_empty());
+}
+
+#[test]
+fn s5778_flags_multiple_throwing_invocations_in_one_exception_test() {
+    // Pinned pallets/click tests/test_utils/test_echo_via_pager.py#L250-L255
+    // @ 6aabf099: the pager call and the generator call are two possible
+    // throwing invocations under one pytest.raises block.
+    let flagged = scan(concat!(
+        "def test_pager(self, tmp_path):\n",
+        "    pager_out_tmp = tmp_path / \"pager_out.txt\"\n",
+        "    with (\n",
+        "        pager_out_tmp.open(\"w\") as f,\n",
+        "        patch.object(subprocess, \"Popen\", partial(tracking_popen, stdout=f)),\n",
+        "        pytest.raises(RuntimeError),\n",
+        "    ):\n",
+        "        click.echo_via_pager(_test_gen_func_fails())\n",
+        "\n",
+        "    assert spawned\n",
+    ));
+    let found = findings(&flagged, "python:S5778");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Refactor this exception test to have only one invocation possibly throwing an exception."
+    );
+    assert_eq!(found[0].range.start, pos(3, 4));
+    assert_eq!(found[0].range.end, pos(7, 6));
+    // Each possibly throwing invocation is labelled in source order.
+    assert_eq!(found[0].flows.len(), 1);
+    let locations = &found[0].flows[0].locations;
+    assert_eq!(locations.len(), 2);
+    assert_eq!(
+        locations[0].message,
+        "Invocation possibly throwing an exception."
+    );
+    assert_eq!(locations[0].range.start, pos(8, 14));
+    assert_eq!(locations[0].range.end, pos(8, 52));
+    assert_eq!(locations[1].range.start, pos(8, 29));
+    assert_eq!(locations[1].range.end, pos(8, 51));
+}
+
+#[test]
+fn s5778_flags_unittest_assert_raises_bodies_with_two_invocations() {
+    let flagged = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class SampleTests(unittest.TestCase):\n",
+        "    def test_runs(self):\n",
+        "        with self.assertRaises(ValueError):\n",
+        "            first()\n",
+        "            second()\n",
+    ));
+    let found = findings(&flagged, "python:S5778");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(5, 8));
+    assert_eq!(found[0].range.end, pos(5, 43));
+}
+
+#[test]
+fn s5778_counts_only_unsafe_invocations() {
+    // Setup helpers on the always-safe list do not count.
+    let safe = scan(concat!(
+        "def test_safe():\n",
+        "    with pytest.raises(ValueError):\n",
+        "        name = str(1)\n",
+        "        size = len(\"abc\")\n",
+        "        print(sorted([3, 1, 2]))\n",
+    ));
+    assert!(findings(&safe, "python:S5778").is_empty());
+    // One possible throwing invocation stays clean.
+    let single =
+        scan("def test_single():\n    with pytest.raises(ValueError):\n        service.run()\n");
+    assert!(findings(&single, "python:S5778").is_empty());
+    // Nested def bodies execute when the definition runs, not with the block.
+    let nested = scan(concat!(
+        "def test_nested():\n",
+        "    with pytest.raises(ValueError):\n",
+        "        def helper():\n",
+        "            inner()\n",
+        "        helper()\n",
+    ));
+    assert!(findings(&nested, "python:S5778").is_empty());
+    // The lambda-argument form counts the calls inside the lambda body.
+    let lambda =
+        scan("def test_lambda():\n    pytest.raises(RuntimeError, lambda: (first(), second()))\n");
+    assert_eq!(findings(&lambda, "python:S5778").len(), 1);
+}
+
+#[test]
+fn s5779_flags_assert_inside_try_body_that_catches_assertion_error() {
+    // Pinned pallets/flask tests/test_json.py#L334-L337 @ d73fa1cd: the
+    // compatibility test intentionally accepts two JSON orderings; the
+    // guarded assert can never reach the fallback because AssertionError
+    // is swallowed first.
+    let flagged = scan(concat!(
+        "def test_json_order(sorted_by_int, sorted_by_str, lines):\n",
+        "    try:\n",
+        "        assert lines == sorted_by_int\n",
+        "    except AssertionError:\n",
+        "        assert lines == sorted_by_str\n",
+    ));
+    let found = findings(&flagged, "python:S5779");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Don't use assert inside a try-except that catches AssertionError."
+    );
+    assert_eq!(found[0].range.start, pos(3, 8));
+    assert_eq!(found[0].range.end, pos(3, 37));
+    // The flow marks the swallowing handler. The fallback assert lives in
+    // the except body, so it is not itself flagged.
+    assert_eq!(found[0].flows.len(), 1);
+    let locations = &found[0].flows[0].locations;
+    assert_eq!(locations.len(), 1);
+    assert_eq!(locations[0].message, "AssertionError is caught here.");
+    assert_eq!(locations[0].range.start, pos(4, 11));
+    assert_eq!(locations[0].range.end, pos(4, 25));
+}
+
+#[test]
+fn s5779_spares_reraises_specific_handlers_and_assertion_shadows() {
+    let reraise = scan(concat!(
+        "def test_reraise(value):\n",
+        "    try:\n",
+        "        assert value\n",
+        "    except AssertionError:\n",
+        "        raise\n",
+    ));
+    assert!(findings(&reraise, "python:S5779").is_empty());
+    let aliased_reraise = scan(concat!(
+        "def test_aliased_reraise(value):\n",
+        "    try:\n",
+        "        assert value\n",
+        "    except AssertionError as error:\n",
+        "        raise error\n",
+    ));
+    assert!(findings(&aliased_reraise, "python:S5779").is_empty());
+    let specific = scan(concat!(
+        "def test_specific(value):\n",
+        "    try:\n",
+        "        assert value\n",
+        "    except ValueError:\n",
+        "        recover()\n",
+    ));
+    assert!(findings(&specific, "python:S5779").is_empty());
+    // Assertions outside the guarded try body are not affected.
+    let outside = scan(concat!(
+        "def test_outside(value):\n",
+        "    try:\n",
+        "        prepare()\n",
+        "    except AssertionError:\n",
+        "        recover()\n",
+        "    assert value\n",
+    ));
+    assert!(findings(&outside, "python:S5779").is_empty());
+    // Unittest assertion calls follow the same rule and name the method.
+    let unittest = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class OrderTests(unittest.TestCase):\n",
+        "    def test_both(self):\n",
+        "        try:\n",
+        "            self.assertEqual(lines(), expected())\n",
+        "        except AssertionError:\n",
+        "            self.fail(\"nope\")\n",
+    ));
+    let found = findings(&unittest, "python:S5779");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Don't use assertEqual inside a try-except that catches AssertionError."
+    );
+}
+
+#[test]
+fn s5863_flags_assertions_comparing_identical_expressions() {
+    // Pinned psf/requests tests/test_requests.py#L1368-L1369 @ dae7ef63:
+    // `RequestsCookieJar.keys()` returns a materialized list, so the
+    // assertion compares one expression with itself.
+    let flagged = scan_test_file(concat!(
+        "def test_cookie_keys(self):\n",
+        "    keys = jar.keys()\n",
+        "    assert keys == list(keys)\n",
+        "    assert list(keys) == list(keys)\n",
+    ));
+    let found = findings(&flagged, "python:S5863");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Replace this assertion to not have the same actual and expected expression."
+    );
+    assert_eq!(found[0].range.start, pos(4, 25));
+    assert_eq!(found[0].range.end, pos(4, 35));
+    assert_eq!(found[0].flows.len(), 1);
+    let locations = &found[0].flows[0].locations;
+    assert_eq!(locations.len(), 1);
+    assert_eq!(
+        locations[0].message,
+        "This is the same expression as the expected argument."
+    );
+    assert_eq!(locations[0].range.start, pos(4, 11));
+    assert_eq!(locations[0].range.end, pos(4, 21));
+    // Inverted equality carries the same signal on the right operand.
+    let inverted = scan_test_file("def test_never(value):\n    assert value != value\n");
+    let found = findings(&inverted, "python:S5863");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(2, 20));
+    assert_eq!(found[0].range.end, pos(2, 25));
+}
+
+#[test]
+fn s5863_flags_unittest_calls_with_identical_arguments() {
+    let flagged = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class CookieTests(unittest.TestCase):\n",
+        "    def test_same(self):\n",
+        "        self.assertEqual(build(), build())\n",
+        "        self.assertIs(make(), make())\n",
+        "        self.assertEqual(alpha, beta)\n",
+    ));
+    let found = findings(&flagged, "python:S5863");
+    assert_eq!(found.len(), 2);
+    assert_eq!(found[0].range.start, pos(5, 34));
+    assert_eq!(found[1].range.start, pos(6, 30));
+}
+
+#[test]
+fn s5958_flags_broad_exception_assertions() {
+    // Pinned psf/requests tests/test_testserver.py#L146-L149 @ dae7ef63:
+    // any unrelated setup failure inside the context manager would satisfy
+    // the broad Exception assertion.
+    let flagged = scan(concat!(
+        "class ServerCleanupTests:\n",
+        "    def test_server_finishes_on_error(self):\n",
+        "        server = Server.basic_response_server()\n",
+        "        with pytest.raises(Exception):\n",
+        "            with server:\n",
+        "                raise Exception()\n",
+    ));
+    let found = findings(&flagged, "python:S5958");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "This assertion is too broad; use a more specific exception type or check the exception message."
+    );
+    assert_eq!(found[0].range.start, pos(4, 27));
+    assert_eq!(found[0].range.end, pos(4, 36));
+    // The unittest form and the direct call form report the same way.
+    let unittest = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class BroadTests(unittest.TestCase):\n",
+        "    def test_broad(self):\n",
+        "        with self.assertRaises(Exception):\n",
+        "            boom()\n",
+    ));
+    let found = findings(&unittest, "python:S5958");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(5, 31));
+    let direct = scan("def test_direct():\n    context = pytest.raises(Exception)\n");
+    let found = findings(&direct, "python:S5958");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(2, 28));
+}
+
+#[test]
+fn s5958_accepts_specific_types_and_message_matched_assertions() {
+    let specific =
+        scan("def test_specific():\n    with pytest.raises(ValueError):\n        boom()\n");
+    assert!(findings(&specific, "python:S5958").is_empty());
+    let matched = scan(concat!(
+        "def test_matched():\n",
+        "    with pytest.raises(Exception, match=\"timeout\"):\n",
+        "        boom()\n",
+    ));
+    assert!(findings(&matched, "python:S5958").is_empty());
+    let regex = scan(concat!(
+        "import unittest\n",
+        "\n",
+        "class BroadTests(unittest.TestCase):\n",
+        "    def test_regex(self):\n",
+        "        with self.assertRaisesRegex(ValueError, \"boom\"):\n",
+        "            boom()\n",
+    ));
+    assert!(findings(&regex, "python:S5958").is_empty());
+    // Instances of the broad types are equally unspecific.
+    let instance = scan(
+        "def test_instance():\n    with pytest.raises(Exception(\"boom\")):\n        boom()\n",
+    );
+    assert_eq!(findings(&instance, "python:S5958").len(), 1);
 }
