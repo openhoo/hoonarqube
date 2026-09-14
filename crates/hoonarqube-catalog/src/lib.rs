@@ -1765,6 +1765,9 @@ mod tests {
     /// Captured rule totals for the Community-bootstrapped surfaces.
     const JAVA_RULES: usize = 733;
     const RUBY_RULES: usize = 42;
+    /// Adds-only supplements layered after the base captures: one javascript,
+    /// five typescript, and five python keys from verified community captures.
+    const SUPPLEMENT_RULES: usize = 11;
     const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
@@ -1799,7 +1802,7 @@ mod tests {
         );
         assert_eq!(
             catalog.snapshot().total_rules,
-            1747 + JAVA_RULES + RUBY_RULES
+            1741 + JAVA_RULES + RUBY_RULES + SUPPLEMENT_RULES
         );
     }
 
@@ -1812,13 +1815,13 @@ mod tests {
         );
         assert_eq!(
             catalog.snapshot().total_rules,
-            1747 + JAVA_RULES + RUBY_RULES
+            1741 + JAVA_RULES + RUBY_RULES + SUPPLEMENT_RULES
         );
         let expected = [
             ("csharp", 467),
             ("javascript", 407),
             ("typescript", 417),
-            ("python", 335),
+            ("python", 340),
             ("go", 36),
             ("rust", 85),
             ("java", JAVA_RULES),
@@ -1854,7 +1857,10 @@ mod tests {
                 );
             }
         }
-        assert_eq!(seen.len(), 1747 + JAVA_RULES + RUBY_RULES);
+        assert_eq!(
+            seen.len(),
+            1741 + JAVA_RULES + RUBY_RULES + SUPPLEMENT_RULES
+        );
     }
 
     #[test]
@@ -2061,18 +2067,18 @@ mod tests {
 
     #[test]
     fn unsupported_per_language_schema_fails_verification() {
-        let tampered = PYTHON_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 3", 1);
+        let tampered = CSHARP_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 3", 1);
         let mut rule_texts = PRISTINE;
-        rule_texts[3] = &tampered;
+        rule_texts[0] = &tampered;
         let error = verify(SNAPSHOT_TOML, rule_texts).expect_err("unknown schema must fail");
         assert_eq!(error, "unsupported rule catalog schema");
     }
 
     #[test]
     fn supplemented_schema_without_receipts_fails_verification() {
-        let tampered = PYTHON_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
+        let tampered = CSHARP_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
         let mut rule_texts = PRISTINE;
-        rule_texts[3] = &tampered;
+        rule_texts[0] = &tampered;
         let error =
             verify(SNAPSHOT_TOML, rule_texts).expect_err("schema 2 without receipts must fail");
         assert_eq!(
