@@ -11424,6 +11424,161 @@
       "provenance_id": "283287ef4a7eb7060053092a9a3e01b84dbf8d6c71434d3a1dc3b34dd849ceda"
     },
     {
+      "external_key": "typescript:S7773",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        },
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention",
+        "es2015",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e"
+    },
+    {
+      "external_key": "typescript:S7776",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "performance",
+        "es2015",
+        "optimization",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e"
+    },
+    {
+      "external_key": "typescript:S7780",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "readability",
+        "es2015",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e"
+    },
+    {
+      "external_key": "typescript:S7781",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "LOW"
+        },
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "readability",
+        "editable-source",
+        "es2021"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e"
+    },
+    {
+      "external_key": "typescript:S7786",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention",
+        "error-handling",
+        "editable-source",
+        "type-checking"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e"
+    },
+    {
       "external_key": "typescript:S878",
       "language": "ts",
       "repository": "typescript",
@@ -11580,6 +11735,29 @@
       ],
       "selected_keys_sha256": "16f4065056a2487b90b8f9e2142b12338c5432bb1efcdd8ab74772bf40efbed6",
       "selected_rows_sha256": "4011008a3b53b231cfc39473dba1d658211dc22159609ad1cb02c0b80f2af415"
+    },
+    {
+      "capture_sha256": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e",
+      "captured_at_utc": "2026-09-14T19:40:17.799098657Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 532,
+      "page_count": 2,
+      "query_sha256": "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13",
+      "pages_sha256": "199f2d9f540d57af3f776e71cca1481fc4919eed850cbb4183123272944b30b4",
+      "keys_sha256": "031e4ee15c67edce9cb74e1213b1e4ca9d84501fd07948104eb446d9493189f0",
+      "shows_sha256": "c7065302a59d37e6bb79cd7f2b49a38c8fbaee8fc379f4601a3a878e1aa11b28",
+      "selected_keys": [
+        "typescript:S7773",
+        "typescript:S7776",
+        "typescript:S7780",
+        "typescript:S7781",
+        "typescript:S7786"
+      ],
+      "selected_keys_sha256": "4a9e4c0cb5b85eb756bb551d96ccc67a2c39ee264b410f6637d3426e663028c5",
+      "selected_rows_sha256": "9b4052d35164cf9a080006b2cb2f5c292cd3a5e0b417824a824df5decb72565c"
     },
     {
       "capture_sha256": "a3a55f127eaee03f5392f185d709c721664879732590740b3ba122710052efa0",
