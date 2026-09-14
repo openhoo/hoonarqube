@@ -92,6 +92,11 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(s7744_useless_fallback_spread::check(ctx));
     issues.extend(s7746_useless_promise_resolve_reject::check(ctx));
     issues.extend(s7751_prefer_array_flat::check(ctx));
+    issues.extend(s7754_prefer_array_some::check(ctx));
+    issues.extend(s7755_prefer_at::check(ctx));
+    issues.extend(s7765_prefer_includes::check(ctx));
+    issues.extend(s7766_prefer_math_min_max::check(ctx));
+    issues.extend(s7770_native_coercion_functions::check(ctx));
     issues.extend(self_assignments::run_all(ctx));
     issues.extend(statement::run_all(ctx));
     issues.extend(statement_sequences::run_all(ctx));

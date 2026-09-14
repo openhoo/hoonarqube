@@ -23,6 +23,256 @@
 // The regression tests below are committed first at the pristine campaign
 // base and must fail (RED) until the detector lands.
 
+use crate::context::AnalysisContext;
+use crate::support::{IssueSink, RuleScope, span_text, unparenthesized};
+use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{BinaryExpression, BinaryOperator, ConditionalExpression, Expression, TSType};
+use oxc_semantic::Semantic;
+use oxc_span::GetSpan;
+
+/// Entry point: `javascript:S7766` + `typescript:S7766` prefer-math-min-max
+/// check over the parsed program. Requires the semantic model for the
+/// declaration guards, so recoverable-parse files stay silent.
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    let Some(semantic) = ctx.semantic else {
+        return sink.issues;
+    };
+    for node in semantic.nodes().iter() {
+        if let AstKind::ConditionalExpression(conditional) = node.kind() {
+            check_conditional(&mut sink, ctx, semantic, conditional);
+        }
+    }
+    sink.issues
+}
+
+fn unwrap_ts<'a, 'b>(expression: &'a Expression<'b>) -> &'a Expression<'b> {
+    let mut current = expression;
+    loop {
+        match current {
+            Expression::TSAsExpression(inner) => current = &inner.expression,
+            Expression::TSSatisfiesExpression(inner) => current = &inner.expression,
+            Expression::TSNonNullExpression(inner) => current = &inner.expression,
+            _ => return current,
+        }
+    }
+}
+
+fn text_of<'a>(source: &'a str, expression: &Expression<'_>) -> &'a str {
+    span_text(source, unwrap_ts(expression).span())
+}
+
+fn is_bigint_operand(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::BigIntLiteral(_) => true,
+        Expression::CallExpression(call) => {
+            !call.optional
+                && call.arguments.len() == 1
+                && matches!(unparenthesized(&call.callee), Expression::Identifier(identifier) if identifier.name == "BigInt")
+        }
+        _ => false,
+    }
+}
+
+fn is_new_date(expression: &Expression<'_>) -> bool {
+    let Expression::NewExpression(new_expression) = expression else {
+        return false;
+    };
+    matches!(
+        unparenthesized(&new_expression.callee),
+        Expression::Identifier(identifier) if identifier.name == "Date"
+    )
+}
+
+fn is_number_type(ts_type: &TSType<'_>) -> bool {
+    match ts_type {
+        TSType::TSNumberKeyword(_) => true,
+        TSType::TSTypeReference(reference) => {
+            matches!(&reference.type_name, oxc_ast::ast::TSTypeName::IdentifierReference(identifier) if identifier.name == "Number")
+        }
+        _ => false,
+    }
+}
+
+/// The reference `getTypeAnnotation`: only TS non-null, `as`, and angle
+/// assertions carry a usable annotation.
+fn ts_type_annotation<'a>(expression: &'a Expression<'a>) -> Option<&'a TSType<'a>> {
+    match expression {
+        Expression::TSNonNullExpression(inner) => ts_type_annotation(&inner.expression),
+        Expression::TSAsExpression(inner) => Some(&inner.type_annotation),
+        Expression::TSTypeAssertion(inner) => Some(&inner.type_annotation),
+        _ => None,
+    }
+}
+
+fn is_non_number_literal(expression: &Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::StringLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::RegExpLiteral(_)
+    )
+}
+
+/// The reference min/max decision on the textual operand repetition.
+fn min_max_method(
+    is_greater_or_equal: bool,
+    is_less_or_equal: bool,
+    left_text: &str,
+    right_text: &str,
+    consequent_text: &str,
+    alternate_text: &str,
+) -> Option<&'static str> {
+    if (is_greater_or_equal && left_text == alternate_text && right_text == consequent_text)
+        || (is_less_or_equal && left_text == consequent_text && right_text == alternate_text)
+    {
+        return Some("min");
+    }
+    if (is_greater_or_equal && left_text == consequent_text && right_text == alternate_text)
+        || (is_less_or_equal && left_text == alternate_text && right_text == consequent_text)
+    {
+        return Some("max");
+    }
+    None
+}
+
+/// The reference declaration guards: TS-unwrapped operands must carry number
+/// annotations, and identifiers declared with non-number annotations, with
+/// non-number literal initializers, or initialized with `new Date` stay
+/// silent.
+fn operand_declarations_are_numeric(
+    semantic: &Semantic<'_>,
+    binary: &BinaryExpression<'_>,
+) -> bool {
+    for operand in [&binary.left, &binary.right] {
+        let unwrapped = unwrap_ts(operand);
+        if operand.span() != unwrapped.span()
+            && let Some(annotation) = ts_type_annotation(operand)
+            && !is_number_type(annotation)
+        {
+            return false;
+        }
+        let Expression::Identifier(identifier) = unwrapped else {
+            continue;
+        };
+        if !identifier_declarations_are_numeric(semantic, identifier) {
+            return false;
+        }
+    }
+    true
+}
+
+fn identifier_declarations_are_numeric(
+    semantic: &Semantic<'_>,
+    identifier: &oxc_ast::ast::IdentifierReference<'_>,
+) -> bool {
+    let Some(symbol_id) = identifier
+        .reference_id
+        .get()
+        .and_then(|reference_id| semantic.scoping().get_reference(reference_id).symbol_id())
+    else {
+        return true;
+    };
+    let declaration = semantic
+        .nodes()
+        .get_node(semantic.scoping().symbol_declaration(symbol_id));
+    match declaration.kind() {
+        AstKind::FormalParameter(parameter) => parameter_has_number_shape(parameter),
+        AstKind::VariableDeclarator(declarator) => declarator_has_number_shape(declarator),
+        _ => true,
+    }
+}
+
+fn parameter_has_number_shape(parameter: &oxc_ast::ast::FormalParameter<'_>) -> bool {
+    if let Some(annotation) = &parameter.type_annotation
+        && !is_number_type(&annotation.type_annotation)
+    {
+        return false;
+    }
+    if let Some(initializer) = &parameter.initializer
+        && is_non_number_literal(unparenthesized(initializer))
+    {
+        return false;
+    }
+    true
+}
+
+fn declarator_has_number_shape(declarator: &oxc_ast::ast::VariableDeclarator<'_>) -> bool {
+    if let Some(init) = &declarator.init
+        && is_new_date(init)
+    {
+        return false;
+    }
+    if let Some(annotation) = &declarator.type_annotation
+        && !is_number_type(&annotation.type_annotation)
+    {
+        return false;
+    }
+    if let Some(init) = &declarator.init
+        && is_non_number_literal(unparenthesized(init))
+    {
+        return false;
+    }
+    true
+}
+
+fn check_conditional(
+    sink: &mut IssueSink<'_>,
+    ctx: &AnalysisContext,
+    semantic: &Semantic<'_>,
+    conditional: &ConditionalExpression<'_>,
+) {
+    let Expression::BinaryExpression(test) = unparenthesized(&conditional.test) else {
+        return;
+    };
+    let is_greater_or_equal = matches!(
+        test.operator,
+        BinaryOperator::GreaterThan | BinaryOperator::GreaterEqualThan
+    );
+    let is_less_or_equal = matches!(
+        test.operator,
+        BinaryOperator::LessThan | BinaryOperator::LessEqualThan
+    );
+    if !is_greater_or_equal && !is_less_or_equal {
+        return;
+    }
+    for operand in [&test.left, &test.right] {
+        if is_bigint_operand(operand) || is_new_date(operand) {
+            return;
+        }
+    }
+    let left_text = text_of(ctx.source, &test.left);
+    let right_text = text_of(ctx.source, &test.right);
+    let alternate_text = text_of(ctx.source, &conditional.alternate);
+    let consequent_text = text_of(ctx.source, &conditional.consequent);
+    let Some(method) = min_max_method(
+        is_greater_or_equal,
+        is_less_or_equal,
+        left_text,
+        right_text,
+        consequent_text,
+        alternate_text,
+    ) else {
+        return;
+    };
+    if !operand_declarations_are_numeric(semantic, test) {
+        return;
+    }
+    sink.emit_span(
+        RuleScope::Both,
+        "S7766",
+        &format!("Prefer `Math.{method}()` to simplify ternary expressions."),
+        conditional.span(),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;

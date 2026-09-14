@@ -24,9 +24,336 @@
 // receivers with a different reference than the `length` receiver stay
 // silent. Receiver element semantics and the ES2022 `.at()` target remain
 // caller-qualified per the issue guard: no auto-fix is offered.
-//
-// The regression tests below are committed first at the pristine campaign
-// base and must fail (RED) until the detector lands.
+
+use crate::context::AnalysisContext;
+use crate::support::{IssueSink, RuleScope, unparenthesized};
+use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{
+    BinaryOperator, CallExpression, ComputedMemberExpression, Expression, StaticMemberExpression,
+    UnaryOperator,
+};
+use oxc_semantic::{AstNode, Semantic};
+use oxc_span::{GetSpan, Span};
+
+/// Entry point: `javascript:S7755` + `typescript:S7755` prefer-at check over
+/// the parsed program. Requires the semantic model for assignment-target
+/// detection, so recoverable-parse files stay silent.
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    let Some(semantic) = ctx.semantic else {
+        return sink.issues;
+    };
+    for node in semantic.nodes().iter() {
+        match node.kind() {
+            AstKind::ComputedMemberExpression(member) => {
+                check_computed_member(&mut sink, semantic, node, member);
+            }
+            AstKind::CallExpression(call) => {
+                check_char_at(&mut sink, call);
+                check_slice(&mut sink, semantic, node, call);
+                check_get_last_function(&mut sink, call);
+            }
+            _ => {}
+        }
+    }
+    sink.issues
+}
+
+/// The static member whose non-computed, non-optional property is `method`.
+fn method_member<'a, 'b>(
+    call: &'b CallExpression<'a>,
+    method: &str,
+) -> Option<&'b StaticMemberExpression<'a>> {
+    let Expression::StaticMemberExpression(member) = unparenthesized(&call.callee) else {
+        return None;
+    };
+    if member.optional || member.property.name != method {
+        return None;
+    }
+    Some(member)
+}
+
+fn is_arguments_object(expression: &Expression<'_>) -> bool {
+    matches!(
+        unparenthesized(expression),
+        Expression::Identifier(identifier) if identifier.name == "arguments"
+    )
+}
+
+fn is_literal_positive_number(expression: &Expression<'_>) -> bool {
+    matches!(expression, Expression::NumericLiteral(literal) if literal.value > 0.0)
+}
+
+fn length_member_of<'a>(expression: &'a Expression<'a>) -> Option<&'a StaticMemberExpression<'a>> {
+    match expression {
+        Expression::StaticMemberExpression(member)
+            if !member.optional && member.property.name == "length" =>
+        {
+            Some(member)
+        }
+        _ => None,
+    }
+}
+
+/// The reference `getNegativeIndexLengthNode`: a `length` subtraction that
+/// resolves against the same receiver, directly or through nesting.
+fn get_negative_index_length_node<'a>(
+    node: &'a Expression<'a>,
+    object: &'a Expression<'a>,
+) -> Option<&'a Expression<'a>> {
+    let Expression::BinaryExpression(binary) = node else {
+        return None;
+    };
+    if binary.operator != BinaryOperator::Subtraction || !is_literal_positive_number(&binary.right)
+    {
+        return None;
+    }
+    if let Some(length_member) = length_member_of(&binary.left)
+        && is_same_reference(&length_member.object, object)
+    {
+        return Some(&binary.left);
+    }
+    get_negative_index_length_node(&binary.left, object)
+}
+
+fn unwrap_ts<'a, 'b>(expression: &'a Expression<'b>) -> &'a Expression<'b> {
+    let mut current = expression;
+    loop {
+        match current {
+            Expression::TSAsExpression(inner) => current = &inner.expression,
+            Expression::TSSatisfiesExpression(inner) => current = &inner.expression,
+            Expression::TSNonNullExpression(inner) => current = &inner.expression,
+            Expression::TSTypeAssertion(inner) => current = &inner.expression,
+            _ => return current,
+        }
+    }
+}
+
+/// The reference `isSameReference` subset: two expressions that reference
+/// the same value.
+fn is_same_reference(left: &Expression<'_>, right: &Expression<'_>) -> bool {
+    let left = unwrap_ts(left);
+    let right = unwrap_ts(right);
+    match (left, right) {
+        (Expression::ThisExpression(_), Expression::ThisExpression(_)) => true,
+        (Expression::Identifier(a), Expression::Identifier(b)) => a.name == b.name,
+        (Expression::StringLiteral(a), Expression::StringLiteral(b)) => a.value == b.value,
+        (Expression::NumericLiteral(a), Expression::NumericLiteral(b)) => {
+            same_number(a.value, b.value)
+        }
+        (Expression::StaticMemberExpression(a), Expression::StaticMemberExpression(b)) => {
+            a.property.name == b.property.name && is_same_reference(&a.object, &b.object)
+        }
+        (Expression::ComputedMemberExpression(a), Expression::ComputedMemberExpression(b)) => {
+            a.optional == b.optional
+                && is_same_reference(&a.object, &b.object)
+                && is_same_reference(&a.expression, &b.expression)
+        }
+        _ => false,
+    }
+}
+
+/// The reference `isLeftHandSide`: assignment targets, update arguments, and
+/// `delete` targets stay silent.
+fn is_left_hand_side(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool {
+    let span = node.kind().span();
+    let parent = semantic.nodes().parent_node(node.id());
+    match parent.kind() {
+        AstKind::AssignmentExpression(assignment) => assignment.left.span() == span,
+        AstKind::UpdateExpression(update) => update.argument.span() == span,
+        AstKind::UnaryExpression(unary) => {
+            unary.operator == UnaryOperator::Delete && unary.argument.span() == span
+        }
+        AstKind::ObjectProperty(property) => {
+            property.value.span() == span
+                && matches!(
+                    semantic.nodes().parent_node(parent.id()).kind(),
+                    AstKind::ObjectPattern(_)
+                )
+        }
+        _ => false,
+    }
+}
+
+fn check_computed_member(
+    sink: &mut IssueSink<'_>,
+    semantic: &Semantic<'_>,
+    node: &AstNode<'_>,
+    member: &ComputedMemberExpression<'_>,
+) {
+    if is_left_hand_side(semantic, node) || is_arguments_object(&member.object) {
+        return;
+    }
+    if get_negative_index_length_node(&member.expression, &member.object).is_some() {
+        sink.emit_span(
+            RuleScope::Both,
+            "S7755",
+            "Prefer `.at(…)` over `[….length - index]`.",
+            member.expression.span(),
+        );
+    }
+}
+
+fn check_char_at(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) {
+    let Some(member) = method_member(call, "charAt") else {
+        return;
+    };
+    if call.optional || call.arguments.len() != 1 {
+        return;
+    }
+    let Some(index) = call.arguments[0].as_expression() else {
+        return;
+    };
+    if get_negative_index_length_node(index, &member.object).is_none() {
+        return;
+    }
+    sink.emit_span(
+        RuleScope::Both,
+        "S7755",
+        "Prefer `String#at(…)` over `String#charAt(….length - index)`.",
+        index.span(),
+    );
+}
+
+fn literal_negative_integer(argument: &oxc_ast::ast::Argument<'_>) -> Option<f64> {
+    let Expression::UnaryExpression(unary) = argument.as_expression()? else {
+        return None;
+    };
+    if unary.operator != UnaryOperator::UnaryNegation {
+        return None;
+    }
+    let Expression::NumericLiteral(literal) = unparenthesized(&unary.argument) else {
+        return None;
+    };
+    let value = literal.value;
+    (value.is_finite() && value.fract() == 0.0 && value > 0.0).then_some(value)
+}
+
+fn is_zero_literal(expression: &Expression<'_>) -> bool {
+    matches!(
+        unparenthesized(expression),
+        Expression::NumericLiteral(literal) if literal.value == 0.0
+    )
+}
+
+fn check_slice(
+    sink: &mut IssueSink<'_>,
+    semantic: &Semantic<'_>,
+    node: &AstNode<'_>,
+    call: &CallExpression<'_>,
+) {
+    let Some(member) = method_member(call, "slice") else {
+        return;
+    };
+    if call.optional || call.arguments.is_empty() || call.arguments.len() > 2 {
+        return;
+    }
+    let Some(start_value) = literal_negative_integer(&call.arguments[0]) else {
+        return;
+    };
+    let call_span = call.span();
+    let parent = semantic.nodes().parent_node(node.id());
+    let mut first_element_get_method: &str = "";
+    let _ = first_element_get_method;
+    match parent.kind() {
+        AstKind::ComputedMemberExpression(access)
+            if access.object.span() == call_span
+                && !access.optional
+                && is_zero_literal(&access.expression) =>
+        {
+            if is_left_hand_side(semantic, parent) {
+                return;
+            }
+            first_element_get_method = "zero-index";
+        }
+        AstKind::StaticMemberExpression(wrapper_member)
+            if wrapper_member.object.span() == call_span =>
+        {
+            let method = wrapper_member.property.name.as_str();
+            if method != "shift" && method != "pop" {
+                return;
+            }
+            let grandparent = semantic.nodes().parent_node(parent.id());
+            match grandparent.kind() {
+                AstKind::CallExpression(wrapper)
+                    if !wrapper.optional
+                        && wrapper.arguments.is_empty()
+                        && wrapper.callee.span() == parent.kind().span() => {}
+                _ => return,
+            }
+            first_element_get_method = if method == "shift" { "shift" } else { "pop" };
+        }
+        _ => return,
+    }
+    let start_index = -start_value;
+    if call.arguments.len() == 1 {
+        if same_number(start_value, 1.0) {
+            emit_slice(sink, member.property.span());
+        }
+        return;
+    }
+    if let Some(end_value) = literal_negative_integer(&call.arguments[1])
+        && same_number(-end_value, start_index + 1.0)
+    {
+        emit_slice(sink, member.property.span());
+        return;
+    }
+    if first_element_get_method == "pop" {
+        return;
+    }
+    emit_slice(sink, member.property.span());
+}
+
+fn emit_slice(sink: &mut IssueSink<'_>, span: Span) {
+    sink.emit_span(
+        RuleScope::Both,
+        "S7755",
+        "Prefer `.at(…)` over the first element from `.slice(…)`.",
+        span,
+    );
+}
+
+const LAST_FUNCTIONS: [&str; 3] = ["_.last", "lodash.last", "underscore.last"];
+
+fn check_get_last_function(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) {
+    if call.optional || call.arguments.len() != 1 {
+        return;
+    }
+    let Expression::StaticMemberExpression(member) = unparenthesized(&call.callee) else {
+        return;
+    };
+    let Expression::Identifier(object) = unparenthesized(&member.object) else {
+        return;
+    };
+    let name = format!("{}.{}", object.name.as_str(), member.property.name.as_str());
+    if !LAST_FUNCTIONS.contains(&name.as_str()) {
+        return;
+    }
+    let Some(argument) = call.arguments[0].as_expression() else {
+        return;
+    };
+    if is_arguments_object(argument) {
+        return;
+    }
+    sink.emit_span(
+        RuleScope::Both,
+        "S7755",
+        &format!("Prefer `.at(-1)` over `{name}(…)` to get the last element."),
+        call.callee.span(),
+    );
+}
+
+/// Exact `f64` comparison, matching the reference `Literal.value ===` checks
+/// on parser-produced values.
+#[allow(clippy::float_cmp)]
+fn same_number(left: f64, right: f64) -> bool {
+    left == right
+}
 
 #[cfg(test)]
 mod tests {
@@ -82,7 +409,7 @@ function table() {
             .filter(|(key, _)| key == "typescript:S7755")
             .map(|(_, line)| *line)
             .collect();
-        assert_eq!(findings, vec![3, 4]);
+        assert_eq!(findings, vec![2, 3]);
     }
 
     #[test]
@@ -99,13 +426,14 @@ const sl = list.slice(-1)[0];
 const sh = list.slice(-1).shift();
 const pop = list.slice(-1).pop();
 const two = list.slice(-2, -1)[0];
+const weird = list.slice(-1, -2)[0];
 const lo = _.last(list);
 const lo2 = lodash.last(list);
 const lo3 = underscore.last(list);
 ";
         let report = js(source);
         let keys = report_keys(&report);
-        assert_eq!(count_key(&keys, "javascript:S7755"), 13);
+        assert_eq!(count_key(&keys, "javascript:S7755"), 14);
         let messages: Vec<&str> = report
             .issues
             .iter()
@@ -135,7 +463,7 @@ const lo3 = underscore.last(list);
                     **message == "Prefer `.at(…)` over the first element from `.slice(…)`."
                 })
                 .count(),
-            4
+            5
         );
         assert!(messages.contains(&"Prefer `.at(-1)` over `_.last(…)` to get the last element."));
         assert!(
@@ -161,7 +489,6 @@ function args() {
 const bareSlice = list.slice(-1);
 const deepSlice = list.slice(-2);
 const positiveSlice = list.slice(1)[0];
-const weirdRange = list.slice(-1, -2)[0];
 const farEnd = list.slice(-2)[0];
 const notFirst = list.slice(-1)[1];
 const bareLast = last(list);
@@ -169,6 +496,24 @@ const extraLast = _.last(list, 2);
 const firstOf = _.first(list);
 ";
         assert_eq!(count_key(&js_keys(source), "javascript:S7755"), 0);
+    }
+
+    #[test]
+    fn s7755_flags_member_receiver_negative_access() {
+        let source = "class Queue {
+  last() {
+    return this.items[this.items.length - 1];
+  }
+}
+";
+        let report = js(source);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S7755"), 1);
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S7755")
+            .expect("member receiver negative access must be reported");
+        assert_eq!(issue.message, "Prefer `.at(…)` over `[….length - index]`.");
     }
 
     #[test]
