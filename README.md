@@ -88,6 +88,15 @@ profile to completion with zero findings; the recorded server-side reference
 inventories (182 rows / 43 groups and 5 rows / 5 groups) remain unverified
 observations and establish no parity claim.
 
+Already-frozen languages can gain additional rules through
+`xtask catalog supplement`: a verified raw Community MQR capture whose
+languages exactly match the request is applied adds-only to the requested
+frozen languages — every `--key` must be absent from the frozen rules, one
+supplement per capture digest is recorded per language receipt (in the same
+provenance shape as `import-selected`), pre-existing rows stay byte-stable,
+and the closure audit must pass afterwards. Supplemented keys are implemented
+detectors, so they are never listed in `catalog/infra-boundaries.json`.
+
 ### Bounded semantic and context contracts
 
 The following areas depend on configured compiler/project context or explicit
