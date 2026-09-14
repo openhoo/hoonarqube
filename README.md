@@ -74,6 +74,19 @@ against the frozen catalog:
 | C# | 467 | 467 | 0 | 0 | 467 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
+| Java | 0 | 0 | 0 | 733 | 733 | surface-only |
+| Ruby | 0 | 0 | 0 | 42 | 42 | surface-only |
+
+Java and Ruby are explicitly versioned Sonar catalog surfaces, not implementations.
+Their rule rows were derived from one verified Community Build 26.8.0.126808
+capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
+receipt provenance recorded in `catalog/snapshot.toml`; every key is classified
+as a documented skip in `catalog/infra-boundaries.json` until per-rule semantic
+review lands implementations. The pinned complete-source qualifications — Gson
+`8b4b5505` (86 files) and Rake `8b4e8eb` (44 files) — run the `sonar-parity`
+profile to completion with zero findings; the recorded server-side reference
+inventories (182 rows / 43 groups and 5 rows / 5 groups) remain unverified
+observations and establish no parity claim.
 
 ### Bounded semantic and context contracts
 
@@ -93,7 +106,8 @@ syntax-only matching does not establish complete framework or analyzer parity:
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
 All 1,741 catalog implementations have direct repository test evidence, and
-the strict implementation-coverage audit passes. This is implementation
+the strict implementation-coverage audit passes; the 775 Java and Ruby surface
+rows are catalogued with documented ownership but deliberately unimplemented. This is implementation
 coverage, not SonarQube equivalence: compiler prerequisites, reference-sensor
 availability, finding identity, and remaining comparison failures stay separate. See
 [PARITY.md](PARITY.md) for the exact oracle contract and current failures.
@@ -565,6 +579,38 @@ forks, so that permission is unavailable there. The condition above uploads
 pushes and same-repository pull requests only; fork pull requests still get a
 local validated report, but cannot upload it. Keep upload disabled for
 untrusted contexts and do not grant write permissions to forked code.
+
+### Security query boundary
+
+The `github-code-quality` profile is quality-only by contract. It emits
+`Maintainability` and `Reliability` findings from file-local, high-confidence
+checks and contains no security analysis. CodeQL security queries observed in
+downstream comparisons are documented non-coverage, not missing quality
+detectors:
+
+- `js/bad-code-sanitization` (CWE-094 path query, #148) and
+  `js/bad-tag-filter` (CWE-116 HTML comment/tag-filter query, #149) require
+  interprocedural sanitizer-to-code-construction taint semantics and HTML
+  tag-filter modeling that the quality-only contract intentionally does not
+  build. The recorded reference runs stay as recorded: the pinned Zod
+  whole-project run exits `2` (incomplete, never re-labeled as a clean
+  negative) and the pinned Markdown-It run analyzes all 57 selected files
+  with zero findings. The native Sonar-catalog rule S5852 targets nested
+  unbounded quantifiers (ReDoS) and is not a tag-filter equivalent; the two
+  remain separate, and no exploit or upstream-defect claim is made.
+- `rb/polynomial-redos` (#175) is a version-sensitive regex-backtracking
+  query reported at Rake's `application.rb:815`. The pinned counter-control
+  runtime, Ruby 3.4.10, reports `Regexp.linear_time?` `true` for the cited
+  pattern `/([^:]+):/`, so this is not a demonstrated defect on that runtime;
+  older engines permitted by the Rake gemspec (Ruby >= 2.3) remain explicitly
+  unverified, and no timing or exploit reproduction is claimed.
+
+None of the three query IDs is a row in `catalog/github-code-quality.json` or
+a key in any `GITHUB_QUALITY_RULE_IDS` executable registry; their absence is
+this documented boundary, not an audit gap. If security coverage is ever
+built, it will live in a separate profile and registry with its own
+semantics, fixtures, qualification gates, and supported-runtime contract. It
+must not broaden the quality-only profile implicitly.
 
 ### Automatic fixes
 

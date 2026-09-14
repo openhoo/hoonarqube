@@ -13,13 +13,15 @@ use sha2::{Digest as _, Sha256};
 use syn::parse::Parser as _;
 use syn::visit::{self, Visit as _};
 
-pub(crate) const LANGUAGES: [(&str, &str, &str); 6] = [
+pub(crate) const LANGUAGES: [(&str, &str, &str); 8] = [
     ("csharp", "cs", "csharpsquid"),
     ("javascript", "js", "javascript"),
     ("typescript", "ts", "typescript"),
     ("python", "py", "python"),
     ("go", "go", "go"),
     ("rust", "rust", "rust"),
+    ("java", "java", "java"),
+    ("ruby", "ruby", "ruby"),
 ];
 const REQUIRED_ENDPOINTS: [&str; 6] = [
     "api/navigation/global",
@@ -248,12 +250,8 @@ pub fn import(
     Ok(())
 }
 
-fn import_into(
-    capture: &Path,
-    community_resolution: &Path,
-    output: &Path,
-    merge: bool,
-) -> Result<()> {
+/// Reads and fully verifies one raw capture manifest before any catalog mutation.
+fn validated_raw_capture(capture: &Path) -> Result<(RawManifest, Vec<u8>)> {
     let manifest_bytes = read(capture.join("manifest.json"))?;
     let manifest: RawManifest =
         serde_json::from_slice(&manifest_bytes).context("raw capture manifest is invalid")?;
@@ -284,13 +282,164 @@ fn import_into(
         }),
         "raw capture contains an unknown language"
     );
+    verify_raw_manifest(capture, &manifest, &manifest_bytes)?;
+    Ok((manifest, manifest_bytes))
+}
+
+/// Bootstraps new catalog languages from one verified raw Community capture.
+///
+/// This is the purpose-designed path for a language that has no
+/// `catalog/rules/<name>.json` yet: full import requires exactly all catalog
+/// languages and replaces whole language blocks, while already-frozen
+/// languages are immutable. The capture must come from a Community edition
+/// instance with MQR mode enabled and must contain exactly the requested
+/// languages, each of which must be absent from the frozen catalog. Every
+/// requested language lands as the complete captured rule surface, derived
+/// from the verified capture pages and shows; rule rows are never
+/// hand-authored.
+pub fn import_selected(
+    capture: &Path,
+    community_resolution: &Path,
+    output: &Path,
+    languages: &[String],
+    keys: &[String],
+) -> Result<()> {
+    ensure!(!languages.is_empty(), "selected import requires a language");
+    let mut requested: Vec<&str> = Vec::with_capacity(languages.len());
+    for name in languages {
+        ensure!(
+            !requested.contains(&name.as_str()),
+            "duplicate language {name}"
+        );
+        ensure!(
+            LANGUAGES.iter().any(|(known, _, _)| known == name),
+            "unknown language {name}"
+        );
+        requested.push(name.as_str());
+    }
+
+    let original_digest = catalog_directory_digest(output)?;
+    let staging = allocate_catalog_sibling(output, "staging")?;
+    let mut staging_cleanup = DirectoryCleanup::new(staging.clone());
+    copy_catalog_directory(output, &staging)?;
+    import_selected_into(capture, community_resolution, &staging, &requested, keys)?;
+    ensure!(
+        catalog_directory_digest(output)? == original_digest,
+        "catalog output changed during import"
+    );
+    publish_catalog_directory(output, &staging, true)?;
+    staging_cleanup.disarm();
+    Ok(())
+}
+
+fn import_selected_into(
+    capture: &Path,
+    community_resolution: &Path,
+    output: &Path,
+    requested: &[&str],
+    keys: &[String],
+) -> Result<()> {
+    let (manifest, _) = validated_raw_capture(capture)?;
+    ensure!(
+        manifest.languages.len() == requested.len()
+            && manifest
+                .languages
+                .keys()
+                .all(|name| requested.contains(&name.as_str())),
+        "raw capture languages must exactly match the requested selected import"
+    );
+
+    let (community_bytes, resolution) = validated_community_resolution(community_resolution)?;
+    let (edition, mode) = imported_instance_evidence(capture, &manifest.server_version)?;
+    ensure!(
+        edition == "community",
+        "selected import requires Community edition evidence"
+    );
+    ensure!(
+        mode == "mqr",
+        "selected import requires an MQR-mode instance capture"
+    );
+
+    let snapshot_text = fs::read_to_string(output.join("snapshot.toml"))
+        .context("selected import requires an existing catalog snapshot")?;
+    let mut snapshot: Snapshot =
+        toml::from_str(&snapshot_text).context("existing catalog snapshot is invalid")?;
+    snapshot.community_evidence_sha256 = sha256(&community_bytes);
+    migrate_snapshot_provenance(&mut snapshot)?;
+    validate_selected_import_base(output, &snapshot, &resolution)
+        .context("selected-import base catalog is invalid")?;
+
+    for name in requested {
+        ensure!(
+            !snapshot.languages.contains_key(*name)
+                && !snapshot.rule_files.contains_key(*name)
+                && !snapshot.unverified_rules.contains_key(*name)
+                && !output.join("rules").join(format!("{name}.json")).exists(),
+            "language {name} is already frozen in the catalog; selected import only bootstraps new languages"
+        );
+    }
+    if !keys.is_empty() {
+        let mut captured = BTreeSet::new();
+        for name in manifest.languages.keys() {
+            let keys_value = read_json(capture.join("rules").join(name).join("keys.json"))?;
+            let captured_keys = keys_value
+                .as_array()
+                .context("keys.json must be an array")?
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .context("rule key is not a string")
+                })
+                .collect::<Result<Vec<_>>>()?;
+            captured.extend(captured_keys);
+        }
+        let allow: BTreeSet<String> = keys.iter().cloned().collect();
+        ensure!(
+            captured == allow,
+            "selected keys must exactly describe the captured rule surface"
+        );
+    }
+
+    import_rule_catalogs(capture, output, &manifest, &resolution, true)?;
+    let imported_languages = snapshot_languages(&manifest, &edition, &mode);
+    for (name, language) in imported_languages {
+        snapshot.languages.insert(name, language);
+    }
+    for name in requested {
+        let unverified = resolution
+            .enterprise_unverified_rules
+            .get(*name)
+            .with_context(|| format!("Community evidence lacks {name} rule scope"))?;
+        snapshot
+            .unverified_rules
+            .insert((*name).to_owned(), unverified.clone());
+    }
+
+    let (catalog_sha256, total_rules, rule_files) = aggregate_catalog(output)?;
+    snapshot.catalog_sha256 = catalog_sha256;
+    snapshot.source_total_rules = total_rules;
+    snapshot.total_rules = total_rules;
+    snapshot.rule_files = rule_files;
+    validate_catalog_state(output, &snapshot).context("imported catalog is invalid")?;
+    let snapshot_bytes = toml::to_string_pretty(&snapshot)?.into_bytes();
+    write_atomic_replace(&output.join("snapshot.toml"), &snapshot_bytes)
+}
+
+fn import_into(
+    capture: &Path,
+    community_resolution: &Path,
+    output: &Path,
+    merge: bool,
+) -> Result<()> {
+    let (manifest, _) = validated_raw_capture(capture)?;
     if !merge {
         ensure!(
             manifest.languages.len() == LANGUAGES.len(),
             "raw capture language count mismatch"
         );
     }
-    verify_raw_manifest(capture, &manifest, &manifest_bytes)?;
 
     let (community_bytes, resolution) = validated_community_resolution(community_resolution)?;
 
@@ -678,6 +827,53 @@ fn validate_catalog_state(output: &Path, snapshot: &Snapshot) -> Result<()> {
             && scoped_total == snapshot.total_rules
             && hex::encode(catalog_hasher.finalize()) == snapshot.catalog_sha256,
         "catalog aggregate mismatch"
+    );
+    Ok(())
+}
+
+/// Validates the frozen catalog languages that predate a selected import.
+///
+/// A selected-import base intentionally lacks the new languages, so the exact
+/// language-set audit cannot hold yet. Every language already present must
+/// still audit cleanly, and its unverified scope must match the Community
+/// evidence; languages absent from the snapshot are skipped.
+fn validate_selected_import_base(
+    output: &Path,
+    snapshot: &Snapshot,
+    resolution: &CommunityResolution,
+) -> Result<()> {
+    let mut source_total = 0_usize;
+    let mut catalog_hasher = Sha256::new();
+    for (name, language_id, repository) in LANGUAGES {
+        let Some(_) = snapshot.languages.get(name) else {
+            continue;
+        };
+        let (source_count, _) = audit_language(
+            output,
+            snapshot,
+            name,
+            language_id,
+            repository,
+            true,
+            &mut catalog_hasher,
+        )?;
+        source_total += source_count;
+        let unverified = resolution
+            .enterprise_unverified_rules
+            .get(name)
+            .with_context(|| format!("Community evidence lacks {name} rule scope"))?;
+        ensure!(
+            snapshot.unverified_rules.get(name) == Some(unverified),
+            "snapshot unverified rules differ from Community evidence"
+        );
+    }
+    ensure!(
+        source_total == snapshot.source_total_rules && source_total == snapshot.total_rules,
+        "snapshot total rule count mismatch"
+    );
+    ensure!(
+        hex::encode(catalog_hasher.finalize()) == snapshot.catalog_sha256,
+        "catalog aggregate hash mismatch"
     );
     Ok(())
 }
@@ -1215,7 +1411,12 @@ pub fn coverage(lang: Option<&str>, strict: bool, allow_infra: bool) -> Result<(
     if let Some(lang) = lang {
         ensure!(
             LANGUAGES.iter().any(|(name, _, _)| *name == lang),
-            "unknown language {lang}; expected one of csharp, javascript, typescript, python, go, rust"
+            "unknown language {lang}; expected one of {}",
+            LANGUAGES
+                .iter()
+                .map(|(name, _, _)| *name)
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     audit(Path::new("catalog/snapshot.toml"), true)
@@ -1575,6 +1776,8 @@ fn coverage_source_dir(name: &str) -> Option<&'static str> {
         "python" => Some("crates/hoonarqube-python/src"),
         "go" => Some("crates/hoonarqube-go/src"),
         "rust" => Some("crates/hoonarqube-rust/src"),
+        "java" => Some("crates/hoonarqube-java/src"),
+        "ruby" => Some("crates/hoonarqube-ruby/src"),
         _ => None,
     }
 }
@@ -3103,6 +3306,479 @@ mod tests {
         assert!(error.to_string().contains("page closure mismatch"));
         fs::remove_dir_all(root).unwrap();
     }
+    const SELECTED_BASE_CAPTURE: &str =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn selected_base_language_rule(language_id: &str, repository: &str) -> RuleRecord {
+        RuleRecord {
+            external_key: format!("{repository}:S100"),
+            language: language_id.to_owned(),
+            repository: repository.to_owned(),
+            status: "ready".to_owned(),
+            scope: "Main".to_owned(),
+            severity: "MAJOR".to_owned(),
+            rule_type: "CODE_SMELL".to_owned(),
+            clean_code_attribute: None,
+            clean_code_attribute_category: None,
+            impacts: Vec::new(),
+            is_external: false,
+            is_template: false,
+            parameters: Vec::new(),
+            sys_tags: Vec::new(),
+            tags: Vec::new(),
+            education_principles: Vec::new(),
+            classification: COMMUNITY_CLASSIFICATION.to_owned(),
+            provenance_id: SELECTED_BASE_CAPTURE.to_owned(),
+        }
+    }
+
+    /// Writes one base language's derived rule file and snapshot receipt.
+    fn write_selected_base_language(
+        output: &Path,
+        name: &str,
+        language_id: &str,
+        repository: &str,
+    ) -> SnapshotLanguage {
+        let catalog = RuleCatalog {
+            schema_version: 1,
+            language: language_id.to_owned(),
+            source_capture_sha256: SELECTED_BASE_CAPTURE.to_owned(),
+            classification: SCOPE_CLASSIFICATION.to_owned(),
+            rules: vec![selected_base_language_rule(language_id, repository)],
+        };
+        let bytes = serde_json::to_vec_pretty(&catalog).unwrap();
+        fs::write(output.join("rules").join(format!("{name}.json")), bytes).unwrap();
+        SnapshotLanguage {
+            language: language_id.to_owned(),
+            repository: repository.to_owned(),
+            source_capture_sha256: Some(SELECTED_BASE_CAPTURE.to_owned()),
+            captured_at_utc: Some("2026-01-01T00:00:00Z".to_owned()),
+            server_version: Some("2025.4.4.119049".to_owned()),
+            source_edition: Some("enterprise".to_owned()),
+            oracle_edition: Some("community".to_owned()),
+            instance_mode: Some("standard".to_owned()),
+            page_size: Some(500),
+            source_total: 1,
+            total: 1,
+            unique_keys: 1,
+            page_count: 1,
+            show_count: 1,
+            query_sha256: sha256(b"query"),
+            pages_sha256: sha256(b"pages"),
+            keys_sha256: sha256(b"keys"),
+            shows_sha256: sha256(b"shows"),
+        }
+    }
+
+    /// Writes a valid six-language frozen catalog plus the extended Community
+    /// evidence, exactly like the committed tree before a selected import.
+    fn write_selected_import_base(root: &Path) -> PathBuf {
+        let output = root.join("catalog");
+        fs::create_dir_all(output.join("rules")).unwrap();
+        let mut languages = BTreeMap::new();
+        for (name, language_id, repository) in LANGUAGES {
+            if matches!(name, "java" | "ruby") {
+                continue;
+            }
+            let receipt = write_selected_base_language(&output, name, language_id, repository);
+            languages.insert(name.to_owned(), receipt);
+        }
+        let resolution = serde_json::json!({
+            "schema_version": 3,
+            "target": {
+                "oracle_edition": "community",
+                "requires_license": false,
+                "includes_enterprise_rules": true,
+                "classification": SCOPE_CLASSIFICATION,
+            },
+            "enterprise_unverified_rules": write_selected_resolution_map(),
+        });
+        let resolution_bytes = serde_json::to_vec_pretty(&resolution).unwrap();
+        fs::write(
+            output.join("community-artifact-resolution.json"),
+            &resolution_bytes,
+        )
+        .unwrap();
+        let mut snapshot = selected_base_snapshot(languages, &resolution_bytes);
+        let mut hasher = Sha256::new();
+        let mut total = 0_usize;
+        for (name, _, _) in LANGUAGES {
+            let path = output.join("rules").join(format!("{name}.json"));
+            let Ok(bytes) = fs::read(&path) else {
+                continue;
+            };
+            hash_record(&mut hasher, name.as_bytes());
+            hash_record(&mut hasher, &bytes);
+            total += 1;
+            snapshot.rule_files.insert(name.to_owned(), sha256(&bytes));
+        }
+        snapshot.catalog_sha256 = hex::encode(hasher.finalize());
+        snapshot.source_total_rules = total;
+        snapshot.total_rules = total;
+        validate_selected_import_base(
+            &output,
+            &snapshot,
+            &serde_json::from_slice(
+                &fs::read(output.join("community-artifact-resolution.json")).unwrap(),
+            )
+            .unwrap(),
+        )
+        .expect("selected-import base fixture must be valid");
+        fs::write(
+            output.join("snapshot.toml"),
+            toml::to_string_pretty(&snapshot).unwrap(),
+        )
+        .unwrap();
+        output
+    }
+
+    /// Assembles the frozen base snapshot body for the selected-import fixture.
+    fn selected_base_snapshot(
+        languages: BTreeMap<String, SnapshotLanguage>,
+        resolution_bytes: &[u8],
+    ) -> Snapshot {
+        let mut unverified: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (name, _, _) in LANGUAGES {
+            if matches!(name, "java" | "ruby") {
+                continue;
+            }
+            unverified.insert(name.to_owned(), Vec::new());
+        }
+        let mut endpoints = BTreeMap::new();
+        for endpoint in REQUIRED_ENDPOINTS {
+            endpoints.insert(
+                (*endpoint).to_owned(),
+                RawResponseReceipt {
+                    status: 200,
+                    bytes: 1,
+                    sha256: sha256(b"x"),
+                },
+            );
+        }
+        Snapshot {
+            schema_version: 4,
+            capture_sha256: SELECTED_BASE_CAPTURE.to_owned(),
+            captured_at_utc: "2026-01-01T00:00:00Z".to_owned(),
+            server_version: "2025.4.4.119049".to_owned(),
+            edition: "enterprise".to_owned(),
+            oracle_edition: "community".to_owned(),
+            instance_mode: "standard".to_owned(),
+            page_size: 500,
+            scope_classification: SCOPE_CLASSIFICATION.to_owned(),
+            community_evidence_sha256: sha256(resolution_bytes),
+            catalog_sha256: String::new(),
+            source_total_rules: 0,
+            total_rules: 0,
+            unverified_rules: unverified,
+            languages,
+            endpoints,
+            plugins: vec![PluginFact {
+                key: "fixture".to_owned(),
+                version: None,
+                hash: None,
+                implementation_build: None,
+                edition_bundled: None,
+                plugin_type: None,
+                required_for_languages: Vec::new(),
+            }],
+            rule_files: BTreeMap::new(),
+        }
+    }
+
+    fn write_selected_resolution_map() -> serde_json::Map<String, serde_json::Value> {
+        let mut map = serde_json::Map::new();
+        for (name, _, _) in LANGUAGES {
+            map.insert(name.to_owned(), serde_json::json!([]));
+        }
+        map
+    }
+
+    /// Writes a Community MQR raw capture for exactly `names`.
+    fn write_selected_capture(
+        root: &Path,
+        names: &[(&str, &str, &str)],
+        edition: &str,
+        mode: &str,
+    ) -> PathBuf {
+        let capture = root.join("capture");
+        fs::create_dir_all(&capture).unwrap();
+        let mut languages = serde_json::Map::new();
+        for (name, language_id, repository) in names {
+            languages.insert(
+                (*name).to_owned(),
+                write_non_merge_language(&capture, name, language_id, repository),
+            );
+        }
+        let navigation_bytes =
+            format!(r#"{{"version":"2025.4.4.119049","edition":"{edition}"}}"#).into_bytes();
+        let mode_bytes = format!(
+            r#"{{"settings":[{{"key":"sonar.multi-quality-mode.enabled","value":"{mode}"}}]}}"#
+        )
+        .into_bytes();
+        let endpoint_files = [
+            (
+                "api/server/version",
+                "server-version.txt",
+                b"2025.4.4.119049".as_slice(),
+            ),
+            (
+                "api/system/status",
+                "system-status.json",
+                br#"{"version":"2025.4.4.119049","id":"fixture"}"#.as_slice(),
+            ),
+            (
+                "api/plugins/installed",
+                "plugins-installed.json",
+                br#"{"plugins":[{"key":"fixture"}]}"#.as_slice(),
+            ),
+            (
+                "api/webservices/list",
+                "webservices-list.json",
+                br#"{"webServices":[]}"#.as_slice(),
+            ),
+            (
+                "api/navigation/global",
+                "navigation-global.json",
+                navigation_bytes.as_slice(),
+            ),
+            (
+                "api/settings/values?keys=sonar.multi-quality-mode.enabled",
+                "instance-mode.json",
+                mode_bytes.as_slice(),
+            ),
+        ];
+        let mut endpoints = serde_json::Map::new();
+        for (endpoint, file, bytes) in endpoint_files {
+            fs::write(capture.join(file), bytes).unwrap();
+            endpoints.insert(
+                endpoint.to_owned(),
+                serde_json::json!({
+                    "status": 200,
+                    "bytes": bytes.len(),
+                    "sha256": sha256(bytes),
+                }),
+            );
+        }
+        let mut manifest = serde_json::json!({
+            "schema_version": 1,
+            "captured_at_utc": "2026-01-02T00:00:00Z",
+            "approval_id": "fixture",
+            "instance": "community",
+            "base_origin": "http://127.0.0.1:19084",
+            "server_version": "2025.4.4.119049",
+            "page_size": 500,
+            "project_prefix": "fixture-",
+            "endpoints": endpoints,
+            "languages": languages,
+            "snapshot_sha256": "",
+        });
+        let mut identity = manifest.clone();
+        let identity_object = identity.as_object_mut().unwrap();
+        identity_object.remove("snapshot_sha256");
+        identity_object.remove("captured_at_utc");
+        manifest["snapshot_sha256"] =
+            serde_json::Value::String(sha256(&canonical_json(&identity).unwrap()));
+        fs::write(
+            capture.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        capture
+    }
+
+    fn selected_new_languages() -> Vec<(&'static str, &'static str, &'static str)> {
+        LANGUAGES
+            .iter()
+            .copied()
+            .filter(|(name, _, _)| matches!(*name, "java" | "ruby"))
+            .collect()
+    }
+
+    #[test]
+    fn selected_import_bootstraps_new_languages_end_to_end() {
+        let root = temporary_path(&std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-selected-ok-{}",
+            std::process::id()
+        )));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        let output = write_selected_import_base(&root);
+        let capture = write_selected_capture(&root, &selected_new_languages(), "community", "true");
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(capture.join("manifest.json")).unwrap()).unwrap();
+        let new_capture_sha = manifest["snapshot_sha256"].as_str().unwrap().to_owned();
+        let before = fs::read(output.join("rules/python.json")).unwrap();
+
+        import_selected(
+            &capture,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &[],
+        )
+        .expect("selected import must bootstrap new languages");
+
+        for name in ["java", "ruby"] {
+            let catalog: RuleCatalog = serde_json::from_slice(
+                &fs::read(output.join("rules").join(format!("{name}.json"))).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(catalog.schema_version, 1);
+            assert_eq!(catalog.rules.len(), 1);
+            assert_eq!(catalog.rules[0].provenance_id, new_capture_sha);
+            assert_eq!(catalog.classification, SCOPE_CLASSIFICATION);
+        }
+        let snapshot_text = fs::read_to_string(output.join("snapshot.toml")).unwrap();
+        let snapshot: Snapshot = toml::from_str(&snapshot_text).unwrap();
+        assert_eq!(snapshot.languages.len(), LANGUAGES.len());
+        assert_eq!(
+            snapshot.languages["java"].instance_mode.as_deref(),
+            Some("mqr")
+        );
+        assert_eq!(
+            snapshot.languages["java"].server_version.as_deref(),
+            Some("2025.4.4.119049")
+        );
+        assert_eq!(snapshot.total_rules, 8);
+        assert_eq!(fs::read(output.join("rules/python.json")).unwrap(), before);
+        let java_receipt = &snapshot.languages["java"];
+        assert_eq!(
+            java_receipt.source_capture_sha256.as_deref(),
+            Some(new_capture_sha.as_str())
+        );
+    }
+
+    #[test]
+    fn selected_import_rejects_already_frozen_language() {
+        let root = temporary_path(&std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-selected-frozen-{}",
+            std::process::id()
+        )));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        let output = write_selected_import_base(&root);
+        let capture = write_selected_capture(&root, &selected_new_languages(), "community", "true");
+        import_selected(
+            &capture,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &[],
+        )
+        .expect("first bootstrap must succeed");
+        let error = import_selected(
+            &capture,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &[],
+        )
+        .expect_err("second bootstrap of the same language must fail");
+        assert!(error.to_string().contains("already frozen"));
+    }
+
+    #[test]
+    fn selected_import_rejects_capture_language_mismatch() {
+        let root = temporary_path(&std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-selected-mismatch-{}",
+            std::process::id()
+        )));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        let output = write_selected_import_base(&root);
+        let capture = write_selected_capture(&root, &selected_new_languages(), "community", "true");
+        let error = import_selected(
+            &capture,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned()],
+            &[],
+        )
+        .expect_err("partial language request must fail");
+        assert!(error.to_string().contains("exactly match"));
+    }
+
+    #[test]
+    fn selected_import_rejects_non_mqr_and_non_community_captures() {
+        let root = temporary_path(&std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-selected-mode-{}",
+            std::process::id()
+        )));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        let output = write_selected_import_base(&root);
+        let standard =
+            write_selected_capture(&root, &selected_new_languages(), "community", "false");
+        let error = import_selected(
+            &standard,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &[],
+        )
+        .expect_err("standard-mode capture must fail");
+        assert!(error.to_string().contains("MQR"));
+
+        let enterprise =
+            write_selected_capture(&root, &selected_new_languages(), "enterprise", "true");
+        let error = import_selected(
+            &enterprise,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &[],
+        )
+        .expect_err("enterprise capture must fail");
+        assert!(error.to_string().contains("Community edition"));
+    }
+
+    #[test]
+    fn selected_import_rejects_partial_key_selection() {
+        let root = temporary_path(&std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-selected-keys-{}",
+            std::process::id()
+        )));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        let output = write_selected_import_base(&root);
+        let capture = write_selected_capture(&root, &selected_new_languages(), "community", "true");
+        let error = import_selected(
+            &capture,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &["java:S100".to_owned()],
+        )
+        .expect_err("key selection that omits captured keys must fail");
+        assert!(error.to_string().contains("exactly describe"));
+    }
+
+    #[test]
+    fn selected_import_rejects_hand_authored_rule_rows() {
+        let root = temporary_path(&std::env::temp_dir().join(format!(
+            "hoonarqube-xtask-selected-tamper-{}",
+            std::process::id()
+        )));
+        let _cleanup = DirectoryCleanup::new(root.clone());
+        fs::create_dir_all(&root).unwrap();
+        let output = write_selected_import_base(&root);
+        let capture = write_selected_capture(&root, &selected_new_languages(), "community", "true");
+        let show = capture.join("rules/java/show/0000.json");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&show).unwrap()).unwrap();
+        value["rule"]["status"] = serde_json::Value::String("hand-authored".to_owned());
+        fs::write(&show, serde_json::to_vec(&value).unwrap()).unwrap();
+        let error = import_selected(
+            &capture,
+            &output.join("community-artifact-resolution.json"),
+            &output,
+            &["java".to_owned(), "ruby".to_owned()],
+            &[],
+        )
+        .expect_err("tampered capture must fail closed");
+        assert!(error.to_string().contains("show aggregate hash mismatch"));
+    }
+
     #[test]
     fn page_completeness_flag_controls_closure_checks() {
         let mut snapshot: Snapshot = toml::from_str(include_str!(concat!(

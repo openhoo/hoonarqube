@@ -7,10 +7,10 @@ oracle_edition = "community"
 instance_mode = "standard"
 page_size = 500
 scope_classification = "community-plus-enterprise-unverified"
-community_evidence_sha256 = "ea1a29c84247ca9de8d9fc4b7ca023fd7376328848c00f95068eba23d2b76672"
-catalog_sha256 = "140c677c874bfc797955f2e6fcf643043b007d8ad96846c9200c9681f3701b49"
-source_total_rules = 1741
-total_rules = 1741
+community_evidence_sha256 = "a21e618ab38418bdc78a5b825cc507bed653073f3a95b9588190a93e37eef3bf"
+catalog_sha256 = "d6082ce6d2a66810554661d37aa3f975dbf6fb9a0d92d94991aea95eaa54ccf5"
+source_total_rules = 2516
+total_rules = 2516
 
 [unverified_rules]
 csharp = [
@@ -33,8 +33,10 @@ csharp = [
     "csharpsquid:S7133",
 ]
 go = []
+java = []
 javascript = []
 python = []
+ruby = []
 rust = []
 typescript = []
 
@@ -78,6 +80,26 @@ pages_sha256 = "01b2829d9528979849998aacddaf45ba672d14571f2fc371b84d36a6d3279c71
 keys_sha256 = "44fae899f6de8d64a1c7627a6a0034994cbdb9cef9106547a7d227582cf50e26"
 shows_sha256 = "72ba758815ac9a0c93f07cdecc517ab430ddadeaf0f76993d906040d1b01617d"
 
+[languages.java]
+language = "java"
+repository = "java"
+source_capture_sha256 = "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+captured_at_utc = "2026-09-14T06:59:14.226843383Z"
+server_version = "26.8.0.126808"
+source_edition = "community"
+oracle_edition = "community"
+instance_mode = "mqr"
+page_size = 500
+source_total = 733
+total = 733
+unique_keys = 733
+page_count = 2
+show_count = 733
+query_sha256 = "1417f100ab818922861eb14c44d9b3275a6f3a713d8bbb3322a05c4222b7e094"
+pages_sha256 = "cd53d93fcaed1241f7cdb55e32306c4e72548d0e30061fa552c7fbf1cff802c9"
+keys_sha256 = "580717b8626e1ac2c22cbd2e05544680478adf0819a0d9209de868fb8c96844f"
+shows_sha256 = "aeb11ddf16a4e962a2f433c19f9ce537e38d28e88fd112053d222cfe7e500712"
+
 [languages.javascript]
 language = "js"
 repository = "javascript"
@@ -117,6 +139,26 @@ query_sha256 = "0807b46df1f135a11cb3c3c52291f2d3e82155e6978c618d6513a163c111ce72
 pages_sha256 = "01be12e901feb2cf3c47457d1cae710816eb7e04d8b630654596f51145f51963"
 keys_sha256 = "49672503d79a5bb1d27b1a8650ebd77cc2767208aa22591038066c2f2fa26631"
 shows_sha256 = "78d5cb4a0c5a65e68113814038cc35562a616aa3a1d4272cf882c4321004c4c8"
+
+[languages.ruby]
+language = "ruby"
+repository = "ruby"
+source_capture_sha256 = "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+captured_at_utc = "2026-09-14T06:59:14.226843383Z"
+server_version = "26.8.0.126808"
+source_edition = "community"
+oracle_edition = "community"
+instance_mode = "mqr"
+page_size = 500
+source_total = 42
+total = 42
+unique_keys = 42
+page_count = 1
+show_count = 42
+query_sha256 = "f7e3a875fe50f686b83585b0fcceb0ab0a17ae374869b7cd14d8973b32482291"
+pages_sha256 = "f550f4cfc47be1b72755b9d7af962b3352ac90ce55514554be6bf1fa49239e09"
+keys_sha256 = "ab14a46f55ad2559dc50ef6ea706cc36aedf4b9aadb862bef31f25b1eb7e1bc4"
+shows_sha256 = "a23a9199b5e6c181093d257cce396ab19764fa60667ec1b2178e54534c6fe511"
 
 [languages.rust]
 language = "rust"
@@ -708,7 +750,9 @@ required_for_languages = []
 [rule_files]
 csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
 go = "87a2a1861bcbc3b6efcbbdf744091f26c84ec4f0a1a02bf0324433773255183f"
+java = "b817c4c8b9bb09febb1e131dbd1868624406b55f00534003445ab1f2119d4374"
 javascript = "645c262219bc8c94fdc0af482b44b61a8324135a8b1f890461a631a101192e90"
 python = "4061b80f58e6f0cc24c410d57b4eae0a1030a5915ae590a18df15500188e46a7"
+ruby = "1bfa964c2a157715237046db506f8d9b3890e6ec77c88cb14b82457bf0d983b4"
 rust = "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817"
 typescript = "dddc83ab7b93eb3ea366d7e44000da475d357adfb181a26855e97bb1f67c42a8"

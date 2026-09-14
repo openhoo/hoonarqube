@@ -28,6 +28,12 @@
 !/.oracle/sonar/projects/oracle-rust/Cargo.lock
 !/.oracle/sonar/projects/oracle-rust/src/
 !/.oracle/sonar/projects/oracle-rust/src/**
+!/.oracle/sonar/projects/oracle-java/sonar-project.properties
+!/.oracle/sonar/projects/oracle-java/src/
+!/.oracle/sonar/projects/oracle-java/src/**
+!/.oracle/sonar/projects/oracle-ruby/sonar-project.properties
+!/.oracle/sonar/projects/oracle-ruby/src/
+!/.oracle/sonar/projects/oracle-ruby/src/**
 /.oracle/sonar/projects/**/__pycache__/
 !tools/oracle/**
 /tools/oracle/**/__pycache__/

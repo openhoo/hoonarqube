@@ -1,0 +1,1233 @@
+{
+  "schema_version": 1,
+  "language": "ruby",
+  "source_capture_sha256": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974",
+  "classification": "community-plus-enterprise-unverified",
+  "rules": [
+    {
+      "external_key": "ruby:ParsingError",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S100",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "IDENTIFIABLE",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "format",
+          "default_value": "^(@{0,2}[\\da-z_]+[!?=]?)|([*+-/%=!><~]+)|(\\[]=?)$",
+          "parameter_type": "STRING"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S101",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "IDENTIFIABLE",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "format",
+          "default_value": "^[A-Z][a-zA-Z0-9]*$",
+          "parameter_type": "STRING"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S103",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "maximumLineLength",
+          "default_value": "200",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S104",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "Max",
+          "default_value": "1000",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S105",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1066",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "clumsy"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1067",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "3",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S107",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "Max",
+          "default_value": "7",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S108",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1110",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "confusing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1134",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1135",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "INFO",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "INFO"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1145",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1151",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "15",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S117",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "IDENTIFIABLE",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "format",
+          "default_value": "^(@{0,2}[\\da-z_]+[!?=]?)|([*+-/%=!><~]+)|(\\[]=?)$",
+          "parameter_type": "STRING"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1172",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "unused"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1186",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1192",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "threshold",
+          "default_value": "3",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "design"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S122",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FORMATTED",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S126",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S131",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1313",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "TRUSTWORTHY",
+      "clean_code_attribute_category": "RESPONSIBLE",
+      "impacts": [
+        {
+          "software_quality": "SECURITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "former-hotspot"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1314",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "BLOCKER"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S134",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "3",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S138",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "max",
+          "default_value": "100",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1451",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "BLOCKER",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LAWFUL",
+      "clean_code_attribute_category": "RESPONSIBLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "BLOCKER"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "headerFormat",
+          "parameter_type": "TEXT"
+        },
+        {
+          "key": "isRegularExpression",
+          "default_value": "false",
+          "parameter_type": "BOOLEAN"
+        }
+      ],
+      "sys_tags": [
+        "convention"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1479",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "maximum",
+          "default_value": "30",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1481",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "unused"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1656",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1763",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "cwe",
+        "unused"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1764",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1821",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1862",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "unused",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1871",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "design",
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S1940",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S2068",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "VULNERABILITY",
+      "clean_code_attribute": "TRUSTWORTHY",
+      "clean_code_attribute_category": "RESPONSIBLE",
+      "impacts": [
+        {
+          "software_quality": "SECURITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "credentialWords",
+          "default_value": "password,passwd,pwd,passphrase",
+          "parameter_type": "STRING"
+        }
+      ],
+      "sys_tags": [
+        "cwe",
+        "secret",
+        "former-hotspot"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S2757",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S3776",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "CRITICAL",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "FOCUSED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "threshold",
+          "default_value": "15",
+          "parameter_type": "INTEGER"
+        }
+      ],
+      "sys_tags": [
+        "brain-overload"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S3923",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S4144",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "DISTINCT",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "confusing",
+        "duplicate",
+        "suspicious"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    },
+    {
+      "external_key": "ruby:S4663",
+      "language": "ruby",
+      "repository": "ruby",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974"
+    }
+  ]
+}

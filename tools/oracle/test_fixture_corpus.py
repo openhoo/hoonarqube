@@ -17,6 +17,8 @@ PROJECTS = {
     "oracle-cs": ("csharp", "."),
     "oracle-go": ("go", "src"),
     "oracle-rust": ("rust", "src"),
+    "oracle-java": ("java", "src"),
+    "oracle-ruby": ("ruby", "src"),
 }
 
 
