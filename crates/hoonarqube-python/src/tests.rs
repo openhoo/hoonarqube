@@ -3853,3 +3853,349 @@ fn s5958_accepts_specific_types_and_message_matched_assertions() {
     );
     assert_eq!(findings(&instance, "python:S5958").len(), 1);
 }
+
+#[test]
+fn s8502_flags_single_add_loop_body() {
+    // Pinned pallets/flask src/flask/templating.py#L109-L121 @ d73fa1cd:
+    // `result` is a local set and the loop adds each element of an
+    // iterable, so `result.update(loader.list_templates())` is the
+    // concrete `set.update()` alternative.
+    let flagged = scan(concat!(
+        "def list_templates(self):\n",
+        "    result = set()\n",
+        "    for template in loader.list_templates():\n",
+        "        result.add(template)\n",
+        "    return list(result)\n",
+    ));
+    let found = findings(&flagged, "python:S8502");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Use \"set.update()\" instead of a for-loop with \"add()\"."
+    );
+    assert_eq!(found[0].range.start, pos(4, 8));
+    assert_eq!(found[0].range.end, pos(4, 18));
+    assert!(found[0].flows.is_empty());
+}
+
+#[test]
+fn s8502_accepts_non_equivalent_loop_shapes() {
+    // Controls: conditional adds, extra body statements, constant or
+    // unrelated arguments, attribute receivers, tuple targets, loop
+    // `else` clauses, and `discard` are not `set.update()` rewrites.
+    let clean = scan(concat!(
+        "def wrapped(self):\n",
+        "    result = set()\n",
+        "    for template in items:\n",
+        "        if template:\n",
+        "            result.add(template)\n",
+        "\n",
+        "def extra_statement(self):\n",
+        "    for template in items:\n",
+        "        log(template)\n",
+        "        seen.add(template)\n",
+        "\n",
+        "def constant_argument(self):\n",
+        "    for template in items:\n",
+        "        seen.add(\"template\")\n",
+        "\n",
+        "def attribute_receiver(self):\n",
+        "    for template in items:\n",
+        "        self.seen.add(template)\n",
+        "\n",
+        "def unrelated_argument(self):\n",
+        "    for template in items:\n",
+        "        seen.add(other)\n",
+        "\n",
+        "def loop_with_else(self):\n",
+        "    for template in items:\n",
+        "        seen.add(template)\n",
+        "    else:\n",
+        "        pass\n",
+        "\n",
+        "def discard_is_out_of_scope(self):\n",
+        "    for template in items:\n",
+        "        seen.discard(template)\n",
+        "\n",
+        "def tuple_target(self):\n",
+        "    for key, template in items:\n",
+        "        seen.add(template)\n",
+    ));
+    assert!(findings(&clean, "python:S8502").is_empty());
+}
+
+#[test]
+fn s8510_flags_inner_loop_variable_shadowing_outer() {
+    // Pinned yaml/pyyaml setup.py#L241-L249 @ 34a9bf82: the innermost
+    // loop reuses `ext`, the outer loop variable, while the middle
+    // loop binds a distinct name.
+    let flagged = scan(concat!(
+        "def get_source_files(self):\n",
+        "    filenames = []\n",
+        "    for ext in self.extensions:\n",
+        "        for filename in ext.sources:\n",
+        "            filenames.append(filename)\n",
+        "            base = splitext(filename)[0]\n",
+        "            for ext in ['c', 'h', 'pyx', 'pxd']:\n",
+        "                filename = '%s.%s' % (base, ext)\n",
+        "    return filenames\n",
+    ));
+    let found = findings(&flagged, "python:S8510");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Rename this loop variable; it shadows the outer loop variable \"ext\"."
+    );
+    assert_eq!(found[0].range.start, pos(7, 16));
+    assert_eq!(found[0].range.end, pos(7, 19));
+    assert_eq!(found[0].flows.len(), 1);
+    let locations = &found[0].flows[0].locations;
+    assert_eq!(locations.len(), 1);
+    assert_eq!(
+        locations[0].message,
+        "Outer loop variable is declared here."
+    );
+    assert_eq!(locations[0].range.start, pos(4, 8));
+    assert_eq!(locations[0].range.end, pos(4, 11));
+    // Tuple targets report the shadowed component name.
+    let tuple = scan(concat!(
+        "def tuple_pair(self):\n",
+        "    for key, ext in pairs:\n",
+        "        for ext in exts:\n",
+        "            use(ext)\n",
+    ));
+    let found = findings(&tuple, "python:S8510");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(3, 12));
+    assert_eq!(found[0].range.end, pos(3, 15));
+}
+
+#[test]
+fn s8510_accepts_distinct_nested_loop_variables() {
+    // Controls: distinct names, sequential (non-nested) reuse, reuse in
+    // a separate function, and comprehension scopes are not shadowing.
+    let clean = scan(concat!(
+        "def distinct_names(self):\n",
+        "    for ext in self.extensions:\n",
+        "        for filename in ext.sources:\n",
+        "            use(ext, filename)\n",
+        "\n",
+        "def sibling_loops(self):\n",
+        "    for ext in self.extensions:\n",
+        "        use(ext)\n",
+        "    for ext in others:\n",
+        "        use(ext)\n",
+        "\n",
+        "def separate_functions(self):\n",
+        "    for ext in items:\n",
+        "        use(ext)\n",
+        "\n",
+        "def comprehension_scope_is_separate(self):\n",
+        "    for ext in items:\n",
+        "        total = sum(1 for ext in ext.sources)\n",
+    ));
+    assert!(findings(&clean, "python:S8510").is_empty());
+}
+
+#[test]
+fn s8513_flags_chained_startswith_calls() {
+    // Pinned yaml/pyyaml lib/yaml/emitter.py#L649-L653 @ 34a9bf82: two
+    // fixed-prefix checks on the same string combine into a single
+    // tuple-argument call.
+    let flagged = scan(concat!(
+        "def analyze_scalar(self):\n",
+        "    if scalar.startswith('---') or scalar.startswith('...'):\n",
+        "        block_indicators = True\n",
+        "\n",
+        "def triple_chain(self):\n",
+        "    if value.startswith('a') or value.startswith('b') or value.startswith('c'):\n",
+        "        use()\n",
+    ));
+    let found = findings(&flagged, "python:S8513");
+    assert_eq!(found.len(), 2);
+    assert_eq!(
+        found[0].message,
+        "Replace chained \"startswith\" calls with a single call using a tuple argument."
+    );
+    assert_eq!(found[0].range.start, pos(2, 7));
+    assert_eq!(found[0].range.end, pos(2, 59));
+    assert_eq!(found[1].range.start, pos(5, 7));
+    assert_eq!(found[1].range.end, pos(5, 78));
+    assert!(found[0].flows.is_empty());
+}
+
+#[test]
+fn s8513_accepts_non_equivalent_prefix_checks() {
+    // Controls: elif branches, distinct receivers, mixed startswith /
+    // endswith, `and` chains, dynamic arguments, and a chain with an
+    // unrelated operand are not tuple rewrites.
+    let clean = scan(concat!(
+        "def elif_branches(self):\n",
+        "    if scalar.startswith('---'):\n",
+        "        pass\n",
+        "    elif scalar.startswith('...'):\n",
+        "        pass\n",
+        "\n",
+        "def different_receivers(self):\n",
+        "    if scalar.startswith('---') or other.startswith('...'):\n",
+        "        pass\n",
+        "\n",
+        "def mixed_methods(self):\n",
+        "    if scalar.startswith('---') or scalar.endswith('...'):\n",
+        "        pass\n",
+        "\n",
+        "def conjunction(self):\n",
+        "    if scalar.startswith('---') and scalar.startswith('...'):\n",
+        "        pass\n",
+        "\n",
+        "def dynamic_arguments(self):\n",
+        "    if scalar.startswith(prefix) or scalar.startswith(other):\n",
+        "        pass\n",
+        "\n",
+        "def partial_chain(self):\n",
+        "    if scalar.startswith('---') or scalar.startswith('...') or ready:\n",
+        "        pass\n",
+    ));
+    assert!(findings(&clean, "python:S8513").is_empty());
+}
+
+#[test]
+fn s8714_flags_try_except_expecting_pytest_fail() {
+    // Pinned psf/requests tests/test_requests.py#L251-L260 @ dae7ef63:
+    // the else clause marks the expected exception, so
+    // `pytest.raises` preserves the captured value and assertions.
+    let flagged = scan_test_file(concat!(
+        "def test_HTTP_302_TOO_MANY_REDIRECTS(self, httpbin):\n",
+        "    try:\n",
+        "        requests.get(httpbin(\"relative-redirect\", \"50\"))\n",
+        "    except TooManyRedirects as e:\n",
+        "        url = httpbin(\"relative-redirect\", \"20\")\n",
+        "        assert e.request.url == url\n",
+        "        assert len(e.response.history) == 30\n",
+        "    else:\n",
+        "        pytest.fail(\"Expected redirect to raise TooManyRedirects but it did not\")\n",
+    ));
+    let found = findings(&flagged, "python:S8714");
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].message,
+        "Replace this try/except block with a \"pytest.raises\" context manager."
+    );
+    assert_eq!(found[0].range.start, pos(2, 4));
+    assert_eq!(found[0].range.end, pos(9, 81));
+    assert_eq!(found[0].flows.len(), 1);
+    let locations = &found[0].flows[0].locations;
+    assert_eq!(locations.len(), 1);
+    assert_eq!(locations[0].message, "pytest.fail is called here.");
+    assert_eq!(locations[0].range.start, pos(9, 8));
+    assert_eq!(locations[0].range.end, pos(9, 81));
+    // A trailing `pytest.fail` inside the try body reports the same way.
+    let body_form = scan_test_file(concat!(
+        "def test_read_timeout(self, timeout):\n",
+        "    try:\n",
+        "        requests.get(TARPIT, timeout=timeout)\n",
+        "        pytest.fail(\"The recv() request should time out.\")\n",
+        "    except ReadTimeout:\n",
+        "        pass\n",
+    ));
+    let found = findings(&body_form, "python:S8714");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(2, 4));
+    assert_eq!(found[0].range.end, pos(6, 12));
+    assert_eq!(found[0].flows[0].locations[0].range.start, pos(4, 8));
+    assert_eq!(found[0].flows[0].locations[0].range.end, pos(4, 58));
+}
+
+#[test]
+fn s8714_accepts_try_except_without_pytest_fail() {
+    // Controls: assertions without the expectation marker, bare
+    // handlers, `pytest.fail` outside the statement, and finally-only
+    // forms are not `pytest.raises` rewrites.
+    let clean = scan_test_file(concat!(
+        "def assertions_in_handler(self, httpbin):\n",
+        "    try:\n",
+        "        requests.get(httpbin(\"relative-redirect\", \"50\"))\n",
+        "    except TooManyRedirects as e:\n",
+        "        assert e.request.url\n",
+        "    else:\n",
+        "        assert e.response\n",
+        "\n",
+        "def bare_handler(self):\n",
+        "    try:\n",
+        "        boom()\n",
+        "    except:\n",
+        "        pass\n",
+        "\n",
+        "def fail_after_the_statement(self):\n",
+        "    try:\n",
+        "        boom()\n",
+        "    except Boom:\n",
+        "        pass\n",
+        "    pytest.fail(\"not inside\")\n",
+        "\n",
+        "def finally_only(self):\n",
+        "    try:\n",
+        "        boom()\n",
+        "    finally:\n",
+        "        cleanup()\n",
+    ));
+    assert!(findings(&clean, "python:S8714").is_empty());
+}
+
+#[test]
+fn s8786_flags_super_linear_regex_literals() {
+    // Pinned psf/requests src/requests/utils.py#L536-L538 @ dae7ef63:
+    // three `re.compile` literals pair a lazy dot-all run with further
+    // unbounded quantifiers, so backtracking is super-linear.
+    let flagged = scan(concat!(
+        "import re\n",
+        "\n",
+        "def get_encodings(content):\n",
+        "    charset_re = re.compile(r'<meta.*?charset=[\"\\']*(.+?)[\"\\'>]', flags=re.I)\n",
+        "    pragma_re = re.compile(r'<meta.*?content=[\"\\']*;?charset=(.+?)[\"\\'>]', flags=re.I)\n",
+        "    xml_re = re.compile(r'^<\\?xml.*?encoding=[\"\\']*(.+?)[\"\\'>]')\n",
+        "    return charset_re, pragma_re, xml_re\n",
+        "\n",
+        "def find_title(text):\n",
+        "    return re.search(r'<html.*?title>(.+?)</title>', text)\n",
+        "\n",
+        "def adjacent_stars(value):\n",
+        "    return re.compile(r'a*a*c')\n",
+    ));
+    let found = findings(&flagged, "python:S8786");
+    assert_eq!(found.len(), 5);
+    assert_eq!(
+        found[0].message,
+        "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
+    );
+    assert_eq!(found[0].range.start, pos(4, 28));
+    assert_eq!(found[0].range.end, pos(4, 64));
+    assert_eq!(found[1].range.start, pos(5, 27));
+    assert_eq!(found[2].range.start, pos(6, 24));
+    assert_eq!(found[3].range.start, pos(10, 11));
+    assert_eq!(found[4].range.start, pos(13, 11));
+}
+
+#[test]
+fn s8786_accepts_linear_and_exponential_shapes() {
+    // Controls: single unbounded quantifiers, bounded repetition,
+    // plain literals, dynamic patterns, nested quantifiers (the
+    // exponential concern of a different rule), disjoint character
+    // sets, and lazy-dot-with-literal stay silent.
+    let clean = scan(concat!(
+        "import re\n",
+        "\n",
+        "HEADER_NAME = re.compile(r\"^[^:\\s][^:\\r\\n]*\\Z\")\n",
+        "HEADER_VALUE = re.compile(rb\"^\\S[^\\r\\n]*\\Z|^\\Z\")\n",
+        "COMMA_SPLIT = re.compile(r\",\\s*\")\n",
+        "PERCENT = re.compile(r\"%[a-fA-F0-9]{2}\")\n",
+        "DIGEST = re.compile(r\"digest \")\n",
+        "PLAIN = re.compile(\"charset\")\n",
+        "DYNAMIC = re.compile(user_input)\n",
+        "NESTED = re.compile(r\"(a+)+$\")\n",
+        "DISJOINT = re.compile(r\"\\d*[a-f]*end\")\n",
+        "LAZY_PAIR = re.compile(r\".*?x\")\n",
+        "BOUNDED_SEARCH = re.findall(r\"%[a-fA-F0-9]{2}\", text)\n",
+    ));
+    assert!(findings(&clean, "python:S8786").is_empty());
+}
