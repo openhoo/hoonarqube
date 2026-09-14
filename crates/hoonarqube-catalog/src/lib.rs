@@ -1021,13 +1021,15 @@ pub fn native_rule(external_key: &str) -> Option<&'static NativeRuleRecord> {
 }
 
 /// Embedded languages in canonical audit order: `(catalog name, language id, repository)`.
-const LANGUAGES: [(&str, &str, &str); 6] = [
+const LANGUAGES: [(&str, &str, &str); 8] = [
     ("csharp", "cs", "csharpsquid"),
     ("javascript", "js", "javascript"),
     ("typescript", "ts", "typescript"),
     ("python", "py", "python"),
     ("go", "go", "go"),
     ("rust", "rust", "rust"),
+    ("java", "java", "java"),
+    ("ruby", "ruby", "ruby"),
 ];
 
 const REQUIRED_ENDPOINTS: [&str; 6] = [
@@ -1074,6 +1076,14 @@ const GO_JSON: &str = include_str!(concat!(
 const RUST_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../catalog/rules/rust.json"
+));
+const JAVA_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/rules/java.json"
+));
+const RUBY_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../catalog/rules/ruby.json"
 ));
 
 /// Frozen capture evidence for one `SonarQube` server instance.
@@ -1256,6 +1266,8 @@ pub fn embedded() -> &'static Catalog {
                 PYTHON_JSON,
                 GO_JSON,
                 RUST_JSON,
+                JAVA_JSON,
+                RUBY_JSON,
             ],
         )
         .expect("embedded catalog failed integrity verification: frozen build inputs are corrupt")
@@ -1301,13 +1313,13 @@ impl Catalog {
 }
 
 impl LanguageCatalog {
-    /// Embedded catalog name (`csharp`, `javascript`, `typescript`, `python`, `go`, or `rust`).
+    /// Embedded catalog name (`csharp`, `javascript`, `typescript`, `python`, `go`, `rust`, `java`, or `ruby`).
     #[must_use]
     pub const fn name(&self) -> &'static str {
         self.name
     }
 
-    /// `SonarQube` language id (`cs`, `js`, `ts`, `py`, `go`, or `rust`).
+    /// `SonarQube` language id (`cs`, `js`, `ts`, `py`, `go`, `rust`, `java`, or `ruby`).
     #[must_use]
     pub const fn language_id(&self) -> &'static str {
         self.language_id
@@ -1336,7 +1348,7 @@ impl LanguageCatalog {
 ///
 /// The rule texts must be given in [`LANGUAGES`] order. Error messages mirror the
 /// `xtask catalog audit` failures byte for byte.
-fn verify(snapshot_text: &str, rule_texts: [&str; 6]) -> Result<Catalog, String> {
+fn verify(snapshot_text: &str, rule_texts: [&str; 8]) -> Result<Catalog, String> {
     let snapshot: Snapshot = toml::from_str(snapshot_text)
         .map_err(|error| format!("catalog snapshot is invalid: {error}"))?;
     verify_snapshot(&snapshot)?;
@@ -1661,17 +1673,22 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        CSHARP_JSON, GO_JSON, JAVASCRIPT_JSON, LANGUAGES, PYTHON_JSON, RUST_JSON, SNAPSHOT_TOML,
-        TYPESCRIPT_JSON, verify,
+        CSHARP_JSON, GO_JSON, JAVA_JSON, JAVASCRIPT_JSON, LANGUAGES, PYTHON_JSON, RUBY_JSON,
+        RUST_JSON, SNAPSHOT_TOML, TYPESCRIPT_JSON, verify,
     };
 
-    const PRISTINE: [&str; 6] = [
+    /// Captured rule totals for the Community-bootstrapped surfaces.
+    const JAVA_RULES: usize = 733;
+    const RUBY_RULES: usize = 42;
+    const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
         TYPESCRIPT_JSON,
         PYTHON_JSON,
         GO_JSON,
         RUST_JSON,
+        JAVA_JSON,
+        RUBY_JSON,
     ];
 
     #[test]
@@ -1684,21 +1701,34 @@ mod tests {
         assert_eq!(snapshot.server_version, "2025.4.4.119049");
         assert_eq!(catalog.languages().count(), LANGUAGES.len());
         assert!(catalog.language("python").is_some());
-        assert!(catalog.language("java").is_none());
+        assert!(catalog.language("java").is_some());
+        assert!(catalog.language("ruby").is_some());
     }
 
     #[test]
     fn verify_accepts_pristine_embedded_texts() {
         let catalog = verify(SNAPSHOT_TOML, PRISTINE).expect("pristine texts must verify");
-        assert_eq!(catalog.snapshot().source_total_rules, 1741);
-        assert_eq!(catalog.snapshot().total_rules, 1741);
+        assert_eq!(
+            catalog.snapshot().source_total_rules,
+            1741 + JAVA_RULES + RUBY_RULES
+        );
+        assert_eq!(
+            catalog.snapshot().total_rules,
+            1741 + JAVA_RULES + RUBY_RULES
+        );
     }
 
     #[test]
     fn embedded_rule_counts_match_snapshot_evidence() {
         let catalog = super::embedded();
-        assert_eq!(catalog.snapshot().source_total_rules, 1741);
-        assert_eq!(catalog.snapshot().total_rules, 1741);
+        assert_eq!(
+            catalog.snapshot().source_total_rules,
+            1741 + JAVA_RULES + RUBY_RULES
+        );
+        assert_eq!(
+            catalog.snapshot().total_rules,
+            1741 + JAVA_RULES + RUBY_RULES
+        );
         let expected = [
             ("csharp", 467),
             ("javascript", 406),
@@ -1706,6 +1736,8 @@ mod tests {
             ("python", 335),
             ("go", 36),
             ("rust", 85),
+            ("java", JAVA_RULES),
+            ("ruby", RUBY_RULES),
         ];
         for (name, count) in expected {
             let language = catalog
@@ -1737,7 +1769,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(seen.len(), 1741);
+        assert_eq!(seen.len(), 1741 + JAVA_RULES + RUBY_RULES);
     }
 
     #[test]
@@ -1749,6 +1781,7 @@ mod tests {
         assert_eq!(rule.repository, "python");
         assert_eq!(rule.language, "py");
         assert!(catalog.rule("java:NoSuchRule").is_none());
+        assert!(catalog.rule("ruby:NoSuchRule").is_none());
     }
 
     #[test]
