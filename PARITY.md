@@ -370,6 +370,20 @@ fixtures, locations, messages, categories, severities, and interaction
 behavior. This boundary is independent of the SonarQube parity requirements
 below.
 
+Security coverage is outside this scope by explicit decision (#148, #149,
+#175). The CodeQL security queries `js/bad-code-sanitization`,
+`js/bad-tag-filter`, and `rb/polynomial-redos` are documented non-coverage:
+none is a row in `catalog/github-code-quality.json` or a key in any
+`GITHUB_QUALITY_RULE_IDS` registry, and no native detector maps to them.
+Faithful semantics would require sanitizer-to-code-construction taint and
+HTML tag-filter modeling that the quality-only contract does not build, and
+the Ruby query is counter-controlled by the pinned Ruby 3.4.10 result
+`Regexp.linear_time?(/([^:]+):/) == true` with older engines explicitly
+unverified. A future security surface, if any, is a separate profile and
+registry with its own qualification contract; it must not broaden the
+quality-only profile or this parity boundary, and the three reference
+findings are not claimed as upstream exploits.
+
 ## Full-parity requirements
 
 1. Every catalog rule must be executable. No rule may be hidden by an `INFRA`,

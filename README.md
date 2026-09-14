@@ -580,6 +580,38 @@ pushes and same-repository pull requests only; fork pull requests still get a
 local validated report, but cannot upload it. Keep upload disabled for
 untrusted contexts and do not grant write permissions to forked code.
 
+### Security query boundary
+
+The `github-code-quality` profile is quality-only by contract. It emits
+`Maintainability` and `Reliability` findings from file-local, high-confidence
+checks and contains no security analysis. CodeQL security queries observed in
+downstream comparisons are documented non-coverage, not missing quality
+detectors:
+
+- `js/bad-code-sanitization` (CWE-094 path query, #148) and
+  `js/bad-tag-filter` (CWE-116 HTML comment/tag-filter query, #149) require
+  interprocedural sanitizer-to-code-construction taint semantics and HTML
+  tag-filter modeling that the quality-only contract intentionally does not
+  build. The recorded reference runs stay as recorded: the pinned Zod
+  whole-project run exits `2` (incomplete, never re-labeled as a clean
+  negative) and the pinned Markdown-It run analyzes all 57 selected files
+  with zero findings. The native Sonar-catalog rule S5852 targets nested
+  unbounded quantifiers (ReDoS) and is not a tag-filter equivalent; the two
+  remain separate, and no exploit or upstream-defect claim is made.
+- `rb/polynomial-redos` (#175) is a version-sensitive regex-backtracking
+  query reported at Rake's `application.rb:815`. The pinned counter-control
+  runtime, Ruby 3.4.10, reports `Regexp.linear_time?` `true` for the cited
+  pattern `/([^:]+):/`, so this is not a demonstrated defect on that runtime;
+  older engines permitted by the Rake gemspec (Ruby >= 2.3) remain explicitly
+  unverified, and no timing or exploit reproduction is claimed.
+
+None of the three query IDs is a row in `catalog/github-code-quality.json` or
+a key in any `GITHUB_QUALITY_RULE_IDS` executable registry; their absence is
+this documented boundary, not an audit gap. If security coverage is ever
+built, it will live in a separate profile and registry with its own
+semantics, fixtures, qualification gates, and supported-runtime contract. It
+must not broaden the quality-only profile implicitly.
+
 ### Automatic fixes
 
 `fix` combines quick fixes attached to catalog findings with a safe mechanical
