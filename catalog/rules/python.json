@@ -9588,6 +9588,96 @@
       "provenance_id": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6"
     },
     {
+      "external_key": "python:S9075",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "TESTED",
+      "clean_code_attribute_category": "ADAPTABLE",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "tests",
+        "pytest"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "3b3f986343c3e0048718bf2a84f42087f7086f21b1280a2139f2b3d9fa8b5ee8"
+    },
+    {
+      "external_key": "python:S9078",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "tests",
+        "pytest"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "3b3f986343c3e0048718bf2a84f42087f7086f21b1280a2139f2b3d9fa8b5ee8"
+    },
+    {
+      "external_key": "python:S9083",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [
+        {
+          "key": "requireParentheses",
+          "default_value": "false",
+          "parameter_type": "BOOLEAN"
+        }
+      ],
+      "sys_tags": [
+        "tests",
+        "pytest"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "3b3f986343c3e0048718bf2a84f42087f7086f21b1280a2139f2b3d9fa8b5ee8"
+    },
+    {
       "external_key": "python:S930",
       "language": "py",
       "repository": "python",
@@ -9689,6 +9779,27 @@
       ],
       "selected_keys_sha256": "7c94e0a4d187b274e31fd114bb52f8e34d7d34bde32f835f2f9bedfa33b08d77",
       "selected_rows_sha256": "807c8b178a006f7397f6dac5c6a5d1e2e37ef342321ba8b115d3347a47411ab1"
+    },
+    {
+      "capture_sha256": "3b3f986343c3e0048718bf2a84f42087f7086f21b1280a2139f2b3d9fa8b5ee8",
+      "captured_at_utc": "2026-09-14T20:36:31.088531273Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 433,
+      "page_count": 1,
+      "query_sha256": "0807b46df1f135a11cb3c3c52291f2d3e82155e6978c618d6513a163c111ce72",
+      "pages_sha256": "bc9ad3cb81793d0c5a07fc287a0c52e1115de15439890fefacb4ad218e251549",
+      "keys_sha256": "879309d7aee558cd32971480642faddd738612f5508835adf636cca4d19fcb34",
+      "shows_sha256": "868d3faaf1c160b7310bb77d8bdfcec5fb755cf0112636be9f346cc4760bfdec",
+      "selected_keys": [
+        "python:S9075",
+        "python:S9078",
+        "python:S9083"
+      ],
+      "selected_keys_sha256": "fd7b7ace39915d484dbbf54386bd12030f21afd5ad5578e49b4f75cb92627837",
+      "selected_rows_sha256": "4ab4c1bd3481f96c9d4e354c6985db9a1936164c552bbf781b06d936ee6b64c8"
     },
     {
       "capture_sha256": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6",
