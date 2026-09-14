@@ -1765,12 +1765,9 @@ mod tests {
     /// Captured rule totals for the Community-bootstrapped surfaces.
     const JAVA_RULES: usize = 733;
     const RUBY_RULES: usize = 42;
-    /// Adds-only supplements layered after the base captures: two javascript,
-    /// ten typescript, and five python keys from verified community captures
-    /// (the second javascript and five more typescript keys are the
-    /// S7737/S7741/S7744/S7746/S7751 wave from the 2026-09-14 community
-    /// capture).
-    const SUPPLEMENT_RULES: usize = 21;
+    /// Adds-only supplements layered after the base captures: one javascript,
+    /// five typescript, and ten python keys from verified community captures.
+    const SUPPLEMENT_RULES: usize = 16;
     const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
@@ -1822,9 +1819,9 @@ mod tests {
         );
         let expected = [
             ("csharp", 467),
-            ("javascript", 412),
-            ("typescript", 422),
-            ("python", 340),
+            ("javascript", 407),
+            ("typescript", 417),
+            ("python", 345),
             ("go", 36),
             ("rust", 85),
             ("java", JAVA_RULES),
