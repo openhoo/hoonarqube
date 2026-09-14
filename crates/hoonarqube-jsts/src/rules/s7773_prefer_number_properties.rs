@@ -20,11 +20,63 @@
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope};
 use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_semantic::Semantic;
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::node::NodeId;
 
 /// Entry point: `javascript:S7773` + `typescript:S7773`
 /// prefer-number-properties check over the parsed program.
-pub(crate) fn check(_ctx: &AnalysisContext) -> Vec<Issue> {
-    Vec::new()
+/// Requires the semantic model for the global-binding guard, so
+/// recoverable-parse files stay silent.
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    let Some(semantic) = ctx.semantic else {
+        return sink.issues;
+    };
+    for node in semantic.nodes().iter() {
+        let AstKind::IdentifierReference(identifier) = node.kind() else {
+            continue;
+        };
+        if identifier.name != "parseInt"
+            || !semantic.is_reference_to_global_variable(identifier)
+            || !is_explicit_radix_call(semantic, node.id(), identifier.span)
+        {
+            continue;
+        }
+        sink.emit_span(
+            RuleScope::Both,
+            "S7773",
+            "Prefer `Number.parseInt` over `parseInt`.",
+            identifier.span,
+        );
+    }
+    sink.issues
+}
+
+/// The issue limit: only a plain, non-optional call on the unshadowed
+/// global `parseInt` with exactly two plain arguments (the radix preserved
+/// verbatim) is a proven `Number.parseInt` equivalent.
+fn is_explicit_radix_call(
+    semantic: &Semantic<'_>,
+    identifier_node_id: NodeId,
+    callee_span: Span,
+) -> bool {
+    let AstKind::CallExpression(call) = semantic.nodes().parent_node(identifier_node_id).kind()
+    else {
+        return false;
+    };
+    call.callee.span() == callee_span
+        && !call.optional
+        && call.arguments.len() == 2
+        && call
+            .arguments
+            .iter()
+            .all(|argument| argument.as_expression().is_some())
 }
 
 #[cfg(test)]
@@ -59,9 +111,8 @@ function scan(state: any, silent: boolean) {
             .filter(|issue| issue.rule_key == "typescript:S7773")
             .map(|issue| (issue.range.start.column, issue.range.end.column))
             .collect();
-        anchors.sort();
-        let first_prefix =
-            "      const code = match[1][0].toLowerCase() === 'x' ? ";
+        anchors.sort_unstable();
+        let first_prefix = "      const code = match[1][0].toLowerCase() === 'x' ? ";
         let second_prefix = concat!(
             "      const code = match[1][0].toLowerCase() === 'x' ? ",
             "parseInt(match[1].slice(1), 16) : ",
@@ -70,7 +121,7 @@ function scan(state: any, silent: boolean) {
             .iter()
             .map(|prefix| {
                 let start = u32::try_from(prefix.len()).unwrap();
-                (start, start + "parseInt".len() as u32)
+                (start, start + u32::try_from("parseInt".len()).unwrap())
             })
             .collect();
         assert_eq!(anchors, expected);
@@ -80,10 +131,7 @@ function scan(state: any, silent: boolean) {
             .filter(|issue| issue.rule_key == "typescript:S7773")
         {
             assert_eq!(issue.range.start.line, 5);
-            assert_eq!(
-                issue.message,
-                "Prefer `Number.parseInt` over `parseInt`."
-            );
+            assert_eq!(issue.message, "Prefer `Number.parseInt` over `parseInt`.");
         }
     }
 
@@ -95,14 +143,8 @@ const dec = parseInt('42', 10);
 ";
         let keys = js_keys(source);
         assert_eq!(count_key(&keys, "javascript:S7773"), 2);
-        assert!(keys.contains(&(
-            "javascript:S7773".to_string(),
-            1
-        )));
-        assert!(keys.contains(&(
-            "javascript:S7773".to_string(),
-            2
-        )));
+        assert!(keys.contains(&("javascript:S7773".to_string(), 1)));
+        assert!(keys.contains(&("javascript:S7773".to_string(), 2)));
     }
 
     #[test]

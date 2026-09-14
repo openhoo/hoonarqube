@@ -21,13 +21,96 @@
 // base and must fail (RED) until the detector lands.
 
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, RuleScope};
+use crate::support::{IssueSink, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{CallExpression, Expression, RegExpFlags};
+use oxc_span::{GetSpan, Span};
 
 /// Entry point: `javascript:S7781` + `typescript:S7781`
 /// prefer-string-replace-all check over the parsed program.
-pub(crate) fn check(_ctx: &AnalysisContext) -> Vec<Issue> {
-    Vec::new()
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    if let Some(semantic) = ctx.semantic {
+        for node in semantic.nodes().iter() {
+            if let AstKind::CallExpression(call) = node.kind() {
+                check_call(&mut sink, call);
+            }
+        }
+    }
+    sink.issues
+}
+
+/// The reference `create`: a `.replace(pattern, replacement)` call whose
+/// pattern is a global-flagged regular expression is reported on the
+/// `replace` property.
+fn check_call(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) {
+    let Some(property_span) = global_regex_replace_property(call) else {
+        return;
+    };
+    sink.emit_span(
+        RuleScope::Both,
+        "S7781",
+        "Prefer `String#replaceAll()` over `String#replace()`.",
+        property_span,
+    );
+}
+
+/// The `replace` property span when the call is a non-optional
+/// two-argument member call named `replace` (the reference
+/// `isMethodCall`), or `None` otherwise.
+fn global_regex_replace_property(call: &CallExpression<'_>) -> Option<Span> {
+    if call.optional || call.arguments.len() != 2 {
+        return None;
+    }
+    let Expression::StaticMemberExpression(member) = unparenthesized(&call.callee) else {
+        return None;
+    };
+    if member.optional || member.property.name != "replace" {
+        // `replaceAll` keeps its regex pattern: the unicorn
+        // "pattern can be replaced with a string literal" suggestion is a
+        // different reference message without capture evidence.
+        return None;
+    }
+    if !has_global_regex_pattern(&call.arguments) {
+        return None;
+    }
+    Some(member.property.span())
+}
+
+/// Whether the pattern argument is a global-flagged regular expression:
+/// a `/.../g...` literal or `new RegExp(pattern, "flags")` whose literal
+/// flags contain `g` (the reference `isRegExpWithGlobalFlag` minus its
+/// opaque static-value branch).
+fn has_global_regex_pattern(arguments: &[oxc_ast::ast::Argument<'_>]) -> bool {
+    let Some(pattern) = arguments
+        .first()
+        .and_then(|argument| argument.as_expression())
+    else {
+        return false;
+    };
+    match unparenthesized(pattern) {
+        Expression::RegExpLiteral(literal) => literal.regex.flags.contains(RegExpFlags::G),
+        Expression::NewExpression(new_expression) => {
+            let Expression::Identifier(callee) = unparenthesized(&new_expression.callee) else {
+                return false;
+            };
+            callee.name == "RegExp"
+                && new_expression
+                    .arguments
+                    .first()
+                    .is_some_and(|argument| argument.as_expression().is_some())
+                && matches!(
+                    new_expression.arguments.get(1).and_then(|argument| argument.as_expression()),
+                    Some(Expression::StringLiteral(flags)) if flags.value.contains('g'),
+                )
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -52,10 +135,7 @@ export function replace(content: string) {
         let first = report
             .issues
             .iter()
-            .find(|issue| {
-                issue.rule_key == "typescript:S7781"
-                    && issue.range.start.line == 3
-            })
+            .find(|issue| issue.rule_key == "typescript:S7781" && issue.range.start.line == 3)
             .expect("pinned replacements chain must be reported");
         assert_eq!(
             first.message,
@@ -67,7 +147,7 @@ export function replace(content: string) {
         );
         assert_eq!(
             first.range.end.column,
-            u32::try_from("    .".len()).unwrap() + "replace".len() as u32
+            u32::try_from("    .".len()).unwrap() + u32::try_from("replace".len()).unwrap()
         );
     }
 

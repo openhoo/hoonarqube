@@ -22,13 +22,215 @@
 // base and must fail (RED) until the detector lands.
 
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, RuleScope};
+use crate::support::{IssueSink, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{
+    BinaryOperator, CallExpression, Expression, StaticMemberExpression, ThrowStatement,
+    UnaryOperator,
+};
+use oxc_semantic::Semantic;
+use oxc_syntax::node::NodeId;
+
+/// The reference `typeCheckIdentifiers` for member calls.
+const TYPE_CHECK_IDENTIFIERS: [&str; 37] = [
+    "isArguments",
+    "isArray",
+    "isArrayBuffer",
+    "isArrayLike",
+    "isArrayLikeObject",
+    "isBigInt",
+    "isBoolean",
+    "isBuffer",
+    "isDate",
+    "isElement",
+    "isError",
+    "isFinite",
+    "isFunction",
+    "isInteger",
+    "isLength",
+    "isMap",
+    "isNaN",
+    "isNative",
+    "isNil",
+    "isNull",
+    "isNumber",
+    "isObject",
+    "isObjectLike",
+    "isPlainObject",
+    "isPrototypeOf",
+    "isRegExp",
+    "isSafeInteger",
+    "isSet",
+    "isString",
+    "isSymbol",
+    "isTypedArray",
+    "isUndefined",
+    "isView",
+    "isWeakMap",
+    "isWeakSet",
+    "isWindow",
+    "isXMLDoc",
+];
+
+/// The reference `typeCheckGlobalIdentifiers` for bare calls.
+const TYPE_CHECK_GLOBAL_IDENTIFIERS: [&str; 2] = ["isNaN", "isFinite"];
 
 /// Entry point: `javascript:S7786` + `typescript:S7786`
 /// prefer-type-error check over the parsed program.
-pub(crate) fn check(_ctx: &AnalysisContext) -> Vec<Issue> {
-    Vec::new()
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    if let Some(semantic) = ctx.semantic {
+        for node in semantic.nodes().iter() {
+            if let AstKind::ThrowStatement(throw) = node.kind() {
+                check_throw(&mut sink, semantic, node.id(), throw);
+            }
+        }
+    }
+    sink.issues
+}
+
+/// The reference `ThrowStatement` listener: `throw new Error(...)`, alone
+/// in its block, directly under an `if` whose test proves a type check.
+fn check_throw(
+    sink: &mut IssueSink<'_>,
+    semantic: &Semantic<'_>,
+    throw_node_id: NodeId,
+    throw: &ThrowStatement<'_>,
+) {
+    let argument = &throw.argument;
+    let Expression::NewExpression(new_expression) = unparenthesized(argument) else {
+        return;
+    };
+    let Expression::Identifier(callee) = unparenthesized(&new_expression.callee) else {
+        return;
+    };
+    if callee.name != "Error" {
+        return;
+    }
+    let Some(test) = lone_throw_if_test(semantic, throw_node_id) else {
+        return;
+    };
+    if !is_typechecking_expression(test, None) {
+        return;
+    }
+    sink.emit_span(
+        RuleScope::Both,
+        "S7786",
+        "`new Error()` is too unspecific for a type check. Use `new TypeError()` instead.",
+        callee.span,
+    );
+}
+
+/// The `if` test when `throw` is the only statement of a block that
+/// directly belongs to an `if` (the reference `isLone` + `isTypechecking`).
+fn lone_throw_if_test<'a, 'b>(
+    semantic: &'a Semantic<'b>,
+    throw_node_id: NodeId,
+) -> Option<&'a Expression<'b>> {
+    let nodes = semantic.nodes();
+    let parent = nodes.parent_node(throw_node_id);
+    let AstKind::BlockStatement(block) = parent.kind() else {
+        return None;
+    };
+    if block.body.len() != 1 {
+        return None;
+    }
+    let grandparent = nodes.parent_node(parent.id());
+    let AstKind::IfStatement(if_statement) = grandparent.kind() else {
+        return None;
+    };
+    Some(&if_statement.test)
+}
+
+/// The reference `isTypecheckingExpression`.
+fn is_typechecking_expression(
+    expression: &Expression<'_>,
+    call: Option<&CallExpression<'_>>,
+) -> bool {
+    match unparenthesized(expression) {
+        Expression::Identifier(identifier) => {
+            call.is_some_and(|call| !call.arguments.is_empty())
+                && TYPE_CHECK_GLOBAL_IDENTIFIERS.contains(&identifier.name.as_str())
+        }
+        Expression::StaticMemberExpression(member) => is_typechecking_member(member, call),
+        Expression::CallExpression(nested_call) => {
+            is_typechecking_expression(&nested_call.callee, Some(nested_call))
+        }
+        Expression::UnaryExpression(unary) => match unary.operator {
+            UnaryOperator::Typeof => true,
+            UnaryOperator::LogicalNot => is_typechecking_expression(&unary.argument, None),
+            _ => false,
+        },
+        Expression::BinaryExpression(binary) => {
+            if binary.operator == BinaryOperator::Instanceof {
+                return !is_error_constructor(&binary.right);
+            }
+            is_typechecking_expression(&binary.left, call)
+                || is_typechecking_expression(&binary.right, call)
+        }
+        Expression::LogicalExpression(logical) => {
+            is_typechecking_expression(&logical.left, call)
+                && is_typechecking_expression(&logical.right, call)
+        }
+        _ => false,
+    }
+}
+
+/// The reference `isTypecheckingMemberExpression`: a member call named
+/// like a type check, or a nested member chain (for example `_.util.is`).
+fn is_typechecking_member(
+    member: &StaticMemberExpression<'_>,
+    call: Option<&CallExpression<'_>>,
+) -> bool {
+    if call.is_some_and(|call| !call.arguments.is_empty())
+        && TYPE_CHECK_IDENTIFIERS.contains(&member.property.name.as_str())
+    {
+        return true;
+    }
+    match unparenthesized(&member.object) {
+        Expression::StaticMemberExpression(object) => is_typechecking_member(object, call),
+        _ => false,
+    }
+}
+
+/// The reference `isErrorConstructor`: anything not shaped like an error
+/// constructor name makes `instanceof` a type check.
+fn is_error_constructor(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::Identifier(identifier) => is_error_constructor_name(identifier.name.as_str()),
+        Expression::StaticMemberExpression(member) => {
+            !member.optional && is_error_constructor_name(member.property.name.as_str())
+        }
+        _ => false,
+    }
+}
+
+/// The reference `errorNameRegexp` (`^(?:[A-Z][\da-z]*)*Error$`) without a
+/// regular-expression engine: the prefix must segment into
+/// uppercase-started runs.
+fn is_error_constructor_name(name: &str) -> bool {
+    let Some(prefix) = name.strip_suffix("Error") else {
+        return false;
+    };
+    let bytes = prefix.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_uppercase() {
+            return false;
+        }
+        index += 1;
+        while index < bytes.len()
+            && (bytes[index].is_ascii_lowercase() || bytes[index].is_ascii_digit())
+        {
+            index += 1;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -63,16 +265,12 @@ View.prototype.lookup = function lookup(name) {
         let report = js(source);
         let keys = report_keys(&report);
         assert_eq!(count_key(&keys, "javascript:S7786"), 2);
-        for (line, prefix) in [
-            (3u32, "    throw new "),
-            (11, "    throw new "),
-        ] {
+        for (line, prefix) in [(3u32, "    throw new "), (11, "    throw new ")] {
             let issue = report
                 .issues
                 .iter()
                 .find(|issue| {
-                    issue.rule_key == "javascript:S7786"
-                        && issue.range.start.line == line
+                    issue.rule_key == "javascript:S7786" && issue.range.start.line == line
                 })
                 .expect("each pinned express throw must be reported");
             assert_eq!(issue.message, MESSAGE);
@@ -82,7 +280,7 @@ View.prototype.lookup = function lookup(name) {
             );
             assert_eq!(
                 issue.range.end.column,
-                u32::try_from(prefix.len()).unwrap() + "Error".len() as u32
+                u32::try_from(prefix.len()).unwrap() + u32::try_from("Error".len()).unwrap()
             );
         }
     }
