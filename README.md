@@ -74,6 +74,19 @@ against the frozen catalog:
 | C# | 467 | 467 | 0 | 0 | 467 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
+| Java | 0 | 0 | 0 | 733 | 733 | surface-only |
+| Ruby | 0 | 0 | 0 | 42 | 42 | surface-only |
+
+Java and Ruby are explicitly versioned Sonar catalog surfaces, not implementations.
+Their rule rows were derived from one verified Community Build 26.8.0.126808
+capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
+receipt provenance recorded in `catalog/snapshot.toml`; every key is classified
+as a documented skip in `catalog/infra-boundaries.json` until per-rule semantic
+review lands implementations. The pinned complete-source qualifications — Gson
+`8b4b5505` (86 files) and Rake `8b4e8eb` (44 files) — run the `sonar-parity`
+profile to completion with zero findings; the recorded server-side reference
+inventories (182 rows / 43 groups and 5 rows / 5 groups) remain unverified
+observations and establish no parity claim.
 
 ### Bounded semantic and context contracts
 
@@ -93,7 +106,8 @@ syntax-only matching does not establish complete framework or analyzer parity:
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
 All 1,741 catalog implementations have direct repository test evidence, and
-the strict implementation-coverage audit passes. This is implementation
+the strict implementation-coverage audit passes; the 775 Java and Ruby surface
+rows are catalogued with documented ownership but deliberately unimplemented. This is implementation
 coverage, not SonarQube equivalence: compiler prerequisites, reference-sensor
 availability, finding identity, and remaining comparison failures stay separate. See
 [PARITY.md](PARITY.md) for the exact oracle contract and current failures.
