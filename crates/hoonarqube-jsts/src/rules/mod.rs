@@ -42,6 +42,11 @@ mod swapped_call_arguments;
 mod switch_flow;
 mod tier_b;
 mod tier_c;
+mod s7719_date_clone;
+mod s7722_error_message;
+mod s7723_new_for_builtins;
+mod s7724_eslint_disable;
+mod s7726_named_default_export;
 
 use crate::Issue;
 use crate::context::AnalysisContext;
