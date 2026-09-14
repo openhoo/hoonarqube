@@ -292,9 +292,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.4.5"
+version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005ec2760ca554fae18df7a11195552ec576cd665632a881bc011d5bb2fd4d80"
+checksum = "a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -820,7 +820,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-csharp",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hex",
  "serde",
@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "atomicwrites",
  "clap",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "base64 0.23.1",
  "hoonarqube-catalog",
@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -914,11 +914,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.8.2"
+version = "0.9.0"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
@@ -928,7 +928,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-java"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -965,7 +965,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ruby"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -985,7 +985,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-service"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "axum",
  "hex",
@@ -1457,9 +1457,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lru-slab"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "manyhow"
@@ -2797,9 +2797,9 @@ dependencies = [
 
 [[package]]
 name = "textwrap"
-version = "0.16.3"
+version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b81c0cb5fce14f53e49c1d4da0c508334ff12040221bb8ab01b2dabd91d04b6e"
+checksum = "6ecfad6c3abc80a577f2b91c1e412ee57e7a060d430b553c1b0c940974ebcd49"
 dependencies = [
  "icu_segmenter",
  "smawk",
@@ -2875,18 +2875,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.13.2"
+version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
@@ -3468,7 +3459,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "clap",
