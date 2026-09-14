@@ -3955,8 +3955,8 @@ fn s8510_flags_inner_loop_variable_shadowing_outer() {
         locations[0].message,
         "Outer loop variable is declared here."
     );
-    assert_eq!(locations[0].range.start, pos(4, 8));
-    assert_eq!(locations[0].range.end, pos(4, 11));
+    assert_eq!(locations[0].range.start, pos(3, 8));
+    assert_eq!(locations[0].range.end, pos(3, 11));
     // Tuple targets report the shadowed component name.
     let tuple = scan(concat!(
         "def tuple_pair(self):\n",
@@ -4019,8 +4019,8 @@ fn s8513_flags_chained_startswith_calls() {
     );
     assert_eq!(found[0].range.start, pos(2, 7));
     assert_eq!(found[0].range.end, pos(2, 59));
-    assert_eq!(found[1].range.start, pos(5, 7));
-    assert_eq!(found[1].range.end, pos(5, 78));
+    assert_eq!(found[1].range.start, pos(6, 7));
+    assert_eq!(found[1].range.end, pos(6, 78));
     assert!(found[0].flows.is_empty());
 }
 
@@ -4172,8 +4172,8 @@ fn s8786_flags_super_linear_regex_literals() {
     assert_eq!(found[0].range.end, pos(4, 64));
     assert_eq!(found[1].range.start, pos(5, 27));
     assert_eq!(found[2].range.start, pos(6, 24));
-    assert_eq!(found[3].range.start, pos(10, 11));
-    assert_eq!(found[4].range.start, pos(13, 11));
+    assert_eq!(found[3].range.start, pos(10, 21));
+    assert_eq!(found[4].range.start, pos(13, 22));
 }
 
 #[test]
@@ -4181,7 +4181,8 @@ fn s8786_accepts_linear_and_exponential_shapes() {
     // Controls: single unbounded quantifiers, bounded repetition,
     // plain literals, dynamic patterns, nested quantifiers (the
     // exponential concern of a different rule), disjoint character
-    // sets, and lazy-dot-with-literal stay silent.
+    // sets, lazy-dot-with-literal, and re.VERBOSE patterns stay
+    // silent.
     let clean = scan(concat!(
         "import re\n",
         "\n",
@@ -4196,6 +4197,7 @@ fn s8786_accepts_linear_and_exponential_shapes() {
         "DISJOINT = re.compile(r\"\\d*[a-f]*end\")\n",
         "LAZY_PAIR = re.compile(r\".*?x\")\n",
         "BOUNDED_SEARCH = re.findall(r\"%[a-fA-F0-9]{2}\", text)\n",
+        "VERBOSE = re.compile(r'''(?:[0-9][0-9_]*)\\.[0-9_]*''', re.X)\n",
     ));
     assert!(findings(&clean, "python:S8786").is_empty());
 }
