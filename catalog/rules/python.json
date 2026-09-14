@@ -9434,6 +9434,94 @@
       "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
     },
     {
+      "external_key": "python:S8997",
+      "language": "py",
+      "repository": "python",
+      "status": "BETA",
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "COMPLETE",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pytest",
+        "testing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6"
+    },
+    {
+      "external_key": "python:S9000",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        },
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "tests",
+        "pytest"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6"
+    },
+    {
+      "external_key": "python:S9001",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "tests",
+        "pytest"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6"
+    },
+    {
       "external_key": "python:S905",
       "language": "py",
       "repository": "python",
@@ -9471,6 +9559,33 @@
       "education_principles": [],
       "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+    },
+    {
+      "external_key": "python:S9073",
+      "language": "py",
+      "repository": "python",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pytest"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6"
     },
     {
       "external_key": "python:S930",
@@ -9574,6 +9689,28 @@
       ],
       "selected_keys_sha256": "7c94e0a4d187b274e31fd114bb52f8e34d7d34bde32f835f2f9bedfa33b08d77",
       "selected_rows_sha256": "807c8b178a006f7397f6dac5c6a5d1e2e37ef342321ba8b115d3347a47411ab1"
+    },
+    {
+      "capture_sha256": "794af199b4d323f66a7dcef92715c1d4f2af1467866d5b706b18de03955751e6",
+      "captured_at_utc": "2026-09-14T17:46:01.48686515Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 433,
+      "page_count": 1,
+      "query_sha256": "0807b46df1f135a11cb3c3c52291f2d3e82155e6978c618d6513a163c111ce72",
+      "pages_sha256": "03c717ee15a9f97728ebe57e707c746d49f9f52450fa6e4a3ae3516e105b4bd9",
+      "keys_sha256": "879309d7aee558cd32971480642faddd738612f5508835adf636cca4d19fcb34",
+      "shows_sha256": "6fcd53855af95a6bb3e24b0e2f04793e8760ee7e4810bdd20c930b953c200521",
+      "selected_keys": [
+        "python:S8997",
+        "python:S9000",
+        "python:S9001",
+        "python:S9073"
+      ],
+      "selected_keys_sha256": "015865c4840ddfc00d7053031bc824db6ea5b6cf4604a38acf0c8000891678b0",
+      "selected_rows_sha256": "ff8f1d8030dfff1ffdb65efe69df554f0270622ae2347294517251fff73f5631"
     }
   ]
 }
