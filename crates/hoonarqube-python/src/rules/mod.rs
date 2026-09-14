@@ -234,6 +234,10 @@ use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_s
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
+use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
+use crate::rules::s9000_raises_context_manager::check_s9000_raises_context_manager;
+use crate::rules::s9001_xfail_reason::check_s9001_xfail_reason;
+use crate::rules::s9073_composite_assertion::check_s9073_composite_assertion;
 use crate::rules::self_assignment::check_self_assignment;
 use crate::rules::shadowed_builtins::check_shadowed_builtins;
 use crate::rules::similar_names_scope::check_similar_names_scope;
@@ -952,6 +956,27 @@ pub(crate) fn check_future_reference_battery(
     issues
 }
 
+/// Aggregates the pytest-contract detectors (python:S8997,
+/// python:S9000, python:S9001, python:S9073) added ahead of their
+/// catalog entries; all four gate on the pytest file name.
+pub(crate) fn check_pytest_contract_battery(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    path: &std::path::Path,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    issues.extend(check_s8997_monkeypatch_global_state(
+        parsed, index, source, path,
+    ));
+    issues.extend(check_s9000_raises_context_manager(
+        parsed, index, source, path,
+    ));
+    issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
+    issues.extend(check_s9073_composite_assertion(parsed, index, source, path));
+    issues
+}
+
 // ---------------------------------------------------------------------------
 // Battery aggregation: the structural Tier-A gap rules (python:S1066 …
 // python:S6799), each in its own per-rule module.
@@ -1500,6 +1525,14 @@ mod s8513_chained_startswith_calls;
 mod s8714_pytest_raises_try_except;
 
 mod s8786_super_linear_regex;
+
+mod s8997_monkeypatch_global_state;
+
+mod s9000_raises_context_manager;
+
+mod s9001_xfail_reason;
+
+mod s9073_composite_assertion;
 
 mod s930_arity_mismatches;
 
