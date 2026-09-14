@@ -78,6 +78,8 @@ LANGUAGE_KEY_PREFIX = {
     "python": "python",
     "go": "go",
     "rust": "rust",
+    "java": "java",
+    "ruby": "ruby",
 }
 PLUGIN_OWNER = {
     "csharp": {
@@ -116,6 +118,18 @@ PLUGIN_OWNER = {
         "community_server": "rust",
         "enterprise_security": "rust server sensor",
     },
+    "java": {
+        "analyzer": "SonarJava analyzer",
+        "community": "java server sensor",
+        "community_server": "java",
+        "enterprise_security": "securityjavafrontend",
+    },
+    "ruby": {
+        "analyzer": "SonarRuby analyzer",
+        "community": "ruby server sensor",
+        "community_server": "ruby",
+        "enterprise_security": "ruby server sensor",
+    },
 }
 COMMUNITY_PLUGIN_KEY = {
     "csharp": "csharp",
@@ -124,6 +138,8 @@ COMMUNITY_PLUGIN_KEY = {
     "python": "python",
     "go": "go",
     "rust": "rust",
+    "java": "java",
+    "ruby": "ruby",
 }
 
 

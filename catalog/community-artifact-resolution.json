@@ -26,7 +26,10 @@
       "amd64_digest": "sha256:4152a10d90904b97a29e82c964f7eba0c6d587ca118a0320e7dfdaf5d1a99760",
       "capture_sha256": "56ded1bbbdf672480fef6ad69aea5d1b2dc91d6b76c39970649603f70abba83b",
       "go_rule_count": 36,
-      "rust_rule_count": 85
+      "rust_rule_count": 85,
+      "java_ruby_capture_sha256": "9ecb5ee75aa27129f1f7ee7340ec345adf3134f325707986a08b272147170974",
+      "java_rule_count": 733,
+      "ruby_rule_count": 42
     }
   ],
   "csharp_analyzer_evidence": {
@@ -58,7 +61,9 @@
     "typescript": [],
     "python": [],
     "go": [],
-    "rust": []
+    "rust": [],
+    "java": [],
+    "ruby": []
   },
   "derivation": "The listed C# keys are owned by SonarAnalyzer.Enterprise.CSharp.dll and absent from the contemporaneous Community Build catalog. They remain implemented and locally tested, but Community-only oracle runs must report them as unverified instead of claiming behavioral parity. Commercial security, architecture, and DBD plugin rule resources have an empty intersection with the captured JavaScript, TypeScript, and Python catalogs."
 }
