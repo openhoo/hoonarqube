@@ -9,9 +9,71 @@
 // overridden `getTime` members and non-Date receivers are reported the same
 // way, and no auto-fix is offered (a replacement must be validated against
 // the target library and runtime first).
-//
-// The regression tests below are committed first at the pristine campaign
-// base and must fail (RED) until the detector lands.
+
+use crate::context::AnalysisContext;
+use crate::support::{IssueSink, RuleScope, identifier_name, unparenthesized};
+use hoonarqube_ir::Issue;
+use oxc_ast::ast::{CallExpression, Expression, NewExpression, StaticMemberExpression};
+use oxc_ast_visit::{Visit, walk};
+use oxc_span::Span;
+
+/// Entry point: `typescript:S7719` Date-clone check over the parsed program.
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut collector = DateCloneCollector {
+        sink: IssueSink {
+            index: ctx.index,
+            language: ctx.language,
+            issues: Vec::new(),
+        },
+    };
+    collector.visit_program(ctx.program);
+    collector.sink.issues
+}
+
+struct DateCloneCollector<'index> {
+    sink: IssueSink<'index>,
+}
+
+impl<'a> Visit<'a> for DateCloneCollector<'_> {
+    fn visit_new_expression(&mut self, new: &NewExpression<'a>) {
+        if let Some(call) = indirect_get_time_clone(new) {
+            let start = get_time_member(&call.callee)
+                .map_or(call.span.start, |member| member.property.span.start);
+            self.sink.emit_span(
+                RuleScope::TsOnly,
+                "S7719",
+                "Unnecessary `.getTime()` call.",
+                Span::new(start, call.span.end),
+            );
+        }
+        walk::walk_new_expression(self, new);
+    }
+}
+
+/// The `.getTime()` call passed as the single argument of `new Date(...)`,
+/// after peeling redundant parentheses around the argument.
+fn indirect_get_time_clone<'a, 'b>(new: &'b NewExpression<'a>) -> Option<&'b CallExpression<'a>> {
+    if identifier_name(&new.callee) != Some("Date") || new.arguments.len() != 1 {
+        return None;
+    }
+    let argument = new.arguments.first()?.as_expression()?;
+    let Expression::CallExpression(call) = unparenthesized(argument) else {
+        return None;
+    };
+    if !call.arguments.is_empty() || call.optional {
+        return None;
+    }
+    get_time_member(&call.callee)?;
+    Some(call)
+}
+
+/// The static member whose non-optional property is `getTime`.
+fn get_time_member<'a, 'b>(callee: &'b Expression<'a>) -> Option<&'b StaticMemberExpression<'a>> {
+    let Expression::StaticMemberExpression(member) = callee else {
+        return None;
+    };
+    (member.property.name == "getTime" && !member.optional).then_some(member)
+}
 
 #[cfg(test)]
 mod tests {
@@ -35,12 +97,13 @@ mod tests {
         assert_eq!(issue.range.start.line, 2);
         assert_eq!(
             issue.range.start.column,
-            "const value = new Date((input.data as Date).".len() as u32
+            u32::try_from("const value = new Date((input.data as Date).".len()).unwrap()
         );
         assert_eq!(issue.range.end.line, 2);
         assert_eq!(
             issue.range.end.column,
-            "const value = new Date((input.data as Date).getTime());".len() as u32
+            u32::try_from("const value = new Date((input.data as Date).".len()).unwrap()
+                + u32::try_from("getTime()".len()).unwrap()
         );
     }
 
