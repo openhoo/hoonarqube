@@ -25,6 +25,7 @@ use crate::rules::check_naming_convention_battery;
 use crate::rules::check_regex_battery;
 use crate::rules::check_size_metric_battery;
 use crate::rules::check_structural_battery;
+use crate::rules::check_test_assertion_battery;
 use crate::rules::check_tier_a_battery;
 use crate::rules::check_tier_a_battery_2;
 use crate::rules::check_tier_b_battery;
@@ -225,6 +226,12 @@ pub fn analyze_with_context(
     ));
     issues.extend(check_tier_c_semantic_battery(
         &parsed, &index, source, &file_ctx,
+    ));
+    issues.extend(check_test_assertion_battery(
+        &parsed,
+        &index,
+        source,
+        path.as_path(),
     ));
     issues.extend(check_structural_battery(
         &parsed, &index, source, options, &file_ctx,
