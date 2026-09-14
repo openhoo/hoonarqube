@@ -21,6 +21,7 @@ use crate::engine::rx::decode_string_part;
 use crate::engine::rx::parse_regex;
 use crate::quickfix::attach_quick_fixes;
 use crate::rules::assign_plus_minus::check_assign_plus_minus;
+use crate::rules::check_future_reference_battery;
 use crate::rules::check_naming_convention_battery;
 use crate::rules::check_regex_battery;
 use crate::rules::check_size_metric_battery;
@@ -232,6 +233,9 @@ pub fn analyze_with_context(
         &index,
         source,
         path.as_path(),
+    ));
+    issues.extend(check_future_reference_battery(
+        &parsed, &index, source, &file_ctx,
     ));
     issues.extend(check_structural_battery(
         &parsed, &index, source, options, &file_ctx,
