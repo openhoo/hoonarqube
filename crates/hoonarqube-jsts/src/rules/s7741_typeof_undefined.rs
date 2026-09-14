@@ -14,6 +14,68 @@
 // The regression tests below are committed first at the pristine campaign
 // base and must fail (RED) until the detector lands.
 
+use crate::context::AnalysisContext;
+use crate::support::{IssueSink, RuleScope, unparenthesized};
+use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{BinaryExpression, Expression, UnaryOperator};
+use oxc_semantic::Semantic;
+use oxc_span::Span;
+
+/// Entry point: `javascript:S7741` + `typescript:S7741` `typeof` check over
+/// the parsed program. Requires the semantic model for global-reference
+/// resolution, so recoverable-parse files stay silent.
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    let Some(semantic) = ctx.semantic else {
+        return sink.issues;
+    };
+    for node in semantic.nodes().iter() {
+        if let AstKind::BinaryExpression(binary) = node.kind() {
+            check_binary(&mut sink, semantic, binary);
+        }
+    }
+    sink.issues
+}
+
+/// The reference report: a `typeof` operand compared with the string
+/// `'undefined'`, anchored on the `typeof` keyword. Identifiers resolving
+/// to a global scope binding or to no binding at all keep their legitimate
+/// guard form.
+fn check_binary(sink: &mut IssueSink<'_>, semantic: &Semantic<'_>, binary: &BinaryExpression<'_>) {
+    if !binary.operator.is_equality() {
+        return;
+    }
+    let Expression::UnaryExpression(typeof_node) = &binary.left else {
+        return;
+    };
+    if typeof_node.operator != UnaryOperator::Typeof {
+        return;
+    }
+    let Expression::StringLiteral(literal) = unparenthesized(&binary.right) else {
+        return;
+    };
+    if literal.value.as_str() != "undefined" {
+        return;
+    }
+    if let Expression::Identifier(identifier) = unparenthesized(&typeof_node.argument)
+        && semantic.is_reference_to_global_variable(identifier)
+    {
+        return;
+    }
+    let start = typeof_node.span.start;
+    sink.emit_span(
+        RuleScope::Both,
+        "S7741",
+        "Compare with `undefined` directly instead of using `typeof`.",
+        Span::new(start, start + u32::try_from("typeof".len()).unwrap_or(0)),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;

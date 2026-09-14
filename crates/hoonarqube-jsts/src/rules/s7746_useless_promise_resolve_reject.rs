@@ -17,6 +17,166 @@
 // The regression tests below are committed first at the pristine campaign
 // base and must fail (RED) until the detector lands.
 
+use crate::context::AnalysisContext;
+use crate::support::{IssueSink, RuleScope, unparenthesized};
+use hoonarqube_ir::Issue;
+use oxc_ast::AstKind;
+use oxc_ast::ast::{Argument, CallExpression, Expression};
+use oxc_semantic::{AstNode, AstNodes};
+use oxc_span::GetSpan;
+use oxc_syntax::node::NodeId;
+
+/// Entry point: `javascript:S7746` + `typescript:S7746` useless
+/// `Promise.resolve`/`Promise.reject` check over the parsed program.
+pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
+    let mut sink = IssueSink {
+        index: ctx.index,
+        language: ctx.language,
+        issues: Vec::new(),
+    };
+    let Some(semantic) = ctx.semantic else {
+        return sink.issues;
+    };
+    for node in semantic.nodes().iter() {
+        if let AstKind::CallExpression(call) = node.kind() {
+            check_call(&mut sink, semantic.nodes(), node.id(), call);
+        }
+    }
+    sink.issues
+}
+
+/// The reference report: a non-optional `Promise.resolve`/`Promise.reject`
+/// member call whose result is returned, yielded, or is an arrow body, in
+/// an `async` function or a `.then()`/`.catch()`/`.finally()` callback.
+/// The finding covers the callee. `await`ed results, plain functions, and
+/// unrelated callbacks stay silent.
+fn check_call(
+    sink: &mut IssueSink<'_>,
+    nodes: &AstNodes<'_>,
+    node_id: NodeId,
+    call: &CallExpression<'_>,
+) {
+    let Expression::StaticMemberExpression(member) = &call.callee else {
+        return;
+    };
+    if call.optional || member.optional {
+        return;
+    }
+    let Expression::Identifier(object) = &member.object else {
+        return;
+    };
+    if object.name != "Promise" {
+        return;
+    }
+    let method = member.property.name.as_str();
+    if method != "resolve" && method != "reject" {
+        return;
+    }
+    let parent = nodes.parent_node(node_id);
+    let parent_kind = parent.kind();
+    let is_reported_position = match parent_kind {
+        AstKind::ReturnStatement(returned) => returned
+            .argument
+            .as_ref()
+            .map(unparenthesized)
+            .is_some_and(|argument| argument.span() == call.span),
+        AstKind::YieldExpression(yielded) => {
+            !yielded.delegate
+                && yielded
+                    .argument
+                    .as_ref()
+                    .map(unparenthesized)
+                    .is_some_and(|argument| argument.span() == call.span)
+        }
+        AstKind::ArrowFunctionExpression(arrow) => arrow
+            .body
+            .as_expression()
+            .map(unparenthesized)
+            .is_some_and(|expression| expression.span() == call.span),
+        _ => false,
+    };
+    if !is_reported_position {
+        return;
+    }
+    let type_word = if matches!(parent_kind, AstKind::YieldExpression(_)) {
+        "yield"
+    } else {
+        "return"
+    };
+    let Some(function) = nearest_function(nodes, parent) else {
+        return;
+    };
+    if !is_async(function) && !is_promise_callback(nodes, function) {
+        return;
+    }
+    let message = if method == "resolve" {
+        format!("Prefer `{type_word} value` over `{type_word} Promise.resolve(value)`.")
+    } else {
+        format!("Prefer `throw error` over `{type_word} Promise.reject(error)`.")
+    };
+    sink.emit_span(RuleScope::Both, "S7746", &message, member.span());
+}
+
+/// The nearest enclosing function node, starting at `start` itself.
+fn nearest_function<'a, 'b>(
+    nodes: &'b AstNodes<'a>,
+    start: &'b AstNode<'a>,
+) -> Option<&'b AstNode<'a>> {
+    std::iter::once(start)
+        .chain(nodes.ancestors(start.id()))
+        .find(|node| {
+            matches!(
+                node.kind(),
+                AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+            )
+        })
+}
+
+fn is_async(function: &AstNode<'_>) -> bool {
+    match function.kind() {
+        AstKind::Function(function) => function.r#async,
+        AstKind::ArrowFunctionExpression(arrow) => arrow.r#async,
+        _ => false,
+    }
+}
+
+/// Whether the function is used as a `.then()`/`.catch()`/`.finally()`
+/// callback: single-argument calls for all three names, or the second
+/// argument of a two-argument `.then()`.
+fn is_promise_callback(nodes: &AstNodes<'_>, function: &AstNode<'_>) -> bool {
+    let parent = nodes.parent_node(function.id());
+    let AstKind::CallExpression(call) = parent.kind() else {
+        return false;
+    };
+    let Expression::StaticMemberExpression(member) = unparenthesized(&call.callee) else {
+        return false;
+    };
+    if member.property.name != "then"
+        && member.property.name != "catch"
+        && member.property.name != "finally"
+    {
+        return false;
+    }
+    let arguments = &call.arguments;
+    if arguments.len() == 1 {
+        return argument_is_function(arguments.first(), function);
+    }
+    if arguments.len() == 2 && member.property.name == "then" {
+        return argument_is_function(arguments.first(), function)
+            || (!matches!(arguments.first(), Some(Argument::SpreadElement(_)))
+                && argument_is_function(arguments.get(1), function));
+    }
+    false
+}
+
+fn argument_is_function(argument: Option<&Argument<'_>>, function: &AstNode<'_>) -> bool {
+    let span = function.span();
+    argument
+        .and_then(Argument::as_expression)
+        .map(unparenthesized)
+        .is_some_and(|expression| expression.span() == span)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -53,12 +213,12 @@ function dispatch(config) {
             issue.message,
             "Prefer `throw error` over `return Promise.reject(error)`."
         );
-        assert_eq!(issue.range.start.line, 9);
+        assert_eq!(issue.range.start.line, 10);
         assert_eq!(
             issue.range.start.column,
             u32::try_from("      return ".len()).unwrap()
         );
-        assert_eq!(issue.range.end.line, 9);
+        assert_eq!(issue.range.end.line, 10);
         assert_eq!(
             issue.range.end.column,
             u32::try_from("      return Promise.reject".len()).unwrap()
