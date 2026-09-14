@@ -23,6 +23,7 @@ use crate::quickfix::attach_quick_fixes;
 use crate::rules::assign_plus_minus::check_assign_plus_minus;
 use crate::rules::check_future_reference_battery;
 use crate::rules::check_naming_convention_battery;
+use crate::rules::check_pytest_contract_battery;
 use crate::rules::check_regex_battery;
 use crate::rules::check_size_metric_battery;
 use crate::rules::check_structural_battery;
@@ -229,6 +230,12 @@ pub fn analyze_with_context(
         &parsed, &index, source, &file_ctx,
     ));
     issues.extend(check_test_assertion_battery(
+        &parsed,
+        &index,
+        source,
+        path.as_path(),
+    ));
+    issues.extend(check_pytest_contract_battery(
         &parsed,
         &index,
         source,

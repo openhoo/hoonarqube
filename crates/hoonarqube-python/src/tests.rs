@@ -4201,3 +4201,255 @@ fn s8786_accepts_linear_and_exponential_shapes() {
     ));
     assert!(findings(&clean, "python:S8786").is_empty());
 }
+
+#[test]
+fn s8997_flags_module_state_assignment_in_test_function() {
+    // Pinned psf/requests tests/test_requests.py#L695 @ dae7ef63: the test
+    // assigns `requests.sessions.get_netrc_auth = get_netrc_auth_mock`
+    // (target columns 12-44) and restores it in `finally`; the pinned
+    // Sonar anchor is the assignment target. The same rule reports the
+    // `os.environ["NETRC"]` subscript target (pinned line 736, columns
+    // 8-27).
+    let flagged = scan_test_file(concat!(
+        "import os\n",
+        "import requests\n",
+        "\n",
+        "def test_basicauth_with_netrc(self):\n",
+        "    old_auth = requests.sessions.get_netrc_auth\n",
+        "    requests.sessions.get_netrc_auth = get_netrc_auth_mock\n",
+        "    os.environ[\"NETRC\"] = netrc_file\n",
+    ));
+    let found = findings(&flagged, "python:S8997");
+    assert_eq!(found.len(), 2);
+    assert_eq!(
+        found[0].message,
+        "Use the \"monkeypatch\" fixture for temporary modifications instead of manually modifying global state."
+    );
+    assert_eq!(found[0].range.start, pos(6, 4));
+    assert_eq!(found[0].range.end, pos(6, 36));
+    assert_eq!(found[1].range.start, pos(7, 4));
+    assert_eq!(found[1].range.end, pos(7, 23));
+}
+
+#[test]
+fn s8997_accepts_local_mutation_and_non_test_scopes() {
+    // Controls: writes rooted at locals (`s`, `app`), reads of module
+    // state, the same writes in a non-`test*` helper or a nested helper,
+    // and every shape in a non-pytest file stay silent.
+    let clean = scan_test_file(concat!(
+        "import os\n",
+        "import requests\n",
+        "\n",
+        "def test_basicauth_with_netrc(self):\n",
+        "    s = requests.session()\n",
+        "    s.auth = wrong_auth\n",
+        "    app.config[\"SERVER_NAME\"] = \"localhost\"\n",
+        "    os.environ.get(\"NETRC\")\n",
+        "\n",
+        "    def nested_helper():\n",
+        "        requests.sessions.get_netrc_auth = mock\n",
+        "\n",
+        "def helper_state_edit():\n",
+        "    requests.sessions.get_netrc_auth = mock\n",
+    ));
+    assert!(findings(&clean, "python:S8997").is_empty());
+    let non_pytest_file = scan(concat!(
+        "import requests\n",
+        "\n",
+        "def helper():\n",
+        "    requests.sessions.get_netrc_auth = mock\n",
+    ));
+    assert!(findings(&non_pytest_file, "python:S8997").is_empty());
+}
+
+#[test]
+fn s9000_flags_raises_calls_outside_with_context_position() {
+    // Pinned pallets/flask tests/test_basic.py#L387 @ d73fa1cd:
+    // `e = pytest.raises(RuntimeError, f, *args, **kwargs)` (call columns
+    // 12-59) is the deprecated callable-passing form. The pinned
+    // tests/test_cli.py#L111 (columns 4-56) shows the bare form, and the
+    // pinned pallets/click test_echo_via_pager.py#L165 (columns 18-47)
+    // shows an assigned conditional form.
+    let flagged = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "def test_missing_session(app):\n",
+        "    def expect_exception(f, *args, **kwargs):\n",
+        "        e = pytest.raises(RuntimeError, f, *args, **kwargs)\n",
+        "\n",
+        "def test_no_app():\n",
+        "    pytest.raises(NoAppException, find_best_app, Module)\n",
+        "\n",
+        "def test_pager(expected_error):\n",
+        "    check_raise = pytest.raises(expected_error) if expected_error else nullcontext()\n",
+    ));
+    let found = findings(&flagged, "python:S9000");
+    assert_eq!(found.len(), 3);
+    assert_eq!(
+        found[0].message,
+        "Prefer the context manager form: wrap the raising code in \"with pytest.raises(...)\"."
+    );
+    assert_eq!(found[0].range.start, pos(5, 12));
+    assert_eq!(found[0].range.end, pos(5, 59));
+    assert_eq!(found[1].range.start, pos(8, 4));
+    assert_eq!(found[1].range.end, pos(8, 56));
+    assert_eq!(found[2].range.start, pos(11, 18));
+    assert_eq!(found[2].range.end, pos(11, 47));
+}
+
+#[test]
+fn s9000_accepts_context_manager_positions() {
+    // Controls: the single form, an `as` binding, parenthesized item
+    // tuples, and a conditional context expression are entered, and a
+    // non-pytest file stays silent.
+    let clean = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "def test_wrapped(app):\n",
+        "    with pytest.raises(ValueError):\n",
+        "        process(\"x\")\n",
+        "\n",
+        "def test_captures(app):\n",
+        "    with pytest.raises(ValueError) as exc_info:\n",
+        "        process(\"x\")\n",
+        "    assert exc_info.match(\"x\")\n",
+        "\n",
+        "def test_tuple_with(app):\n",
+        "    with (\n",
+        "        pytest.raises(ValueError),\n",
+        "        app.context(),\n",
+        "    ):\n",
+        "        process(\"x\")\n",
+        "\n",
+        "def test_conditional_context(exception, message):\n",
+        "    with (\n",
+        "        pytest.raises(exception, match=re.compile(message))\n",
+        "        if exception\n",
+        "        else nullcontext()\n",
+        "    ):\n",
+        "        process(\"x\")\n",
+    ));
+    assert!(findings(&clean, "python:S9000").is_empty());
+    let non_pytest_file = scan(concat!(
+        "import pytest\n",
+        "\n",
+        "def helper():\n",
+        "    pytest.raises(ValueError, process, \"x\")\n",
+    ));
+    assert!(findings(&non_pytest_file, "python:S9000").is_empty());
+}
+
+#[test]
+fn s9001_flags_xfail_markers_without_reason() {
+    // Pinned pallets/click tests/test_chain.py#L221 @ 6aabf099: a bare
+    // `@pytest.mark.xfail` decorator (marker columns 0-18 including the
+    // `@`). The pinned psf/requests tests/test_requests.py#L2200 anchors
+    // the same marker on a method (columns 4-22).
+    let flagged = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "@pytest.mark.xfail\n",
+        "def test_group_chaining(runner):\n",
+        "    ...\n",
+        "\n",
+        "class TestRetest:\n",
+        "    @pytest.mark.xfail\n",
+        "    def test_response_iter_lines_reentrant(self, httpbin):\n",
+        "        ...\n",
+        "\n",
+        "@pytest.mark.xfail(strict=True)\n",
+        "def test_strict_without_reason():\n",
+        "    ...\n",
+    ));
+    let found = findings(&flagged, "python:S9001");
+    assert_eq!(found.len(), 3);
+    assert_eq!(
+        found[0].message,
+        "Provide a reason for marking this test as expected to fail."
+    );
+    assert_eq!(found[0].range.start, pos(3, 0));
+    assert_eq!(found[0].range.end, pos(3, 18));
+    assert_eq!(found[1].range.start, pos(8, 4));
+    assert_eq!(found[1].range.end, pos(8, 22));
+    assert_eq!(found[2].range.start, pos(12, 0));
+    assert_eq!(found[2].range.end, pos(12, 31));
+}
+
+#[test]
+fn s9001_accepts_reason_bearing_and_other_markers() {
+    // Controls: a reason keyword on the marker (function and conditional
+    // forms), unrelated markers, and a non-pytest file stay silent.
+    let clean = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "@pytest.mark.xfail(reason=\"Issue #456: known bug\")\n",
+        "def test_documented():\n",
+        "    ...\n",
+        "\n",
+        "@pytest.mark.skip\n",
+        "@pytest.mark.xfail(condition, reason=\"flaky on windows\")\n",
+        "def test_conditional():\n",
+        "    ...\n",
+    ));
+    assert!(findings(&clean, "python:S9001").is_empty());
+    let non_pytest_file = scan(concat!(
+        "import pytest\n",
+        "\n",
+        "@pytest.mark.xfail\n",
+        "def helper():\n",
+        "    ...\n",
+    ));
+    assert!(findings(&non_pytest_file, "python:S9001").is_empty());
+}
+
+#[test]
+fn s9073_flags_composite_assertions() {
+    // Pinned pallets/flask tests/test_basic.py#L388 @ d73fa1cd:
+    // `assert e.value.args and "session is unavailable" in
+    // e.value.args[0]` (statement columns 8-75) joins two facts in one
+    // assert. `and` chains and De Morgan `not (a or b)` are reported;
+    // the statement anchors the finding.
+    let flagged = scan_test_file(concat!(
+        "def test_missing_session(app):\n",
+        "    def expect_exception(f, *args, **kwargs):\n",
+        "        e = pytest.raises(RuntimeError, f, *args, **kwargs)\n",
+        "        assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
+        "\n",
+        "def test_user(user):\n",
+        "    assert user.is_active and user.is_verified\n",
+        "    assert not (axis.visible or axis.label_visible)\n",
+    ));
+    let found = findings(&flagged, "python:S9073");
+    assert_eq!(found.len(), 3);
+    assert_eq!(
+        found[0].message,
+        "Split this composite assertion into separate assertions."
+    );
+    assert_eq!(found[0].range.start, pos(4, 8));
+    assert_eq!(found[0].range.end, pos(4, 75));
+    assert_eq!(found[1].range.start, pos(7, 4));
+    assert_eq!(found[1].range.end, pos(7, 46));
+    assert_eq!(found[2].range.start, pos(8, 4));
+    assert_eq!(found[2].range.end, pos(8, 51));
+}
+
+#[test]
+fn s9073_accepts_single_condition_assertions() {
+    // Controls: single conditions, plain `or` (splitting would change
+    // the meaning), negated single operands, top-level `or` with a nested
+    // `and`, and a non-pytest file (pinned click/src/click/core.py keeps
+    // its `and` asserts unreported) stay silent.
+    let clean = scan_test_file(concat!(
+        "def test_single(user, axis, cond):\n",
+        "    assert user.is_active\n",
+        "    assert cond.a or cond.b\n",
+        "    assert not axis.visible\n",
+        "    assert (user.is_active and user.is_verified) or cond.admin\n",
+    ));
+    assert!(findings(&clean, "python:S9073").is_empty());
+    let non_pytest_file = scan(concat!(
+        "def helper(args, kwargs):\n",
+        "    assert len(args) == 1 and not kwargs, \"msg\"\n",
+    ));
+    assert!(findings(&non_pytest_file, "python:S9073").is_empty());
+}
