@@ -1458,4 +1458,289 @@ mod tests {
                 .any(|id| id == "js/inconsistent-loop-direction")
         );
     }
+
+    // --- GitHub Code Quality pinned-detector regression coverage ---
+
+    fn find_issue<'a>(
+        issues: &'a [hoonarqube_ir::Issue],
+        rule_key: &str,
+    ) -> Vec<&'a hoonarqube_ir::Issue> {
+        issues
+            .iter()
+            .filter(|issue| issue.rule_key == rule_key)
+            .collect()
+    }
+
+    fn assert_issue_at(
+        issues: &[hoonarqube_ir::Issue],
+        rule_key: &str,
+        message: &str,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) {
+        let found = find_issue(issues, rule_key);
+        assert!(
+            found
+                .iter()
+                .any(|issue| issue.message == message
+                    && (issue.range.start.line, issue.range.start.column) == start
+                    && (issue.range.end.line, issue.range.end.column) == end),
+            "expected {rule_key} {message:?} at {start:?}-{end:?}, got: {found:#?}"
+        );
+    }
+
+    #[test]
+    fn automatic_semicolon_insertion_reports_missing_semicolons_in_explicit_majority() {
+        // 13 of 14 script statements are explicit (92%): the one ASI
+        // statement is reported on its last line.
+        let mut source = String::new();
+        for index in 0..13 {
+            source.push_str(&format!("var v{index} = {index};\n"));
+        }
+        source.push_str("var rest = 13\n");
+        let issues = analyze_github_quality(&source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/automatic-semicolon-insertion",
+            "Avoid automated semicolon insertion (92% of all statements in the \
+             enclosing script have an explicit semicolon).",
+            (14, 0),
+            (14, 13),
+        );
+
+        // Within a function the container is the enclosing function, not the
+        // script; 19 of 20 statements are explicit (95%).
+        let mut source = String::from("function f() {\n");
+        for index in 0..19 {
+            source.push_str(&format!("  this.a('{index:02}');\n"));
+        }
+        source.push_str("  this.a('19')\n}\n");
+        let issues = analyze_github_quality(&source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/automatic-semicolon-insertion",
+            "Avoid automated semicolon insertion (95% of all statements in the \
+             enclosing function have an explicit semicolon).",
+            (21, 2),
+            (21, 14),
+        );
+    }
+
+    #[test]
+    fn automatic_semicolon_insertion_ignores_minority_and_non_subject_statements() {
+        // Only two of three statements are explicit (67%): style is not
+        // consistent enough to judge the ASI statement a deviation.
+        let relaxed = "var a = 1\nvar b = 2\nvar c = 3;\n";
+        assert!(find_issue(
+            &analyze_github_quality(relaxed, JstsLanguage::JavaScript),
+            "js/automatic-semicolon-insertion"
+        )
+        .is_empty());
+
+        // Blocks, ifs, and loop heads are not subject to semicolon insertion
+        // and must not dilute the denominator: `work();` (explicit) and
+        // `done()` (ASI) split 50/50, so nothing is reported.
+        let mixed = concat!(
+            "function g(c) {\n",
+            "  if (c) {\n",
+            "    work();\n",
+            "  }\n",
+            "  done()\n",
+            "}\n",
+        );
+        assert!(find_issue(
+            &analyze_github_quality(mixed, JstsLanguage::JavaScript),
+            "js/automatic-semicolon-insertion"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn trivial_conditional_reports_guard_refined_variables() {
+        // Inside the `err && ...` guard the left operand of the inner logical
+        // expression is refined to always-truthy (the pinned axios shape).
+        let truthy = concat!(
+            "function handle(err) {\n",
+            "  if (err && err.name === 'TypeError') {\n",
+            "    const extra = err && err.response;\n",
+            "  }\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(truthy, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/trivial-conditional",
+            "This use of variable 'err' always evaluates to true.",
+            (3, 18),
+            (3, 21),
+        );
+
+        // A negated guard refines the same variable to always-falsy.
+        let falsy = concat!(
+            "function reject(err) {\n",
+            "  if (!err) {\n",
+            "    return err && null;\n",
+            "  }\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(falsy, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/trivial-conditional",
+            "This use of variable 'err' always evaluates to false.",
+            (3, 11),
+            (3, 14),
+        );
+    }
+
+    #[test]
+    fn trivial_conditional_whitelists_constants_and_unrefined_conditions() {
+        // Literal tests are whitelisted by the reference query, symbolic
+        // constants stay out even when they appear in guards, and a plain
+        // parameter check without a nested re-check is never constant.
+        let source = concat!(
+            "const DEBUG = true;\n",
+            "function check(x) {\n",
+            "  if (true) {\n",
+            "    ready();\n",
+            "  }\n",
+            "  if (DEBUG && x) {\n",
+            "    go();\n",
+            "  }\n",
+            "}\n",
+        );
+        assert!(find_issue(
+            &analyze_github_quality(source, JstsLanguage::JavaScript),
+            "js/trivial-conditional"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn useless_assignment_reports_overwritten_and_exit_dead_stores() {
+        let source = concat!(
+            "function load(state) {\n",
+            "  let max = state.a;\n",
+            "  max = state.b;\n",
+            "  return max;\n",
+            "}\n",
+            "\n",
+            "function drop(out) {\n",
+            "  let start = out.pos;\n",
+            "  start = out.limit;\n",
+            "  return 1;\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/useless-assignment-to-local",
+            "The initial value of max is unused, since it is always overwritten.",
+            (2, 6),
+            (2, 20),
+        );
+        assert_issue_at(
+            &issues,
+            "js/useless-assignment-to-local",
+            "The initial value of start is unused, since it is always overwritten.",
+            (7, 6),
+            (7, 23),
+        );
+        assert_issue_at(
+            &issues,
+            "js/useless-assignment-to-local",
+            "The value assigned to start here is unused.",
+            (8, 2),
+            (8, 19),
+        );
+    }
+
+    #[test]
+    fn useless_assignment_respects_purely_local_and_value_controls() {
+        // Read after the store: the value is used.
+        let read = "function f() {\n  let x = 1;\n  return x;\n}\n";
+        assert!(find_issue(
+            &analyze_github_quality(read, JstsLanguage::JavaScript),
+            "js/useless-assignment-to-local"
+        )
+        .is_empty());
+
+        // Captured by a closure: not a purely local variable.
+        let captured =
+            "function f() {\n  let x = 1;\n  return function () {\n    return x;\n  };\n}\n";
+        assert!(find_issue(
+            &analyze_github_quality(captured, JstsLanguage::JavaScript),
+            "js/useless-assignment-to-local"
+        )
+        .is_empty());
+
+        // null/undefined stores are deliberately out of scope, an
+        // initializer-less `var` is a runtime no-op, a completely unused
+        // declarator belongs to unused-variable rules, and exported bindings
+        // escape the module.
+        let nulls = concat!(
+            "function f() {\n",
+            "  let x = null;\n",
+            "  let y = undefined;\n",
+            "  var later;\n",
+            "  later = 1;\n",
+            "  return later;\n",
+            "}\n",
+            "function g() {\n",
+            "  let unused = 1;\n",
+            "}\n",
+            "export const exported = 1;\n",
+        );
+        assert!(find_issue(
+            &analyze_github_quality(nulls, JstsLanguage::JavaScript),
+            "js/useless-assignment-to-local"
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn useless_expression_reports_pure_property_statement() {
+        let source = concat!(
+            "function strict(message) {\n",
+            "  errorUtil.errToObj;\n",
+            "  return 1;\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/useless-expression",
+            "This expression has no effect.",
+            (2, 2),
+            (2, 20),
+        );
+    }
+
+    #[test]
+    fn useless_expression_side_effect_and_declaration_controls() {
+        // Calls have effects; JSDoc-tagged reads are declarations; same-file
+        // getters make the property read potentially effectful; the first
+        // statement of a try block is excluded; a lone config object and a
+        // single-statement file without functions stay out; and an
+        // initializer is not a void context.
+        let cases = [
+            "function f(a) {\n  a.foo();\n}\n",
+            "function f() {}\n/** @type {number} */\nflag;\n",
+            "class Counter {\n  get count() {\n    return 1;\n  }\n}\nfunction read(it) {\n  it.count;\n}\n",
+            "function f(it) {\n  try {\n    it.value;\n  } catch (e) {\n    handle(e);\n  }\n}\n",
+            "({ base: 'x' });\n",
+            "onlyValue;\n",
+            "const kept = config.value;\n",
+        ];
+        for source in cases {
+            assert!(
+                find_issue(
+                    &analyze_github_quality(source, JstsLanguage::JavaScript),
+                    "js/useless-expression"
+                )
+                .is_empty(),
+                "unexpected js/useless-expression for {source:?}"
+            );
+        }
+    }
 }
