@@ -82,35 +82,6 @@ pub(crate) fn stmt_targets(stmt: &Stmt) -> impl Iterator<Item = &Expr> {
     }
 }
 
-pub(crate) fn line_looks_like_code(line: &str) -> bool {
-    const STATEMENT_STARTERS: [&str; 7] =
-        ["import", "from", "def", "class", "return", "raise", "del"];
-    if line.starts_with("#!") {
-        // Shebang: never commented-out code.
-        return false;
-    }
-    let stripped = line.trim_start_matches('#').trim();
-    if stripped.is_empty() {
-        return false;
-    }
-    let words: Vec<&str> = stripped
-        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-        .filter(|word| !word.is_empty())
-        .collect();
-    if words
-        .first()
-        .is_some_and(|word| STATEMENT_STARTERS.contains(word))
-    {
-        return true;
-    }
-    let operators = stripped
-        .chars()
-        .filter(|ch| "()[]{}=:.<>+-*/%|&^~,".contains(*ch))
-        .count();
-    let keywords = words.iter().filter(|word| is_keyword(word)).count();
-    (keywords >= 1 && operators >= 2) || operators >= 3
-}
-
 /// Whether a token can end an operand, which would turn an adjacent
 /// same-sign pair into binary addition instead of a prefix operator.
 pub(crate) fn ends_operand(token: &ruff_python_ast::token::Token, source: &str) -> bool {

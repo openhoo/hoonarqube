@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::AnalyzerOptions;
 use crate::engine::calls::LocalSignatures;
 use crate::engine::file_context::FileContext;
@@ -605,14 +607,17 @@ pub(crate) fn check_tier_b_battery(
     source: &str,
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
+    path: &Path,
 ) -> Vec<Issue> {
     let table = build_symbol_table(parsed);
     let facts = collect_file_facts(parsed, source);
     let mut issues = Vec::new();
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(&table, &facts, index, source));
-        issues.extend(check_unused_parameters(&table, index, source));
         issues.extend(check_unused_locals(parsed, &table, options, index, source));
+        issues.extend(check_unused_parameters(
+            &table, index, source, file_ctx, path,
+        ));
         issues.extend(check_use_before_definition(&table, &facts, index, source));
         issues.extend(check_dead_stores(
             parsed, &table, &facts, options, index, source,
@@ -668,12 +673,13 @@ pub(crate) fn check_tier_c_security_battery(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
+    path: &Path,
     module_name: &str,
     project: &PythonProjectContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     tier_c_core_security_checks(parsed, index, source, file_ctx, &mut issues);
-    tier_c_web_crypto_checks(parsed, index, source, file_ctx, &mut issues);
+    tier_c_web_crypto_checks(parsed, index, source, file_ctx, path, &mut issues);
     tier_c_cloud_data_checks(
         parsed,
         index,
@@ -734,6 +740,7 @@ fn tier_c_web_crypto_checks(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
+    path: &Path,
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(check_s4502_csrf_disabled(index, source, file_ctx));
@@ -749,7 +756,7 @@ fn tier_c_web_crypto_checks(
     issues.extend(check_s3329_static_cbc_iv(index, source, file_ctx));
     issues.extend(check_s5542_weak_modes_and_paddings(parsed, index, source));
     issues.extend(check_s5547_weak_ciphers(index, source, file_ctx));
-    issues.extend(check_s5659_jwt_signing(index, source, file_ctx));
+    issues.extend(check_s5659_jwt_signing(index, source, file_ctx, path));
     issues.extend(check_s5344_plaintext_passwords(index, source, file_ctx));
     issues.extend(check_s2245_pseudorandom_calls(index, source, file_ctx));
     issues.extend(check_s5443_public_temp_files(index, source, file_ctx));
@@ -1011,13 +1018,13 @@ pub(crate) fn check_future_test_contract_battery(
 // Battery aggregation: the structural Tier-A gap rules (python:S1066 …
 // python:S6799), each in its own per-rule module.
 // ---------------------------------------------------------------------------
-
 pub(crate) fn check_structural_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
+    path: &Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_collapsible_ifs(parsed, index, source));
@@ -1026,7 +1033,7 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_similar_names_scope(parsed, index, source));
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
-    issues.extend(check_old_style_classes(index, source, file_ctx));
+    issues.extend(check_old_style_classes(index, source, file_ctx, path));
     issues.extend(check_cognitive_complexity(parsed, index, source, options));
     issues.extend(check_function_complexity(parsed, index, source, options));
     issues.extend(check_file_complexity(parsed, index, source, options));

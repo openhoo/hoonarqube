@@ -14,7 +14,7 @@ use crate::cst::{
 };
 use crate::rules::literals::declarator_initializer;
 use hoonarqube_ir::{FileReport, Issue, Pos, Range, TextEdit};
-use tree_sitter::{Node, Parser};
+use tree_sitter::Node;
 
 /// Whether a provider can be planned from one source file or needs the
 /// compiler/workspace context used by Roslyn.
@@ -433,13 +433,7 @@ pub(crate) fn attach_fixes(
     report: &mut FileReport,
     facts: Option<&dyn QuickFixSemanticFacts>,
 ) {
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_c_sharp::LANGUAGE.into())
-        .expect("tree-sitter-c-sharp grammar is compatible");
-    let tree = parser
-        .parse(source, None)
-        .expect("parse always yields a tree");
+    let tree = crate::parse(source);
     attach_fixes_from_tree(tree.root_node(), source, options, report, facts);
 }
 
