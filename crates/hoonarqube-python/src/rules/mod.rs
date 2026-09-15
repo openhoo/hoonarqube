@@ -1015,6 +1015,7 @@ pub(crate) fn check_future_test_contract_battery(
 // python:S6799), each in its own per-rule module.
 // ---------------------------------------------------------------------------
 pub(crate) fn check_structural_battery(
+    path: &Path,
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
@@ -1030,7 +1031,7 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_member_name_matches_class(parsed, index, source));
     issues.extend(check_old_style_classes(index, source, file_ctx));
     issues.extend(check_keyword_parentheses(
-        path, parsed, index, source, file_ctx,
+        parsed, index, source, file_ctx,
     ));
     issues.extend(check_missing_return_annotations(
         path, index, source, file_ctx,

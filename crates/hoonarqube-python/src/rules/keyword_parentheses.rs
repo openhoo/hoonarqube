@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use crate::engine::file_context::FileContext;
-use crate::support::is_test_scope_file;
 use crate::support::to_range;
 use hoonarqube_ir::{Issue, TextEdit, apply_fixes};
 use ruff_python_ast::token::{TokenKind, Tokens, parenthesized_range};
@@ -27,15 +26,11 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 /// except tuples (`except (A, B):`).  `raise` keeps reporting tuples because
 /// the reference analyzer reports them regardless (`raise (ValueError, TypeError)`).
 pub(crate) fn check_keyword_parentheses(
-    path: &Path,
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    if is_test_scope_file(path) {
-        return Vec::new();
-    }
     let ctx = ClauseCtx {
         tokens: parsed.tokens(),
         parsed,
