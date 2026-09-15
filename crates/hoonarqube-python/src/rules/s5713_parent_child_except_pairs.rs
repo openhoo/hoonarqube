@@ -1,5 +1,6 @@
 use crate::support::{
-    child_bodies, collect_target_names, for_each_stmt, issue_at, named_parameters, stmt_store_names,
+    child_bodies, collect_target_names, for_each_stmt, is_known_library_exception_path, issue_at,
+    known_library_exception_bases, named_parameters, stmt_store_names,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{
@@ -463,17 +464,21 @@ impl ExceptionEnvironment {
             return Some(ExceptionIdentity::Known(format!("builtins.{name}")));
         }
         match (module, name) {
-            ("json", "JSONDecodeError") => {
-                Some(ExceptionIdentity::Known("json.JSONDecodeError".to_string()))
-            }
-            ("io", "UnsupportedOperation") => Some(ExceptionIdentity::Known(
-                "io.UnsupportedOperation".to_string(),
-            )),
-            ("urllib.error", "URLError") => Some(ExceptionIdentity::Known(
-                "urllib.error.URLError".to_string(),
-            )),
             ("urllib", "error") => Some(ExceptionIdentity::Module("urllib.error".to_string())),
-            _ => None,
+            ("urllib3", "exceptions") => {
+                Some(ExceptionIdentity::Module("urllib3.exceptions".to_string()))
+            }
+            ("requests", "exceptions") => {
+                Some(ExceptionIdentity::Module("requests.exceptions".to_string()))
+            }
+            (module, name) => {
+                let qualified = format!("{module}.{name}");
+                if is_known_exception_path(&qualified) {
+                    Some(ExceptionIdentity::Known(qualified))
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -589,12 +594,20 @@ fn is_known_exception_path(path: &str) -> bool {
     path == "io.UnsupportedOperation"
         || path == "json.JSONDecodeError"
         || path == "urllib.error.URLError"
+        || is_known_library_exception_path(path)
         || path
             .strip_prefix("builtins.")
             .is_some_and(is_builtin_exception)
 }
 
 fn known_exception_bases(path: &str) -> Vec<ExceptionIdentity> {
+    let library_bases = known_library_exception_bases(path);
+    if !library_bases.is_empty() {
+        return library_bases
+            .into_iter()
+            .map(|base| ExceptionIdentity::Known(base.to_string()))
+            .collect();
+    }
     let parents: &[&str] = match path {
         "builtins.BaseExceptionGroup"
         | "builtins.Exception"
