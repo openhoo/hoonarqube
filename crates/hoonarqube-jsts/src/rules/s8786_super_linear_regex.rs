@@ -39,8 +39,9 @@
 
 use crate::context::AnalysisContext;
 use crate::engine::pattern_parser::{
-    AnchorKind, ClassItem, GroupKind, PatternNode, RegexSite, ShorthandClass, constructor_regex_site,
-    node_can_match_empty, parse_regex_pattern, regex_site_from_literal, sequence_can_match_empty,
+    AnchorKind, ClassItem, GroupKind, PatternNode, RegexSite, ShorthandClass,
+    constructor_regex_site, node_can_match_empty, parse_regex_pattern, regex_site_from_literal,
+    sequence_can_match_empty,
 };
 use crate::support::{IssueSink, RuleScope, callee_name, constructor_name};
 use hoonarqube_ir::Issue;
@@ -176,8 +177,9 @@ impl CharClass {
         match (self, other) {
             (Self::Any, _) | (_, Self::Any) => true,
             (Self::Set(left), Self::Set(right)) => ranges_intersect(left, right),
-            (Self::Set(set), Self::Complement(comp))
-            | (Self::Complement(comp), Self::Set(set)) => !ranges_subset(set, comp),
+            (Self::Set(set), Self::Complement(comp)) | (Self::Complement(comp), Self::Set(set)) => {
+                !ranges_subset(set, comp)
+            }
             (Self::Complement(left), Self::Complement(right)) => {
                 !ranges_cover_all(&merge_ranges(left, right))
             }
@@ -220,9 +222,7 @@ impl CharClass {
             (Self::Set(a), Self::Complement(b)) | (Self::Complement(b), Self::Set(a)) => {
                 Self::Set(subtract_ranges(&a, &b))
             }
-            (Self::Complement(a), Self::Complement(b)) => {
-                Self::Complement(merge_ranges(&a, &b))
-            }
+            (Self::Complement(a), Self::Complement(b)) => Self::Complement(merge_ranges(&a, &b)),
         }
     }
 }
@@ -379,9 +379,7 @@ fn atom_class(node: &PatternNode, flags: RegexFlags) -> Option<CharClass> {
             // `.` excludes line terminators without the `s` flag.
             CharClass::Complement(vec![(0x0A, 0x0D), (0x2028, 0x2029)])
         }),
-        PatternNode::Class {
-            negated, items, ..
-        } => class_set(*negated, items, flags.insensitive),
+        PatternNode::Class { negated, items, .. } => class_set(*negated, items, flags.insensitive),
         PatternNode::ClassEscape { negated, kind, .. } => {
             let ranges = shorthand_ranges(*kind);
             Some(if *negated {
@@ -655,7 +653,13 @@ fn collect_element<'a>(
                 collect_sites(alternative, prefix, tail, ancestors, sites);
             }
         }
-        _ => collect_sites(std::slice::from_ref(element), prefix, tail, ancestors, sites),
+        _ => collect_sites(
+            std::slice::from_ref(element),
+            prefix,
+            tail,
+            ancestors,
+            sites,
+        ),
     }
 }
 
@@ -664,7 +668,10 @@ fn collect_element<'a>(
 /// Whether the quantified node is unbounded: `max` open and the element
 /// pumpable, or the element itself unbounded.
 fn node_unbounded(node: &PatternNode, flags: RegexFlags) -> bool {
-    let PatternNode::Quantified { node: element, max, .. } = node else {
+    let PatternNode::Quantified {
+        node: element, max, ..
+    } = node
+    else {
         return false;
     };
     if *max == Some(0) {
@@ -728,8 +735,7 @@ fn site_has_exponential(sites: &[QuantSite<'_>], index: usize, flags: RegexFlags
             return false;
         }
         pump_set(ancestor_element, flags).is_some_and(|set| {
-            set.intersects(&pump)
-                && continuation_rejects(&ancestor.continuation, &pump, flags)
+            set.intersects(&pump) && continuation_rejects(&ancestor.continuation, &pump, flags)
         })
     })
 }
@@ -765,9 +771,10 @@ fn assertions_pass_on_run(element: &PatternNode, pump: &CharClass, flags: RegexF
         PatternNode::Group {
             kind, alternatives, ..
         } if kind.is_lookaround() => lookaround_passes_on_run(kind, alternatives, pump, flags),
-        PatternNode::Group { alternatives, .. } => alternatives
-            .iter()
-            .all(|alt| alt.iter().all(|node| assertions_pass_on_run(node, pump, flags))),
+        PatternNode::Group { alternatives, .. } => alternatives.iter().all(|alt| {
+            alt.iter()
+                .all(|node| assertions_pass_on_run(node, pump, flags))
+        }),
         PatternNode::Quantified { node, .. } => assertions_pass_on_run(node, pump, flags),
         _ => true,
     }
@@ -785,9 +792,7 @@ fn lookaround_passes_on_run(
     let Some((boundary, negated)) = lookaround_boundary(kind, alternatives, flags) else {
         return false;
     };
-    let body_empty = alternatives
-        .iter()
-        .any(|alt| sequence_can_match_empty(alt));
+    let body_empty = alternatives.iter().any(|alt| sequence_can_match_empty(alt));
     match boundary {
         Some(set) => {
             if negated {
@@ -832,9 +837,7 @@ fn apply_assertion_constraints(
         PatternNode::Anchor { .. } => CharClass::empty(),
         PatternNode::Group {
             kind, alternatives, ..
-        } if kind.is_lookaround() => {
-            lookaround_constraint(kind, alternatives, viable, flags)
-        }
+        } if kind.is_lookaround() => lookaround_constraint(kind, alternatives, viable, flags),
         PatternNode::Group { alternatives, .. } => {
             // A group constrains the run only through assertions shared by
             // every alternative; per-alternative assertions are handled
@@ -847,9 +850,7 @@ fn apply_assertion_constraints(
             }
             result
         }
-        PatternNode::Quantified { node, .. } => {
-            apply_assertion_constraints(node, viable, flags)
-        }
+        PatternNode::Quantified { node, .. } => apply_assertion_constraints(node, viable, flags),
         _ => viable,
     }
 }
@@ -866,9 +867,7 @@ fn lookaround_constraint(
     let Some((boundary, negated)) = lookaround_boundary(kind, alternatives, flags) else {
         return CharClass::empty();
     };
-    let body_empty = alternatives
-        .iter()
-        .any(|alt| sequence_can_match_empty(alt));
+    let body_empty = alternatives.iter().any(|alt| sequence_can_match_empty(alt));
     match boundary {
         Some(set) => {
             if negated {
@@ -889,7 +888,11 @@ fn lookaround_constraint(
 
 /// Whether the continuation can reject a run of pump characters: some
 /// required element fails on the pump set.
-fn continuation_rejects(continuation: &[&PatternNode], pump: &CharClass, flags: RegexFlags) -> bool {
+fn continuation_rejects(
+    continuation: &[&PatternNode],
+    pump: &CharClass,
+    flags: RegexFlags,
+) -> bool {
     continuation.iter().any(|element| {
         matches!(
             continuation_step(element, pump, flags),
@@ -906,7 +909,11 @@ enum ContinuationStep {
     Pass,
 }
 
-fn continuation_step(element: &PatternNode, pump: &CharClass, flags: RegexFlags) -> ContinuationStep {
+fn continuation_step(
+    element: &PatternNode,
+    pump: &CharClass,
+    flags: RegexFlags,
+) -> ContinuationStep {
     match element {
         // `\B` passes at every position of a uniform run; `^`, `$`, and
         // `\b` can reject mid-run.
@@ -951,9 +958,7 @@ fn lookaround_rejects(
     let Some((boundary, negated)) = lookaround_boundary(kind, alternatives, flags) else {
         return true;
     };
-    let body_empty = alternatives
-        .iter()
-        .any(|alt| sequence_can_match_empty(alt));
+    let body_empty = alternatives.iter().any(|alt| sequence_can_match_empty(alt));
     match boundary {
         Some(set) => {
             if negated {

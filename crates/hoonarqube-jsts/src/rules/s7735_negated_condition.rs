@@ -21,7 +21,9 @@
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
-use oxc_ast::ast::{BinaryOperator, ConditionalExpression, Expression, IfStatement, Statement, UnaryOperator};
+use oxc_ast::ast::{
+    BinaryOperator, ConditionalExpression, Expression, IfStatement, Statement, UnaryOperator,
+};
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{walk_conditional_expression, walk_if_statement};
 use oxc_span::GetSpan;
