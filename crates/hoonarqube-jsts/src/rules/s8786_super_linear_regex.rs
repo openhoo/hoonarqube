@@ -117,19 +117,19 @@ impl Visit<'_> for RedosCollector<'_> {
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'_>) {
-        if constructor_name(it) == Some("RegExp") {
-            if let Some(site) = constructor_regex_site(&it.arguments) {
-                self.check_site(&site);
-            }
+        if constructor_name(it) == Some("RegExp")
+            && let Some(site) = constructor_regex_site(&it.arguments)
+        {
+            self.check_site(&site);
         }
         walk_new_expression(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'_>) {
-        if callee_name(it) == Some("RegExp") {
-            if let Some(site) = constructor_regex_site(&it.arguments) {
-                self.check_site(&site);
-            }
+        if callee_name(it) == Some("RegExp")
+            && let Some(site) = constructor_regex_site(&it.arguments)
+        {
+            self.check_site(&site);
         }
         walk_call_expression(self, it);
     }
@@ -246,7 +246,7 @@ fn ranges_cover_all(ranges: &[(u32, u32)]) -> bool {
         }
         next = next.max(end.saturating_add(1));
     }
-    next > 0x10FFFF
+    next > 0x0010_FFFF
 }
 
 fn intersect_ranges(left: &[(u32, u32)], right: &[(u32, u32)]) -> Vec<(u32, u32)> {
@@ -329,8 +329,8 @@ fn push_range(ranges: &mut Vec<(u32, u32)>, low: u32, high: u32, insensitive: bo
         // ASCII case-fold closure: enough for the campaign patterns and
         // conservative elsewhere (non-ASCII folds stay unexpanded).
         for ch in b'a'..=b'z' {
-            let lower = ch as u32;
-            let upper = (ch as char).to_ascii_uppercase() as u32;
+            let lower = u32::from(ch);
+            let upper = u32::from((ch as char).to_ascii_uppercase() as u8);
             if (low..=high).contains(&lower) {
                 ranges.push((upper, upper));
             }
@@ -371,7 +371,7 @@ fn atom_class(node: &PatternNode, flags: RegexFlags) -> Option<CharClass> {
             Some(CharClass::Set(ranges))
         }
         PatternNode::CodeUnit { unit, .. } => {
-            Some(CharClass::Set(vec![(*unit as u32, *unit as u32)]))
+            Some(CharClass::Set(vec![(u32::from(*unit), u32::from(*unit))]))
         }
         PatternNode::Dot => Some(if flags.dot_all {
             CharClass::Any
@@ -379,7 +379,9 @@ fn atom_class(node: &PatternNode, flags: RegexFlags) -> Option<CharClass> {
             // `.` excludes line terminators without the `s` flag.
             CharClass::Complement(vec![(0x0A, 0x0D), (0x2028, 0x2029)])
         }),
-        PatternNode::Class { negated, items, .. } => class_set(*negated, items, flags.insensitive),
+        PatternNode::Class { negated, items, .. } => {
+            Some(class_set(*negated, items, flags.insensitive))
+        }
         PatternNode::ClassEscape { negated, kind, .. } => {
             let ranges = shorthand_ranges(*kind);
             Some(if *negated {
@@ -397,7 +399,7 @@ fn atom_class(node: &PatternNode, flags: RegexFlags) -> Option<CharClass> {
     }
 }
 
-fn class_set(negated: bool, items: &[ClassItem], insensitive: bool) -> Option<CharClass> {
+fn class_set(negated: bool, items: &[ClassItem], insensitive: bool) -> CharClass {
     let mut positive = Vec::new();
     // `\D` inside a class contributes the complement of digits; several
     // negated shorthands intersect (\D\S = ¬(digit ∩ space)).
@@ -405,12 +407,24 @@ fn class_set(negated: bool, items: &[ClassItem], insensitive: bool) -> Option<Ch
     for item in items {
         match item {
             ClassItem::Char { ch, .. } => push_char(&mut positive, *ch, insensitive),
-            ClassItem::CodeUnit { unit, .. } => positive.push((*unit as u32, *unit as u32)),
+            ClassItem::CodeUnit { unit, .. } => {
+                positive.push((u32::from(*unit), u32::from(*unit)));
+            }
             ClassItem::CodeUnitRange { low, high, .. } => {
-                push_range(&mut positive, *low as u32, *high as u32, insensitive);
+                push_range(
+                    &mut positive,
+                    u32::from(*low),
+                    u32::from(*high),
+                    insensitive,
+                );
             }
             ClassItem::Range { low, high, .. } => {
-                push_range(&mut positive, *low as u32, *high as u32, insensitive);
+                push_range(
+                    &mut positive,
+                    u32::from(*low),
+                    u32::from(*high),
+                    insensitive,
+                );
             }
             ClassItem::Shorthand {
                 negated: item_negated,
@@ -428,7 +442,7 @@ fn class_set(negated: bool, items: &[ClassItem], insensitive: bool) -> Option<Ch
                 }
             }
             // A property escape widens the class to (almost) everything.
-            ClassItem::Property { .. } => return Some(CharClass::Any),
+            ClassItem::Property { .. } => return CharClass::Any,
         }
     }
     normalize_ranges(&mut positive);
@@ -437,7 +451,7 @@ fn class_set(negated: bool, items: &[ClassItem], insensitive: bool) -> Option<Ch
         // ¬N ∪ P = ¬(N \ P).
         Some(negated) => CharClass::Complement(subtract_ranges(&negated, &positive)),
     };
-    Some(if negated { base.complement() } else { base })
+    if negated { base.complement() } else { base }
 }
 
 // ----- Set computations over the pattern tree -----
@@ -457,15 +471,11 @@ fn pump_set(node: &PatternNode, flags: RegexFlags) -> Option<CharClass> {
             if kind.is_lookaround() {
                 return Some(CharClass::empty());
             }
-            let mut result = Some(CharClass::empty());
+            let mut result = CharClass::empty();
             for alternative in alternatives {
-                match (result.take(), seq_pump(&as_refs(alternative), flags)) {
-                    (Some(acc), Some(set)) => result = Some(acc.union(set)),
-                    (acc, None) => result = acc,
-                    (None, _) => result = None,
-                }
+                result = result.union(seq_pump(&as_refs(alternative), flags));
             }
-            result
+            Some(result)
         }
         PatternNode::Quantified { node, max, .. } => {
             if *max == Some(0) {
@@ -481,7 +491,7 @@ fn pump_set(node: &PatternNode, flags: RegexFlags) -> Option<CharClass> {
 
 /// Characters that can pump a whole sequence: every element that cannot
 /// match empty must pump `c`, and at least one element must pump `c`.
-fn seq_pump(sequence: &[&PatternNode], flags: RegexFlags) -> Option<CharClass> {
+fn seq_pump(sequence: &[&PatternNode], flags: RegexFlags) -> CharClass {
     let mut union = CharClass::empty();
     let mut required: Option<CharClass> = None;
     for node in sequence {
@@ -497,10 +507,10 @@ fn seq_pump(sequence: &[&PatternNode], flags: RegexFlags) -> Option<CharClass> {
             });
         }
     }
-    Some(match required {
+    match required {
         None => union,
         Some(req) => union.intersect(req),
-    })
+    }
 }
 
 /// First-character set of a sequence, skipping elements that can match
@@ -1017,7 +1027,7 @@ mod tests {
         // examples/view-constructor/index.js:17 (`\{([^}]+)\}`), exceljs
         // lib/doc/cell.js:789 (range/cell patterns) and
         // lib/utils/col-cache.js:217 (sheet-name prefix).
-        let source = r#"
+        let source = r"
 var html = marked.parse(str).replace(/\{([^}]+)\}/g, function(_, name){
   return escapeHtml(options[name] || '');
 });
@@ -1029,7 +1039,7 @@ const cells = this.formula
   .replace(/([a-zA-Z0-9]+!)?[A-Z]{1,3}\d{1,4}:[A-Z]{1,3}\d{1,4}/g, '')
   .match(/([a-zA-Z0-9]+!)?[A-Z]{1,3}\d{1,4}/g);
 const groups = value.match(/(?:(?:(?:'((?:[^']|'')*)')|([^'^ !]*))!)?(.*)/);
-"#;
+";
         let keys = js_keys(source);
         assert_eq!(count_key(&keys, "javascript:S8786"), 6);
     }
@@ -1038,7 +1048,7 @@ const groups = value.match(/(?:(?:(?:'((?:[^']|'')*)')|([^'^ !]*))!)?(.*)/);
     fn s8786_flags_move_shape_variants() {
         // Unbounded quantifier at an unbounded position with a rejecting
         // continuation: disjoint required follower, `$`, `\b`, lookahead.
-        let source = r#"
+        let source = r"
 const a = /a+b/;
 const b = /\w+\d+/;
 const c = /[a-z]+[0-9]+/;
@@ -1053,7 +1063,7 @@ const k = /(a+)?b/;
 const l = /a+?b/;
 const m = /(a|b)+c/;
 const n = /a+b|c/;
-"#;
+";
         let keys = js_keys(source);
         assert_eq!(count_key(&keys, "javascript:S8786"), 14);
     }
@@ -1074,13 +1084,13 @@ const c = new RegExp(`[a-z]+[0-9]+`);
         // Nested unbounded quantifiers with a rejecting continuation are
         // exponential in the reference analysis; SonarJS drops literals
         // whose reports are all exponential.
-        let source = r#"
+        let source = r"
 const a = /(a+)+b/;
 const b = /(a*)*b/;
 const c = /(\w+)+\d/;
 const d = /(a+|b)+c/;
 const e = /(a*b*)+c/;
-"#;
+";
         assert_eq!(count_key(&js_keys(source), "javascript:S8786"), 0);
     }
 
@@ -1088,7 +1098,7 @@ const e = /(a*b*)+c/;
     fn s8786_clean_controls() {
         // Anchored, sticky, bounded, disjoint-prefix, never-rejecting, and
         // multi-char-unit patterns stay silent.
-        let source = r#"
+        let source = r"
 const a = /^a+b/;
 const b = /a+b/y;
 const c = /\d+/;
@@ -1107,7 +1117,7 @@ const o = /[A-Z]{1,3}\d{1,4}/;
 const p = /a+\d*/;
 const q = /\{([^}]+)\}/y;
 const r = /^\{([^}]+)\}$/;
-"#;
+";
         assert_eq!(count_key(&js_keys(source), "javascript:S8786"), 0);
     }
 

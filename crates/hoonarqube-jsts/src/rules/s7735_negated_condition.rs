@@ -50,7 +50,7 @@ struct NegatedConditionCollector<'index> {
 impl NegatedConditionCollector<'_> {
     /// `S7735`: the reference rule reports the test node when it is a `!`
     /// negation or a `!=`/`!==` comparison. Parentheses unwrap first so the
-    /// reported span matches the ESTree node.
+    /// reported span matches the `ESTree` node.
     fn check_test(&mut self, test: &Expression<'_>) {
         let test = unparenthesized(test);
         let negated = match test {
