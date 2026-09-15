@@ -65,7 +65,7 @@ fn integration_assembles_full_report_sorted() {
             .iter()
             .map(|issue| issue.range.start)
             .collect::<Vec<_>>(),
-        vec![pos(0, 0), pos(3, 4), pos(6, 4), pos(10, 16)]
+        vec![pos(0, 0), pos(3, 4), pos(3, 4), pos(6, 4), pos(10, 16)]
     );
     assert_eq!(
         report
@@ -76,6 +76,7 @@ fn integration_assembles_full_report_sorted() {
         vec![
             "python:S1720",
             "python:S1720",
+            "python:S6538",
             "python:OneStatementPerLine",
             "python:NoSonar",
         ]

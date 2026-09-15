@@ -1,1 +1,2 @@
-const s = 'a' + 'b' + 'c';
+const s = '<p class="msg error">' + err + '</p>';
+const t = 'Hello ' + name + '!';
