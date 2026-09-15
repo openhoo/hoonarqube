@@ -294,6 +294,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     };
+    let tree = recover_preprocessor_parse_failure(&mut parser, tree, language, source);
     let parse_error = tree
         .root_node()
         .has_error()
@@ -357,6 +358,38 @@ fn normalize_java_parser_source(source: &str) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(source)
     }
+}
+
+/// Tree-sitter cannot place a C# preprocessor directive inside an
+/// expression, so an `#if` interleaved between call arguments fails the
+/// whole file even though the language treats directives as line-scoped
+/// trivia.  When the direct parse failed, the shared recovery views are
+/// tried in order and the first clean view wins; when every view still
+/// carries errors, the first view's tree replaces the original so facts
+/// and findings describe the same analyzed view while the
+/// recovered-or-missing error stays set (#328).
+fn recover_preprocessor_parse_failure(
+    parser: &mut Parser,
+    tree: tree_sitter::Tree,
+    language: Language,
+    source: &str,
+) -> tree_sitter::Tree {
+    if language != Language::CSharp || !tree.root_node().has_error() {
+        return tree;
+    }
+    let views = hoonarqube_csharp::preprocessor_recovery_views(source);
+    let mut first: Option<tree_sitter::Tree> = None;
+    for view in &views {
+        if let Some(recovered) = parser.parse(view.as_ref(), None) {
+            if !recovered.root_node().has_error() {
+                return recovered;
+            }
+            if first.is_none() {
+                first = Some(recovered);
+            }
+        }
+    }
+    first.unwrap_or(tree)
 }
 
 struct RowFlags {
@@ -1710,6 +1743,77 @@ type ImportedKeys = keyof import("./module").Widget;
 "#,
         );
         assert!(facts.error.is_some());
+    }
+
+    #[test]
+    fn csharp_directive_inside_argument_expression_recovers_to_complete_facts() {
+        // Minimized from Dapper's `SqlMapper.cs` static constructor (#328).
+        let source = "\
+namespace Dapper
+{
+    public static partial class SqlMapper
+    {
+        static SqlMapper()
+        {
+            typeMap = new Dictionary<Type, TypeMapEntry>(41
+#if NET6_0_OR_GREATER
+                + 4 // {Date|Time}Only[?]
+#endif
+                )
+            {
+                [typeof(byte)] = DbType.Byte,
+            };
+        }
+    }
+}
+";
+        let recovered = facts("SqlMapper.cs", source);
+        assert!(recovered.error.is_none(), "{:?}", recovered.error);
+        assert!(!recovered.tokens.is_empty());
+        assert_eq!(recovered.metrics.lines, 17);
+    }
+
+    #[test]
+    fn csharp_malformed_input_without_directives_stays_incomplete() {
+        let incomplete = facts("sample.cs", "class C {\n  void M() { Foo(,); }\n}\n");
+        assert_eq!(
+            incomplete.error.as_deref(),
+            Some("syntax tree contains recovered or missing nodes")
+        );
+    }
+
+    #[test]
+    fn csharp_conditional_else_view_produces_complete_facts() {
+        // The `#else` body is the default-configuration view; blanking both
+        // branches would join incompatible expression bodies.
+        let source = "\
+internal static bool IsDateTimeFamilyConversion(Type from, Type to)
+#if NET6_0_OR_GREATER
+    => from != to;
+#else
+    => false;
+#endif
+";
+        let recovered = facts("Sample.cs", source);
+        assert!(recovered.error.is_none(), "{:?}", recovered.error);
+        assert!(!recovered.tokens.is_empty());
+        assert_eq!(recovered.metrics.lines, 6);
+    }
+
+    #[test]
+    fn csharp_residual_directive_error_stays_incomplete_with_view_facts() {
+        // Balanced directives plus an unrelated malformed argument list: the
+        // recovered view tree keeps the error set and still yields metrics.
+        let incomplete = facts(
+            "sample.cs",
+            "class C {\n  void M() {\n    Foo(1,\n#if DEBUG\n    2\n#endif\n    ,);\n  }\n}\n",
+        );
+        assert_eq!(
+            incomplete.error.as_deref(),
+            Some("syntax tree contains recovered or missing nodes")
+        );
+        assert!(!incomplete.tokens.is_empty());
+        assert_eq!(incomplete.metrics.lines, 9);
     }
 
     #[test]
