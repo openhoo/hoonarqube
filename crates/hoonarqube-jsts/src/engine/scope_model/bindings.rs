@@ -1,5 +1,5 @@
 use super::Span;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // ===========================================================================
 // Tier B — file-local scope/symbol table
@@ -82,6 +82,12 @@ pub(crate) struct TbEvent<'a> {
     pub(crate) write: bool,
     /// Compound assignments (`+=`) and updates read as well as write.
     pub(crate) compound: bool,
+    /// Direct argument of `typeof x`: an unresolved name there is the
+    /// `ReferenceError`-safe idiom, never an `S3827` finding.
+    pub(crate) under_typeof: bool,
+    /// Enclosing `with` statement depth: reference targets there are
+    /// dynamic and never throw a deterministic `ReferenceError`.
+    pub(crate) with_depth: u32,
     /// Innermost scope at the occurrence; parents preserve lexical lookup.
     pub(crate) scope: usize,
 }
@@ -130,6 +136,9 @@ pub(crate) struct TbModel<'a> {
     pub(crate) duplicates: Vec<(Span, Span, &'a str)>,
     /// Writes to names never declared anywhere (`S2703`, JS only).
     pub(crate) implicit_globals: Vec<(&'a str, Span)>,
+    /// Unresolved reads left after the write/typeof/with exclusions, in
+    /// traversal order (`S3827`, JS only).
+    pub(crate) unresolved_reads: Vec<(&'a str, Span)>,
     pub(crate) calls: Vec<TbCallSite>,
     /// `(binding, span)` of `new` sites resolving file-locally (`S3686`).
     pub(crate) news: Vec<(usize, Span)>,
@@ -170,6 +179,7 @@ pub(crate) fn finish_model(mut model: TbModel<'_>) -> TbModel<'_> {
 }
 
 fn resolve_events(model: &mut TbModel<'_>) {
+    let mut excluded: HashSet<&str> = HashSet::new();
     for event in std::mem::take(&mut model.events) {
         if let Some(id) = model.resolve_scope(event.scope, event.name) {
             let binding = &mut model.bindings[id];
@@ -183,7 +193,20 @@ fn resolve_events(model: &mut TbModel<'_>) {
         }
         if event.write {
             model.implicit_globals.push((event.name, event.span));
+            excluded.insert(event.name);
+            continue;
         }
+        // `typeof x` and `with` references are upstream `S3827` exclusions:
+        // they clear only the occurrences seen after the exclusion, mirroring
+        // the reference-order handling of the scope-based original.
+        if event.under_typeof || event.with_depth > 0 {
+            excluded.insert(event.name);
+            continue;
+        }
+        if excluded.contains(event.name) {
+            continue;
+        }
+        model.unresolved_reads.push((event.name, event.span));
     }
 }
 

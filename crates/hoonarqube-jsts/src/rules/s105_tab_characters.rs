@@ -60,14 +60,14 @@ mod tests {
 
     #[test]
     fn tab_character_issue_has_precise_span() {
-        let report = js("greet();\n\treset();\n");
+        let report = js("'a';\n\t'b';\n");
         assert_eq!(
             report.issues,
             vec![issue(
                 "javascript:S105",
                 "Replace all tab characters in this file by sequences of white-spaces.",
                 (2, 0),
-                (2, 9),
+                (2, 5),
             )]
         );
     }

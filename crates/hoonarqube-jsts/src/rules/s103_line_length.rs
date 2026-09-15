@@ -88,7 +88,7 @@ mod tests {
         };
         let report = analyze(
             PathBuf::from("test.js"),
-            "a();\ninspect(report);\nhi();\n",
+            "'';\n'hello';\n'';\n",
             JstsLanguage::JavaScript,
             &options,
         );
@@ -96,9 +96,9 @@ mod tests {
             report.issues,
             vec![issue(
                 "javascript:S103",
-                "This line has a length of 16. Maximum allowed is 5.",
+                "This line has a length of 8. Maximum allowed is 5.",
                 (2, 0),
-                (2, 16),
+                (2, 8),
             )]
         );
     }
