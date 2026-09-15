@@ -25,11 +25,13 @@ impl ClassRuleCollector<'_, '_> {
     }
 
     pub(crate) fn finish_class_frame(&mut self, frame: &ClassFrame) {
+        // Component provenance is heritage-based only (`S6441`): any class
+        // with a `render`-shaped method is not automatically a React
+        // component.
         let component = frame
             .super_name
             .as_deref()
-            .is_some_and(|base| base == "Component" || base == "PureComponent")
-            || frame.methods.iter().any(|(name, _)| name == "render");
+            .is_some_and(|base| base == "Component" || base == "PureComponent");
         for (name, span) in &frame.private_members {
             if !Self::was_used(&self.used_properties, name, frame.frame_id) {
                 self.sink.emit_span(

@@ -518,7 +518,7 @@ mod tests {
         );
         assert!(
             github_registry(Language::Go)
-                .is_some_and(|ids| !ids.contains(&"go/comparison-of-identical-expressions"))
+                .is_some_and(|ids| ids.contains(&"go/comparison-of-identical-expressions"))
         );
         assert!(github_registry(Language::Rust).is_none());
     }
