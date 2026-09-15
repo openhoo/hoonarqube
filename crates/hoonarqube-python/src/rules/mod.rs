@@ -237,6 +237,7 @@ use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_s
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
+use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
 use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
 use crate::rules::s9000_raises_context_manager::check_s9000_raises_context_manager;
 use crate::rules::s9001_xfail_reason::check_s9001_xfail_reason;
@@ -962,9 +963,10 @@ pub(crate) fn check_future_reference_battery(
     issues
 }
 
-/// Aggregates the pytest-contract detectors (python:S8997,
-/// python:S9000, python:S9001, python:S9073) added ahead of their
-/// catalog entries; all four gate on the pytest file name.
+/// Aggregates the pytest-contract detectors (python:S8992,
+/// python:S8997, python:S9000, python:S9001, python:S9073) added ahead
+/// of their catalog entries; all but the scope-ALL S8992 gate on the
+/// pytest file name.
 pub(crate) fn check_pytest_contract_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -980,6 +982,7 @@ pub(crate) fn check_pytest_contract_battery(
     ));
     issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
     issues.extend(check_s9073_composite_assertion(parsed, index, source));
+    issues.extend(check_s8992_autouse_fixture_params(parsed, index, source));
     issues
 }
 
@@ -1562,6 +1565,8 @@ mod s8513_chained_startswith_calls;
 mod s8714_pytest_raises_try_except;
 
 mod s8786_super_linear_regex;
+
+mod s8992_autouse_fixture_params;
 
 mod s8997_monkeypatch_global_state;
 
