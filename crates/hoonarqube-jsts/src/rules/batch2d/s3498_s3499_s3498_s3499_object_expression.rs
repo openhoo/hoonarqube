@@ -3,6 +3,8 @@ use crate::rules::batch2d::s3512_es_idioms::EsIdiomCollector;
 use crate::support::RuleScope;
 use crate::support::identifier_name;
 use crate::support::property_key_name;
+use crate::support::unparenthesized;
+use oxc_ast::ast::Expression;
 use oxc_ast::ast::ObjectExpression;
 use oxc_ast::ast::ObjectPropertyKind;
 use oxc_ast::ast::PropertyKind;
@@ -33,7 +35,9 @@ impl EsIdiomCollector<'_> {
                 }
             } else {
                 non_shorthand_seen = true;
-                // `S3498`: `{ a: a }` should use the shorthand form.
+                // `S3498`: `{ a: a }` should use the property shorthand,
+                // and an anonymous `function` property should use the
+                // method shorthand (`{ html: function () {} }`).
                 if let (Some(key), Some(value)) =
                     (property_key_name(&inner.key), identifier_name(&inner.value))
                     && key == value
@@ -42,6 +46,16 @@ impl EsIdiomCollector<'_> {
                         RuleScope::Both,
                         "S3498",
                         "Expected property shorthand.",
+                        inner.key.span(),
+                    );
+                } else if let Expression::FunctionExpression(function) =
+                    unparenthesized(&inner.value)
+                    && function.id.is_none()
+                {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S3498",
+                        "Expected method shorthand.",
                         inner.key.span(),
                     );
                 }

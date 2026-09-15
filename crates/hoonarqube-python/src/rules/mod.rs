@@ -97,6 +97,7 @@ use crate::rules::items_only_keys_needed::check_items_only_keys_needed;
 use crate::rules::json_response_safe_flag::check_json_response_safe_flag;
 use crate::rules::jwt_secret_arguments::check_jwt_secret_arguments;
 use crate::rules::keras_model_input_shape::check_keras_model_input_shape;
+use crate::rules::keyword_parentheses::check_keyword_parentheses;
 use crate::rules::known_value_comparisons::check_known_value_comparisons;
 use crate::rules::lambda_assignments::check_lambda_assignments;
 use crate::rules::lines_of_code::check_lines_of_code;
@@ -236,6 +237,7 @@ use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_s
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
+use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
 use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
 use crate::rules::s9000_raises_context_manager::check_s9000_raises_context_manager;
 use crate::rules::s9001_xfail_reason::check_s9001_xfail_reason;
@@ -507,9 +509,6 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_async_without_awaits(index, source, file_ctx));
     issues.extend(check_single_task_nurseries(parsed, index, source));
     issues.extend(check_control_flow_in_nurseries(parsed, index, source));
-    issues.extend(check_missing_return_annotations(
-        index, source, options, file_ctx,
-    ));
     issues.extend(check_missing_parameter_annotations(
         index, source, options, file_ctx,
     ));
@@ -964,9 +963,10 @@ pub(crate) fn check_future_reference_battery(
     issues
 }
 
-/// Aggregates the pytest-contract detectors (python:S8997,
-/// python:S9000, python:S9001, python:S9073) added ahead of their
-/// catalog entries; all four gate on the pytest file name.
+/// Aggregates the pytest-contract detectors (python:S8992,
+/// python:S8997, python:S9000, python:S9001, python:S9073) added ahead
+/// of their catalog entries; all but the scope-ALL S8992 gate on the
+/// pytest file name.
 pub(crate) fn check_pytest_contract_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -982,6 +982,7 @@ pub(crate) fn check_pytest_contract_battery(
     ));
     issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
     issues.extend(check_s9073_composite_assertion(parsed, index, source));
+    issues.extend(check_s8992_autouse_fixture_params(parsed, index, source));
     issues
 }
 
@@ -1017,6 +1018,7 @@ pub(crate) fn check_future_test_contract_battery(
 // python:S6799), each in its own per-rule module.
 // ---------------------------------------------------------------------------
 pub(crate) fn check_structural_battery(
+    path: &Path,
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
@@ -1031,6 +1033,10 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
     issues.extend(check_old_style_classes(index, source, file_ctx));
+    issues.extend(check_keyword_parentheses(parsed, index, source, file_ctx));
+    issues.extend(check_missing_return_annotations(
+        path, index, source, file_ctx,
+    ));
     issues.extend(check_cognitive_complexity(parsed, index, source, options));
     issues.extend(check_function_complexity(parsed, index, source, options));
     issues.extend(check_file_complexity(parsed, index, source, options));
@@ -1268,7 +1274,7 @@ mod missing_eval_after_load;
 
 mod missing_parameter_annotations;
 
-mod missing_return_annotations;
+pub(crate) mod missing_return_annotations;
 
 pub(crate) mod mixed_string_concatenation;
 
@@ -1559,6 +1565,8 @@ mod s8513_chained_startswith_calls;
 mod s8714_pytest_raises_try_except;
 
 mod s8786_super_linear_regex;
+
+mod s8992_autouse_fixture_params;
 
 mod s8997_monkeypatch_global_state;
 

@@ -91,6 +91,7 @@ fn analyze_report(path: PathBuf, source: &str, github_quality: bool) -> FileRepo
 
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
+    "java/call-to-object-tostring",
     "java/call-to-thread-run",
     "java/class-name-matches-super-class",
     "java/comparison-of-identical-expressions",
@@ -102,24 +103,40 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
     "java/continue-in-false-loop",
     "java/do-not-call-finalize",
     "java/equals-on-arrays",
+    "java/hashing-without-hashcode",
     "java/inefficient-boxed-constructor",
     "java/inefficient-empty-string-test",
+    "java/inefficient-key-set-iterator",
     "java/inefficient-string-constructor",
+    "java/integer-multiplication-cast-to-long",
+    "java/iterator-implements-iterable",
+    "java/jdk-internal-api-access",
     "java/junit5-missing-nested-annotation",
     "java/label-in-switch",
+    "java/local-shadows-field",
     "java/local-variable-is-never-read",
+    "java/lshift-larger-than-type-width",
     "java/misleading-indentation",
     "java/missing-space-in-concatenation",
     "java/non-explicit-control-and-whitespace-chars-in-literals",
+    "java/print-array",
     "java/redundant-assignment",
+    "java/reference-equality-of-boxed-types",
     "java/string-buffer-char-init",
     "java/string-replace-all-with-non-regex",
+    "java/suspicious-date-format",
+    "java/sync-on-boxed-types",
     "java/test-for-negative-container-size",
+    "java/type-mismatch-access",
+    "java/type-mismatch-modification",
     "java/underscore-identifier",
     "java/unknown-javadoc-parameter",
+    "java/unsynchronized-getter",
+    "java/unused-format-argument",
     "java/unused-label",
     "java/useless-null-check",
     "java/useless-tostring-call",
+    "java/useless-type-test",
     "java/whitespace-contradicts-precedence",
 ];
 
@@ -738,5 +755,393 @@ record Pair(int x, int y) {
         let source = "class Broken { void f( { String value = ;";
         assert!(semantic_index(source).symbols.is_empty());
         assert!(method_flows(source).is_empty());
+    }
+    fn rules(source: &str) -> Vec<String> {
+        analyze_github_quality(source)
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect()
+    }
+
+    #[test]
+    fn batch2_reference_equality_of_boxed_types_matches_pinned_query() {
+        let source = r"
+class A {
+    void f(Integer a, Integer b, Boolean c, Long d, int plain) {
+        if (a == b) { }
+        if (d != a) { }
+        if (c == c) { }
+        if (a == plain) { }
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/reference-equality-of-boxed-types")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn batch2_sync_on_boxed_types_and_strings() {
+        let source = r"
+class A {
+    Integer boxed;
+    String text;
+    Object monitor;
+    void f() {
+        synchronized (boxed) { }
+        synchronized (text) { }
+        synchronized (monitor) { }
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/sync-on-boxed-types")
+                .count(),
+            2
+        );
+        assert!(
+            analyze_github_quality("class A { Object m; void f() { synchronized (m) { } } }")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn batch2_lshift_truncates_only_above_type_width() {
+        let source = r"
+class A {
+    long f(int x, long l) {
+        long a = x << 32;
+        long b = x << 31;
+        long c = l << 64;
+        return a + b + c;
+    }
+}
+";
+        let issues = analyze_github_quality(source);
+        let shifts: Vec<_> = issues
+            .iter()
+            .filter(|issue| issue.rule_key == "java/lshift-larger-than-type-width")
+            .collect();
+        assert_eq!(shifts.len(), 2);
+        assert!(
+            shifts
+                .iter()
+                .any(|issue| issue.message.contains("from 32 to 0"))
+        );
+        assert!(
+            shifts
+                .iter()
+                .any(|issue| issue.message.contains("from 64 to 0"))
+        );
+    }
+
+    #[test]
+    fn batch2_iterator_implements_iterable_reports_self_iteration() {
+        let source = r"
+class A implements Iterator, Iterable {
+    public boolean hasNext() { return true; }
+    public Object next() { return null; }
+    public Iterator iterator() { return this; }
+}
+class Safe implements Iterator, Iterable {
+    public boolean hasNext() { return false; }
+    public Object next() { return null; }
+    public Iterator iterator() { return this; }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/iterator-implements-iterable")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_print_array_flags_array_arguments_only() {
+        let source = r"
+class A {
+    void f(int[] values, String name) {
+        System.out.println(values);
+        System.out.println(name);
+        System.out.println(new long[] { 1L });
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/print-array")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn batch2_call_to_object_tostring_tracks_same_file_classes() {
+        let source = r#"
+class Plain { int value; }
+class Custom { int value; public String toString() { return "x"; } }
+class AbstractBase { public abstract String toString(); }
+class A {
+    void f(Plain plain, Custom custom) {
+        System.out.println(plain.toString());
+        String label = "" + plain;
+        custom.toString();
+    }
+}
+"#;
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/call-to-object-tostring")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn batch2_hashing_without_hashcode_requires_hash_structure() {
+        let source = r"
+class Key {
+    private final String id;
+    Key(String id) { this.id = id; }
+    public boolean equals(Object other) { return other instanceof Key k && k.id.equals(id); }
+}
+class A {
+    void f(Key key, java.util.List<Key> list) {
+        java.util.HashSet<Key> set = new java.util.HashSet<>();
+        set.add(key);
+        list.contains(key);
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/hashing-without-hashcode")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_inefficient_key_set_iterator_pairs_next_and_get() {
+        let source = r"
+class A {
+    void f(java.util.Map<String, Integer> map, java.util.Map<String, Integer> other) {
+        Iterator<String> it = map.keySet().iterator();
+        while (it.hasNext()) {
+            String key = it.next();
+            map.get(key);
+        }
+        Iterator<String> ot = other.keySet().iterator();
+        while (ot.hasNext()) {
+            String name = ot.next();
+            other.get(name);
+        }
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/inefficient-key-set-iterator")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn batch2_integer_multiplication_cast_to_long_skips_small_products() {
+        let source = r"
+class A {
+    long f(int width, int count) {
+        long overflowed = width * count;
+        long safe = 60 * 60;
+        long chained = width * count + 1;
+        long explicit = (long) (width * count);
+        return overflowed + safe + chained + explicit;
+    }
+}
+";
+        let issues = rules(source);
+        let hits: Vec<_> = issues
+            .iter()
+            .filter(|rule| rule.as_str() == "java/integer-multiplication-cast-to-long")
+            .collect();
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn batch2_jdk_internal_api_access_flags_internal_imports() {
+        let source = r"
+import sun.misc.Unsafe;
+import java.util.List;
+class A { }
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/jdk-internal-api-access")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_suspicious_date_format_needs_year_and_month() {
+        let source = r#"
+class A {
+    void f() {
+        new java.text.SimpleDateFormat("YYYY-MM-dd");
+        new java.text.SimpleDateFormat("dd HH:mm");
+    }
+}
+"#;
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/suspicious-date-format")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_unsynchronized_getter_pairs_synchronized_setter() {
+        let source = r"
+class A {
+    private int value;
+    private volatile int flag;
+    public synchronized void setValue(int value) { this.value = value; }
+    public int getValue() { return value; }
+    public synchronized void setFlag(int flag) { this.flag = flag; }
+    public int getFlag() { return flag; }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/unsynchronized-getter")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_useless_type_test_flags_provable_ancestors() {
+        let source = r"
+class Base { }
+class Derived extends Base { }
+class A {
+    void f(Derived derived, String text) {
+        boolean a = derived instanceof Base;
+        boolean b = text instanceof Object;
+        boolean c = derived instanceof Object;
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/useless-type-test")
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn batch2_unused_format_argument_counts_specifications() {
+        let source = r#"
+class A {
+    void f(String a, String b) {
+        String.format("%s and %s", a, b);
+        String.format("%s", a, b);
+        String.format("%1$s %2$s", a, b);
+    }
+}
+"#;
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/unused-format-argument")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_type_mismatch_access_and_modification_prove_no_intersection() {
+        let source = r#"
+class A {
+    void f(java.util.Map<String, Integer> map, java.util.List<String> list, int code) {
+        map.get(code);
+        map.get("key");
+        list.contains(code);
+        list.remove(0);
+        map.remove(code);
+    }
+}
+"#;
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/type-mismatch-access")
+                .count(),
+            2
+        );
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/type-mismatch-modification")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn batch2_local_shadows_field_exempt_pure_accessors() {
+        let source = r"
+class A {
+    int value;
+    void compute() {
+        int value = 1;
+        int total = value + this.value;
+    }
+    void store() {
+        int value = 2;
+        this.value = value;
+    }
+}
+";
+        let issues = rules(source);
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|rule| rule == &"java/local-shadows-field")
+                .count(),
+            1
+        );
     }
 }
