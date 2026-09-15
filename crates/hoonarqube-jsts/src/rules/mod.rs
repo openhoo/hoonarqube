@@ -76,6 +76,15 @@ mod swapped_call_arguments;
 mod switch_flow;
 mod tier_b;
 mod tier_c;
+// issue-400 batch 2
+mod s1244_float_equality;
+mod s5914_trivial_assertions;
+mod s7758_prefer_code_point;
+mod s7759_prefer_date_now;
+mod s7760_prefer_default_parameters;
+mod s7764_prefer_global_this;
+mod s7775_prefer_regexp_test;
+pub(crate) mod test_assertions;
 
 use crate::Issue;
 use crate::context::AnalysisContext;
@@ -142,6 +151,14 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(switch_flow::run_all(ctx));
     issues.extend(tier_b::run_all(ctx));
     issues.extend(tier_c::run_all(ctx));
+    // issue-400 batch 2
+    issues.extend(s1244_float_equality::check(ctx));
+    issues.extend(s5914_trivial_assertions::check(ctx));
+    issues.extend(s7758_prefer_code_point::check(ctx));
+    issues.extend(s7759_prefer_date_now::check(ctx));
+    issues.extend(s7760_prefer_default_parameters::check(ctx));
+    issues.extend(s7764_prefer_global_this::check(ctx));
+    issues.extend(s7775_prefer_regexp_test::check(ctx));
     issues.extend(s103_line_length::check(ctx));
     issues.extend(s105_tab_characters::check(ctx));
     issues.extend(s113_newline_at_eof::check(ctx));
