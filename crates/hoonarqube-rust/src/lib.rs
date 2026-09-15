@@ -5,7 +5,7 @@
 //! when the required type or API evidence is absent.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use hoonarqube_ir::{
@@ -324,8 +324,16 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
     check_patterns(source, &code, &mut issues);
     check_whole_file(source, &code, &uncommented, root, &mut issues);
     check_syntax_errors(root, source, &mut issues);
+    let stdout_context_exempt = standard_output_context_exempt(&path);
     walk_valid(root, &mut |node| {
-        check_node(node, source, &code, options, &mut issues);
+        check_node(
+            node,
+            source,
+            &code,
+            options,
+            stdout_context_exempt,
+            &mut issues,
+        );
     });
     deduplicate(&mut issues);
     normalize_sonar_contract(source, &mut issues);
@@ -1366,6 +1374,7 @@ fn check_node(
     source: &str,
     code: &str,
     options: &AnalyzerOptions,
+    stdout_context_exempt: bool,
     issues: &mut Vec<Issue>,
 ) {
     if node.start_byte() < node.end_byte() && text(node, code).trim().is_empty() {
@@ -1382,13 +1391,14 @@ fn check_node(
         "expression_statement" => check_no_effect(node, source, issues),
         "match_expression" => check_boolean_match(node, source, issues),
         "integer_literal" | "float_literal" => check_large_number(node, source, issues),
-        "macro_invocation" => check_standard_output_macro(node, source, code, issues),
+        "macro_invocation" => {
+            check_standard_output_macro(node, source, code, stdout_context_exempt, issues);
+        }
         "use_declaration" => check_wildcard_import(node, source, code, issues),
         "type_cast_expression" => check_null_pointer_cast(node, source, issues),
         _ => {}
     }
 }
-
 fn check_syntax_errors(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     walk_all(root, &mut |node| {
         if !node.is_error() && !node.is_missing() {
@@ -1417,7 +1427,13 @@ fn check_syntax_errors(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     });
 }
 
-fn check_standard_output_macro(node: Node<'_>, source: &str, code: &str, issues: &mut Vec<Issue>) {
+fn check_standard_output_macro(
+    node: Node<'_>,
+    source: &str,
+    code: &str,
+    stdout_context_exempt: bool,
+    issues: &mut Vec<Issue>,
+) {
     let Some(name) = node.child_by_field_name("macro") else {
         return;
     };
@@ -1432,7 +1448,11 @@ fn check_standard_output_macro(node: Node<'_>, source: &str, code: &str, issues:
     if deliberately_allowed {
         return;
     }
-    if matches!(name, "print" | "println" | "eprint" | "eprintln" | "dbg") {
+    if matches!(name, "print" | "println" | "eprint" | "eprintln" | "dbg")
+        && !stdout_context_exempt
+        && !prints_cargo_directive(node, source)
+        && !under_test_context(node, source)
+    {
         issues.push(node_issue(
             "rust:S106",
             "Replace this use of standard output with a logger.",
@@ -1440,6 +1460,90 @@ fn check_standard_output_macro(node: Node<'_>, source: &str, code: &str, issues:
             source,
         ));
     }
+}
+
+/// Files whose stdout output is the documented product of the file, not
+/// logging: cargo build scripts and example programs, plus test-support
+/// modules.
+fn standard_output_context_exempt(path: &Path) -> bool {
+    if path.file_name().and_then(|name| name.to_str()) == Some("build.rs") {
+        return true;
+    }
+    path.components().any(|component| {
+        let name = component.as_os_str().to_str().unwrap_or_default();
+        let stem = name.strip_suffix(".rs").unwrap_or(name);
+        matches!(
+            stem,
+            "examples"
+                | "testutil"
+                | "testutils"
+                | "test_util"
+                | "test_utils"
+                | "test_support"
+                | "testsupport"
+        )
+    })
+}
+
+/// Cargo build-script protocol lines (`println!("cargo:...")`) are the
+/// compiler-facing interface, never logging.
+fn prints_cargo_directive(node: Node<'_>, source: &str) -> bool {
+    let mut cursor = node.walk();
+    let directive = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "token_tree")
+        .and_then(|tree| tree.named_child(0));
+    directive.is_some_and(|first| {
+        first.kind() == "string_literal"
+            && text(first, source)
+                .trim_start_matches(['r', '#', '"'])
+                .starts_with("cargo:")
+    })
+}
+
+/// `#[cfg(test)]`-gated items and `mod tests` bodies print diagnostics
+/// freely; the rule targets application logging.
+fn under_test_context(node: Node<'_>, source: &str) -> bool {
+    let mut ancestor = Some(node);
+    while let Some(current) = ancestor {
+        if current.kind() == "mod_item"
+            && current
+                .child_by_field_name("name")
+                .is_some_and(|name| text(name, source).trim() == "tests")
+        {
+            return true;
+        }
+        if matches!(
+            current.kind(),
+            "mod_item"
+                | "function_item"
+                | "impl_item"
+                | "struct_item"
+                | "enum_item"
+                | "type_item"
+                | "const_item"
+                | "static_item"
+        ) && item_is_cfg_test_gated(current, source)
+        {
+            return true;
+        }
+        ancestor = current.parent();
+    }
+    false
+}
+
+fn item_is_cfg_test_gated(item: Node<'_>, source: &str) -> bool {
+    let mut sibling = item.prev_named_sibling();
+    while let Some(attribute) = sibling {
+        if attribute.kind() != "attribute_item" {
+            return false;
+        }
+        if cfg_test_attribute_regex().is_match(text(attribute, source)) {
+            return true;
+        }
+        sibling = attribute.prev_named_sibling();
+    }
+    false
 }
 
 fn file_allows_clippy_lint(node: Node<'_>, code: &str, lint_name: &str) -> bool {
@@ -1461,6 +1565,7 @@ fn file_allows_clippy_lint(node: Node<'_>, code: &str, lint_name: &str) -> bool 
     }
     false
 }
+
 fn check_empty_statement(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let Some(mut owner) = previous_code_sibling(node) else {
         issues.push(node_issue(
@@ -1613,7 +1718,12 @@ fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut 
     }
     let path = import[..start].trim().trim_start_matches("use").trim();
     let target = path.rsplit("::").next().unwrap_or_default();
-    if enum_glob_target(node, path, target, source) {
+    if enum_glob_target(node, path, target, source)
+        // Externally defined enum-variant globs (`use ignore::WalkState::*;`)
+        // cannot be resolved in-file; the capitalized-target convention
+        // distinguishes them from namespace globs.
+        || (path.contains("::") && starts_uppercase(target))
+    {
         return;
     }
     issues.push(offset_issue(
@@ -1623,6 +1733,10 @@ fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut 
         node.start_byte() + start + 2,
         node.start_byte() + start + 3,
     ));
+}
+
+fn starts_uppercase(segment: &str) -> bool {
+    segment.starts_with(|character: char| character.is_ascii_uppercase())
 }
 
 fn enum_glob_target(node: Node<'_>, path: &str, target: &str, source: &str) -> bool {
@@ -1727,7 +1841,7 @@ fn check_function(
         }
     }
     if let Some(body) = node.child_by_field_name("body") {
-        let complexity = cognitive_complexity(body);
+        let complexity = cognitive_complexity(body, source);
         if complexity > options.maximum_cognitive_complexity {
             issues.push(node_issue(
                 "rust:S3776",
@@ -2174,27 +2288,72 @@ fn check_getters(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issu
         if node.kind() != "function_item" {
             return;
         }
+        if in_trait_impl(node) {
+            return;
+        }
         let Some(name) = node.child_by_field_name("name") else {
             return;
         };
-        let expected = text(name, source).trim_start_matches("get_");
+        let method = text(name, source).trim();
         let Some(body) = node.child_by_field_name("body") else {
             return;
         };
         let field = self_field_regex()
             .captures(text(body, scan))
             .and_then(|captures| captures.name("field"));
-        if field.is_some_and(|field| field.as_str() != expected)
-            && text(node, source).contains("&self")
+        if field
+            .is_none_or(|field| getter_returns_named_field(node, method, field.as_str(), source))
+            || !text(node, source).contains("&self")
         {
-            issues.push(node_issue(
-                "rust:S4275",
-                "Return the field corresponding to this getter's name.",
-                name,
-                source,
-            ));
+            return;
         }
+        issues.push(node_issue(
+            "rust:S4275",
+            "Return the field corresponding to this getter's name.",
+            name,
+            source,
+        ));
     });
+}
+
+/// Trait-impl method names are fixed by the trait contract, not the field
+/// they read, so the getter-name heuristic does not apply to them.
+fn in_trait_impl(node: Node<'_>) -> bool {
+    let mut ancestor = node.parent();
+    while let Some(current) = ancestor {
+        if current.kind() == "impl_item" {
+            return current.child_by_field_name("trait").is_some();
+        }
+        ancestor = current.parent();
+    }
+    false
+}
+
+fn getter_returns_named_field(node: Node<'_>, method: &str, field: &str, source: &str) -> bool {
+    if field == method {
+        return true;
+    }
+    let boolean_getter = node
+        .child_by_field_name("return_type")
+        .is_some_and(|return_type| text(return_type, source).trim() == "bool");
+    for prefix in ["get_", "is_", "has_"] {
+        if prefix != "get_" && !boolean_getter {
+            continue;
+        }
+        if let Some(stripped) = method.strip_prefix(prefix)
+            && field == stripped
+        {
+            return true;
+        }
+    }
+    // Common short-field aliases: `ty` for type fields and the `x_term`
+    // short form for `x_terminator` getters.
+    if method.ends_with("type") && field == "ty" {
+        return true;
+    }
+    method
+        .strip_suffix("terminator")
+        .is_some_and(|prefix| field == format!("{prefix}term"))
 }
 
 fn check_returned_locals(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -5986,27 +6145,109 @@ fn covered_rows(node: Node<'_>) -> std::ops::RangeInclusive<usize> {
     start..=end
 }
 
-fn cognitive_complexity(node: Node<'_>) -> usize {
+/// Scores cognitive complexity per the published Sonar model: +1 per
+/// control-flow structure scaled by its nesting depth, a flat +1 for
+/// `else` and `else if` links, +1 per run of the same logical operator,
+/// and one extra nesting level inside every counted structure.
+fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
     let mut total = 0;
-    let mut pending = vec![(node, 0_usize)];
-    while let Some((current, nesting)) = pending.pop() {
-        let control = matches!(
-            current.kind(),
-            "if_expression"
-                | "for_expression"
-                | "while_expression"
-                | "loop_expression"
-                | "match_expression"
-        );
-        total += usize::from(control) * (nesting + 1);
-        let next = nesting + usize::from(control);
-        for index in (0..current.named_child_count()).rev() {
-            if let Some(child) = current.named_child(index) {
-                pending.push((child, next));
+    let mut pending = vec![(node, 0_usize, false)];
+    while let Some((current, nesting, else_if)) = pending.pop() {
+        match current.kind() {
+            "if_expression" => {
+                score_if(current, nesting, else_if, &mut pending, &mut total);
             }
+            "for_expression" | "while_expression" | "loop_expression" | "match_expression" => {
+                total += nesting + 1;
+                push_pending(&mut pending, current, nesting + 1, false);
+            }
+            // Lambdas and nested functions add a nesting level for their
+            // contents, but no direct complexity score.
+            "closure_expression" | "function_item" => {
+                push_pending(&mut pending, current, nesting + 1, false);
+            }
+            "binary_expression" => {
+                if logical_sequence_starts(current, source) {
+                    total += 1;
+                }
+                push_pending(&mut pending, current, nesting, false);
+            }
+            _ => push_pending(&mut pending, current, nesting, false),
         }
     }
     total
+}
+
+fn push_pending<'tree>(
+    pending: &mut Vec<(Node<'tree>, usize, bool)>,
+    node: Node<'tree>,
+    nesting: usize,
+    else_if: bool,
+) {
+    for index in (0..node.named_child_count()).rev() {
+        if let Some(child) = node.named_child(index) {
+            pending.push((child, nesting, else_if));
+        }
+    }
+}
+
+/// Scores one `if` and schedules its branches. `else if` links add a flat
+/// +1 and continue the chain at the original nesting; plain `else` adds a
+/// flat +1 with its body nested one level deeper.
+fn score_if<'tree>(
+    current: Node<'tree>,
+    nesting: usize,
+    else_if: bool,
+    pending: &mut Vec<(Node<'tree>, usize, bool)>,
+    total: &mut usize,
+) {
+    *total += if else_if { 1 } else { nesting + 1 };
+    let nested = nesting + 1;
+    let alternative = current.child_by_field_name("alternative");
+    for index in (0..current.named_child_count()).rev() {
+        let Some(child) = current.named_child(index) else {
+            continue;
+        };
+        if alternative.is_some_and(|alternative| alternative.id() == child.id()) {
+            continue;
+        }
+        pending.push((child, nested, false));
+    }
+    let Some(branch) = alternative.and_then(|alternative| alternative.named_child(0)) else {
+        return;
+    };
+    if branch.kind() == "if_expression" {
+        pending.push((branch, nesting, true));
+    } else {
+        *total += 1;
+        pending.push((branch, nested, false));
+    }
+}
+
+/// A logical-operator sequence starts on the first operator of a run of
+/// identical operators; switching between `&&` and `||` opens a new one.
+fn logical_sequence_starts(node: Node<'_>, source: &str) -> bool {
+    let Some(operator) = node
+        .child_by_field_name("operator")
+        .filter(|operator| matches!(text(*operator, source), "&&" | "||"))
+    else {
+        return false;
+    };
+    let mut ancestor = node.parent();
+    while let Some(current) = ancestor {
+        match current.kind() {
+            "parenthesized_expression" => ancestor = current.parent(),
+            "binary_expression" => {
+                return !current
+                    .child_by_field_name("operator")
+                    .is_some_and(|ancestor_operator| {
+                        text(ancestor_operator, source) == text(operator, source)
+                    });
+            }
+            _ => return true,
+        }
+    }
+    true
 }
 
 fn deduplicate(issues: &mut Vec<Issue>) {
@@ -6271,6 +6512,10 @@ macro_rules! regex_fn {
     };
 }
 
+regex_fn!(
+    cfg_test_attribute_regex,
+    r"cfg\s*\(\s*(?:all|any)?\s*\(?\s*test\b"
+);
 regex_fn!(numeric_suffix_regex, r"\b\d+_(?:8|16|32|64|128)\b");
 regex_fn!(
     regex_constructor,
@@ -6794,6 +7039,26 @@ mod tests {
             "enum E { A }\nmod nested { fn f() { use super::E::*; } }\nfn main() {}\n",
         ] {
             assert!(!has_rule(source, "rust:S2208"), "{source}");
+        }
+    }
+
+    #[test]
+    fn issue_407_wildcard_import_exempts_cross_crate_enum_globs() {
+        for source in [
+            "use fake_external_crate::hir::HirKind::*;\nfn main() {}\n",
+            "fn f() { use ignore::WalkState::*; }\n",
+            "fn f() { use crate::unknown_module::WalkState::*; }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S2208"), "{source}");
+        }
+
+        // Module and namespace globs without a capitalized target stay flagged.
+        for source in [
+            "use std::collections::*;\nfn main() {}\n",
+            "mod module { pub struct A; }\nuse crate::module::*;\nfn main() {}\n",
+            "use bytes::buf::*;\nfn main() {}\n",
+        ] {
+            assert!(has_rule(source, "rust:S2208"), "{source}");
         }
     }
 
@@ -7474,6 +7739,47 @@ mod tests {
     }
 
     #[test]
+    fn issue_408_getter_rule_allows_boolean_names_trait_impls_and_aliases() {
+        // Boolean is_/has_ getters normalize to their unprefixed field.
+        let clean = keys(concat!(
+            "struct Dir { pcre2: bool, caps: bool }\n",
+            "impl Dir {\n",
+            "    pub fn is_pcre2(&self) -> bool { self.pcre2 }\n",
+            "    fn has_caps(&self) -> bool { self.caps }\n",
+            "}\n",
+        ));
+        assert!(clean.iter().all(|key| key != "rust:S4275"), "{clean:?}");
+
+        // Trait-impl method names are fixed by the trait, not the field.
+        let trait_impl = keys(concat!(
+            "trait Matcher { fn line_terminator(&self) -> u8; }\n",
+            "struct RegexMatcher { line_term: u8 }\n",
+            "impl Matcher for RegexMatcher {\n",
+            "    fn line_terminator(&self) -> u8 { self.line_term }\n",
+            "}\n",
+        ));
+        assert!(
+            trait_impl.iter().all(|key| key != "rust:S4275"),
+            "{trait_impl:?}"
+        );
+
+        // Common short-field aliases stay idiomatic.
+        let alias = keys(concat!(
+            "struct DirEntry { ty: u8 }\n",
+            "impl DirEntry { fn file_type(&self) -> u8 { self.ty } }\n",
+        ));
+        assert!(alias.iter().all(|key| key != "rust:S4275"), "{alias:?}");
+
+        // Mismatched plain getters are still noncompliant.
+        for source in [
+            "struct Pair { left: i32, right: i32 }\nimpl Pair { fn left(&self) -> i32 { self.right } }\n",
+            "struct S { count: u8 }\nimpl S { fn label(&self) -> u8 { self.count } }\n",
+        ] {
+            assert!(has_rule(source, "rust:S4275"), "{source}");
+        }
+    }
+
+    #[test]
     fn single_iteration_loop_requires_a_direct_exit() {
         let clean = keys(concat!(
             "fn keep_running(stop: bool) {\n",
@@ -7518,6 +7824,123 @@ mod tests {
         );
         let found = keys(&source);
         assert!(found.contains(&"rust:S3776".to_string()), "{found:?}");
+    }
+
+    /// Scores the first function of `source` with the cognitive-complexity
+    /// scorer, mirroring how `check_function` feeds S3776.
+    fn complexity_of(source: &str) -> usize {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .expect("tree-sitter-rust language is compatible");
+        let tree = parser
+            .parse(source, None)
+            .expect("Rust parser returned no tree");
+        let mut body = None;
+        walk_all(tree.root_node(), &mut |node| {
+            if body.is_none() && node.kind() == "function_item" {
+                body = node.child_by_field_name("body");
+            }
+        });
+        cognitive_complexity(body.expect("source contains a function"), source)
+    }
+
+    #[test]
+    fn issue_409_cognitive_complexity_matches_sonar_model() {
+        use std::fmt::Write as _;
+
+        // Logical-operator sequences: one +1 per run of the same operator.
+        assert_eq!(
+            complexity_of("fn f(a: bool, b: bool) -> bool { a && b && a }"),
+            1
+        );
+        assert_eq!(
+            complexity_of("fn f(a: bool, b: bool, c: bool) -> bool { a && b || c }"),
+            2
+        );
+        assert_eq!(
+            complexity_of("fn f(a: bool, b: bool) { if a && b {} }"),
+            2,
+            "if +1 and the && sequence +1"
+        );
+        assert_eq!(
+            complexity_of("fn f(a: bool, b: bool, c: bool) { if a && b || c && a {} }"),
+            4,
+            "if +1 plus three mixed-operator sequences"
+        );
+
+        // else-if ladders and else clauses each add a flat +1.
+        assert_eq!(
+            complexity_of("fn f(a: bool, b: bool) { if a {} else if b {} else {} }"),
+            3
+        );
+
+        // Nesting: structures inside branches and match arms score one deeper.
+        assert_eq!(
+            complexity_of("fn f(a: bool, v: [bool; 1]) { for x in v { if a {} } }"),
+            3
+        );
+        assert_eq!(
+            complexity_of(
+                "fn f(v: Option<bool>) -> bool { match v { Some(x) => if x { true } else { false }, None => false } }",
+            ),
+            4,
+            "match +1, nested if +2, its else +1"
+        );
+
+        // Campaign reduction: 16 top-level ifs each with one || sequence.
+        let mut reduction = String::from("fn dispatch(name: &str, idx: usize) -> bool {\n");
+        for index in 0..16 {
+            let _ = writeln!(
+                reduction,
+                "    if name == \"n{index}\" || idx == {index} {{ return true; }}"
+            );
+        }
+        reduction.push_str("    false\n}\n");
+        assert_eq!(complexity_of(&reduction), 32);
+
+        // Campaign shape mirroring ripgrep's match_by_line_slow ladder.
+        assert_eq!(
+            complexity_of(concat!(
+                "fn f(a: bool, b: bool, c: bool) {\n",
+                "    while a {\n",
+                "        if b && c && a {\n",
+                "            if c {}\n",
+                "        } else if c {\n",
+                "            if c {}\n",
+                "        } else if b {\n",
+                "            if c {}\n",
+                "        }\n",
+                "        if b && !c {}\n",
+                "    }\n",
+                "}\n",
+            )),
+            18,
+            "while +1; if +2 with && +1; nested if +3; else-if +1 with +3 branch; \
+             else-if +1 with +3 branch; final if +2 with && +1"
+        );
+
+        // Lambdas and nested functions add a nesting level, not a score.
+        assert_eq!(
+            complexity_of(concat!(
+                "fn f(v: Vec<bool>) -> usize {\n",
+                "    v.iter().filter(|x| if **x { true } else { false }).count()\n",
+                "}\n",
+            )),
+            3,
+            "closure body nests one level: if +2 and its else +1"
+        );
+        assert_eq!(
+            complexity_of(concat!(
+                "fn f() {\n",
+                "    fn g(a: bool) {\n",
+                "        if a {}\n",
+                "    }\n",
+                "}\n",
+            )),
+            2,
+            "nested function body nests one level: if +2"
+        );
     }
 
     #[test]
@@ -8382,6 +8805,81 @@ mod tests {
             crate_allowed.iter().all(|key| key != "rust:S106"),
             "{crate_allowed:?}"
         );
+    }
+
+    #[test]
+    fn issue_406_console_rule_exempts_non_logging_stdout_contexts() {
+        let rule_keys = |report: &hoonarqube_ir::FileReport| {
+            report
+                .issues
+                .iter()
+                .map(|issue| issue.rule_key.clone())
+                .collect::<Vec<_>>()
+        };
+        let no_outputs = |keys: &[String]| keys.iter().all(|key| key != "rust:S106");
+
+        // Build scripts speak the cargo protocol over stdout.
+        let build_script = analyze(
+            PathBuf::from("build.rs"),
+            concat!(
+                "fn main() {\n",
+                "    println!(\"cargo:rerun-if-changed=build.rs\");\n",
+                "    println!(\"cargo:rustc-link-arg-bin=rg=/WX\");\n",
+                "    println!(\"unexpected plain line\");\n",
+                "}\n",
+            ),
+            &AnalyzerOptions::default(),
+        );
+        assert!(no_outputs(&rule_keys(&build_script)), "{build_script:?}");
+
+        // Cargo directives stay exempt in any file: stdout is the interface.
+        assert!(no_outputs(&keys(
+            "fn main() { println!(\"cargo:rustc-cfg=feature=\\\"demo\\\"\"); }\n"
+        )));
+
+        // Example programs exist to write stdout.
+        let example = analyze(
+            PathBuf::from("crates/grep/examples/simplegrep.rs"),
+            "fn main() { println!(\"usage: simplegrep pattern path\"); }\n",
+            &AnalyzerOptions::default(),
+        );
+        assert!(no_outputs(&rule_keys(&example)), "{example:?}");
+
+        // Test-support modules are allowed to print diagnostics.
+        let test_util = analyze(
+            PathBuf::from("crates/searcher/src/testutil.rs"),
+            concat!(
+                "struct SearcherTester { label: String }\n",
+                "impl SearcherTester {\n",
+                "    fn test(&self) { println!(\"{}\", self.label); }\n",
+                "}\n",
+            ),
+            &AnalyzerOptions::default(),
+        );
+        assert!(no_outputs(&rule_keys(&test_util)), "{test_util:?}");
+
+        // #[cfg(test)]-gated items and `mod tests` bodies print freely.
+        assert!(no_outputs(&keys(concat!(
+            "#[cfg(test)]\n",
+            "mod tests {\n",
+            "    #[test]\n",
+            "    fn print_hostname() { println!(\"{:?}\", hostname()); }\n",
+            "}\n",
+        ))));
+        assert!(no_outputs(&keys(concat!(
+            "#[cfg(test)]\n",
+            "fn available_shorts() { eprintln!(\"short\"); }\n",
+        ))));
+
+        // Regular application logging stays noncompliant.
+        assert!(has_rule(
+            "fn main() { println!(\"log this\"); }\n",
+            "rust:S106"
+        ));
+        assert!(has_rule(
+            "fn main() { eprintln!(\"log this\"); }\n",
+            "rust:S106"
+        ));
     }
 
     #[test]
