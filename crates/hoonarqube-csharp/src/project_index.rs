@@ -70,6 +70,11 @@ pub(crate) struct IndexedType {
     pub(crate) methods: BTreeMap<String, Vec<IndexedMethod>>,
     /// Declared fields, properties, and events.
     pub(crate) members: Vec<IndexedMember>,
+    /// Whether the declaration is an `interface`; interface member names
+    /// drive the reference platform's interface-implementation exemptions.
+    pub(crate) is_interface: bool,
+    /// Whether the declaration carries the `abstract` modifier.
+    pub(crate) is_abstract: bool,
 }
 
 /// Cross-file table of accepted C# type declarations, keyed by simple name.
@@ -146,6 +151,21 @@ impl ProjectTypeIndex {
             .collect()
     }
 
+    /// Every indexed declaration of the simple type name.
+    pub(crate) fn type_declarations(&self, type_name: &str) -> impl Iterator<Item = &IndexedType> {
+        self.types.get(type_name).into_iter().flatten()
+    }
+
+    /// Number of declarations sharing the fully qualified identity across all
+    /// accepted files; partial-type rules compare this project-wide count.
+    pub(crate) fn declaration_count(&self, identity: &str) -> usize {
+        self.types
+            .values()
+            .flatten()
+            .filter(|declaration| declaration.identity == identity)
+            .count()
+    }
+
     /// Stable content digest; cache keys and equality compares use this.
     #[must_use]
     pub fn digest(&self) -> &str {
@@ -188,6 +208,7 @@ fn index_source(path: &Path, source: &str, types: &mut BTreeMap<String, Vec<Inde
             continue;
         };
         let name = node_text(name_node, source).to_string();
+        let modifiers = modifiers_of(declaration, source);
         let indexed = IndexedType {
             identity,
             bases: base_simple_names(declaration, source)
@@ -196,6 +217,8 @@ fn index_source(path: &Path, source: &str, types: &mut BTreeMap<String, Vec<Inde
                 .collect(),
             methods: indexed_methods(declaration, source),
             members: indexed_members(declaration, path, source),
+            is_interface: declaration.kind() == "interface_declaration",
+            is_abstract: has_modifier(&modifiers, "abstract"),
         };
         types.entry(name).or_default().push(indexed);
     }
@@ -297,9 +320,8 @@ fn indexed_methods(declaration: Node<'_>, source: &str) -> BTreeMap<String, Vec<
     }
     methods
 }
-
 fn index_digest(types: &BTreeMap<String, Vec<IndexedType>>) -> String {
-    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v2\0");
+    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v3\0");
     for (name, declarations) in types {
         for declaration in declarations {
             push_indexed_declaration(&mut canonical, name, declaration);
@@ -315,6 +337,9 @@ fn push_indexed_declaration(canonical: &mut String, name: &str, declaration: &In
     canonical.push_str(&declaration.identity);
     canonical.push('\u{1}');
     canonical.push_str(declaration.bases.join("\u{5}").as_str());
+    canonical.push('\u{1}');
+    canonical.push_str(if declaration.is_interface { "i" } else { "c" });
+    canonical.push_str(if declaration.is_abstract { "a" } else { "s" });
     canonical.push('\u{1}');
     for (method_name, entries) in &declaration.methods {
         push_indexed_method(canonical, method_name, entries);

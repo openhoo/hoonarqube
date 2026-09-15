@@ -497,10 +497,12 @@ fn s109_flags_numbers_beyond_the_small_allowance() {
     let magic = analyze_default("class C\n{\n    int M()\n    {\n        return 42;\n    }\n}\n");
     assert_eq!(with_key(&magic, "csharpsquid:S109").len(), 1);
 
-    let hex = analyze_default("int mask = 0xFF;\n");
+    // The reference rule exempts variable initializers; bare statements and
+    // return values stay magic.
+    let hex = analyze_default("mask = 0xFF;\n");
     assert_eq!(with_key(&hex, "csharpsquid:S109").len(), 1);
 
-    let boundary_two = analyze_default("int x = 2;\n");
+    let boundary_two = analyze_default("x = 2;\n");
     assert_eq!(with_key(&boundary_two, "csharpsquid:S109").len(), 1);
 
     let allowed = analyze_default("int a = -1;\nint b = 0;\nint c = 1;\ndouble d = 1.0;\n");

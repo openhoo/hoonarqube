@@ -1,22 +1,33 @@
+use crate::AnalyzerOptions;
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of};
-use crate::rules::modifiers::{accessibility_rank, has_modifier};
+use crate::rules::modifiers::has_modifier;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
-use crate::rules::structure::{accessors_of, name_anchor};
+use crate::rules::naming::support::full_type_identity;
+use crate::rules::structure::name_anchor;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S2333 — single-part `partial` types and accessors repeating
 /// their property's visibility carry dead modifiers.
-pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = redundant_partial_issues(root, source, language);
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
+    let mut issues = redundant_partial_issues(root, source, language, options);
     issues.extend(redundant_sealed_issues(root, source, language));
     issues.extend(redundant_unsafe_issues(root, source, language));
-    issues.extend(redundant_accessor_issues(root, source, language));
     issues
 }
 
-fn redundant_partial_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+fn redundant_partial_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     use std::collections::BTreeMap;
     let declarations = collect_kinds(root, &TYPE_DECLARATION_KINDS);
     let file_namespace = collect_kinds(root, &["file_scoped_namespace_declaration"])
@@ -35,7 +46,16 @@ fn redundant_partial_issues(root: Node<'_>, source: &str, language: CsLanguage) 
             continue;
         }
         let key = partial_identity(*type_node, file_namespace, source);
-        if name_counts.get(&key).copied().unwrap_or(0) == 1 {
+        let in_file_count = name_counts.get(&key).copied().unwrap_or(0);
+        // The reference rule counts every declaration of the type across the
+        // whole compilation; a project scan supplies that through the index.
+        let project_count = full_type_identity(*type_node, source).map_or(0, |identity| {
+            options
+                .project_type_index
+                .as_deref()
+                .map_or(0, |index| index.declaration_count(&identity))
+        });
+        if in_file_count.max(project_count) == 1 {
             issues.push(issue(
                 language,
                 "S2333",
@@ -169,34 +189,6 @@ fn has_unsafe_context(node: Node<'_>, source: &str) -> bool {
     })
 }
 
-fn redundant_accessor_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
-    let mut issues = Vec::new();
-    for property in collect_kinds(root, &["property_declaration"]) {
-        let property_rank = accessibility_rank(&modifiers_of(property, source));
-        if property_rank == 0 {
-            continue;
-        }
-        let accessors = accessors_of(property);
-        let uniformly_redundant = accessors
-            .iter()
-            .all(|accessor| accessibility_rank(&modifiers_of(*accessor, source)) == property_rank);
-        if !uniformly_redundant {
-            continue;
-        }
-        for accessor in accessors {
-            if accessibility_rank(&modifiers_of(accessor, source)) == property_rank {
-                issues.push(issue(
-                    language,
-                    "S2333",
-                    "Remove this redundant accessibility modifier.",
-                    range_of(accessor, source),
-                ));
-            }
-        }
-    }
-    issues
-}
-
 fn modifier_range(
     declaration: Node<'_>,
     source: &str,
@@ -266,17 +258,6 @@ const SAFE_SIZEOF_TYPES: [&str; 15] = [
 #[cfg(test)]
 mod tests {
     use crate::tests::{analyze_default, with_key};
-
-    #[test]
-    fn s2333_matches_accessor_visibility_against_property_rank() {
-        let report = analyze_default(
-            "class A\n{\n    public int Both { public get; public set; }\n    public int Mixed { public get; private set; }\n}\n",
-        );
-        let flagged = with_key(&report, "csharpsquid:S2333");
-        assert_eq!(flagged.len(), 2);
-        assert_eq!(flagged[0].range.start.line, 3);
-        assert_eq!(flagged[1].range.start.line, 3);
-    }
 
     #[test]
     fn s2333_counts_partials_per_type_kind() {

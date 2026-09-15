@@ -1930,6 +1930,26 @@ pub(crate) fn is_razor_path(path: &Path) -> bool {
         .is_some_and(|extension| extension.eq_ignore_ascii_case("razor"))
 }
 
+/// Sonar's Main/TEST scope boundary for rules whose catalog scope is MAIN.
+/// The reference platform classifies whole .NET test projects out of the main
+/// scan; the per-file analyzer approximates that with the conventional
+/// directory components (`test`, `tests`, `testing`). Benchmark suites stay
+/// in the main scope unless they live in such a directory, mirroring the
+/// reference scanner's `IsTestProject` outcome on conventionally laid out
+/// repositories.
+pub(crate) fn is_test_scope_file(path: &Path) -> bool {
+    path.components().any(|component| {
+        matches!(
+            component
+                .as_os_str()
+                .to_str()
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("test" | "tests" | "testing")
+        )
+    })
+}
+
 fn canonical_or_original(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }

@@ -13,7 +13,6 @@
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
-use std::path::Path;
 
 use crate::engine::file_context::FileContext;
 pub use crate::engine::project_context::PythonProjectContext;
@@ -63,7 +62,128 @@ use crate::rules::py2_inequality::check_py2_inequality;
 use crate::rules::py2_statements::check_py2_statements;
 use crate::rules::s6786_graphql_introspection::check_s6786_graphql_introspection;
 use crate::rules::trailing_whitespace::check_trailing_whitespace;
+/// Sonar rules from the frozen catalog that declare scope `MAIN`.
+/// `SonarQube` never reports MAIN-scope rules on test sources, so these
+/// findings are dropped for test-scoped files (conventional test directories,
+/// `test*`/`conftest*`/`*_test.py` names, per the reference's test
+/// detection). The remaining rules declare scope `ALL` (or `TEST`) and still
+/// apply; documentation trees such as `docs/` stay MAIN scope because the
+/// reference keeps reporting MAIN rules there.
+const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
+    "python:BackticksUsage",
+    "python:ClassComplexity",
+    "python:ExecStatementUsage",
+    "python:FileComplexity",
+    "python:FunctionComplexity",
+    "python:InequalityUsage",
+    "python:LongIntegerWithLowercaseSuffixUsage",
+    "python:PreIncrementDecrement",
+    "python:PrintStatementUsage",
+    "python:S1045",
+    "python:S112",
+    "python:S1131",
+    "python:S1142",
+    "python:S1192",
+    "python:S1313",
+    "python:S138",
+    "python:S1515",
+    "python:S1523",
+    "python:S1542",
+    "python:S1578",
+    "python:S1707",
+    "python:S1716",
+    "python:S1717",
+    "python:S1720",
+    "python:S1721",
+    "python:S1722",
+    "python:S1763",
+    "python:S1871",
+    "python:S2053",
+    "python:S2068",
+    "python:S2077",
+    "python:S2092",
+    "python:S2115",
+    "python:S2159",
+    "python:S2201",
+    "python:S2245",
+    "python:S2257",
+    "python:S2612",
+    "python:S2638",
+    "python:S2710",
+    "python:S2711",
+    "python:S2712",
+    "python:S2733",
+    "python:S2734",
+    "python:S2737",
+    "python:S2755",
+    "python:S2772",
+    "python:S2836",
+    "python:S2876",
+    "python:S3329",
+    "python:S3330",
+    "python:S3403",
+    "python:S3516",
+    "python:S3752",
+    "python:S3801",
+    "python:S4423",
+    "python:S4426",
+    "python:S4433",
+    "python:S4502",
+    "python:S4507",
+    "python:S4721",
+    "python:S4784",
+    "python:S4787",
+    "python:S4790",
+    "python:S4792",
+    "python:S4823",
+    "python:S4828",
+    "python:S4829",
+    "python:S4830",
+    "python:S5042",
+    "python:S5122",
+    "python:S5247",
+    "python:S5300",
+    "python:S5332",
+    "python:S5344",
+    "python:S5439",
+    "python:S5443",
+    "python:S5445",
+    "python:S5527",
+    "python:S5542",
+    "python:S5547",
+    "python:S5549",
+    "python:S5659",
+    "python:S5717",
+    "python:S5754",
+    "python:S5806",
+    "python:S5807",
+    "python:S5996",
+    "python:S6245",
+    "python:S6252",
+    "python:S6265",
+    "python:S6270",
+    "python:S6281",
+    "python:S6302",
+    "python:S6304",
+    "python:S6321",
+    "python:S6323",
+    "python:S6326",
+    "python:S6328",
+    "python:S6329",
+    "python:S6331",
+    "python:S6333",
+    "python:S6353",
+    "python:S6377",
+    "python:S6418",
+    "python:S6437",
+    "python:S6463",
+    "python:S6725",
+    "python:S905",
+    "python:S9073",
+    "python:S930",
+];
 use crate::support::file_metrics;
+use crate::support::is_test_scope_file;
 use crate::support::parse;
 use crate::support::sort_issues;
 use ruff_source_file::LineIndex;
@@ -243,7 +363,6 @@ pub fn analyze_with_context(
         &index,
         source,
         &file_ctx,
-        path.as_path(),
         &module_name,
         project,
         &mut issues,
@@ -267,13 +386,11 @@ pub fn analyze_with_context(
         &parsed, &index, source, &file_ctx,
     ));
     issues.extend(check_structural_battery(
-        &parsed,
-        &index,
-        source,
-        options,
-        &file_ctx,
-        path.as_path(),
+        &parsed, &index, source, options, &file_ctx,
     ));
+    if is_test_scope_file(path.as_path()) {
+        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+    }
     attach_quick_fixes(&parsed, &index, source, &file_ctx, &mut issues);
     sort_issues(&mut issues);
 
@@ -293,7 +410,6 @@ fn add_web_security_batteries(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
-    path: &Path,
     module_name: &str,
     project: &PythonProjectContext,
     issues: &mut Vec<Issue>,
@@ -303,7 +419,6 @@ fn add_web_security_batteries(
         index,
         source,
         file_ctx,
-        path,
         module_name,
         project,
     ));
