@@ -19,7 +19,6 @@
 //! Same-value rewrites that follow on a straight line (no branch join in
 //! between) are skipped because the forward tracker reports those as
 //! redundant assignment (`S4165`) instead.
-
 use super::{
     AssignmentOperator, AssignmentTarget, BindingIdentifier, BindingPattern, BlockStatement,
     CallExpression, CatchClause, Expression, ForInStatement, ForOfStatement, ForStatement,
@@ -41,13 +40,22 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::GetSpan;
 use oxc_syntax::scope::ScopeFlags;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// One provably overwritten store.
 pub(crate) struct DeadStore {
     pub(crate) name: String,
     /// Span of the stored binding; the `S1854` finding position.
     pub(crate) site: Span,
+    /// Whole store span (assignment expression or declarator): the finding
+    /// region for the GitHub `js/useless-assignment-to-local` contract.
+    pub(crate) whole: Span,
+    /// Whether the store comes from a declarator initializer rather than an
+    /// assignment; the GitHub reference query distinguishes the messages.
+    pub(crate) is_declarator: bool,
+    /// Whether a declarator store is `var`-hoisted (its implicit `undefined`
+    /// initialization exists).
+    pub(crate) decl_is_var: bool,
 }
 
 /// Liveness flowing backward through one region. `live` holds names that may
@@ -98,12 +106,23 @@ impl<'p> Flow<'p> {
     }
 
     /// State stamped by `return`/`throw`: everything after it is unreachable,
-    /// so only the exiting statement's own reads survive.
+    /// so the overwrite bookkeeping dies at the exit while the exit's own
+    /// reads stay live for the statements before it.
     fn exit_flow(&mut self) {
         self.rewritten.clear();
         self.kill_values.clear();
         self.exits = true;
     }
+}
+
+/// Which finding contract a backward pass reports under.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StoreMode {
+    /// Native `S1854`: only stores a later write provably kills.
+    Native,
+    /// GitHub `js/useless-assignment-to-local`: also stores whose value can
+    /// no longer be read on any path, with the reference query's exclusions.
+    GitHub,
 }
 
 /// Entry point: every provably overwritten local store in the program.
@@ -112,14 +131,14 @@ impl<'p> Flow<'p> {
 /// as one region, and every function-like node found during the walk gets its
 /// own backward pass, so nested regions are analyzed exactly once each.
 pub(crate) fn dead_stores(program: &Program<'_>, source: &str) -> Vec<DeadStore> {
-    let mut analyzer = Analyzer {
-        source,
-        visible: HashSet::default(),
-        recording: true,
-        nesting: 0,
-        depth: 0,
-        out: Vec::new(),
-    };
+    let mut analyzer = Analyzer::new(source, StoreMode::Native);
+    analyzer.visit_program(program);
+    analyzer.out
+}
+
+/// Entry point for the GitHub `js/useless-assignment-to-local` contract.
+pub(crate) fn github_dead_stores(program: &Program<'_>, source: &str) -> Vec<DeadStore> {
+    let mut analyzer = Analyzer::new(source, StoreMode::GitHub);
     analyzer.visit_program(program);
     analyzer.out
 }
@@ -258,6 +277,238 @@ struct Analyzer<'p, 's> {
     /// Current backward recursion depth (construct statements only).
     depth: u32,
     out: Vec<DeadStore>,
+    /// Finding contract this pass reports under.
+    mode: StoreMode,
+    /// GitHub only: names read inside any nested closure of the current
+    /// region — such bindings are not purely local.
+    captured: HashSet<&'p str>,
+    /// GitHub only: per-name read counts across the current region, used to
+    /// leave completely unused declarators to the unused-variable rules.
+    region_reads: HashMap<&'p str, u32>,
+    /// GitHub only: per-name store counts across the current region.
+    region_stores: HashMap<&'p str, u32>,
+    /// GitHub only: byte ranges of statements that follow an unconditional
+    /// `return`/`throw` in the same statement list (dead code).
+    dead_ranges: Vec<Span>,
+}
+
+/// Names the `CommonJS` module wrapper binds; assignments to them are ordinary
+/// module-local stores for the GitHub contract (`exports` included).
+const COMMONJS_WRAPPER_NAMES: [&str; 5] =
+    ["exports", "require", "module", "__filename", "__dirname"];
+
+impl<'p, 's> Analyzer<'p, 's> {
+    fn new(source: &'s str, mode: StoreMode) -> Self {
+        Self {
+            source,
+            visible: HashSet::default(),
+            recording: true,
+            nesting: 0,
+            depth: 0,
+            out: Vec::new(),
+            mode,
+            captured: HashSet::default(),
+            region_reads: HashMap::default(),
+            region_stores: HashMap::default(),
+            dead_ranges: Vec::new(),
+        }
+    }
+
+    /// GitHub-only per-region facts: closure reads (capture), read counts,
+    /// and dead-code statement tails.
+    fn collect_github_region_facts(&mut self, statements: &[Statement<'p>]) {
+        self.captured = closure_captured_names(statements);
+        self.region_reads.clear();
+        count_region_reads(statements, &mut self.region_reads);
+        self.region_stores.clear();
+        count_region_stores(statements, &mut self.region_stores);
+        self.dead_ranges.clear();
+        collect_dead_tails(statements, &mut self.dead_ranges);
+    }
+}
+
+/// Names read inside any closure nested in the region: such bindings are not
+/// purely local, so the GitHub contract never reports their stores.
+fn closure_captured_names<'p>(statements: &[Statement<'p>]) -> HashSet<&'p str> {
+    struct Collector<'p> {
+        names: HashSet<&'p str>,
+        function_depth: u32,
+    }
+    impl<'p> Visit<'p> for Collector<'p> {
+        fn visit_identifier_reference(
+            &mut self,
+            reference: &oxc_ast::ast::IdentifierReference<'p>,
+        ) {
+            if self.function_depth > 0 {
+                self.names.insert(reference.name.as_str());
+            }
+        }
+
+        fn visit_function(&mut self, function: &Function<'p>, flags: ScopeFlags) {
+            self.function_depth += 1;
+            walk_function(self, function, flags);
+            self.function_depth -= 1;
+        }
+
+        fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'p>) {
+            self.function_depth += 1;
+            walk_arrow_function_expression(self, arrow);
+            self.function_depth -= 1;
+        }
+
+        fn visit_method_definition(&mut self, definition: &MethodDefinition<'p>) {
+            self.function_depth += 1;
+            walk_method_definition(self, definition);
+            self.function_depth -= 1;
+        }
+    }
+    let mut collector = Collector {
+        names: HashSet::default(),
+        function_depth: 0,
+    };
+    for statement in statements {
+        collector.visit_statement(statement);
+    }
+    collector.names
+}
+
+/// Store counts across the region: a name stored more than once keeps its
+/// initializers reportable even when nothing reads it.
+fn count_region_stores<'p>(statements: &[Statement<'p>], stores: &mut HashMap<&'p str, u32>) {
+    struct Counter<'p, 'a> {
+        stores: &'a mut HashMap<&'p str, u32>,
+    }
+    impl<'p> Visit<'p> for Counter<'p, '_> {
+        fn visit_assignment_expression(&mut self, assign: &super::AssignmentExpression<'p>) {
+            if let AssignmentTarget::AssignmentTargetIdentifier(identifier) = &assign.left {
+                *self.stores.entry(identifier.name.as_str()).or_insert(0) += 1;
+            }
+            oxc_ast_visit::walk::walk_assignment_expression(self, assign);
+        }
+
+        fn visit_update_expression(&mut self, update: &UpdateExpression<'p>) {
+            if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
+            {
+                *self.stores.entry(identifier.name.as_str()).or_insert(0) += 1;
+            }
+            oxc_ast_visit::walk::walk_update_expression(self, update);
+        }
+
+        fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'p>) {
+            if declarator.init.is_some()
+                && let BindingPattern::BindingIdentifier(identifier) = &declarator.id
+            {
+                *self.stores.entry(identifier.name.as_str()).or_insert(0) += 1;
+            }
+            oxc_ast_visit::walk::walk_variable_declarator(self, declarator);
+        }
+    }
+    let mut counter = Counter { stores };
+    for statement in statements {
+        counter.visit_statement(statement);
+    }
+}
+
+/// Read counts across the region (nested closures included): a declarator
+/// whose name nothing reads belongs to the unused-variable rules.
+fn count_region_reads<'p>(statements: &[Statement<'p>], reads: &mut HashMap<&'p str, u32>) {
+    for statement in statements {
+        let mut collector = ReadCollector {
+            refs: Vec::new(),
+            plain_left_depth: 0,
+            shadows: Vec::new(),
+        };
+        collector.visit_statement(statement);
+        for name in collector.refs {
+            *reads.entry(name).or_insert(0) += 1;
+        }
+    }
+}
+
+/// Spans of statements that follow an unconditional `return`/`throw` in the
+/// same statement list: dead code the backward pass must never judge.
+fn collect_dead_tails(statements: &[Statement<'_>], dead: &mut Vec<Span>) {
+    let mut exited = false;
+    for statement in statements {
+        if exited {
+            dead.push(statement.span());
+        }
+        if matches!(
+            statement,
+            Statement::ReturnStatement(_) | Statement::ThrowStatement(_)
+        ) {
+            exited = true;
+        }
+        collect_nested_dead_tails(statement, dead);
+    }
+}
+
+fn collect_nested_dead_tails(statement: &Statement<'_>, dead: &mut Vec<Span>) {
+    match statement {
+        Statement::BlockStatement(block) => collect_dead_tails(&block.body, dead),
+        Statement::IfStatement(if_) => {
+            collect_dead_tails(std::slice::from_ref(&if_.consequent), dead);
+            if let Some(alternate) = &if_.alternate {
+                collect_dead_tails(std::slice::from_ref(alternate), dead);
+            }
+        }
+        Statement::WhileStatement(while_) => {
+            collect_dead_tails(std::slice::from_ref(&while_.body), dead);
+        }
+        Statement::DoWhileStatement(do_) => {
+            collect_dead_tails(std::slice::from_ref(&do_.body), dead);
+        }
+        Statement::ForStatement(for_) => {
+            collect_dead_tails(std::slice::from_ref(&for_.body), dead);
+        }
+        Statement::ForInStatement(for_) => {
+            collect_dead_tails(std::slice::from_ref(&for_.body), dead);
+        }
+        Statement::ForOfStatement(for_) => {
+            collect_dead_tails(std::slice::from_ref(&for_.body), dead);
+        }
+        Statement::LabeledStatement(labeled) => {
+            collect_dead_tails(std::slice::from_ref(&labeled.body), dead);
+        }
+        Statement::SwitchStatement(switch) => {
+            for case in &switch.cases {
+                collect_dead_tails(&case.consequent, dead);
+            }
+        }
+        Statement::TryStatement(try_) => {
+            collect_dead_tails(&try_.block.body, dead);
+            if let Some(handler) = &try_.handler {
+                collect_dead_tails(&handler.body.body, dead);
+            }
+            if let Some(finalizer) = &try_.finalizer {
+                collect_dead_tails(&finalizer.body, dead);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether a stored source is literally `null` or `undefined`, which the
+/// reference query keeps out of dead-store reporting.
+fn is_null_or_undefined_text(source: &str, span: Span) -> bool {
+    let start = usize::try_from(span.start).unwrap_or(0);
+    let end = usize::try_from(span.end).unwrap_or(source.len());
+    let text = source.get(start..end.min(source.len())).unwrap_or_default();
+    matches!(text.trim(), "null" | "undefined")
+}
+
+/// Whether `whole` starts inside the dead-code `range`.
+fn covers(range: Span, whole: Span) -> bool {
+    (range.start..range.end).contains(&whole.start)
+}
+
+/// Where a store comes from; the GitHub contract only judges plain
+/// assignment and declarator-initializer stores.
+#[derive(Clone, Copy)]
+enum StoreOrigin {
+    Assignment,
+    Declarator { is_var: bool },
+    SideEffect,
 }
 
 impl<'p> Analyzer<'p, '_> {
@@ -274,7 +525,10 @@ impl<'p> Analyzer<'p, '_> {
 
 impl<'p> Visit<'p> for Analyzer<'p, '_> {
     fn visit_program(&mut self, program: &oxc_ast::ast::Program<'p>) {
-        self.analyze_region(None, &program.body);
+        self.analyze_region(
+            (self.mode == StoreMode::GitHub).then(|| COMMONJS_WRAPPER_NAMES.to_vec()),
+            &program.body,
+        );
         walk_program(self, program);
     }
 
@@ -331,6 +585,9 @@ impl<'p> Analyzer<'p, '_> {
         collect_region_names(statements, &mut names);
         let saved_visible = std::mem::take(&mut self.visible);
         self.visible = names.into_iter().collect();
+        if self.mode == StoreMode::GitHub {
+            self.collect_github_region_facts(statements);
+        }
         self.statements_backward(statements, Flow::default());
         self.visible = saved_visible;
     }
@@ -636,7 +893,13 @@ impl<'p> Analyzer<'p, '_> {
         if let Some(init) = &declarator.init {
             after = self.expression_backward(init, after);
         }
-        self.pattern_declaration_stores(&declarator.id, declarator.init.as_ref(), kind, after)
+        self.pattern_declaration_stores(
+            &declarator.id,
+            declarator.init.as_ref(),
+            kind,
+            declarator.span(),
+            after,
+        )
     }
 
     fn pattern_declaration_stores(
@@ -644,36 +907,40 @@ impl<'p> Analyzer<'p, '_> {
         pattern: &BindingPattern<'p>,
         init: Option<&Expression<'p>>,
         kind: VariableDeclarationKind,
+        whole: Span,
         mut after: Flow<'p>,
     ) -> Flow<'p> {
         match pattern {
             BindingPattern::BindingIdentifier(identifier) => {
-                self.identifier_declaration_store(identifier, init, kind, after)
+                self.identifier_declaration_store(identifier, init, kind, whole, after)
             }
             BindingPattern::ObjectPattern(object) => {
                 for property in object.properties.iter().rev() {
                     if property.computed {
                         after = self.property_key_reads(&property.key, after);
                     }
-                    after = self.pattern_declaration_stores(&property.value, init, kind, after);
+                    after =
+                        self.pattern_declaration_stores(&property.value, init, kind, whole, after);
                 }
                 if let Some(rest) = &object.rest {
-                    after = self.pattern_declaration_stores(&rest.argument, init, kind, after);
+                    after =
+                        self.pattern_declaration_stores(&rest.argument, init, kind, whole, after);
                 }
                 after
             }
             BindingPattern::ArrayPattern(array) => {
                 for element in array.elements.iter().rev().flatten() {
-                    after = self.pattern_declaration_stores(element, init, kind, after);
+                    after = self.pattern_declaration_stores(element, init, kind, whole, after);
                 }
                 if let Some(rest) = &array.rest {
-                    after = self.pattern_declaration_stores(&rest.argument, init, kind, after);
+                    after =
+                        self.pattern_declaration_stores(&rest.argument, init, kind, whole, after);
                 }
                 after
             }
             BindingPattern::AssignmentPattern(assignment) => {
                 after = self.expression_backward(&assignment.right, after);
-                self.pattern_declaration_stores(&assignment.left, init, kind, after)
+                self.pattern_declaration_stores(&assignment.left, init, kind, whole, after)
             }
         }
     }
@@ -686,6 +953,7 @@ impl<'p> Analyzer<'p, '_> {
         identifier: &BindingIdentifier<'p>,
         init: Option<&Expression<'p>>,
         kind: VariableDeclarationKind,
+        whole: Span,
         mut after: Flow<'p>,
     ) -> Flow<'p> {
         let name = identifier.name.as_str();
@@ -700,7 +968,16 @@ impl<'p> Analyzer<'p, '_> {
             }
             Some(init) => {
                 let value = init.span();
-                self.store_transfer(name, identifier.span, Some(value), after)
+                self.store_transfer(
+                    name,
+                    identifier.span,
+                    Some(value),
+                    whole,
+                    StoreOrigin::Declarator {
+                        is_var: kind == VariableDeclarationKind::Var,
+                    },
+                    after,
+                )
             }
         }
     }
@@ -800,7 +1077,7 @@ impl<'p> Analyzer<'p, '_> {
             let name = id.name.as_str();
             let site = id.span;
             let mut after = after;
-            self.store_transfer_inner(name, site, None, &mut after);
+            self.store_transfer_inner(name, site, None, site, StoreOrigin::SideEffect, &mut after);
             // The update reads the prior value, so it stays live upstream.
             after.live.insert(name);
             after
@@ -827,11 +1104,25 @@ impl<'p> Analyzer<'p, '_> {
             AssignmentTarget::AssignmentTargetIdentifier(id) => {
                 let name = id.name.as_str();
                 if operator == AssignmentOperator::Assign {
-                    self.store_transfer(name, id.span, rhs_span, after)
+                    self.store_transfer(
+                        name,
+                        id.span,
+                        rhs_span,
+                        assign_span,
+                        StoreOrigin::Assignment,
+                        after,
+                    )
                 } else {
                     // Compound operators read the old value before writing.
                     let mut after = self.read_name(name, after);
-                    self.store_transfer_inner(name, assign_span, None, &mut after);
+                    self.store_transfer_inner(
+                        name,
+                        assign_span,
+                        None,
+                        assign_span,
+                        StoreOrigin::SideEffect,
+                        &mut after,
+                    );
                     after.live.insert(name);
                     after
                 }
@@ -904,10 +1195,24 @@ impl<'p> Analyzer<'p, '_> {
             AssignmentTargetMaybeDefault::AssignmentTargetIdentifier(id) => {
                 let name = id.name.as_str();
                 if operator == AssignmentOperator::Assign {
-                    self.store_transfer(name, id.span, None, after)
+                    self.store_transfer(
+                        name,
+                        id.span,
+                        None,
+                        assign_span,
+                        StoreOrigin::Assignment,
+                        after,
+                    )
                 } else {
                     let mut after = self.read_name(name, after);
-                    self.store_transfer_inner(name, assign_span, None, &mut after);
+                    self.store_transfer_inner(
+                        name,
+                        assign_span,
+                        None,
+                        assign_span,
+                        StoreOrigin::SideEffect,
+                        &mut after,
+                    );
                     after
                 }
             }
@@ -949,10 +1254,24 @@ impl<'p> Analyzer<'p, '_> {
                 }
                 let name = identifier.binding.name.as_str();
                 if operator == AssignmentOperator::Assign {
-                    self.store_transfer(name, identifier.binding.span, None, after)
+                    self.store_transfer(
+                        name,
+                        identifier.binding.span,
+                        None,
+                        assign_span,
+                        StoreOrigin::Assignment,
+                        after,
+                    )
                 } else {
                     after = self.read_name(name, after);
-                    self.store_transfer_inner(name, assign_span, None, &mut after);
+                    self.store_transfer_inner(
+                        name,
+                        assign_span,
+                        None,
+                        assign_span,
+                        StoreOrigin::SideEffect,
+                        &mut after,
+                    );
                     after.live.insert(name);
                     after
                 }
@@ -983,9 +1302,11 @@ impl<'p> Analyzer<'p, '_> {
         name: &'p str,
         site: Span,
         value: Option<Span>,
+        whole: Span,
+        origin: StoreOrigin,
         mut after: Flow<'p>,
     ) -> Flow<'p> {
-        self.store_transfer_inner(name, site, value, &mut after);
+        self.store_transfer_inner(name, site, value, whole, origin, &mut after);
         after
     }
 
@@ -994,31 +1315,77 @@ impl<'p> Analyzer<'p, '_> {
         name: &'p str,
         site: Span,
         value: Option<Span>,
+        whole: Span,
+        origin: StoreOrigin,
         after: &mut Flow<'p>,
     ) {
         if !self.visible.contains(name) {
             return;
         }
-        // Reportable only when the name is provably rewritten later and read
-        // on no path in between. (Unreachable-code pollution is already
-        // handled by the exit statement's fresh state stamp.)
-        if self.recording && after.rewritten.contains(name) && !after.live.contains(name) {
-            // Same-value rewrites the forward tracker already covers (its
-            // redundant-assignment rule runs on straight-line top-level
-            // flow) are left to it.
-            let suppress = after.kill_value(name).is_some_and(|(killer, merged, top)| {
-                !merged && top && same_value(killer, value, self.source)
+        if self.recording && self.store_is_reportable(name, site, value, origin, after) {
+            self.out.push(DeadStore {
+                name: name.to_string(),
+                site,
+                whole,
+                is_declarator: matches!(origin, StoreOrigin::Declarator { .. }),
+                decl_is_var: matches!(origin, StoreOrigin::Declarator { is_var: true }),
             });
-            if !suppress {
-                self.out.push(DeadStore {
-                    name: name.to_string(),
-                    site,
-                });
-            }
         }
         after.live.remove(name);
         after.rewritten.insert(name);
         after.set_kill(name, value, self.nesting == 0);
+    }
+
+    /// Native contract: the name is provably rewritten later and read on no
+    /// path in between; same-value straight-line rewrites stay with the
+    /// forward tracker (`S4165`). GitHub contract: also stores whose value
+    /// can no longer be read on any path, with the reference exclusions.
+    fn store_is_reportable(
+        &self,
+        name: &'p str,
+        site: Span,
+        value: Option<Span>,
+        origin: StoreOrigin,
+        after: &Flow<'p>,
+    ) -> bool {
+        if self.mode == StoreMode::Native {
+            if !after.rewritten.contains(name) || after.live.contains(name) {
+                return false;
+            }
+            return !after.kill_value(name).is_some_and(|(killer, merged, top)| {
+                !merged && top && same_value(killer, value, self.source)
+            });
+        }
+        self.github_store_is_reportable(name, site, value, origin, after)
+    }
+
+    fn github_store_is_reportable(
+        &self,
+        name: &'p str,
+        site: Span,
+        value: Option<Span>,
+        origin: StoreOrigin,
+        after: &Flow<'p>,
+    ) -> bool {
+        if matches!(origin, StoreOrigin::SideEffect) || after.live.contains(name) {
+            return false;
+        }
+        if self.dead_ranges.iter().any(|range| covers(*range, site)) {
+            return false;
+        }
+        if self.captured.contains(name) {
+            return false;
+        }
+        if value.is_some_and(|span| is_null_or_undefined_text(self.source, span)) {
+            return false;
+        }
+        if matches!(origin, StoreOrigin::Declarator { .. })
+            && self.region_reads.get(name).copied().unwrap_or(0) == 0
+            && self.region_stores.get(name).copied().unwrap_or(0) <= 1
+        {
+            return false;
+        }
+        true
     }
 
     // --- read folding ---
