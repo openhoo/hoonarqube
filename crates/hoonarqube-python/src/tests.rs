@@ -4503,6 +4503,95 @@ fn s9001_accepts_reason_bearing_and_other_markers() {
 }
 
 #[test]
+fn s8992_flags_autouse_fixture_with_params() {
+    // Pinned psf/requests tests/test_utils.py#L225 @ dae7ef63: a method
+    // fixture decorated `@pytest.fixture(autouse=True, params=[...])`
+    // (decorator columns 4-66 including the `@`). The decorator anchors
+    // the finding with Sonar's exact message.
+    let flagged = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "class TestGetEnvironProxies:\n",
+        "    @pytest.fixture(autouse=True, params=[\"no_proxy\", \"NO_PROXY\"])\n",
+        "    def no_proxy(self, request, monkeypatch):\n",
+        "        monkeypatch.setenv(request.param, \"192.168.0.0/24\")\n",
+        "\n",
+        "@pytest.fixture(params=[1, 2, 3], autouse=True)\n",
+        "def multiplied():\n",
+        "    return \"value\"\n",
+    ));
+    let found = findings(&flagged, "python:S8992");
+    assert_eq!(found.len(), 2);
+    assert_eq!(
+        found[0].message,
+        "Remove the \"params\" argument or set \"autouse\" to False."
+    );
+    assert_eq!(found[0].range.start, pos(4, 4));
+    assert_eq!(found[0].range.end, pos(4, 66));
+    assert_eq!(found[1].range.start, pos(8, 0));
+    assert_eq!(found[1].range.end, pos(8, 47));
+}
+
+#[test]
+fn s8992_accepts_single_mode_and_valueless_fixtures() {
+    // Controls: autouse without params, params without autouse, the
+    // valueless `params=None`, empty param collections, `autouse=False`,
+    // and the bare decorator stay silent. Catalog scope ALL: the
+    // decorator combination is also flagged on non-test-named files such
+    // as conftest.py, while non-fixture decorators and plain functions
+    // never trigger.
+    let clean = scan_test_file(concat!(
+        "import pytest\n",
+        "\n",
+        "@pytest.fixture(autouse=True)\n",
+        "def setup_env():\n",
+        "    ...\n",
+        "\n",
+        "@pytest.fixture(params=[\"a\", \"b\"])\n",
+        "def variants(request):\n",
+        "    ...\n",
+        "\n",
+        "@pytest.fixture(autouse=True, params=None)\n",
+        "def default_only():\n",
+        "    ...\n",
+        "\n",
+        "@pytest.fixture(autouse=True, params=[])\n",
+        "def empty_params():\n",
+        "    ...\n",
+        "\n",
+        "@pytest.fixture(autouse=False, params=[1])\n",
+        "def opted_out(request):\n",
+        "    ...\n",
+        "\n",
+        "@pytest.fixture\n",
+        "def bare():\n",
+        "    ...\n",
+    ));
+    assert!(findings(&clean, "python:S8992").is_empty());
+    let conftest = scan_at(
+        PathBuf::from("conftest.py"),
+        concat!(
+            "import pytest\n",
+            "\n",
+            "@pytest.fixture(autouse=True, params=[\"sqlite\", \"postgres\"])\n",
+            "def database():\n",
+            "    ...\n",
+        ),
+    );
+    let found = findings(&conftest, "python:S8992");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(3, 0));
+    let other = scan(concat!(
+        "import pytest\n",
+        "\n",
+        "@other.decorator(autouse=True, params=[1])\n",
+        "def unrelated():\n",
+        "    ...\n",
+    ));
+    assert!(findings(&other, "python:S8992").is_empty());
+}
+
+#[test]
 fn s9073_flags_composite_assertions() {
     // Pinned pallets/flask tests/test_basic.py#L388 @ d73fa1cd:
     // `assert e.value.args and "session is unavailable" in
