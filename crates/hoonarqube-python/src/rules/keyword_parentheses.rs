@@ -1,4 +1,3 @@
-
 use crate::engine::file_context::FileContext;
 use crate::support::to_range;
 use hoonarqube_ir::{Issue, TextEdit, apply_fixes};
