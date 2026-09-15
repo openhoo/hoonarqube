@@ -400,7 +400,7 @@ class Names {
     void overload(String value) {}
     void overload(Object value) {}
     void build(int x) {
-        String s = "hello" + "world";
+        String s = "say hello" + "world";
         new String("x"); new StringBuffer('x');
         int _ = 1;
         if (x > 0)
@@ -490,7 +490,7 @@ class C {
         char ch = 'x';
         new String(text);
         new StringBuilder(ch);
-        String joined = "Hello," + "world";
+        String joined = "Hello, dear" + "world";
         String hidden = "a\u{200B}b";
     }
 }

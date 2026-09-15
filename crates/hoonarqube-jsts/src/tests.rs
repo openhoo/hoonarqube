@@ -539,8 +539,9 @@ fn extensions_map_to_languages() {
 #[test]
 fn issues_are_sorted_by_position() {
     let source = "\
+const input = 'x';
 eval(input);
-let b = x; let c = y;
+let b = 1; let c = 2;
 ";
     let report = js(source);
     let starts: Vec<_> = report
@@ -557,8 +558,8 @@ let b = x; let c = y;
     assert_eq!(
         starts,
         vec![
-            (1_u32, 0_u32, "javascript:S1523".to_string()),
-            (2_u32, 11_u32, "javascript:S122".to_string()),
+            (2_u32, 0_u32, "javascript:S1523".to_string()),
+            (3_u32, 11_u32, "javascript:S122".to_string()),
         ]
     );
 }
@@ -566,9 +567,12 @@ let b = x; let c = y;
 #[test]
 fn eval_usage_is_flagged_at_callee_span_across_the_tree() {
     let source = "\
+const transform = (value) => value;
+const input = 'x';
+const rule = 'value';
 eval(input);
-const f = new Function(source);
-foo(eval(nested));
+const f = new Function(rule);
+transform(eval(rule));
 window.eval('not plain identifier');
 new window.Function('also ignored');
 
@@ -580,32 +584,32 @@ new window.Function('also ignored');
             issue(
                 "javascript:S1523",
                 "Remove this usage of 'eval'.",
-                (1, 0),
-                (1, 4),
+                (4, 0),
+                (4, 4),
             ),
             issue(
                 "javascript:S3523",
                 "The Function constructor is eval.",
-                (2, 10),
-                (2, 30),
+                (5, 10),
+                (5, 28),
             ),
             issue(
                 "javascript:S1523",
                 "Remove this usage of 'Function'.",
-                (2, 14),
-                (2, 22),
+                (5, 14),
+                (5, 22),
             ),
             issue(
                 "javascript:S1523",
                 "Remove this usage of 'eval'.",
-                (3, 4),
-                (3, 8),
+                (6, 10),
+                (6, 14),
             ),
             issue(
                 "javascript:S1848",
                 "Either remove this useless object instantiation of \"window.Function\" or use it.",
-                (5, 0),
-                (5, 19),
+                (8, 0),
+                (8, 19),
             ),
         ]
     );
