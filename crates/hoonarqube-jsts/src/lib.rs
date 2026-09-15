@@ -477,11 +477,6 @@ fn analyze_with_rules_and_facts(
     }
 }
 
-// Kept only because `rules/one_stmt/s122_suite.rs` still imports these two
-// items through the crate root; every other consumer imports rule-internal
-// items by owning-module path.
-pub(crate) use crate::rules::one_stmt::collectors::{check_class_methods, check_one};
-
 #[cfg(test)]
 mod tests;
 

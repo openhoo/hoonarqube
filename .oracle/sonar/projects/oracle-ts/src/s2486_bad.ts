@@ -1,2 +1,2 @@
-try { work(); } catch (error) {
+try { work(); prepare(); } catch (error) {
 }

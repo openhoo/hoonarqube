@@ -67,14 +67,17 @@ pub(crate) fn this_or_identifier_name<'a>(
 
 /// Well-known `IDisposable` API type names backing the disposal subsets.
 /// Types outside the table stay uncovered (no semantic model).
-pub(crate) const DISPOSABLE_TYPES: [&str; 30] = [
+pub(crate) const DISPOSABLE_TYPES: [&str; 36] = [
     "BinaryReader",
     "BinaryWriter",
     "Bitmap",
     "Brush",
     "CancellationTokenSource",
     "CryptoStream",
+    "DbCommand",
     "DbConnection",
+    "DbDataReader",
+    "DbTransaction",
     "Font",
     "FileStream",
     "Graphics",
@@ -91,11 +94,14 @@ pub(crate) const DISPOSABLE_TYPES: [&str; 30] = [
     "RegistryKey",
     "Semaphore",
     "Socket",
+    "SqlDataAdapter",
+    "SqlCommand",
     "SqlConnection",
     "SqlTransaction",
     "Stream",
     "StreamReader",
     "StreamWriter",
+    "DataTable",
     "TcpClient",
     "WebClient",
 ];

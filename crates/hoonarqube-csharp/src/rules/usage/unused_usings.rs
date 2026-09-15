@@ -13,10 +13,23 @@ use tree_sitter::Node;
 /// prove that no binding or unknown imported symbol can depend on it.
 ///
 /// A tree-sitter parse cannot identify which external namespace owns `List` or
-/// an extension method such as `OfType`.  Such references therefore keep every
-/// applicable ordinary import conservative; source-bound names, fully
-/// qualified paths, and genuinely reference-free scopes are classified as
-/// unused.
+/// an extension method such as `OfType`.  Such references keep every
+/// applicable ordinary import conservative, with one provable exemption:
+/// namespaces whose complete public type (and well-known extension-member)
+/// surface is enumerated in [`KNOWN_NAMESPACE_TYPES`] are removable once no
+/// enumerated name appears — an unknown identifier cannot come from a fully
+/// tabled namespace.  The dapper oracle confirms the removals
+/// (`System.Data`-free DeserializerState.cs, `System.Globalization`-free
+/// SqlMapper.Async.cs:6, `System.Collections.ObjectModel`-free
+/// WrappedReader.cs:3, `System.Diagnostics.CodeAnalysis`-free
+/// SqlBuilder.cs:2) while equally tabled imports that the reference's
+/// semantic model still needs (FirebirdTests.cs's `System.Data` behind
+/// provider-factory signatures) stay clear only through conservatism, so
+/// their namespaces are deliberately not tabled.  Conditional-compilation
+/// proof (CompiledRegex.cs:1's `#if DEBUG`-gated `[StringSyntax]`) and
+/// target-framework knowledge (Benchmarks.PetaPoco.cs) remain out of scope:
+/// a syntax-only view cannot know the compiled configuration.
+///
 pub(crate) fn check<'t>(root: Node<'t>, source: &'t str, language: CsLanguage) -> Vec<Issue> {
     let directives: Vec<Node<'t>> = collect_kinds(root, &["using_directive"])
         .into_iter()
@@ -200,10 +213,113 @@ fn namespace_using_is_used<'t>(
         if canonical_identifier(node_text(reference, source)) == target {
             return true;
         }
-        // An unresolved short or partially qualified external type/member can
-        // belong to this namespace, so retain the import conservatively.
-        true
+        match known_namespace_types(target) {
+            Some(types) => types.contains(&canonical_identifier(node_text(reference, source))),
+            // An unresolved short or partially qualified external type/member
+            // of an untabled namespace can belong to it, so retain the
+            // import conservatively.
+            None => true,
+        }
     })
+}
+
+/// Namespaces whose complete public type (and well-known extension-member)
+/// surface the analyzer enumerates.  A `using` of one of them is removable
+/// when no enumerated name appears in the active view; every other namespace
+/// keeps the conservative unknown-symbol rule.
+const KNOWN_NAMESPACE_TYPES: &[(&str, &[&str])] = &[
+    (
+        "System.Collections.ObjectModel",
+        &[
+            "Collection",
+            "KeyedCollection",
+            "ObservableCollection",
+            "ReadOnlyCollection",
+            "ReadOnlyDictionary",
+            "ReadOnlyObservableCollection",
+            "ReadOnlySet",
+        ],
+    ),
+    (
+        "System.Diagnostics.CodeAnalysis",
+        &[
+            "AllowNull",
+            "DisallowNull",
+            "DoesNotReturn",
+            "DoesNotReturnIf",
+            "DynamicDependency",
+            "DynamicallyAccessedMemberTypes",
+            "DynamicallyAccessedMembers",
+            "Experimental",
+            "FeatureGuard",
+            "FeatureSwitchDefinition",
+            "IFeatureDisposable",
+            "MaybeNull",
+            "MaybeNullWhen",
+            "MemberNotNull",
+            "MemberNotNullWhen",
+            "NotNull",
+            "NotNullIfNotNull",
+            "NotNullOrEmptyWhen",
+            "NotNullWhen",
+            "RequiresAssemblyFiles",
+            "RequiresDynamicCode",
+            "RequiresUnreferencedCode",
+            "SetsRequiredMembers",
+            "StringSyntax",
+            "SuppressMessage",
+            "UnconditionalSuppressMessage",
+        ],
+    ),
+    (
+        "System.Globalization",
+        &[
+            "Calendar",
+            "CalendarWeekRule",
+            "ChineseLunisolarCalendar",
+            "CompareInfo",
+            "CompareOptions",
+            "CultureInfo",
+            "CultureNotFoundException",
+            "CultureTypes",
+            "DateTimeFormatInfo",
+            "DateTimeStyles",
+            "DigitShapes",
+            "GlobalizationExtensions",
+            "GregorianCalendar",
+            "GregorianCalendarTypes",
+            "HebrewCalendar",
+            "HijriCalendar",
+            "IdnMapping",
+            "ISOWeek",
+            "JapaneseCalendar",
+            "JapaneseLunisolarCalendar",
+            "KoreanCalendar",
+            "KoreanLunisolarCalendar",
+            "NumberFormatInfo",
+            "NumberStyles",
+            "PersianCalendar",
+            "RegionInfo",
+            "SortKey",
+            "SortVersion",
+            "TaiwanCalendar",
+            "TaiwanLunisolarCalendar",
+            "TextInfo",
+            "ThaiBuddhistCalendar",
+            "TimeSpanStyles",
+            "UmAlQuraCalendar",
+            "UnicodeCategory",
+        ],
+    ),
+];
+
+/// The enumerated type/member names of `target`, if the namespace is tabled.
+fn known_namespace_types(target: &str) -> Option<&'static [&'static str]> {
+    let target = target.strip_prefix("global::").unwrap_or(target);
+    KNOWN_NAMESPACE_TYPES
+        .iter()
+        .find(|(namespace, _)| *namespace == target)
+        .map(|(_, types)| *types)
 }
 
 fn static_using_is_used<'t>(
@@ -433,6 +549,39 @@ fn source_local_function_visible<'t>(
 mod tests {
     use crate::tests::{analyze_default, with_key};
 
+    /// dapper Dapper/SqlMapper.DeserializerState.cs and SqlMapper.Async.cs:6:
+    /// `Func`, `DbDataReader`, and `DateTime` belong to other namespaces; no
+    /// enumerated System.Globalization name appears, so the import is
+    /// removable while its siblings stay.
+    #[test]
+    fn s1128_tabled_namespace_without_enumerated_names_is_flagged() {
+        let report = analyze_default(
+            "using System;\nusing System.Globalization;\nstatic class S\n{\n    static object F(DateTime r) => r;\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1128");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 2);
+    }
+
+    /// A tabled namespace is kept whenever one of its enumerated names
+    /// appears, even in a different lexical scope.
+    #[test]
+    fn s1128_tabled_namespace_with_enumerated_name_is_kept() {
+        let report = analyze_default(
+            "using System.Globalization;\nstatic class S\n{\n    static object F(CultureInfo culture) => culture;\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1128").is_empty());
+    }
+
+    /// Untabled namespaces keep the conservative unknown-symbol rule.
+    #[test]
+    fn s1128_unknown_namespace_keeps_conservative_import() {
+        let report = analyze_default(
+            "using NHibernate.Linq;\nstatic class S\n{\n    static void M(Session session)\n    {\n        session.Query<Post>();\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1128").is_empty());
+    }
+
     #[test]
     fn s1128_flags_each_segment_even_when_directives_share_it() {
         let report = analyze_default("using A.Tools;\nusing B.Tools;\nclass C\n{\n}\n");
@@ -549,5 +698,31 @@ mod tests {
         let report =
             analyze_default("using Vendor.Collections;\nclass C\n{\n    Unknown<int> values;\n}\n");
         assert!(with_key(&report, "csharpsquid:S1128").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    #[test]
+    fn probe_view_errors() {
+        let source = "using System.Diagnostics.CodeAnalysis;\nusing System.Text.RegularExpressions;\nstatic partial class CompiledRegex\n{\n#if DEBUG && NET7_0_OR_GREATER\n    [StringSyntax(\"Regex\")]\n#endif\n    internal static readonly RegexOptions Options = RegexOptions.None;\n}\n";
+        let view = crate::preprocessor::selected_branch_view(source).unwrap();
+        let (tree, _) = crate::parse_tracked(&view);
+        let mut stack = vec![tree.root_node()];
+        while let Some(node) = stack.pop() {
+            if node.is_error() || node.is_missing() {
+                println!(
+                    "ERROR kind={} bytes={}..{} text={:?}",
+                    node.kind(),
+                    node.start_byte(),
+                    node.end_byte(),
+                    &view[node.start_byte()..node.end_byte().min(view.len())]
+                );
+            }
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
     }
 }
