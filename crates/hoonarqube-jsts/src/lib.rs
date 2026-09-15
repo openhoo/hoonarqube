@@ -53,7 +53,7 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 mod rules;
 mod support;
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use hoonarqube_ir::Issue;
 use oxc_allocator::Allocator;
@@ -230,6 +230,11 @@ pub fn analyze(
 }
 
 /// Runs one file with an optional compiler-backed semantic fact set.
+///
+/// TypeScript declaration files (`.d.ts`, `.d.mts`, `.d.cts`) describe
+/// other files' types; `SonarQube`'s default configuration excludes them
+/// from analysis entirely, so hq emits neither issues nor metrics for
+/// them and stays inside the reference's file scope.
 #[must_use]
 pub(crate) fn analyze_with_facts(
     path: PathBuf,
@@ -238,6 +243,9 @@ pub(crate) fn analyze_with_facts(
     options: &AnalyzerOptions,
     semantic_facts: Option<&project_context::SemanticFileFacts>,
 ) -> hoonarqube_ir::FileReport {
+    if is_typescript_declaration_path(&path) {
+        return unanalyzed_report(path, language);
+    }
     let rules = RuleOptions::from(options);
     analyze_on_scoped_stack(path, source, language, options, &rules, semantic_facts)
 }
@@ -275,6 +283,9 @@ pub fn analyze_github_quality_report(
     source: &str,
     language: JstsLanguage,
 ) -> hoonarqube_ir::FileReport {
+    if is_typescript_declaration_path(&path) {
+        return unanalyzed_report(path, language);
+    }
     std::thread::scope(|scope| {
         run_on_analyzer_stack(
             scope,
@@ -322,6 +333,33 @@ fn analyze_on_scoped_stack(
             },
         )
     })
+}
+
+/// Whether the path names a TypeScript declaration file. Matched on the
+/// file name so directory routers can keep their own conventions; the
+/// comparison ignores ASCII case like the repository router.
+fn is_typescript_declaration_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            let lower = name.to_ascii_lowercase();
+            lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts")
+        })
+}
+
+/// Empty report for files outside the analyzer's file scope: no issues,
+/// no metrics, exactly like a file the reference scanner never indexes.
+fn unanalyzed_report(path: PathBuf, language: JstsLanguage) -> hoonarqube_ir::FileReport {
+    hoonarqube_ir::FileReport {
+        path,
+        language: language.prefix().to_owned(),
+        issues: Vec::new(),
+        metrics: hoonarqube_ir::FileMetrics {
+            lines: 0,
+            code_lines: 0,
+            comment_lines: 0,
+        },
+    }
 }
 
 #[cfg(test)]

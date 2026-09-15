@@ -137,7 +137,7 @@ fn member_is_forced_public(
 
 /// Names of every member declared by the interfaces the type implements,
 /// transitively through its base list (interfaces of base classes included).
-fn implemented_interface_member_names(
+pub(crate) fn implemented_interface_member_names(
     type_node: Node<'_>,
     source: &str,
     declarations: &TypeDeclarations<'_>,
@@ -164,13 +164,17 @@ fn implemented_interface_member_names(
 
 /// Type declarations visible for base resolution: the project index when a
 /// scan supplies one, otherwise the declarations of the analyzed file alone.
-enum TypeDeclarations<'a> {
+pub(crate) enum TypeDeclarations<'a> {
     Project(&'a ProjectTypeIndex),
     Local(Vec<(&'a str, bool, BTreeSet<&'a str>, Vec<&'a str>)>),
 }
 
 impl<'a> TypeDeclarations<'a> {
-    fn new(root: Node<'a>, source: &'a str, project: Option<&'a ProjectTypeIndex>) -> Self {
+    pub(crate) fn new(
+        root: Node<'a>,
+        source: &'a str,
+        project: Option<&'a ProjectTypeIndex>,
+    ) -> Self {
         if let Some(index) = project {
             Self::Project(index)
         } else {

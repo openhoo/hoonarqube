@@ -108,6 +108,32 @@ fn s4049_converts_accessor_shaped_methods() {
 }
 
 #[test]
+fn s4049_spares_override_virtual_and_abstract_contract_methods() {
+    let report = analyze_default(
+        "public abstract class F\n{\n    public string name = \"sample\";\n\n    public abstract string GetConnectionString();\n\n    public virtual string GetTitle() => name;\n\n    public override string ToString() => \"F\";\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S4049").is_empty());
+}
+
+#[test]
+fn s4049_spares_local_interface_implementations() {
+    let report = analyze_default(
+        "public interface IPaged\n{\n    string GetPage();\n}\n\npublic class PageSource : IPaged\n{\n    public string GetPage() => \"page\";\n\n    public string GetSize() => \"size\";\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S4049");
+    assert_eq!(flagged.len(), 1);
+    assert!(flagged[0].message.contains("'GetSize'"));
+}
+
+#[test]
+fn s4049_spares_explicit_interface_implementations() {
+    let report = analyze_default(
+        "public interface IPaged\n{\n    string GetPage();\n}\n\npublic class PageSource : IPaged\n{\n    string IPaged.GetPage() => \"page\";\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S4049").is_empty());
+}
+
+#[test]
 fn s4040_flags_lowercase_normalization() {
     let report = analyze_default(
         "class A\n{\n    void M()\n    {\n        key = name.ToLower();\n        other = name.ToLowerInvariant();\n        upper = name.ToUpper();\n    }\n}\n",
@@ -349,6 +375,16 @@ fn s1696_and_s2221_require_specific_catches() {
 }
 
 #[test]
+fn s2221_spares_catches_already_narrowed_by_exception_filters() {
+    let report = analyze_default(
+        "class A\n{\n    void M()\n    {\n        try { Run(); }\n        catch (Exception ex) when (ex is System.InvalidOperationException) { Recover(); }\n        try { Run(); }\n        catch (System.Exception general) { Recover(); }\n    }\n}\n",
+    );
+    let general_catches = with_key(&report, "csharpsquid:S2221");
+    assert_eq!(general_catches.len(), 1);
+    assert_eq!(general_catches[0].range.start.line, 8);
+}
+
+#[test]
 fn s2139_single_reports_failures() {
     let report = analyze_default(
         "class A\n{\n    void M()\n    {\n        try { Run(); } catch (System.Exception ex) { logger.LogError(\"Boom {Code}\", ex); throw; }\n        try { Run(); } catch (System.Exception ex) { logger.LogError(\"Logged {Code}\", ex); }\n        try { Run(); } catch (System.Exception ex) { throw; }\n    }\n}\n",
@@ -584,7 +620,7 @@ fn s4487_skips_attributed_and_partial_members() {
 #[test]
 fn s1450_flags_fields_used_by_a_single_method() {
     let report = analyze_default(
-        "class A\n{\n    private int counter;\n    public void Bump()\n    {\n        counter = counter + 1;\n        counter++;\n    }\n}\n",
+        "class A\n{\n    private int counter;\n    public int Bump()\n    {\n        counter = 1;\n        return counter;\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S1450");
     assert_eq!(flagged.len(), 1);
@@ -594,6 +630,22 @@ fn s1450_flags_fields_used_by_a_single_method() {
         "class B\n{\n    private int value;\n    public void Set(int v) { value = v; }\n    public int Get() { return value; }\n}\n",
     );
     assert!(with_key(&clean, "csharpsquid:S1450").is_empty());
+}
+
+#[test]
+fn s1450_spares_static_readonly_and_reference_escaped_fields() {
+    let report = analyze_default(
+        "class A\n{\n    private static readonly int Computed = Build();\n\n    private readonly int seed = 3;\n\n    private int escaped;\n\n    static int Build() => 4;\n\n    int Read() => seed + Computed;\n\n    void Escape()\n    {\n        Increment(ref escaped);\n    }\n\n    void Increment(ref int value)\n    {\n        value += 1;\n    }\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S1450").is_empty());
+}
+
+#[test]
+fn s1450_spares_fields_read_before_the_method_writes_them() {
+    let report = analyze_default(
+        "class Template\n{\n    private int seq = -1;\n\n    void Resolve()\n    {\n        if (seq != expected)\n        {\n            Render();\n            seq = expected;\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S1450").is_empty());
 }
 
 #[test]

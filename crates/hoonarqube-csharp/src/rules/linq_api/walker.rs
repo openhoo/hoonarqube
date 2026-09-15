@@ -63,7 +63,9 @@ pub(crate) fn linq_api_issues(
         root, source, language,
     ));
     issues.extend(check_setters_assign_value(root, source, language));
-    issues.extend(check_accessor_shaped_methods(root, source, language));
+    issues.extend(check_accessor_shaped_methods(
+        root, source, language, options,
+    ));
     issues.extend(check_lowercase_normalization(root, source, language));
     issues.extend(check_culture_less_conversions(root, source, language));
     issues.extend(check_culture_less_comparisons(root, source, language));
