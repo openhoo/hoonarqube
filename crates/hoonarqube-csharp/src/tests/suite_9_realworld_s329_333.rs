@@ -175,6 +175,15 @@ fn s3059_resolves_cross_file_interfaces_through_the_project_index() {
 }
 
 #[test]
+fn s4049_spares_cross_file_interface_implementations_through_the_project_index() {
+    let interface = "namespace Dapper\n{\n    public interface ILookup\n    {\n        string GetConnectionString();\n    }\n}\n";
+    let store = "namespace Dapper\n{\n    public class LookupStore : ILookup\n    {\n        public string GetConnectionString() => \"server=db\";\n    }\n}\n";
+    let options = options_with_index(&[("ILookup.cs", interface), ("LookupStore.cs", store)]);
+    let report = analyze_options(store, &options);
+    assert!(with_key(&report, "csharpsquid:S4049").is_empty());
+}
+
+#[test]
 fn s3059_spares_test_scope_files_for_the_main_scoped_rule() {
     let report = analyze_at(
         "tests/Dapper.Tests/DataReaderTests.cs",
