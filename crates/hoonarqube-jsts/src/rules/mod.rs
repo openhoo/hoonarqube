@@ -42,6 +42,15 @@ mod s7723_new_for_builtins;
 mod s7724_eslint_disable;
 mod s7726_named_default_export;
 mod s7728_no_array_for_each;
+// issue-400 batch 1
+mod s6437_hardcoded_credentials;
+mod s7727_array_callback_reference;
+mod s7731_for_of;
+mod s7732_instanceof_builtins;
+mod s7740_this_assignment;
+mod s7742_unnecessary_polyfills;
+mod s7778_prefer_single_call;
+mod s8754_unique_test_titles;
 mod s7737_object_default_param;
 mod s7741_typeof_undefined;
 mod s7744_useless_fallback_spread;
@@ -101,6 +110,15 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(s5906_prefer_specific_assertion::check(ctx));
     issues.extend(s7721_consistent_function_scoping::check(ctx));
     issues.extend(s7728_no_array_for_each::check(ctx));
+    // issue-400 batch 1
+    issues.extend(s6437_hardcoded_credentials::check(ctx));
+    issues.extend(s7727_array_callback_reference::check(ctx));
+    issues.extend(s7731_for_of::check(ctx));
+    issues.extend(s7732_instanceof_builtins::check(ctx));
+    issues.extend(s7740_this_assignment::check(ctx));
+    issues.extend(s7742_unnecessary_polyfills::check(ctx));
+    issues.extend(s7778_prefer_single_call::check(ctx));
+    issues.extend(s8754_unique_test_titles::check(ctx));
     issues.extend(s7737_object_default_param::check(ctx));
     issues.extend(s7741_typeof_undefined::check(ctx));
     issues.extend(s7744_useless_fallback_spread::check(ctx));
