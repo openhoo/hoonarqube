@@ -16,7 +16,7 @@ use oxc_ast_visit::Visit;
 /// (`S3776`, `S3796`, `S3801`, `S3854`, `S3972`, `S3973`, `S4275`,
 /// `S4619`, `S4634`, `S4822`, `S6635`, `S6671`, `S6861`, `S1067`,
 /// `S1534`, `S1536`, `S1541`), the ES2015+ idiom section (`S3358`,
-/// `S3498`, `S3499`, `S3512`, `S3513`, `S3514`, `S3523`, `S4158`,
+/// `S3498`, `S3499`, `S3513`, `S3514`, `S3523`, `S4158`,
 /// `S6582`), and the `S6594` match-call pass with regex-constant
 /// resolution.
 fn check_batch2d_rules(
@@ -497,6 +497,14 @@ mod tests {
         // `{ a: a }` should be shorthand.
         let redundant = js_keys("const o = { a: a };\n");
         assert_eq!(count_key(&redundant, "javascript:S3498"), 1);
+
+        // Issue #390: anonymous function properties should use the method
+        // shorthand; named function expressions keep their self-reference
+        // name and stay clean.
+        let method = js_keys("const o = { html: function () { return 1; } };\n");
+        assert_eq!(count_key(&method, "javascript:S3498"), 1);
+        let named = js_keys("const p = { html: function render() { return 1; } };\n");
+        assert_eq!(count_key(&named, "javascript:S3498"), 0);
 
         // Shorthand after non-shorthand is out of order; different names are
         // never flagged.
