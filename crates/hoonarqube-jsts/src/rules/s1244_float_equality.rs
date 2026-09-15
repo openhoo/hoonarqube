@@ -81,10 +81,10 @@ fn check_node(
         }
         AstKind::CallExpression(_) => check_assertion_call(sink, semantic, node, imports),
         AstKind::SwitchCase(case) => {
-            if let Some(test) = case.test.as_ref() {
-                if is_sensitive(semantic, test) {
-                    emit(sink, test.span());
-                }
+            if let Some(test) = case.test.as_ref()
+                && is_sensitive(semantic, test)
+            {
+                emit(sink, test.span());
             }
         }
         _ => {}
@@ -300,8 +300,8 @@ fn is_exactly_representable_integer_division(left: i64, right: i64) -> bool {
     if right == 0 {
         return false;
     }
-    let numerator = left.unsigned_abs() as u128;
-    let denominator = right.unsigned_abs() as u128;
+    let numerator = u128::from(left.unsigned_abs());
+    let denominator = u128::from(right.unsigned_abs());
     let reduced = denominator / gcd(numerator, denominator);
     reduced.is_power_of_two()
 }
@@ -364,6 +364,8 @@ fn numeric_expression_value(expression: &Expression<'_>) -> Option<f64> {
 
 /// `isFractionProducingDivision`: integer literals whose quotient is a
 /// non-exactly-representable fraction.
+#[allow(clippy::cast_possible_truncation)]
+// The i128 cast is guarded by the integral+finite check just above.
 fn is_fraction_producing_division(binary: &oxc_ast::ast::BinaryExpression<'_>) -> bool {
     let Some(left) = numeric_literal_value(&binary.left) else {
         return false;
@@ -398,7 +400,7 @@ fn is_indirect_exact_comparison(
             BinaryOperator::GreaterEqualThan,
         ],
         LogicalOperator::Or => &[BinaryOperator::LessThan, BinaryOperator::GreaterThan],
-        _ => return false,
+        LogicalOperator::Coalesce => return false,
     };
     let (Expression::BinaryExpression(left), Expression::BinaryExpression(right)) = (
         unparenthesized(&logical.left),
@@ -476,7 +478,7 @@ fn comparison_orientations<'a>(
 /// `areEquivalent` approximation: same unparenthesized source text with
 /// whitespace removed (token-value equality).
 fn are_equivalent(source: &str, left: &Expression<'_>, right: &Expression<'_>) -> bool {
-    fn normalized<'a>(source: &'a str, expression: &Expression<'_>) -> String {
+    fn normalized(source: &str, expression: &Expression<'_>) -> String {
         span_text(source, unparenthesized(expression).span())
             .chars()
             .filter(|c| !c.is_whitespace())

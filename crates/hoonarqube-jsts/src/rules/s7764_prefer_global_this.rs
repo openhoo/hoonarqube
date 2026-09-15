@@ -205,8 +205,7 @@ fn is_window_specific_usage(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool
         AstKind::BinaryExpression(binary) => {
             binary.operator == BinaryOperator::In
                 && binary.right.span() == span
-                && static_property_name(&binary.left)
-                    .is_some_and(|name| is_window_specific_api(name))
+                && static_property_name(&binary.left).is_some_and(is_window_specific_api)
         }
         AstKind::StaticMemberExpression(member) => {
             member.object.span() == span && is_window_specific_member(semantic, parent, member)

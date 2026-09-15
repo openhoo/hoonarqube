@@ -173,7 +173,7 @@ fn default_expression<'a>(right: &'a Expression<'a>) -> Option<(&'a str, &'a Exp
     Some((identifier.name.as_str(), literal))
 }
 
-/// ESTree `Literal`: string/number/boolean/null/bigint/regex literals.
+/// `ESTree` `Literal`: string/number/boolean/null/bigint/regex literals.
 fn is_literal(expression: &Expression<'_>) -> bool {
     matches!(
         expression,

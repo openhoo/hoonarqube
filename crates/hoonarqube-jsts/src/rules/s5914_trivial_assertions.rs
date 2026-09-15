@@ -99,15 +99,15 @@ fn resolve_predicate(
     predicate: crate::rules::test_assertions::Predicate,
     actual: &Expression<'_>,
 ) {
-    if let Some(value) = resolve_constant(semantic, actual) {
-        if predicate_holds(predicate, &value) != assertion.negated {
-            emit(
-                sink,
-                actual.span(),
-                "Replace this assertion; it always succeeds.",
-            );
-            return;
-        }
+    if let Some(value) = resolve_constant(semantic, actual)
+        && predicate_holds(predicate, &value) != assertion.negated
+    {
+        emit(
+            sink,
+            actual.span(),
+            "Replace this assertion; it always succeeds.",
+        );
+        return;
     }
     if is_fresh_reference_expression(actual)
         && fresh_reference_predicate_holds(predicate) != assertion.negated

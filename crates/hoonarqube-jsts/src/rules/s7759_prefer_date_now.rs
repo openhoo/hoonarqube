@@ -83,23 +83,21 @@ fn check_call(
     call: &CallExpression<'_>,
 ) {
     // `new Date().{getTime,valueOf}()`
-    if !call.optional {
-        if let Expression::StaticMemberExpression(member) = unparenthesized(&call.callee) {
-            if !member.optional
-                && matches!(member.property.name.as_str(), "getTime" | "valueOf")
-                && call.arguments.is_empty()
-                && is_new_date(&member.object)
-                && !inside_polyfill(semantic, node)
-            {
-                let method = member.property.name.as_str();
-                let message = match method {
-                    "getTime" => "Prefer `Date.now()` over `Date#getTime()`.",
-                    _ => "Prefer `Date.now()` over `Date#valueOf()`.",
-                };
-                emit(sink, member.property.span(), message);
-                return;
-            }
-        }
+    if !call.optional
+        && let Expression::StaticMemberExpression(member) = unparenthesized(&call.callee)
+        && !member.optional
+        && matches!(member.property.name.as_str(), "getTime" | "valueOf")
+        && call.arguments.is_empty()
+        && is_new_date(&member.object)
+        && !inside_polyfill(semantic, node)
+    {
+        let method = member.property.name.as_str();
+        let message = match method {
+            "getTime" => "Prefer `Date.now()` over `Date#getTime()`.",
+            _ => "Prefer `Date.now()` over `Date#valueOf()`.",
+        };
+        emit(sink, member.property.span(), message);
+        return;
     }
     // `{Number,BigInt}(new Date())`
     if call.optional || call.arguments.len() != 1 {

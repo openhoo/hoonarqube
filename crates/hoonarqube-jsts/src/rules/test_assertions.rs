@@ -99,10 +99,10 @@ pub(crate) fn collect_file_imports(semantic: &Semantic<'_>) -> HashSet<String> {
                 imports.insert(declaration.source.value.to_string());
             }
             AstKind::VariableDeclarator(declarator) => {
-                if let Some(init) = declarator.init.as_ref() {
-                    if let Some(name) = require_or_import_module(init) {
-                        imports.insert(name);
-                    }
+                if let Some(init) = declarator.init.as_ref()
+                    && let Some(name) = require_or_import_module(init)
+                {
+                    imports.insert(name);
                 }
             }
             _ => {}
@@ -226,25 +226,25 @@ fn extract_call_assertion<'a>(
     call: &'a CallExpression<'a>,
     imports: &HashSet<String>,
 ) -> Option<Assertion<'a>> {
-    if any_import(imports, &JEST_LIKE_MODULES) {
-        if let Some(assertion) = extract_expect_assertion(call, AssertionStyle::JestLike) {
-            return Some(assertion);
-        }
+    if any_import(imports, &JEST_LIKE_MODULES)
+        && let Some(assertion) = extract_expect_assertion(call, AssertionStyle::JestLike)
+    {
+        return Some(assertion);
     }
-    if any_import(imports, &JASMINE_MODULES) {
-        if let Some(assertion) = extract_expect_assertion(call, AssertionStyle::Jasmine) {
-            return Some(assertion);
-        }
+    if any_import(imports, &JASMINE_MODULES)
+        && let Some(assertion) = extract_expect_assertion(call, AssertionStyle::Jasmine)
+    {
+        return Some(assertion);
     }
-    if any_import(imports, &PLAYWRIGHT_MODULES) {
-        if let Some(assertion) = extract_expect_assertion(call, AssertionStyle::Playwright) {
-            return Some(assertion);
-        }
+    if any_import(imports, &PLAYWRIGHT_MODULES)
+        && let Some(assertion) = extract_expect_assertion(call, AssertionStyle::Playwright)
+    {
+        return Some(assertion);
     }
-    if any_import(imports, &CHAI_MODULES) {
-        if let Some(assertion) = extract_chai_call_assertion(semantic, node, call) {
-            return Some(assertion);
-        }
+    if any_import(imports, &CHAI_MODULES)
+        && let Some(assertion) = extract_chai_call_assertion(semantic, node, call)
+    {
+        return Some(assertion);
     }
     if any_import(imports, &NODE_ASSERT_MODULES) {
         return extract_node_assertion(semantic, node, call);
@@ -261,15 +261,15 @@ fn extract_expect_assertion<'a>(
     let (expect_call, negated) = extract_expect_chain(&member.object)?;
     let actual = argument_at(expect_call, 0)?;
     let matcher = member.property.name.as_str();
-    if let Some(predicate) = jest_predicate(matcher) {
-        if call.arguments.is_empty() {
-            return Some(Assertion {
-                style,
-                kind: AssertionKind::Predicate { predicate, actual },
-                negated,
-                report_span: actual.span(),
-            });
-        }
+    if let Some(predicate) = jest_predicate(matcher)
+        && call.arguments.is_empty()
+    {
+        return Some(Assertion {
+            style,
+            kind: AssertionKind::Predicate { predicate, actual },
+            negated,
+            report_span: actual.span(),
+        });
     }
     let comparison = jest_comparison(matcher)?;
     if call.arguments.len() != 1 {
@@ -378,30 +378,30 @@ fn chai_assert_call<'a>(
     node: &AstNode<'a>,
     call: &'a CallExpression<'a>,
 ) -> Option<(String, Span)> {
-    if let Some(fqn) = fully_qualified_name(semantic, node, &call.callee) {
-        if let Some(method) = fqn
+    if let Some(fqn) = fully_qualified_name(semantic, node, &call.callee)
+        && let Some(method) = fqn
             .strip_prefix("chai.assert")
             .and_then(|rest| rest.strip_prefix('.'))
-        {
-            let method = if method.is_empty() { "assert" } else { method };
-            if let Some(name) = chai_assert_method_name(method) {
-                return Some((name.to_string(), call.callee.span()));
-            }
+    {
+        let method = if method.is_empty() { "assert" } else { method };
+        if let Some(name) = chai_assert_method_name(method) {
+            return Some((name.to_string(), call.callee.span()));
         }
     }
     if identifier_name(&call.callee) == Some("assert") && is_unbound(semantic, node, "assert") {
         return Some(("assert".to_string(), call.callee.span()));
     }
     let member = method_member(call)?;
-    if identifier_name(&member.object) == Some("assert") && is_unbound(semantic, node, "assert") {
-        if let Some(name) = chai_assert_method_name(member.property.name.as_str()) {
-            return Some((name.to_string(), member.property.span()));
-        }
+    if identifier_name(&member.object) == Some("assert")
+        && is_unbound(semantic, node, "assert")
+        && let Some(name) = chai_assert_method_name(member.property.name.as_str())
+    {
+        return Some((name.to_string(), member.property.span()));
     }
     None
 }
 
-fn chai_assert_method_name<'a>(name: &'a str) -> Option<&'a str> {
+fn chai_assert_method_name(name: &str) -> Option<&str> {
     match name {
         "assert" | "ok" | "isOk" | "isNotOk" | "isTrue" | "isFalse" | "isNull" | "isNotNull"
         | "isUndefined" | "isDefined" | "exists" | "notExists" | "equal" | "notEqual"
@@ -463,8 +463,8 @@ fn chai_call_comparison(matcher: &str, chain: &Expression<'_>) -> Option<Compari
     match matcher {
         "eql" | "eqls" => Some(Comparison::Deep),
         "equal" | "equals" | "eq" => {
-            let (_, properties) = member_chain(chain)?;
-            if properties.iter().any(|property| *property == "deep") {
+            let (_, properties) = member_chain(chain);
+            if properties.contains(&"deep") {
                 Some(Comparison::Deep)
             } else {
                 Some(Comparison::Strict)
@@ -481,7 +481,7 @@ fn extract_chai_expect_chain<'a>(
     node: &AstNode<'a>,
     expression: &'a Expression<'a>,
 ) -> Option<(&'a Expression<'a>, bool)> {
-    let (base, properties) = member_chain(expression)?;
+    let (base, properties) = member_chain(expression);
     let Expression::CallExpression(expect_call) = unparenthesized(base) else {
         return None;
     };
@@ -495,7 +495,7 @@ fn extract_chai_expect_chain<'a>(
         return None;
     }
     let actual = argument_at(expect_call, 0)?;
-    Some((actual, properties.iter().any(|property| *property == "not")))
+    Some((actual, properties.contains(&"not")))
 }
 
 /// `value.should.equal(y)` chai-bdd call style.
@@ -573,10 +573,7 @@ fn extract_chai_should_chain<'a>(
     let mut current = expression;
     while let Expression::StaticMemberExpression(member) = unparenthesized(current) {
         if member.property.name == "should" {
-            return Some((
-                &member.object,
-                properties.iter().any(|property| *property == "not"),
-            ));
+            return Some((&member.object, properties.contains(&"not")));
         }
         properties.push(member.property.name.as_str());
         current = &member.object;
@@ -586,7 +583,7 @@ fn extract_chai_should_chain<'a>(
 
 /// `extractMemberChain`: base expression plus property names in chain
 /// order (leftmost first).
-fn member_chain<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a>, Vec<&'a str>)> {
+fn member_chain<'a>(expression: &'a Expression<'a>) -> (&'a Expression<'a>, Vec<&'a str>) {
     let mut properties: Vec<&str> = Vec::new();
     let mut current = expression;
     while let Expression::StaticMemberExpression(member) = unparenthesized(current) {
@@ -594,7 +591,7 @@ fn member_chain<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a
         current = &member.object;
     }
     properties.reverse();
-    Some((current, properties))
+    (current, properties)
 }
 
 /// Node.js `assert`/`assert.strict` assertions (assert imported in file).
@@ -645,12 +642,12 @@ fn node_assert_call<'a>(
     node: &AstNode<'a>,
     call: &'a CallExpression<'a>,
 ) -> Option<(&'static str, bool, Span)> {
-    if let Some(fqn) = fully_qualified_name(semantic, node, &call.callee) {
-        if let Some(method) = node_assert_method_from_fqn(&fqn) {
-            let strict = fqn.starts_with("assert.strict.");
-            let normalized = normalize_node_assert_method(method, strict);
-            return Some((normalized, method.starts_with("not"), call.callee.span()));
-        }
+    if let Some(fqn) = fully_qualified_name(semantic, node, &call.callee)
+        && let Some(method) = node_assert_method_from_fqn(&fqn)
+    {
+        let strict = fqn.starts_with("assert.strict.");
+        let normalized = normalize_node_assert_method(method, strict);
+        return Some((normalized, method.starts_with("not"), call.callee.span()));
     }
     let member = method_member(call)?;
     if identifier_name(&member.object) != Some("assert") {
@@ -742,11 +739,11 @@ pub(crate) fn fully_qualified_name(
         if let Expression::CallExpression(call) = unparenthesized(base) {
             let mut inner: Vec<String> = Vec::new();
             let callee_base = reduce_to_identifier(&call.callee, &mut inner);
-            if let Expression::CallExpression(require_call) = unparenthesized(callee_base) {
-                if let Some(module) = require_module_name(require_call) {
-                    inner.insert(0, module);
-                    return Some(inner.join("."));
-                }
+            if let Expression::CallExpression(require_call) = unparenthesized(callee_base)
+                && let Some(module) = require_module_name(require_call)
+            {
+                inner.insert(0, module);
+                return Some(inner.join("."));
             }
         }
         return None;
@@ -813,7 +810,7 @@ fn chain_element_inner<'a>(
             }
             Some(&member.object)
         }
-        _ => None,
+        oxc_ast::ast::ChainElement::PrivateFieldExpression(_) => None,
     }
 }
 
@@ -836,10 +833,10 @@ fn binding_fqn(
                 return None;
             }
             let source = import_source(semantic, declaration.id())?;
-            if let ModuleExportName::IdentifierName(imported) = &specifier.imported {
-                if imported.name != "default" {
-                    qualifiers.insert(0, imported.name.to_string());
-                }
+            if let ModuleExportName::IdentifierName(imported) = &specifier.imported
+                && imported.name != "default"
+            {
+                qualifiers.insert(0, imported.name.to_string());
             }
             Some(join_module_fqn(&source, qualifiers))
         }
@@ -890,10 +887,10 @@ fn push_object_pattern_qualifier(
             BindingPattern::BindingIdentifier(identifier) => identifier.symbol_id.get(),
             _ => None,
         };
-        if bound == Some(symbol) {
-            if let Some(name) = crate::support::property_key_name(&property.key) {
-                qualifiers.insert(0, name.to_string());
-            }
+        if bound == Some(symbol)
+            && let Some(name) = crate::support::property_key_name(&property.key)
+        {
+            qualifiers.insert(0, name.to_string());
         }
     }
     let _ = semantic;
@@ -1017,6 +1014,7 @@ pub(crate) fn strict_equality_holds(
     }
 }
 
+#[allow(clippy::float_cmp)] // JS strict equality compares f64 bit-exactly.
 fn strict_equals(left: &ConstantValue, right: &ConstantValue) -> bool {
     match (left, right) {
         (ConstantValue::Null, ConstantValue::Null)
@@ -1029,6 +1027,7 @@ fn strict_equals(left: &ConstantValue, right: &ConstantValue) -> bool {
     }
 }
 
+#[allow(clippy::float_cmp)] // JS SameValue compares f64 bit-exactly.
 fn same_value(left: &ConstantValue, right: &ConstantValue) -> bool {
     match (left, right) {
         (ConstantValue::Number(a), ConstantValue::Number(b)) => {
@@ -1060,12 +1059,11 @@ fn resolve_constant_inner<'a>(
     visited: &mut HashSet<SymbolId>,
 ) -> Option<ConstantValue> {
     let expression = unparenthesized(expression);
-    if let Expression::Identifier(identifier) = expression {
-        if identifier.name != "undefined" {
-            if let Some(init) = resolve_const_binding(semantic, identifier, visited) {
-                return resolve_constant_inner(semantic, init, visited);
-            }
-        }
+    if let Expression::Identifier(identifier) = expression
+        && identifier.name != "undefined"
+        && let Some(init) = resolve_const_binding(semantic, identifier, visited)
+    {
+        return resolve_constant_inner(semantic, init, visited);
     }
     match expression {
         Expression::NullLiteral(_) => Some(ConstantValue::Null),
@@ -1159,6 +1157,8 @@ fn to_number(value: &ConstantValue) -> Option<f64> {
     }
 }
 
+#[allow(clippy::cast_precision_loss)]
+// JS `Number("0x…")` rounds u64 to f64 exactly like the spec conversion.
 fn string_to_number(value: &str) -> f64 {
     let trimmed = value.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
     if trimmed.is_empty() {
@@ -1174,23 +1174,17 @@ fn string_to_number(value: &str) -> f64 {
         .strip_prefix("0x")
         .or_else(|| digits.strip_prefix("0X"))
     {
-        u64::from_str_radix(hex, 16)
-            .map(|v| v as f64)
-            .unwrap_or(f64::NAN)
+        u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| v as f64)
     } else if let Some(octal) = digits
         .strip_prefix("0o")
         .or_else(|| digits.strip_prefix("0O"))
     {
-        u64::from_str_radix(octal, 8)
-            .map(|v| v as f64)
-            .unwrap_or(f64::NAN)
+        u64::from_str_radix(octal, 8).map_or(f64::NAN, |v| v as f64)
     } else if let Some(binary) = digits
         .strip_prefix("0b")
         .or_else(|| digits.strip_prefix("0B"))
     {
-        u64::from_str_radix(binary, 2)
-            .map(|v| v as f64)
-            .unwrap_or(f64::NAN)
+        u64::from_str_radix(binary, 2).map_or(f64::NAN, |v| v as f64)
     } else {
         digits.parse::<f64>().unwrap_or(f64::NAN)
     };
@@ -1334,8 +1328,7 @@ fn evaluate_binary(
     right: &ConstantValue,
 ) -> Option<ConstantValue> {
     match operator {
-        BinaryOp::And | BinaryOp::Or => Some(right.clone()),
-        BinaryOp::Nullish => Some(right.clone()),
+        BinaryOp::And | BinaryOp::Or | BinaryOp::Nullish => Some(right.clone()),
         BinaryOp::StrictEq => Some(ConstantValue::Boolean(strict_equals(left, right))),
         BinaryOp::StrictNe => Some(ConstantValue::Boolean(!strict_equals(left, right))),
         BinaryOp::LooseEq => Some(ConstantValue::Boolean(loose_equals(left, right))),
@@ -1396,7 +1389,7 @@ fn number_to_js_string(value: f64) -> String {
     format!("{value}")
 }
 
-/// Numeric arithmetic; mixed number/bigint operands are a TypeError
+/// Numeric arithmetic; mixed number/bigint operands are a `TypeError`
 /// (unresolvable), bigint arithmetic uses i128.
 fn eval_numeric(
     operator: BinaryOp,
@@ -1474,6 +1467,8 @@ fn eval_relational(
 }
 
 /// Bitwise/shift operators coerce through `ToInt32`/`ToUint32`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+// JS `ToInt32`/`ToUint32` semantics: f64→i32/u32 truncation is the spec.
 fn eval_bitwise(
     operator: BinaryOp,
     left: &ConstantValue,
@@ -1486,26 +1481,27 @@ fn eval_bitwise(
     let b = to_number(right)?;
     let a_i32 = a as i32;
     let b_u32 = (b as i64) as u32 & 0x1f;
+    let b_bits = b as i32;
     let value = match operator {
-        BinaryOp::Shl => a_i32.wrapping_shl(b_u32) as f64,
-        BinaryOp::Shr => a_i32.wrapping_shr(b_u32) as f64,
-        BinaryOp::Ushr => ((a_i32 as u32).wrapping_shr(b_u32)) as f64,
-        BinaryOp::BitAnd => (a_i32 & (b as i32)) as f64,
-        BinaryOp::BitOr => (a_i32 | (b as i32)) as f64,
-        BinaryOp::BitXor => (a_i32 ^ (b as i32)) as f64,
+        BinaryOp::Shl => f64::from(a_i32.wrapping_shl(b_u32)),
+        BinaryOp::Shr => f64::from(a_i32.wrapping_shr(b_u32)),
+        BinaryOp::Ushr => f64::from((a_i32 as u32).wrapping_shr(b_u32)),
+        BinaryOp::BitAnd => f64::from(a_i32 & b_bits),
+        BinaryOp::BitOr => f64::from(a_i32 | b_bits),
+        BinaryOp::BitXor => f64::from(a_i32 ^ b_bits),
         _ => return None,
     };
     Some(ConstantValue::Number(value))
 }
 
 /// Abstract equality (`==`) over constant primitives.
+#[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
+// JS abstract equality compares f64 bit-exactly; the i128 cast is guarded
+// by the integral+finite check.
 pub(crate) fn loose_equals(left: &ConstantValue, right: &ConstantValue) -> bool {
     use ConstantValue as C;
     match (left, right) {
-        (C::Null, C::Null)
-        | (C::Null, C::Undefined)
-        | (C::Undefined, C::Null)
-        | (C::Undefined, C::Undefined) => true,
+        (C::Null | C::Undefined, C::Null | C::Undefined) => true,
         (C::Number(a), C::Number(b)) => a == b,
         (C::String(a), C::String(b)) => a == b,
         (C::Boolean(a), C::Boolean(b)) => a == b,
