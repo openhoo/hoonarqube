@@ -18,7 +18,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((literal, template, _)) = composite_template(call, source) else {
             continue;
         };
-        let highest_slot = composite_slots(template).into_iter().max();
+        let slots = composite_slots(template);
+        let highest_slot = slots.iter().max().copied();
         let arguments = invocation_arguments(call);
         let format_index = arguments
             .iter()
@@ -26,6 +27,29 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             .unwrap_or(0);
         let values = &arguments[format_index.saturating_add(1)..];
         let used = highest_slot.map_or(0, |slot| slot + 1);
+        let anchor = call.child_by_field_name("function").map_or_else(
+            || range_of(literal, source),
+            |callee| range_of(callee, source),
+        );
+        // Indexes skipped below the highest slot while an argument sits
+        // at that position: the format string almost certainly dropped
+        // one (`"{0} {2}"` with two arguments misses '1').
+        let reachable = used.min(values.len());
+        let missing = (0..reachable)
+            .filter(|index| !slots.contains(index))
+            .map(|index| format!("'{index}'"))
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            issues.push(issue(
+                language,
+                "S3457",
+                format!(
+                    "The format string might be wrong, the following item indexes are missing: {}.",
+                    missing.join(", ")
+                ),
+                anchor.clone(),
+            ));
+        }
         if values.len() > used {
             let names = values[used..]
                 .iter()
@@ -38,10 +62,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 format!(
                     "The format string might be wrong, the following arguments are unused: {names}."
                 ),
-                call.child_by_field_name("function").map_or_else(
-                    || range_of(literal, source),
-                    |callee| range_of(callee, source),
-                ),
+                anchor,
             ));
         }
     }
@@ -109,5 +130,19 @@ mod tests {
         let flagged = with_key(&report, "csharpsquid:S3457");
         assert_eq!(flagged.len(), 1);
         assert_eq!(flagged[0].range.start.line, 6);
+    }
+
+    #[test]
+    fn s3457_flags_missing_item_indexes() {
+        let report = analyze_default(
+            "class A\n{\n    void M()\n    {\n        text = string.Format(\"{0} {2} {3} {4}\", a, b, c, d, e);\n        text = string.Format(\"{0} {1}\", a, b);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S3457");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
+        assert_eq!(
+            flagged[0].message,
+            "The format string might be wrong, the following item indexes are missing: '1'."
+        );
     }
 }
