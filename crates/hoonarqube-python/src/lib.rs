@@ -10,6 +10,11 @@
 //! and inheritance.  Dynamic or unresolved configuration remains a distinct
 //! resolver state and is not guessed as safe.
 
+use hoonarqube_ir::Issue;
+use ruff_python_ast::ModModule;
+use ruff_python_parser::Parsed;
+use std::path::Path;
+
 use crate::engine::file_context::FileContext;
 pub use crate::engine::project_context::PythonProjectContext;
 use crate::engine::project_context::module_name_from_path;
@@ -224,21 +229,25 @@ pub fn analyze_with_context(
         &parsed, &index, source, options, &metrics,
     ));
     issues.extend(check_tier_b_battery(
-        &parsed, &index, source, options, &file_ctx,
+        &parsed,
+        &index,
+        source,
+        options,
+        &file_ctx,
+        path.as_path(),
     ));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
     let module_name = module_name_from_path(path.as_path());
-    issues.extend(check_tier_c_security_battery(
+    add_web_security_batteries(
         &parsed,
         &index,
         source,
         &file_ctx,
+        path.as_path(),
         &module_name,
         project,
-    ));
-    issues.extend(check_tier_c_semantic_battery(
-        &parsed, &index, source, &file_ctx,
-    ));
+        &mut issues,
+    );
     issues.extend(check_test_assertion_battery(
         &parsed,
         &index,
@@ -258,15 +267,12 @@ pub fn analyze_with_context(
         &parsed, &index, source, &file_ctx,
     ));
     issues.extend(check_structural_battery(
-        &parsed, &index, source, options, &file_ctx,
-    ));
-    issues.extend(check_s6786_graphql_introspection(
         &parsed,
         &index,
         source,
+        options,
         &file_ctx,
-        &module_name,
-        project,
+        path.as_path(),
     ));
     attach_quick_fixes(&parsed, &index, source, &file_ctx, &mut issues);
     sort_issues(&mut issues);
@@ -277,6 +283,41 @@ pub fn analyze_with_context(
         issues,
         metrics,
     }
+}
+
+/// Aggregates the Tier-C security, semantic, and GraphQL project-context
+/// batteries that share the module provenance facts.
+#[allow(clippy::too_many_arguments)]
+fn add_web_security_batteries(
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext,
+    path: &Path,
+    module_name: &str,
+    project: &PythonProjectContext,
+    issues: &mut Vec<Issue>,
+) {
+    issues.extend(check_tier_c_security_battery(
+        parsed,
+        index,
+        source,
+        file_ctx,
+        path,
+        module_name,
+        project,
+    ));
+    issues.extend(check_tier_c_semantic_battery(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s6786_graphql_introspection(
+        parsed,
+        index,
+        source,
+        file_ctx,
+        module_name,
+        project,
+    ));
 }
 
 /// Runs independently implemented, non-Sonar Python rules. Profile selection
