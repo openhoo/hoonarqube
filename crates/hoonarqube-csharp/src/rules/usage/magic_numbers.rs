@@ -1,9 +1,7 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::integer_literal_value;
-use crate::semantic::is_test_scope_file;
 use hoonarqube_ir::Issue;
-use std::path::Path;
 use tree_sitter::Node;
 
 fn canonical_number_text(text: &str) -> String {
@@ -21,11 +19,8 @@ fn canonical_number_text(text: &str) -> String {
 }
 
 /// csharpsquid:S109 — numbers beyond -1/0/1 deserve names. The catalog scope
-/// is MAIN, so conventional test/benchmark projects are never reported.
-pub(crate) fn check(root: Node<'_>, path: &Path, source: &str, language: CsLanguage) -> Vec<Issue> {
-    if is_test_scope_file(path) {
-        return Vec::new();
-    }
+/// is MAIN; test-scoped files are silenced centrally in `analyze`.
+pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["integer_literal", "real_literal"])
         .into_iter()
         .filter(|literal| !is_error_tainted(*literal))

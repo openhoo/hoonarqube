@@ -148,6 +148,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
             );
         }
         self.check_credential_pair(property_key_name(&it.key), Some(&it.value));
+        self.check_undefined_value(&it.value);
         walk_object_property(self, it);
     }
 
@@ -163,6 +164,7 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
                 target.span(),
             );
         }
+        self.check_undefined_value(&it.right);
         walk_assignment_expression(self, it);
     }
 
@@ -268,19 +270,7 @@ impl BindingCollector<'_, '_> {
         let Some(initializer) = &it.init else {
             return;
         };
-        let initializes_to_undefined = match initializer {
-            Expression::Identifier(identifier) => identifier.name == "undefined",
-            Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::Void,
-            _ => false,
-        };
-        if initializes_to_undefined {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2138",
-                "Initialize with a meaningful value instead of \"undefined\".",
-                initializer.span(),
-            );
-        }
+        self.check_undefined_value(initializer);
         if matches!(initializer, Expression::Identifier(identifier) if identifier.name == "undefined")
         {
             self.sink.emit_span(
@@ -289,6 +279,20 @@ impl BindingCollector<'_, '_> {
                 "Remove this explicit \"undefined\" initializer.",
                 initializer.span(),
             );
+        }
+    }
+
+    /// `S2138`: `undefined` must not be stored in variables, properties,
+    /// or fields; `null` expresses the absent value.
+    fn check_undefined_value(&mut self, value: &Expression<'_>) {
+        let initializes_to_undefined = match value {
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::Void,
+            _ => false,
+        };
+        if initializes_to_undefined {
+            self.sink
+                .emit_span(RuleScope::Both, "S2138", "Use null instead.", value.span());
         }
     }
 
@@ -644,6 +648,26 @@ export { Model };
     fn object_property_values_are_traversed_for_nested_binding_rules() {
         let report = js("const values = { Empty: class {}, callback: function empty() {} };\n");
         assert_eq!(filtered(&report, "S2094").len(), 1);
+
         assert_eq!(filtered(&report, "S1186").len(), 1);
+    }
+
+    #[test]
+    fn undefined_assignments_and_properties_switch_to_null() {
+        // #384: verbatim campaign repro shapes; Sonar flags both the
+        // property and the parameter assignment, not comparisons.
+        let flagged = js_keys(
+            "const myObject = {};\nmyObject.fname = undefined;\nfunction reset(x) { x.value = undefined; }\nclone[name] = undefined;\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S2138"), 3);
+
+        let property = js_keys("const defaults = {paperSize: undefined, showGridLines: false};\n");
+        assert_eq!(count_key(&property, "javascript:S2138"), 1);
+
+        // Comparisons keep their operands; `null` stays clean.
+        let clean = js_keys(
+            "if (x.value === undefined) g();\nif (y !== null) h();\nconst fallback = missing ? null : 0;\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S2138"), 0);
     }
 }

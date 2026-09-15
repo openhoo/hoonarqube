@@ -56,6 +56,7 @@ mod s5693_body_parser_limit;
 mod s5728_helmet_config;
 mod s5757_sensitive_log;
 mod s5958_catch_without_assertion;
+mod s5958_throw_assertion_type;
 mod s6080_this_timeout_zero;
 mod s6245_new_s3_bucket_command;
 mod s6268_angular_bypass;

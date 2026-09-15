@@ -18,8 +18,8 @@ use oxc_ast::ast::ThisExpression;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_catch_clause;
 use oxc_ast_visit::walk::{
-    walk_call_expression, walk_expression_statement, walk_function, walk_program,
-    walk_this_expression,
+    walk_call_expression, walk_expression_statement, walk_function, walk_function_body,
+    walk_program, walk_this_expression,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -58,6 +58,11 @@ impl<'a> Visit<'a> for MiscCollector<'_> {
         self.function_depth += 1;
         walk_function(self, it, flags);
         self.function_depth -= 1;
+    }
+
+    fn visit_function_body(&mut self, it: &oxc_ast::ast::FunctionBody<'a>) {
+        self.check_s1539_function_body(it);
+        walk_function_body(self, it);
     }
 }
 
@@ -173,6 +178,7 @@ impl<'a> Visit<'a> for TestFrameworkCollector<'_, '_> {
         self.check_this_timeout_zero(it);
         self.check_test_callback(it);
         self.check_expect_call(it);
+        self.check_throw_assertion_type(it);
         if let Some(name) = callee_name(it)
             && TEST_FRAMEWORK_GLOBALS.contains(&name)
         {

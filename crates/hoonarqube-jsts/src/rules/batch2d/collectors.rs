@@ -4,13 +4,10 @@ use crate::rules::shared::duplicated_key_name;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
-use crate::support::member_root_name;
 use crate::support::property_key_name;
-use crate::support::unparenthesized;
 use oxc_allocator::ArenaVec;
 use oxc_ast::ast::ArrowFunctionExpression;
 use oxc_ast::ast::BinaryExpression;
-use oxc_ast::ast::BinaryOperator;
 use oxc_ast::ast::BlockStatement;
 use oxc_ast::ast::BreakStatement;
 use oxc_ast::ast::CallExpression;
@@ -769,44 +766,6 @@ impl DuplicationCollector<'_> {
     }
 }
 
-/// Whether an expression is entirely string literals joined by `+`
-/// (`S3512`).
-fn is_pure_string_concat(expression: &Expression<'_>) -> bool {
-    match unparenthesized(expression) {
-        Expression::BinaryExpression(binary) if binary.operator == BinaryOperator::Addition => {
-            is_pure_string_concat(&binary.left) && is_pure_string_concat(&binary.right)
-        }
-        Expression::StringLiteral(_) => true,
-        _ => false,
-    }
-}
-
-/// Detects member accesses rooted at one identifier (`S6582` right-hand
-/// usage probe).
-#[derive(Default)]
-pub(crate) struct RootedMemberScanner<'n> {
-    pub(crate) root: &'n str,
-    pub(crate) found: bool,
-}
-
-impl<'a> Visit<'a> for RootedMemberScanner<'_> {
-    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        if member_root_name(it) == Some(self.root) {
-            self.found = true;
-        }
-        walk_member_expression(self, it);
-    }
-
-    fn visit_expression(&mut self, it: &Expression<'a>) {
-        if !matches!(
-            it,
-            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
-        ) {
-            walk_expression(self, it);
-        }
-    }
-}
-
 fn function_params_shadow_arguments(params: &FormalParameters<'_>) -> bool {
     params
         .items
@@ -884,18 +843,6 @@ impl<'a> Visit<'a> for EsIdiomCollector<'a> {
     fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
         self.check_s3358_conditional_expression(it);
         walk_conditional_expression(self, it);
-    }
-
-    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
-        // `S3512`: record pure string-concat roots; containment filtering
-        // happens after the traversal.
-        if it.operator == BinaryOperator::Addition
-            && is_pure_string_concat(&it.left)
-            && is_pure_string_concat(&it.right)
-        {
-            self.concat_roots.push(it.span());
-        }
-        walk_binary_expression(self, it);
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {

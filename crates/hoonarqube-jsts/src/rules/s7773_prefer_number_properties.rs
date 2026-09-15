@@ -5,17 +5,16 @@
 // semantics: eslint-plugin-unicorn `prefer-number-properties` at the
 // version pinned by SonarJS 13.x (v65.0.1, wrapped by SonarJS S7773).
 //
-// Issue #222 narrows the request to explicit-radix `parseInt` calls where
-// `Number.parseInt` is provably equivalent: the callee must resolve to the
-// unshadowed global `parseInt`, and the call must pass exactly two plain
-// arguments so the radix is preserved verbatim (lexical lookup, coercion,
-// and call evaluation are untouched). The blocked `isNaN`/`parseFloat`
-// observations stay rejected: `Number.isNaN`/`Number.isFinite` differ in
-// coercion semantics, so those occurrences are not proven. No auto-fix is
-// offered.
+// Issue #222 originally narrowed the rule to explicit-radix `parseInt`
+// calls. Issue #388 restores the documented global set: any plain call on
+// the unshadowed global `parseInt`, `parseFloat`, `isNaN`, or `isFinite`
+// maps to its `Number.*` static, and unshadowed `NaN` reads map to
+// `Number.NaN`. `Infinity`/`-Infinity` reads stay unflagged: the pinned
+// campaign oracles (express 12, exceljs 106 findings) count only the five
+// mappings above. No auto-fix is offered.
 //
-// The regression tests below are committed first at the pristine campaign
-// base and must fail (RED) until the detector lands.
+// The regression tests below pin the extended mapping at the campaign
+// base; they stay green once the detector covers the full global set.
 
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope};
@@ -42,26 +41,45 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         let AstKind::IdentifierReference(identifier) = node.kind() else {
             continue;
         };
-        if identifier.name != "parseInt"
-            || !semantic.is_reference_to_global_variable(identifier)
-            || !is_explicit_radix_call(semantic, node.id(), identifier.span)
+        let Some(static_name) = number_static_equivalent(&identifier.name) else {
+            continue;
+        };
+        if !semantic.is_reference_to_global_variable(identifier) {
+            continue;
+        }
+        // Function globals must be called; `NaN` flags on every unshadowed
+        // read.
+        if static_name != "Number.NaN"
+            && !is_plain_global_call(semantic, node.id(), identifier.span)
         {
             continue;
         }
         sink.emit_span(
             RuleScope::Both,
             "S7773",
-            "Prefer `Number.parseInt` over `parseInt`.",
+            &format!("Prefer `{static_name}` over `{}`.", identifier.name),
             identifier.span,
         );
     }
     sink.issues
 }
 
-/// The issue limit: only a plain, non-optional call on the unshadowed
-/// global `parseInt` with exactly two plain arguments (the radix preserved
-/// verbatim) is a proven `Number.parseInt` equivalent.
-fn is_explicit_radix_call(
+/// The `Number.*` static that replaces an unshadowed global number
+/// function or `NaN` reference (`S7773`).
+fn number_static_equivalent(name: &str) -> Option<&'static str> {
+    match name {
+        "parseInt" => Some("Number.parseInt"),
+        "parseFloat" => Some("Number.parseFloat"),
+        "isNaN" => Some("Number.isNaN"),
+        "isFinite" => Some("Number.isFinite"),
+        "NaN" => Some("Number.NaN"),
+        _ => None,
+    }
+}
+
+/// The reference must be the direct callee of a plain (non-optional)
+/// call; argument shapes are unconstrained.
+fn is_plain_global_call(
     semantic: &Semantic<'_>,
     identifier_node_id: NodeId,
     callee_span: Span,
@@ -70,13 +88,7 @@ fn is_explicit_radix_call(
     else {
         return false;
     };
-    call.callee.span() == callee_span
-        && !call.optional
-        && call.arguments.len() == 2
-        && call
-            .arguments
-            .iter()
-            .all(|argument| argument.as_expression().is_some())
+    call.callee.span() == callee_span && !call.optional
 }
 
 #[cfg(test)]
@@ -148,31 +160,36 @@ const dec = parseInt('42', 10);
     }
 
     #[test]
-    fn s7773_rejects_unproven_and_shadowed_forms() {
+    fn s7773_flags_full_documented_global_set() {
+        // Issue #388: the mapping covers every documented global number
+        // function plus `NaN`, regardless of the argument shapes.
         let source = "\
+const radix = parseInt('42', 16);
 const single = parseInt('42');
+const decimal = parseFloat('2.5');
+const bad = isNaN(0);
+const finite = isFinite(0);
+const zero = NaN;
+";
+        let keys = js_keys(source);
+        assert_eq!(count_key(&keys, "javascript:S7773"), 6);
+        for line in 1..=6 {
+            assert!(keys.contains(&("javascript:S7773".to_string(), line)));
+        }
+    }
+
+    #[test]
+    fn s7773_rejects_infinity_shadowed_and_non_call_forms() {
+        let source = "\
+const inf = Infinity;
+const neg = -Infinity;
 const member = Number.parseInt('42', 16);
-const spread = parseInt(...parts, 10);
 function shadowed() {
   const parseInt = (value, radix) => Number(value);
   return parseInt('42', 16);
 }
 parseInt = Number.parseInt;
-";
-        assert_eq!(count_key(&js_keys(source), "javascript:S7773"), 0);
-    }
-
-    #[test]
-    fn s7773_rejects_global_forms_without_proven_equivalence() {
-        // Issue guard: the blocked isNaN/parseFloat observations stay
-        // rejected; NaN/Infinity reads are outside the documented limit.
-        let source = "\
-const n = parseFloat('2.5');
-const bad = isNaN(n);
-const finite = isFinite(n);
-const zero = NaN;
-const inf = Infinity;
-const neg = -Infinity;
+const alias = parseInt;
 ";
         assert_eq!(count_key(&js_keys(source), "javascript:S7773"), 0);
     }
