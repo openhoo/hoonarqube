@@ -3,16 +3,15 @@ use super::{
     AssignmentTargetPropertyIdentifier, AssignmentTargetWithDefault, BindingPattern,
     BlockStatement, CallExpression, Class, ExportDefaultDeclarationKind, ExportSpecifier,
     Expression, ImportDeclaration, ImportDeclarationSpecifier, MemberExpression, MethodDefinition,
-    MethodDefinitionKind, ModuleExportName, NewExpression, ScopeFlags, Span, StaticBlock,
-    SwitchStatement, TbBinding, TbCallee, TbEvent, TbKind, TbModel, TbScope, TbScopeKind,
-    TbSignature, TbSite, UnaryExpression, UnaryOperator, VariableDeclaration,
-    VariableDeclarationKind, VariableDeclarator, Visit, finish_model, member_object,
-    static_property_name, unparenthesized, walk_arrow_function_expression, walk_block_statement,
-    walk_call_expression, walk_catch_clause, walk_class, walk_export_default_declaration,
-    walk_expression, walk_for_statement, walk_function, walk_member_expression,
-    walk_method_definition, walk_new_expression, walk_program, walk_static_block,
-    walk_switch_statement, walk_unary_expression, walk_variable_declaration,
-    walk_variable_declarator,
+    ModuleExportName, NewExpression, ScopeFlags, Span, StaticBlock, SwitchStatement, TbBinding,
+    TbCallee, TbEvent, TbKind, TbModel, TbScope, TbScopeKind, TbSignature, TbSite, UnaryExpression,
+    UnaryOperator, VariableDeclaration, VariableDeclarationKind, VariableDeclarator, Visit,
+    finish_model, member_object, static_property_name, unparenthesized,
+    walk_arrow_function_expression, walk_block_statement, walk_call_expression, walk_catch_clause,
+    walk_class, walk_export_default_declaration, walk_expression, walk_for_statement,
+    walk_function, walk_member_expression, walk_method_definition, walk_new_expression,
+    walk_program, walk_static_block, walk_switch_statement, walk_unary_expression,
+    walk_variable_declaration, walk_variable_declarator,
 };
 
 /// Builds the [`TbModel`] in one `Visit` pass. Writes versus reads are told
@@ -27,6 +26,10 @@ pub(crate) struct TbBuilder<'a, 'm> {
     pub(crate) skip_parameters: bool,
     /// Kind of the variable declaration currently being walked.
     pub(crate) pending_kind: TbKind,
+    /// The walked expression is the direct argument of `typeof x` (`S3827`).
+    pub(crate) typeof_direct: bool,
+    /// Enclosing `with` statement depth (`S3827`).
+    pub(crate) with_depth: u32,
 }
 
 impl<'a> TbBuilder<'a, '_> {
@@ -95,13 +98,14 @@ impl<'a> TbBuilder<'a, '_> {
             }
         })
     }
-
     pub(crate) fn record_reference(&mut self, name: &'a str, span: Span) {
         self.model.events.push(TbEvent {
             name,
             span,
             write: self.write_depth > 0,
             compound: self.compound,
+            under_typeof: self.typeof_direct,
+            with_depth: self.with_depth,
             scope: self
                 .stack
                 .last()
@@ -229,6 +233,8 @@ impl<'a> TbBuilder<'a, '_> {
                     span: identifier.span,
                     write: true,
                     compound: false,
+                    under_typeof: false,
+                    with_depth: 0,
                     scope: self
                         .stack
                         .last()
@@ -357,7 +363,10 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
         self.declare_parameters(&function.params);
         for binding in &mut self.model.bindings[parameter_start..] {
             if binding.kind == TbKind::Param {
-                binding.s1172_eligible = function.body.is_some();
+                // Setters legitimately leave their parameter unread, so it
+                // never counts as an unused parameter.
+                binding.s1172_eligible =
+                    function.body.is_some() && !flags.contains(ScopeFlags::SetAccessor);
             }
         }
         self.skip_parameters = false;
@@ -377,13 +386,10 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
     }
 
     fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
-        // Setters legitimately leave their parameter unread (`S1172`); the
-        // flag is consumed and cleared by the method's own `visit_function`.
-        if method.kind == MethodDefinitionKind::Set {
-            self.skip_parameters = true;
-        }
+        // Setter parameters are declared like any other parameter (their
+        // value is assigned before the body runs); only the method's own
+        // `visit_function` marks them S1172-ineligible.
         walk_method_definition(self, method);
-        self.skip_parameters = false;
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {
@@ -398,10 +404,26 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
         walk_class(self, class);
         self.pop_scope();
     }
-
     fn visit_unary_expression(&mut self, unary: &UnaryExpression<'a>) {
         self.record_delete(unary);
-        walk_unary_expression(self, unary);
+        // Only a direct identifier argument is the `typeof x` guard; the
+        // object of `typeof x.y` still throws when undeclared.
+        if unary.operator == UnaryOperator::Typeof
+            && matches!(unparenthesized(&unary.argument), Expression::Identifier(_))
+        {
+            self.typeof_direct = true;
+            walk_unary_expression(self, unary);
+            self.typeof_direct = false;
+        } else {
+            walk_unary_expression(self, unary);
+        }
+    }
+
+    fn visit_with_statement(&mut self, statement: &oxc_ast::ast::WithStatement<'a>) {
+        self.visit_expression(&statement.object);
+        self.with_depth += 1;
+        self.visit_statement(&statement.body);
+        self.with_depth -= 1;
     }
 
     fn visit_variable_declaration(&mut self, declaration: &VariableDeclaration<'a>) {
@@ -573,6 +595,7 @@ pub(crate) fn build_tb_model<'a>(program: &'a oxc_ast::ast::Program<'a>) -> TbMo
         shadows: Vec::new(),
         duplicates: Vec::new(),
         implicit_globals: Vec::new(),
+        unresolved_reads: Vec::new(),
         calls: Vec::new(),
         news: Vec::new(),
         delete_sites: Vec::new(),
@@ -585,6 +608,8 @@ pub(crate) fn build_tb_model<'a>(program: &'a oxc_ast::ast::Program<'a>) -> TbMo
         compound: false,
         skip_parameters: false,
         pending_kind: TbKind::Let,
+        typeof_direct: false,
+        with_depth: 0,
     };
     builder.visit_program(program);
     finish_model(model)
