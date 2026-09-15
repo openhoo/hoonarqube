@@ -2,7 +2,7 @@
 //!
 //! This crate deliberately separates parsing and semantic facts from
 //! findings. The sonar-parity route ([`analyze`]) runs the cataloged
-//! Ruby detectors from [`rules`] over the frozen `hoonarqube-catalog`
+//! Ruby detectors over the frozen `hoonarqube-catalog`
 //! surface; the owned [`RubyFacts`] model remains available to further rule
 //! registration work.
 
