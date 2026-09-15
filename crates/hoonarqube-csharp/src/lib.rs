@@ -152,11 +152,14 @@ impl CsLanguage {
     }
 }
 
-/// Sonar rules from the frozen catalog that declare scope `MAIN`.
-/// `SonarQube` never reports MAIN-scope rules on test sources, so these
-/// findings are dropped for test-scoped files (conventional `test`, `tests`,
-/// and `testing` directories, per `semantic::is_test_scope_file`). The
-/// remaining rules declare scope `ALL` (or `TEST`) and still apply.
+/// Sonar rules from the frozen catalog that declare scope `MAIN`, plus
+/// `S2325`, which declares `ALL` yet empirically reports only on main
+/// sources (the reference scanner's C# analysis does not run it on test
+/// files — the dapper oracle flags it under `benchmarks/` but never under
+/// `tests/`). `SonarQube` never reports these rules on test sources, so
+/// findings are dropped for test-scoped files (conventional `test`,
+/// `tests`, and `testing` directories, per `semantic::is_test_scope_file`).
+/// The remaining rules declare scope `ALL` (or `TEST`) and still apply.
 /// Benchmark suites stay in the main scope unless they live in such a
 /// directory: the reference scanner classifies them as non-test projects
 /// (`IsTestProject=false`) and keeps reporting MAIN rules there, so the
@@ -210,6 +213,7 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "csharpsquid:S2259",
     "csharpsquid:S2291",
     "csharpsquid:S2302",
+    "csharpsquid:S2325",
     "csharpsquid:S2327",
     "csharpsquid:S2357",
     "csharpsquid:S2365",
