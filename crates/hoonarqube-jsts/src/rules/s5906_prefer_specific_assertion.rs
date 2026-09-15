@@ -144,10 +144,11 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
                     }
                     let (first, rest) = call.arguments.split_first()?;
                     let actual = first.as_expression()?;
-                    let message_arguments = rest
-                        .iter()
-                        .map(|argument| format!(", {}", self.text(argument.span())))
-                        .collect::<String>();
+                    let mut message_arguments = String::new();
+                    for argument in rest {
+                        message_arguments.push_str(", ");
+                        message_arguments.push_str(&self.text(argument.span()));
+                    }
                     return Some(ExpectChain {
                         actual,
                         negated,
@@ -172,13 +173,13 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
         let expected = unparenthesized(expected);
         let actual_text = self.text(actual.span());
         if let Expression::NullLiteral(_) = expected {
-            return Some(self.not_length(format!(
+            return Some(Self::not_length(format!(
                 "expect({actual_text}{message_arguments}).to{}.be.null",
                 negation(!negated)
             )));
         }
         if matches!(expected, Expression::Identifier(id) if id.name == "undefined") {
-            return Some(self.not_length(format!(
+            return Some(Self::not_length(format!(
                 "expect({actual_text}{message_arguments}).to{}.be.undefined",
                 negation(!negated)
             )));
@@ -201,7 +202,7 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
         self.boolean_expression_suggestion(actual, positive, message_arguments)
     }
 
-    fn not_length(&self, assertion: String) -> Suggestion {
+    fn not_length(assertion: String) -> Suggestion {
         Suggestion {
             assertion,
             is_length: false,
@@ -237,12 +238,12 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
                 if let Some(assertion) = self.specific_equality(binary, same, message_arguments) {
                     return Some(assertion);
                 }
-                Some(self.not_length(format!(
+                Some(Self::not_length(format!(
                     "expect({left_text}{message_arguments}).to{}.equal({right_text})",
                     negation(same)
                 )))
             }
-            BinaryOperator::Instanceof => Some(self.not_length(format!(
+            BinaryOperator::Instanceof => Some(Self::not_length(format!(
                 "expect({left_text}{message_arguments}).to{}.be.instanceOf({right_text})",
                 negation(positive)
             ))),
@@ -253,7 +254,7 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
                 if is_numeric_comparison(binary) =>
             {
                 let chai = numeric_comparison_chai(binary.operator, positive)?;
-                Some(self.not_length(format!(
+                Some(Self::not_length(format!(
                     "expect({left_text}{message_arguments}).to.be.{chai}({right_text})"
                 )))
             }
@@ -282,26 +283,26 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
                 Nullish::Null => "be.null",
                 Nullish::Undefined => "be.undefined",
             };
-            return Some(self.not_length(format!(
+            return Some(Self::not_length(format!(
                 "expect({other_text}{message_arguments}).to{}.{suffix}",
                 negation(same)
             )));
         }
         if let Some(object) = length_access_object(unparenthesized(&binary.left)) {
-            return self.length_equality(
+            return Some(self.length_equality(
                 object,
                 &self.text(binary.right.span()),
                 same,
                 message_arguments,
-            );
+            ));
         }
         if let Some(object) = length_access_object(unparenthesized(&binary.right)) {
-            return self.length_equality(
+            return Some(self.length_equality(
                 object,
                 &self.text(binary.left.span()),
                 same,
                 message_arguments,
-            );
+            ));
         }
         None
     }
@@ -312,15 +313,15 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
         expected: &str,
         same: bool,
         message_arguments: &str,
-    ) -> Option<Suggestion> {
-        Some(Suggestion {
+    ) -> Suggestion {
+        Suggestion {
             assertion: format!(
                 "expect({}{message_arguments}).to{}.have.lengthOf({expected})",
                 self.text(object.span()),
                 negation(same)
             ),
             is_length: true,
-        })
+        }
     }
 
     /// `getIncludesSuggestion`: trusted-string `.includes(x)` comparisons.
@@ -344,7 +345,7 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
         }
         let receiver = self.text(unparenthesized(&member.object).span());
         let needle = self.text(call.arguments[0].span());
-        Some(self.not_length(format!(
+        Some(Self::not_length(format!(
             "expect({receiver}{message_arguments}).to{}.include({needle})",
             negation(positive)
         )))

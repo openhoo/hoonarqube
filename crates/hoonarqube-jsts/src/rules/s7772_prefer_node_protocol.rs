@@ -208,15 +208,14 @@ impl<'a> Visit<'a> for NodeProtocolCollector<'_> {
                                 && member.property.name == "getBuiltinModule"
                                 && matches!(&member.object, Expression::Identifier(id) if id.name == "process")
                     );
-                if (is_static_require || is_process_get_builtin_module) && call.arguments.len() == 1
-                {
-                    if let Some(Expression::StringLiteral(literal)) = call
+                if (is_static_require || is_process_get_builtin_module)
+                    && call.arguments.len() == 1
+                    && let Some(Expression::StringLiteral(literal)) = call
                         .arguments
                         .first()
                         .and_then(|argument| argument.as_expression())
-                    {
-                        self.report_source(&literal.value, literal.span);
-                    }
+                {
+                    self.report_source(&literal.value, literal.span);
                 }
             }
             _ => {}
