@@ -1295,14 +1295,90 @@ fn s2292_replaces_trivial_accessor_pairs_with_auto_properties() {
 }
 
 #[test]
-fn s1694_demands_abstract_and_concrete_members_on_abstract_classes() {
+fn s1694_flags_only_interface_shaped_abstract_types() {
     let report = analyze_default(
         "abstract class OnlyAbstract\n{\n    public abstract void Go();\n}\n\nabstract class OnlyConcrete\n{\n    public void Walk()\n    {\n        DoIt();\n    }\n}\n\nabstract class Mixed\n{\n    public abstract void Run();\n\n    public void Walk()\n    {\n        DoIt();\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S1694");
-    assert_eq!(flagged.len(), 2);
+    assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 1);
-    assert_eq!(flagged[1].range.start.line, 6);
+    assert_eq!(
+        flagged[0].message,
+        "Convert this 'abstract' class to an interface."
+    );
+}
+
+#[test]
+fn s1694_exempts_state_callables_and_class_bases() {
+    // Only a resolvable class base moves the reference BaseType off object.
+    let based = analyze_default(
+        "abstract class Child : Base\n{\n    public abstract void Go();\n}\n\nclass Base\n{\n}\n",
+    );
+    assert!(with_key(&based, "csharpsquid:S1694").is_empty());
+
+    // An interface base keeps the object base: the reference rule flags it.
+    let interfaced = analyze_default(
+        "interface IFoo\n{\n}\n\nabstract class Foo : IFoo\n{\n    public abstract void Go();\n}\n",
+    );
+    let flagged = with_key(&interfaced, "csharpsquid:S1694");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
+
+    // Any field, including an event backing field, is state.
+    let state = analyze_default(
+        "abstract class State\n{\n    private readonly int count;\n\n    public abstract void Go();\n}\n",
+    );
+    assert!(with_key(&state, "csharpsquid:S1694").is_empty());
+
+    // Constructors are reference-model methods that can never be abstract.
+    let constructed = analyze_default(
+        "abstract class Constructed\n{\n    protected Constructed() { }\n\n    public abstract void Go();\n}\n",
+    );
+    assert!(with_key(&constructed, "csharpsquid:S1694").is_empty());
+
+    // Without at least one declared method the shape is not convertible.
+    let properties =
+        analyze_default("abstract class Props\n{\n    public abstract int Count { get; }\n}\n");
+    assert!(with_key(&properties, "csharpsquid:S1694").is_empty());
+
+    // Non-positional abstract records convert; positional records do not.
+    let record =
+        analyze_default("abstract record Shape\n{\n    public abstract double Area();\n}\n");
+    let flagged = with_key(&record, "csharpsquid:S1694");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(
+        flagged[0].message,
+        "Convert this 'abstract' record to an interface."
+    );
+
+    let positioned = analyze_default("abstract record Pointed(int X);\n");
+    assert!(with_key(&positioned, "csharpsquid:S1694").is_empty());
+
+    // An unresolvable base binds to an error type in the reference model,
+    // which is never System.Object: the rule stays silent.
+    let unresolved = analyze_default(
+        "abstract class Orphan : Missing\n{\n    public abstract void Go();\n}\n",
+    );
+    assert!(with_key(&unresolved, "csharpsquid:S1694").is_empty());
+
+    // An auto-property synthesizes a backing field: state.
+    let automatic = analyze_default(
+        "abstract class Automatic\n{\n    public int Count { get; set; }\n\n    public abstract void Go();\n}\n",
+    );
+    assert!(with_key(&automatic, "csharpsquid:S1694").is_empty());
+
+    // A record with an empty parameter list is not positional.
+    let empty_record = analyze_default(
+        "abstract record Empty()\n{\n    public abstract double Area();\n}\n",
+    );
+    assert_eq!(with_key(&empty_record, "csharpsquid:S1694").len(), 1);
+
+    // A class's own primary constructor is implicit in the reference model:
+    // it does not exempt the class.
+    let primary = analyze_default(
+        "abstract class Primary()\n{\n    public abstract void Go();\n}\n",
+    );
+    assert_eq!(with_key(&primary, "csharpsquid:S1694").len(), 1);
 }
 
 #[test]
