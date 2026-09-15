@@ -704,13 +704,23 @@ try { k(); l(); } catch { m(); n(); }
             .iter()
             .filter(|issue| issue.rule_key.ends_with(":S122"))
             .collect();
-        // One issue per additional statement sharing a line: top level, the
-        // function body, the `if` block, the `while` block, and two in the
-        // try/catch line (`l()` and `n()`).
-        assert_eq!(s122.len(), 6);
-        assert!(
-            s122.iter()
-                .all(|issue| issue.message == "This line has 2 statements. Maximum allowed is 1.")
+        // One issue per line beyond the first statement: top level, the
+        // function body, the `if` block, the `while` block, and the
+        // try/catch line (five statements share it).
+        let mut sites: Vec<(u32, &str)> = s122
+            .iter()
+            .map(|issue| (issue.range.start.line, issue.message.as_str()))
+            .collect();
+        sites.sort_unstable();
+        assert_eq!(
+            sites,
+            vec![
+                (1, "This line has 2 statements. Maximum allowed is 1."),
+                (3, "This line has 2 statements. Maximum allowed is 1."),
+                (5, "This line has 3 statements. Maximum allowed is 1."),
+                (6, "This line has 3 statements. Maximum allowed is 1."),
+                (7, "This line has 5 statements. Maximum allowed is 1."),
+            ]
         );
         assert_eq!(
             s122[0].range,

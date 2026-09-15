@@ -1,5 +1,4 @@
 // Family 'one_stmt' (generated).
-pub(crate) mod collectors;
 mod s122_suite;
 mod walker;
 
