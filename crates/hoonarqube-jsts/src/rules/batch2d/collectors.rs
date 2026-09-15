@@ -4,7 +4,6 @@ use crate::rules::shared::duplicated_key_name;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
-use crate::support::member_object;
 use crate::support::property_key_name;
 use crate::support::unparenthesized;
 use oxc_allocator::ArenaVec;
