@@ -580,9 +580,10 @@ fn s3059_flags_members_more_visible_than_their_container() {
         "public class Registry\n{\n    internal class Cache\n    {\n        public void Reset()\n        {\n        }\n\n        private void Prime()\n        {\n        }\n    }\n}\ninternal class Vault\n{\n    public class Door\n    {\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3059");
-    assert_eq!(flagged.len(), 2);
-    assert_eq!(flagged[0].range.start.line, 3);
-    assert_eq!(flagged[1].range.start.line, 14);
+    // The reference rule reports only top-level `internal` types: the
+    // nested Cache stays clean, while Vault aggregates its public member.
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 14);
 }
 
 #[test]

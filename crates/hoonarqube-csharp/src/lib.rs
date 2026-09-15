@@ -187,7 +187,7 @@ pub fn analyze(
         root, source, language, options,
     ));
     issues.extend(rules::modifiers::modifier_issues(
-        root, source, language, options,
+        root, &path, source, language, options,
     ));
     issues.extend(rules::structure::structure_issues(
         root, source, language, options,
@@ -201,7 +201,9 @@ pub fn analyze(
     issues.extend(rules::literals::literal_content_issues(
         root, source, language, options,
     ));
-    issues.extend(rules::usage::usage_heuristic_issues(root, source, language));
+    issues.extend(rules::usage::usage_heuristic_issues(
+        root, &path, source, language,
+    ));
     issues.extend(rules::type_members::declaration_contract_issues(
         root, source, language,
     ));
@@ -214,7 +216,9 @@ pub fn analyze(
     issues.extend(rules::logging::logging_issues(
         root, source, language, options,
     ));
-    issues.extend(rules::linq_api::linq_api_issues(root, source, language));
+    issues.extend(rules::linq_api::linq_api_issues(
+        root, source, language, options,
+    ));
     issues.extend(rules::usage_analysis::usage_analysis_issues(
         root, source, language,
     ));
