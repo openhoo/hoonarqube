@@ -1,7 +1,7 @@
 //! Tolerant Go analyzer for the frozen `SonarQube` Community Go catalog.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use hoonarqube_dataflow::{
     ControlFlowSpec, Direction, TaintFacts, build_from_blocks, solve_dataflow,
@@ -87,6 +87,23 @@ const RULE_KEYS: &[&str] = &[
     "go:S3776", "go:S3923", "go:S4144", "go:S4663",
 ];
 
+/// Sonar rules from the frozen catalog that declare scope `MAIN`. `SonarQube`
+/// never reports MAIN-scope rules on test sources, and its default Go
+/// configuration categorizes every `*_test.go` file as a test source, so
+/// these findings are dropped for test files. The remaining rules (including
+/// `go:S3776`) declare scope `ALL` and still apply.
+const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
+    "go:S1151", "go:S1186", "go:S1192", "go:S122", "go:S138", "go:S1763", "go:S1871", "go:S4663",
+];
+
+/// Mirrors `SonarQube`'s default Go test-source categorization: a file is a
+/// test file when its file name ends with `_test.go`.
+fn is_test_scope_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|name| name.ends_with("_test.go"))
+}
+
 /// Analyze one Go source file. Syntax-invalid files fail closed with only
 /// `go:S2260` findings; semantic rules never run on recovered fragments.
 ///
@@ -129,6 +146,9 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
     });
     check_duplicate_strings(root, source, options, &imports, &mut issues);
     check_duplicate_functions(root, source, &mut issues);
+    if is_test_scope_file(path.as_path()) {
+        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+    }
     sort_issues(&mut issues);
     issues.dedup();
 
@@ -2941,8 +2961,10 @@ fn check_function(
             source,
         ));
     }
+    // Sonar raises go:S3776 on functions and methods only; a function
+    // literal's complexity is owned by its enclosing function.
     let cognitive = cognitive_complexity(body, source);
-    if cognitive > options.maximum_cognitive_complexity {
+    if node.kind() != "func_literal" && cognitive > options.maximum_cognitive_complexity {
         issues.push(node_issue(
             "go:S3776",
             format!("Refactor this method to reduce its Cognitive Complexity from {cognitive} to the {0} allowed.", options.maximum_cognitive_complexity),
@@ -3669,6 +3691,9 @@ fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
     let mut pending = vec![(node, 0_usize)];
     while let Some((current, nesting)) = pending.pop() {
         if current != node && current.kind() == "func_literal" {
+            // Sonar charges a function literal's control flow to the
+            // enclosing function and adds one nesting level for its body.
+            push_named_children(&mut pending, current, nesting + 1);
             continue;
         }
         let control = matches!(
@@ -3738,7 +3763,7 @@ fn logical_operators(node: Node<'_>, source: &str) -> (usize, usize) {
             LogicalItem::Operator(binary) => {
                 record_logical_operator(binary, source, &mut count, &mut sequences, &mut previous);
             }
-            LogicalItem::Node(current) => enqueue_logical_children(node, current, &mut pending),
+            LogicalItem::Node(current) => enqueue_logical_children(current, &mut pending),
         }
     }
     (count, sequences)
@@ -3762,14 +3787,7 @@ fn record_logical_operator<'source>(
     }
 }
 
-fn enqueue_logical_children<'tree>(
-    root: Node<'tree>,
-    current: Node<'tree>,
-    pending: &mut Vec<LogicalItem<'tree>>,
-) {
-    if current != root && current.kind() == "func_literal" {
-        return;
-    }
+fn enqueue_logical_children<'tree>(current: Node<'tree>, pending: &mut Vec<LogicalItem<'tree>>) {
     if let Some((left, right)) = binary_operands(current) {
         pending.push(LogicalItem::Node(right));
         pending.push(LogicalItem::Operator(current));
@@ -4763,15 +4781,36 @@ mod tests {
     }
 
     #[test]
-    fn function_literal_complexity_does_not_leak_into_outer_function() {
+    fn function_literal_complexity_is_charged_to_the_enclosing_function() {
+        let ifs = "   if x { println(1) }\n".repeat(14);
+        let source = format!(
+            "package p\nfunc outer(ok bool) {{\n if ok {{\n  _ = func(x bool) {{\n{ifs}  }}\n }}\n}}\n"
+        );
+        let found = keys(&source);
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S3776")
+                .count(),
+            1,
+            "the enclosing function is charged for literal control flow: {found:?}"
+        );
+    }
+
+    #[test]
+    fn function_literal_adds_a_nesting_level_to_the_enclosing_function() {
         let source = concat!(
             "package p\n",
-            "func outer() {\n",
-            " _ = func(a, b bool) { if a { if b { println(b) } } }\n",
+            "func outer(a, b bool) {\n",
+            " if a {\n",
+            "  _ = func() {\n",
+            "   if b { println(b) }\n",
+            "  }\n",
+            " }\n",
             "}\n",
         );
         let options = AnalyzerOptions {
-            maximum_cognitive_complexity: 0,
+            maximum_cognitive_complexity: 3,
             ..AnalyzerOptions::default()
         };
         let found = keys_with_options(source, &options);
@@ -4781,8 +4820,55 @@ mod tests {
                 .filter(|key| key.as_str() == "go:S3776")
                 .count(),
             1,
-            "only function literal owns its nested control flow: {found:?}"
+            "the literal body is scored one nesting level deeper (4 = 1 + 3): {found:?}"
         );
+    }
+
+    #[test]
+    fn main_scope_rules_stay_silent_on_go_test_files() {
+        let source = concat!(
+            "package p\n",
+            "func emptyHelper() {}\n",
+            "func duplicated() {\n",
+            " println(\"hello world!\")\n",
+            " println(\"hello world!\")\n",
+            " println(\"hello world!\")\n",
+            "}\n",
+            "func branching(ok bool) {\n",
+            " if ok { _ = func() { if ok { if ok { if ok { println(ok) } } } } }\n",
+            "}\n",
+        );
+        let options = AnalyzerOptions {
+            maximum_function_lines: 1,
+            maximum_cognitive_complexity: 5,
+            ..AnalyzerOptions::default()
+        };
+        let in_tests = keys_at("pkg_test.go", source, &options);
+        for key in ["go:S1186", "go:S1192", "go:S138"] {
+            assert!(
+                !in_tests.iter().any(|actual| actual == key),
+                "{key} is MAIN scope and must not report on test files: {in_tests:?}"
+            );
+        }
+        assert!(
+            in_tests.iter().any(|actual| actual == "go:S3776"),
+            "go:S3776 is scope ALL and still reports on test files: {in_tests:?}"
+        );
+        let in_sources = keys_at("pkg.go", source, &options);
+        for key in ["go:S1186", "go:S1192", "go:S138"] {
+            assert!(
+                in_sources.iter().any(|actual| actual == key),
+                "{key} keeps reporting on non-test files: {in_sources:?}"
+            );
+        }
+    }
+
+    fn keys_at(path: &str, source: &str, options: &AnalyzerOptions) -> Vec<String> {
+        analyze(PathBuf::from(path), source, options)
+            .issues
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect()
     }
 
     #[test]
