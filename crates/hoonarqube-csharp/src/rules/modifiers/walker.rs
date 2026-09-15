@@ -36,13 +36,11 @@ use super::virtual_field_events::check as check_virtual_field_events;
 use super::visible_static_fields::check as check_visible_static_fields;
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
-use std::path::Path;
 use tree_sitter::Node;
 
 /// Gathers every issue contributed by this rule family.
 pub(crate) fn modifier_issues(
     root: Node<'_>,
-    path: &Path,
     source: &str,
     language: CsLanguage,
     options: &AnalyzerOptions,
@@ -63,7 +61,7 @@ pub(crate) fn modifier_issues(
     issues.extend(check_iequatable_classes_sealed(root, source, language));
     issues.extend(check_private_types_sealed(root, source, language));
     issues.extend(check_member_visibility_above_type(
-        root, path, source, language, options,
+        root, source, language, options,
     ));
     issues.extend(check_optional_parameters(root, source, language));
     issues.extend(check_optional_attribute_on_ref_out_parameters(
