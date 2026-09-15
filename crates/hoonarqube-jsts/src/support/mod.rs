@@ -657,6 +657,25 @@ pub(crate) fn next_non_trivia_offset(source: &str, start: usize) -> Option<usize
     None
 }
 
+/// Whether `path` looks like a test file (`foo.test.js`, `foo.spec.ts`, or
+/// anywhere under a `__tests__` directory), matching the pinned server's
+/// filename-based MAIN/TEST classification shared by scoped rules.
+pub(crate) fn is_test_file(path: &Path) -> bool {
+    let stem_is_test =
+        path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| match stem.rsplit_once('.') {
+                Some((_, extension)) => {
+                    matches!(extension.to_ascii_lowercase().as_str(), "test" | "spec")
+                }
+                None => false,
+            });
+    let in_tests_dir = path
+        .components()
+        .any(|component| component.as_os_str() == "__tests__");
+    stem_is_test || in_tests_dir
+}
+
 pub(crate) use ast::{
     assignment_target_name, binding_identifier_name, callee_name, constructor_name,
     expression_root_name, identifier_name, member_object, member_root_name, member_rooted_at,

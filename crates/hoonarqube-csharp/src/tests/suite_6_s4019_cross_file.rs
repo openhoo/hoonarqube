@@ -1,6 +1,6 @@
 //! Test suite part; the full suite spans `tests/*.rs`.
 
-use super::{PathBuf, analyze_options, with_key};
+use super::{PathBuf, analyze_default, analyze_options, with_key};
 use crate::AnalyzerOptions;
 use crate::ProjectTypeIndex;
 use crate::semantic::SourceSnapshot;
@@ -75,4 +75,67 @@ fn s4019_without_project_index_base_resolution_stays_file_local() {
         with_key(&report, "csharpsquid:S4019").is_empty(),
         "cross-file resolution requires the project index; per-file behavior is unchanged"
     );
+}
+
+#[test]
+fn s4019_implicit_interface_implementations_are_not_hidden_base_methods() {
+    let interface = "namespace Mapping\n{\n    public interface ITypeMap\n    {\n        System.Reflection.ConstructorInfo? FindConstructor(string[] names, System.Type[] types);\n\n        System.Reflection.ConstructorInfo? FindExplicitConstructor();\n    }\n}\n";
+    let implementation = "namespace Mapping\n{\n    public sealed class CustomMap : ITypeMap\n    {\n        public System.Reflection.ConstructorInfo? FindConstructor(string[] names, System.Type[] types) => null;\n\n        public System.Reflection.ConstructorInfo? FindExplicitConstructor() => null;\n    }\n}\n";
+    let options =
+        options_with_index(&[("ITypeMap.cs", interface), ("CustomMap.cs", implementation)]);
+    let report = analyze_options(implementation, &options);
+    assert!(
+        with_key(&report, "csharpsquid:S4019").is_empty(),
+        "interface members are implemented, never hidden"
+    );
+
+    // File-local resolution behaves the same without a project index.
+    let local = analyze_default(&format!("{interface}{implementation}"));
+    assert!(with_key(&local, "csharpsquid:S4019").is_empty());
+}
+
+#[test]
+fn s4019_generic_name_collision_does_not_flag_own_members() {
+    let base = "namespace Tools\n{\n    public class Identity\n    {\n        public virtual int TypeCount => 0;\n    }\n}\n";
+    let derived = "namespace Tools\n{\n    internal sealed class Identity<TFirst, TSecond> : Identity\n    {\n        private static int CountNonTrivial(out int hashCode)\n        {\n            hashCode = 0;\n\n            return 0;\n        }\n    }\n}\n";
+    let options = options_with_index(&[("Identity.cs", base), ("IdentityGeneric.cs", derived)]);
+    let report = analyze_options(derived, &options);
+    assert!(
+        with_key(&report, "csharpsquid:S4019").is_empty(),
+        "a type never hides members of its own declaration"
+    );
+}
+
+#[test]
+fn s4019_generic_derived_still_hides_arity_zero_base_methods() {
+    let base = "namespace Tools\n{\n    public class Identity\n    {\n        public void Refresh() { }\n    }\n}\n";
+    let derived = "namespace Tools\n{\n    internal sealed class Identity<TFirst, TSecond> : Identity\n    {\n        public void Refresh() { }\n    }\n}\n";
+    let options = options_with_index(&[("Identity.cs", base), ("IdentityGeneric.cs", derived)]);
+    let report = analyze_options(derived, &options);
+    let flagged = with_key(&report, "csharpsquid:S4019");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(
+        flagged[0].message,
+        "Remove or rename that method because it hides 'Identity.Refresh()'."
+    );
+}
+
+#[test]
+fn s4019_interface_sharing_base_simple_name_contributes_no_candidates() {
+    // A class base and an interface may share a simple name across
+    // namespaces; only the class declaration's members are candidates.
+    let class_base = "namespace A\n{\n    public class Base\n    {\n        public void Refresh() { }\n    }\n}\n";
+    let interface_base =
+        "namespace B\n{\n    public interface Base\n    {\n        void Refresh();\n    }\n}\n";
+    let derived = "namespace C\n{\n    public sealed class Impl : A.Base\n    {\n        public void Refresh() { }\n    }\n}\n";
+    let options = options_with_index(&[
+        ("Base.cs", class_base),
+        ("IBase.cs", interface_base),
+        ("Impl.cs", derived),
+    ]);
+    let report = analyze_options(derived, &options);
+    let flagged = with_key(&report, "csharpsquid:S4019");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
 }
