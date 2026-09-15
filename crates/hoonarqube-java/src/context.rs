@@ -86,6 +86,10 @@ impl Symbol {
     pub(crate) fn byte_start(&self) -> usize {
         self.span.start
     }
+
+    pub(crate) fn byte_end(&self) -> usize {
+        self.span.end
+    }
 }
 #[derive(Debug)]
 struct SymbolDeclaration<'tree> {
@@ -115,6 +119,15 @@ pub struct ReferenceFact {
     pub is_write: bool,
 }
 
+/// Byte-offset-keyed reference fact for consumers that walk raw identifier
+/// nodes; `start`/`end` delimit exactly the identifier token.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ByteReference {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) symbol: Option<SymbolId>,
+}
+
 /// A complete, owned index of facts that can be proven from one Java CST.
 /// External names remain unresolved unless they are explicit imports or local
 /// declarations; no classpath assumptions are made.
@@ -125,6 +138,7 @@ pub struct SemanticIndex {
     pub symbols: Vec<Symbol>,
     pub imports: Vec<ImportFact>,
     pub references: Vec<ReferenceFact>,
+    byte_references: Vec<ByteReference>,
     package_name: Option<String>,
 }
 
@@ -228,11 +242,13 @@ impl SemanticIndex {
             symbols: Vec::new(),
             imports,
             references: Vec::new(),
+            byte_references: Vec::new(),
             package_name,
         };
         index.collect_declarations(root, source, lines);
         index.resolve_symbol_types();
         index.collect_references(root, source, lines);
+        index.byte_references.sort_by_key(|reference| reference.start);
         index
     }
 
@@ -572,6 +588,11 @@ impl SemanticIndex {
             let scope = self.scope_for(node.start_byte()).unwrap_or(ScopeId(0));
             let is_write = is_write_reference(node);
             let symbol = self.resolve_in_scope(text, scope, node.start_byte());
+            self.byte_references.push(ByteReference {
+                start: node.start_byte(),
+                end: node.end_byte(),
+                symbol,
+            });
             self.references.push(ReferenceFact {
                 name: text.to_owned(),
                 range: range_of(node, source, lines),
@@ -684,6 +705,12 @@ impl SemanticIndex {
         self.symbols.get(id.0)
     }
 
+    /// Byte-sorted raw identifier references, for consumers that walk the
+    /// CST themselves and need `(offset, symbol)` lookups.
+    pub(crate) fn byte_references(&self) -> &[ByteReference] {
+        &self.byte_references
+    }
+
     pub(crate) fn empty() -> Self {
         Self {
             source_len: 0,
@@ -699,6 +726,7 @@ impl SemanticIndex {
             symbols: Vec::new(),
             imports: Vec::new(),
             references: Vec::new(),
+            byte_references: Vec::new(),
             package_name: None,
         }
     }

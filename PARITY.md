@@ -2,14 +2,16 @@
 
 ## Claim boundary
 
-Hoonarqube ships the frozen 1,741-rule catalog:
+Hoonarqube ships the frozen 2,570-rule catalog:
 
 - C#: 467.
-- JavaScript: 406.
-- TypeScript: 412.
-- Python: 335.
+- JavaScript: 422.
+- TypeScript: 432.
+- Python: 353.
 - Go: 36.
 - Rust: 85.
+- Java: 733.
+- Ruby: 42.
 
 The separate 47-rule `hoonarqube-*` native catalog is excluded from every
 Sonar parity count and oracle claim. Native rules carry their own upstream
@@ -66,7 +68,8 @@ within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
 Java, Rust, and Ruby. Java/Ruby measurement support is separate from rule
 detection: catalog membership does not imply implemented detectors, and the
 implemented detector surface grows incrementally (Ruby currently implements
-`ruby:S1192`; Java implements no frozen-catalog detectors yet).
+`ruby:S1192`; Java implements `java:S1117`, `java:S1854`, `java:S2143`, and
+`java:S2211`).
 
 The native duplication defaults resemble SonarQube's documented thresholds:
 100 normalized syntax tokens across 10 physical lines for non-Java input,
@@ -276,10 +279,12 @@ HTML, or Docker syntax support.
 
 Native metric support, native language syntax support, Sonar server reference
 evidence, and optional IDE actions are separate contracts. Java adds
-measurement support only. Ruby ships measurement support plus the first
-cataloged sonar-parity detector (`ruby:S1192`, oracle-exact on the pinned
-`rake` scan); frozen-catalog membership alone still implies nothing about
-implemented detectors.
+measurement support plus its first four cataloged sonar-parity detectors
+(`java:S1117`, `java:S1854`, `java:S2143`, `java:S2211`, probe-verified
+against the live SonarQube 26.8 Community reference). Ruby ships
+measurement support plus the first cataloged sonar-parity detector
+(`ruby:S1192`, oracle-exact on the pinned `rake` scan); frozen-catalog
+membership alone still implies nothing about implemented detectors.
 Reference plugins or profiles do not create local analyzers. Optional rule
 quick fixes are tracked in `QUICKFIX.md`, not inferred from semantic-context
 or metric evidence.
