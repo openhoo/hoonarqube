@@ -6,7 +6,9 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S2156 — sealed types cannot be inherited from, so their
-/// `protected` members are dead weight.
+/// `protected` members are dead weight. `protected override` members are
+/// exempt: they exist to satisfy the base contract, and dropping the
+/// modifier is a compile error (CS0621).
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     let mut issues = Vec::new();
     for type_node in collect_kinds(
@@ -21,7 +23,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             continue;
         }
         for member in type_members(type_node) {
-            if has_modifier(&modifiers_of(member, source), "protected") {
+            let member_modifiers = modifiers_of(member, source);
+            if has_modifier(&member_modifiers, "override") {
+                continue;
+            }
+            if has_modifier(&member_modifiers, "protected") {
                 let protected = collect_kinds(member, &["protected"])
                     .into_iter()
                     .next()

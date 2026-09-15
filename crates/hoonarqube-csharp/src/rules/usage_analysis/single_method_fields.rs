@@ -1,30 +1,44 @@
 use super::support::member_uses;
 use crate::CsLanguage;
-use crate::cst::{issue, modifiers_of, range_of};
+use crate::cst::{issue, modifiers_of, node_text, range_of};
 use crate::rules::modifiers::has_modifier;
 use crate::rules::structure::is_attributed;
 use crate::symbol_table::{
-    MemberFlavor, TIER_B_MEMBER_KINDS, UsageSymbols, is_private_member, nearest_ancestor_of_kinds,
-    owner_is_partial,
+    MemberFlavor, TIER_B_MEMBER_KINDS, UsageSymbols, is_private_member, is_ref_or_out_argument,
+    nearest_ancestor_of_kinds, owner_is_partial,
 };
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S1450 — fields touched by exactly one method behave like
-/// locals and belong in that method.
+/// csharpsquid:S1450 — private instance fields touched by exactly one method
+/// behave like locals and belong in that method. `static` and `readonly`
+/// fields carry type-level contracts, and reference-escaped uses cannot
+/// move, so both stay exempt.
 pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'_>) -> Vec<Issue> {
     let mut issues = Vec::new();
     for member in &symbols.members {
+        let modifiers = modifiers_of(member.declaration, source);
         if member.flavor != MemberFlavor::Field
             || !is_private_member(member.declaration, source, member.nested_type)
-            || has_modifier(&modifiers_of(member.declaration, source), "const")
+            || has_modifier(&modifiers, "const")
             || is_attributed(member.declaration, source)
             || owner_is_partial(member.owner, source)
         {
             continue;
         }
+        // The reference rule converts locals, not type-level state: `static`
+        // and `readonly` fields carry contracts no local can express.
+        if has_modifier(&modifiers, "static") || has_modifier(&modifiers, "readonly") {
+            continue;
+        }
         let uses = member_uses(symbols, member, source);
         if uses.is_empty() {
+            continue;
+        }
+        if uses
+            .iter()
+            .any(|use_site| is_ref_or_out_argument(*use_site, source))
+        {
             continue;
         }
         let mut homes: Vec<Option<Node>> = uses
@@ -33,21 +47,93 @@ pub(crate) fn check(source: &str, language: CsLanguage, symbols: &UsageSymbols<'
             .collect();
         homes.sort_by_key(|home| home.map(|owner| owner.byte_range().start));
         homes.dedup_by_key(|home| home.map(|owner| owner.byte_range().start));
-        let single_method = matches!(homes.as_slice(), [Some(home)]
-            if home.kind() == "method_declaration");
-        if single_method {
-            issues.push(issue(
-                language,
-                "S1450",
-                format!(
-                    "Remove the field '{}' and declare it as a local variable in the relevant methods.",
-                    member.name
-                ),
-                range_of(member.anchor, source),
-            ));
+        let Some(home) = single_method_home(&homes) else {
+            continue;
+        };
+        // The reference rule converts the field only when the method
+        // overwrites it before every read; fields read first carry cross-call
+        // state that no local variable can hold.
+        if !reads_follow_pure_writes(&uses, home, source) {
+            continue;
         }
+        issues.push(issue(
+            language,
+            "S1450",
+            format!(
+                "Remove the field '{}' and declare it as a local variable in the relevant methods.",
+                member.name
+            ),
+            range_of(member.anchor, source),
+        ));
     }
     issues
+}
+
+/// The one method that owns every use of the field, when it is not a
+/// constructor or accessor — the only shape the reference rule converts.
+fn single_method_home<'t>(homes: &[Option<Node<'t>>]) -> Option<Node<'t>> {
+    match homes {
+        [Some(home)] if home.kind() == "method_declaration" => Some(*home),
+        _ => None,
+    }
+}
+
+/// Whether every read of the field inside `home` is preceded, in lexical
+/// order, by a statement that only writes the field. Reads from field
+/// initializers are invisible to the reference rule, while reads in
+/// expression bodies can never be preceded, so both spare the field.
+fn reads_follow_pure_writes<'t>(uses: &[Node<'t>], home: Node<'t>, source: &str) -> bool {
+    let home_span = home.byte_range();
+    let mut shapes: std::collections::HashMap<usize, (bool, bool, usize)> =
+        std::collections::HashMap::new();
+    for site in uses {
+        let Some(pseudo) = pseudo_statement(*site) else {
+            continue;
+        };
+        let span = pseudo.byte_range();
+        if span.start < home_span.start || span.end > home_span.end {
+            continue;
+        }
+        let entry = shapes
+            .entry(pseudo.id())
+            .or_insert((false, false, span.start));
+        let write = is_plain_write(*site, source);
+        entry.0 |= write;
+        entry.1 |= !write;
+    }
+    uses.iter().all(|site| {
+        if is_plain_write(*site, source) {
+            return true;
+        }
+        let Some(pseudo) = pseudo_statement(*site) else {
+            return true;
+        };
+        let read_start = pseudo.byte_range().start;
+        shapes
+            .values()
+            .any(|(has_write, has_read, start)| *has_write && !*has_read && *start < read_start)
+    })
+}
+
+/// Whether the site is the left side of a plain `=` assignment, the only
+/// shape the reference rule counts as an overwrite.
+fn is_plain_write(site: Node<'_>, source: &str) -> bool {
+    site.parent().is_some_and(|assignment| {
+        assignment.kind() == "assignment_expression"
+            && assignment
+                .child_by_field_name("left")
+                .is_some_and(|left| left.id() == site.id())
+            && assignment
+                .child_by_field_name("operator")
+                .is_some_and(|operator| node_text(operator, source) == "=")
+    })
+}
+
+/// Nearest statement or expression-body owning a site's execution step.
+fn pseudo_statement(node: Node<'_>) -> Option<Node<'_>> {
+    std::iter::successors(node.parent(), Node::parent).find(|ancestor| {
+        ancestor.kind().ends_with("_statement") || ancestor.kind() == "arrow_expression_clause"
+    })
 }
 
 #[cfg(test)]
