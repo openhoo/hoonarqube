@@ -20,6 +20,7 @@
 //! project evaluation, references, compiler diagnostics, or generated-source
 //! mappings are missing.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -160,11 +161,12 @@ pub fn analyze(
     language: CsLanguage,
     options: &AnalyzerOptions,
 ) -> hoonarqube_ir::FileReport {
-    let tree = parse(source);
+    let (tree, recovered) = parse_tracked(source);
     let root = tree.root_node();
     let (metrics, code_line_count) = metrics::file_metrics(root, source);
-    if root.has_error() {
-        // Do not run rule families on a recovered malformed tree.
+    if root.has_error() && !recovered {
+        // Do not run rule families on a malformed tree that no preprocessor
+        // recovery covers; recovered trees keep per-node error-taint skips.
         return hoonarqube_ir::FileReport {
             path,
             language: language.prefix().to_string(),
@@ -256,8 +258,8 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 /// behavior only.
 #[must_use]
 pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
-    let tree = parse(source);
-    github_quality_issues(tree.root_node(), source, None)
+    let (tree, recovered) = parse_tracked(source);
+    github_quality_issues(tree.root_node(), source, None, recovered)
 }
 
 /// Runs GitHub Code Quality queries and computes file metrics from one parse.
@@ -269,12 +271,12 @@ pub fn analyze_github_quality_report(
     source: &str,
     project: Option<&ProjectTypeIndex>,
 ) -> hoonarqube_ir::FileReport {
-    let tree = parse(source);
+    let (tree, recovered) = parse_tracked(source);
     let root = tree.root_node();
     hoonarqube_ir::FileReport {
         path,
         language: CsLanguage::CSharp.prefix().to_owned(),
-        issues: github_quality_issues(root, source, project),
+        issues: github_quality_issues(root, source, project, recovered),
         metrics: metrics::file_metrics(root, source).0,
     }
 }
@@ -283,8 +285,9 @@ fn github_quality_issues(
     root: tree_sitter::Node<'_>,
     source: &str,
     project: Option<&ProjectTypeIndex>,
+    recovered: bool,
 ) -> Vec<hoonarqube_ir::Issue> {
-    if root.has_error() {
+    if root.has_error() && !recovered {
         return Vec::new();
     }
     let issues = github_quality::check(root, source, project);
@@ -301,9 +304,9 @@ fn github_quality_issues(
 /// evidence.
 #[must_use]
 pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
-    let tree = parse(source);
+    let (tree, recovered) = parse_tracked(source);
     let root = tree.root_node();
-    if root.has_error() {
+    if root.has_error() && !recovered {
         return Vec::new();
     }
     let mut issues = Vec::new();
@@ -593,18 +596,62 @@ fn native_result_is_discarded(mut expression: tree_sitter::Node<'_>, source: &st
     false
 }
 
-fn parse(source: &str) -> tree_sitter::Tree {
+/// Parser views tried when the direct parse of a C# snapshot failed
+/// (#328): a directive-blanked view first, then a view with the
+/// conditional branches evaluated under the undefined-symbol default.
+/// Byte lengths are preserved, so a recovered tree's node ranges still
+/// index the original source byte-for-byte.
+#[must_use]
+pub fn preprocessor_recovery_views(source: &str) -> Vec<Cow<'_, str>> {
+    preprocessor::recovery_views(source)
+}
+
+/// Parses one C# source snapshot, recovering preprocessor-directive
+/// placement failures (#328).  A directive inside an expression is the one
+/// known shape where the grammar reports an error for input the language
+/// accepts; when the direct parse fails, the recovery views are tried in
+/// order and the first clean tree wins.  The returned flag reports whether
+/// the tree came from a recovery view: recovered trees that still carry
+/// residual errors are analyzed tolerantly (per-node error taint) instead
+/// of refusing the file, while trees without any recovery view keep the
+/// documented whole-file refusal for malformed input.
+fn parse_tracked(source: &str) -> (tree_sitter::Tree, bool) {
     let mut parser = Parser::new();
     parser
         .set_language(&tree_sitter_c_sharp::LANGUAGE.into())
         .expect("tree-sitter-c-sharp grammar is compatible");
-    parser
+    let tree = parser
         .parse(source, None)
-        .expect("parse always yields a tree")
+        .expect("parse always yields a tree");
+    if !tree.root_node().has_error() {
+        return (tree, false);
+    }
+    let views = preprocessor::recovery_views(source);
+    let mut first: Option<tree_sitter::Tree> = None;
+    for view in &views {
+        if let Some(tree) = parser.parse(view.as_ref(), None) {
+            if !tree.root_node().has_error() {
+                return (tree, true);
+            }
+            if first.is_none() {
+                first = Some(tree);
+            }
+        }
+    }
+    match first {
+        Some(tree) => (tree, true),
+        None => (tree, false),
+    }
 }
+
+fn parse(source: &str) -> tree_sitter::Tree {
+    parse_tracked(source).0
+}
+
 mod cst;
 mod github_quality;
 mod metrics;
+mod preprocessor;
 mod project_index;
 mod rules;
 mod symbol_table;
