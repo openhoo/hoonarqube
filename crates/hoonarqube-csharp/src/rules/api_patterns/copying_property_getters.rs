@@ -23,7 +23,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             for call in collect_owned_kinds(region, &["invocation_expression"])
                 .into_iter()
                 .filter(|call| is_returned_from_property(*call, property))
-                .filter(|call| canonical(callee_name(*call, source).unwrap_or("")) == "ToList")
+                .filter(|call| copying_callee(*call, source))
             {
                 if !seen.insert(call.id()) {
                     continue;
@@ -44,6 +44,19 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 
 fn canonical(name: &str) -> &str {
     name.strip_prefix('@').unwrap_or(name)
+}
+
+/// `ToList` always materializes a copy; `ToArray` only counts when its
+/// receiver is itself a computed chain (`Select(...).ToArray()`), since a
+/// direct `items.ToArray()` snapshot is the accepted array-returning
+/// idiom the reference leaves alone.
+fn copying_callee(call: Node<'_>, source: &str) -> bool {
+    match canonical(callee_name(call, source).unwrap_or("")) {
+        "ToList" => true,
+        "ToArray" => crate::rules::expressions::invocation_receiver(call)
+            .is_some_and(|receiver| receiver.kind() == "invocation_expression"),
+        _ => false,
+    }
 }
 
 fn direct_arrow_bodies(property: Node<'_>) -> Vec<Node<'_>> {
@@ -105,5 +118,15 @@ mod tests {
             "class C { IEnumerable<int> items; public IEnumerable<int> Items { get { Log(items.ToList()); Func<List<int>> later = () => items.ToList(); return items; } } }\n",
         );
         assert!(with_key(&report, "csharpsquid:S2365").is_empty());
+    }
+
+    #[test]
+    fn s2365_flags_computed_toarray_chains() {
+        let report = analyze_default(
+            "class C : System.Collections.Generic.IDictionary<string, object>\n{\n    System.Collections.Generic.ICollection<string> System.Collections.Generic.IDictionary<string, object>.Keys\n    {\n        get { return this.Select(kv => kv.Key).ToArray(); }\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S2365");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 5);
     }
 }

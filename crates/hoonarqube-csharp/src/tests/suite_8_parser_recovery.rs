@@ -166,3 +166,103 @@ fn unbalanced_directives_stay_fail_closed() {
     assert!(crate::preprocessor_recovery_views(stray_end).is_empty());
     assert!(analyze_default(stray_end).issues.is_empty());
 }
+
+/// Residual #328: Dapper's `SqlMapper.cs` also binds indexer elements with
+/// the contextual keywords `type`/`param`/`field` (`[type] = value`).  The
+/// vendored grammar lexed those words as `attribute_target_specifier`
+/// keyword literals, so the element binding produced an ERROR node and the
+/// analyzer refused the whole file even after the directive views
+/// recovered.  The vendored repair (upstream tree-sitter-c-sharp#429) lists
+/// the specifier keywords as reserved identifiers and prefers the
+/// target-specifier reading only when `:` follows.
+const ELEMENT_BINDING_WITH_SPECIFIER_KEYWORDS: &str = "\
+namespace Dapper
+{
+    public static partial class SqlMapper
+    {
+        static void SetTypeMap(System.Type type, TypeMapEntry value)
+        {
+            SetTypeMap(new Dictionary<Type, TypeMapEntry>(41
+#if NET6_0_OR_GREATER
+                + 4 // {Date|Time}Only[?]
+#endif
+                )
+            {
+                [type] = value,
+                [typeof(byte)] = TypeMapEntry.DoNotSetFieldValue,
+            });
+            if (type is null) ;
+        }
+    }
+}
+";
+
+#[test]
+fn element_binding_with_specifier_keywords_is_analyzed() {
+    let tree = crate::parse(ELEMENT_BINDING_WITH_SPECIFIER_KEYWORDS);
+    assert!(
+        !tree.root_node().has_error(),
+        "`[type] = value` element bindings must parse without recovered nodes: {}",
+        tree.root_node().to_sexp()
+    );
+    assert_eq!(
+        crate::cst::collect_kinds(tree.root_node(), &["element_binding_expression"]).len(),
+        2,
+        "both `[type] = value` and `[typeof(byte)] = …` must bind as indexer elements"
+    );
+    let report = analyze_default(ELEMENT_BINDING_WITH_SPECIFIER_KEYWORDS);
+    let empty_statements = with_key(&report, "csharpsquid:S1116");
+    assert_eq!(
+        empty_statements.len(),
+        1,
+        "findings must be emitted from the analyzed tree: {:?}",
+        report.issues
+    );
+    assert_eq!(empty_statements[0].range.start.line, 16);
+}
+
+#[test]
+fn specifier_keywords_stay_identifiers_and_targets() {
+    // Every attribute_target_specifier keyword that is also a legal C#
+    // identifier must parse as an element-binding key, while the real
+    // `[target: Attr]` syntax keeps its specifier node.  `event`/`return`
+    // are real keywords and stay excluded from identifier positions.
+    let source = "class C {\n  [field: System.NonSerialized]\n  int P { get; set; }\n  void M(int field, int method, int param, int property, int type, int typevar) {\n    var d = new System.Collections.Generic.Dictionary<int, int> {\n      [field] = method, [param] = property, [type] = typevar,\n    };\n  }\n}\n";
+    let tree = crate::parse(source);
+    assert!(
+        !tree.root_node().has_error(),
+        "{}",
+        tree.root_node().to_sexp()
+    );
+    assert_eq!(
+        crate::cst::collect_kinds(tree.root_node(), &["attribute_target_specifier"]).len(),
+        1,
+        "`[field: …]` must keep its attribute target specifier"
+    );
+    assert_eq!(
+        crate::cst::collect_kinds(tree.root_node(), &["element_binding_expression"]).len(),
+        3
+    );
+    let report = analyze_default(source);
+    assert!(
+        !report.issues.is_empty(),
+        "the analyzed tree must still emit findings"
+    );
+}
+
+#[test]
+fn specifier_keywords_in_collection_expressions_stay_identifiers() {
+    // `[type]` inside a C# 12 collection expression is an identifier
+    // element, not a target specifier.
+    let source = "class C {\n  void M(int type, int field) {\n    int[] xs = [type, field];\n    System.Console.Write(xs.Length);\n  }\n}\n";
+    let tree = crate::parse(source);
+    assert!(
+        !tree.root_node().has_error(),
+        "{}",
+        tree.root_node().to_sexp()
+    );
+    assert_eq!(
+        crate::cst::collect_kinds(tree.root_node(), &["collection_expression"]).len(),
+        1
+    );
+}

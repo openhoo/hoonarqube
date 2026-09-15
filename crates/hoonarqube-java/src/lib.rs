@@ -1,14 +1,18 @@
 //! Tolerant tree-sitter Java frontend.
 //!
-//! bounded intraprocedural flow foundation and a conservative set of
-//! syntax/scope-feasible GitHub Code Quality checks. It does not pretend to
-//! have a Java classpath or compiler type model, and emits no guessed facts.
+//! This crate deliberately separates parsing and semantic facts from
+//! findings. The sonar-parity route ([`analyze`]) runs the cataloged Java
+//! detectors over the frozen `hoonarqube-catalog` surface; the owned
+//! [`SemanticIndex`] model remains available to further rule registration
+//! work. It does not pretend to have a Java classpath or compiler type
+//! model, and emits no guessed facts.
 
 use std::path::PathBuf;
 
 use hoonarqube_ir::{FileMetrics, FileReport, Issue, u32_saturating};
 mod context;
 mod engine;
+mod rules;
 mod support;
 
 pub use context::{
@@ -44,20 +48,29 @@ impl Default for AnalyzerOptions {
     }
 }
 
-/// Parses one Java source file and returns metrics plus currently registered
-/// findings. Syntax errors fail closed and never produce fabricated issues.
+/// Analyze one Java source file with the cataloged sonar-parity detectors.
+///
+/// Reports stay deterministic: parse errors fail closed (metrics only, no
+/// findings on recovered fragments), and the route never fabricates issues
+/// for rules outside the frozen catalog. The Java frontend does not yet
+/// classify test sources, so every cataloged rule applies to every file.
 #[must_use]
-pub fn analyze(path: PathBuf, source: &str, _options: &AnalyzerOptions) -> FileReport {
-    analyze_report(path, source, false)
+pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileReport {
+    analyze_report(path, source, false, options)
 }
 
 /// Runs GitHub Code Quality queries and computes file metrics from one parse.
 #[must_use]
 pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport {
-    analyze_report(path, source, true)
+    analyze_report(path, source, true, &AnalyzerOptions::default())
 }
 
-fn analyze_report(path: PathBuf, source: &str, github_quality: bool) -> FileReport {
+fn analyze_report(
+    path: PathBuf,
+    source: &str,
+    github_quality: bool,
+    options: &AnalyzerOptions,
+) -> FileReport {
     let Some(tree) = context::parse(source) else {
         return FileReport {
             path,
@@ -79,8 +92,11 @@ fn analyze_report(path: PathBuf, source: &str, github_quality: bool) -> FileRepo
     let issues = if github_quality {
         github_quality_issues(root, source)
     } else {
-        Vec::new()
+        rules::check_sonar_rules(&tree, source, options)
     };
+    let mut issues = issues;
+    hoonarqube_ir::sort_issues(&mut issues);
+    issues.dedup();
     FileReport {
         path,
         language: "java".to_owned(),
