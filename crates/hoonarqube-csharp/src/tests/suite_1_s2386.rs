@@ -504,6 +504,14 @@ fn s2156_flags_protected_members_in_sealed_types() {
 }
 
 #[test]
+fn s2156_spares_protected_override_members_in_sealed_types() {
+    let report = analyze_default(
+        "class Base\n{\n    protected virtual void Dispose(bool disposing) { }\n\n    protected virtual int Read() => 0;\n}\n\nsealed class Wrapped : Base\n{\n    protected override void Dispose(bool disposing) { }\n\n    protected sealed override int Read() => 1;\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S2156").is_empty());
+}
+
+#[test]
 fn s2290_flags_virtual_field_like_events() {
     let report = analyze_default(
         "class Broadcaster\n{\n    public virtual event System.EventHandler Changed;\n\n    public event System.EventHandler Stopped;\n}\n",

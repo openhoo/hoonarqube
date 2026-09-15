@@ -624,4 +624,22 @@ mod tests {
         let distinct = ts_keys("type Alias = string;\ntype T = Alias | number;\n");
         assert_eq!(count_key(&distinct, "typescript:S6571"), 0);
     }
+
+    #[test]
+    fn function_scope_strict_directives_flagged_program_level_stays() {
+        // #385: directive prologues inside function bodies are the
+        // error-prone form; program-level directives stay exempt per the
+        // documented divergence in `check_s1539_expression_statement`.
+        let flagged = js_keys(
+            "function strict() {\n  'use strict';\n  return 1;\n}\nconst arrow = () => {\n  'use strict';\n  return 3;\n};\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S1539"), 2);
+
+        let global_only = js_keys("'use strict';\nfunction plain() { return 1; }\n");
+        assert_eq!(count_key(&global_only, "javascript:S1539"), 0);
+
+        // A directive that lost its prologue position stays flagged.
+        let stray = js_keys("boot();\n\"use strict\";\n");
+        assert_eq!(count_key(&stray, "javascript:S1539"), 1);
+    }
 }

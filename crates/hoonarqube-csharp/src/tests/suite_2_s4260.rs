@@ -266,7 +266,7 @@ fn s1192_flags_first_occurrence_of_a_repeated_literal_once() {
         ..Default::default()
     };
     let lowered = analyze_options(
-        "class C\n{\n    void M()\n    {\n        Use(\"beta\");\n        Use(\"beta\");\n    }\n}\n",
+        "class C\n{\n    void M()\n    {\n        Use(\"gamut\");\n        Use(\"gamut\");\n    }\n}\n",
         &options,
     );
     assert_eq!(with_key(&lowered, "csharpsquid:S1192").len(), 1);
@@ -277,6 +277,24 @@ fn s1192_exempts_empty_and_unique_literals() {
     let report = analyze_default(
         "class C\n{\n    void M()\n    {\n        Use(\"\");\n        Use(\"\");\n\
              Use(\"\");\n        Use(\"only once\");\n    }\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S1192").is_empty());
+}
+
+#[test]
+fn s1192_spares_literals_below_the_five_character_floor() {
+    let report = analyze_default(
+        "class C\n{\n    void M()\n    {\n        Use(\"_\");\n        Use(\"_\");\n        Use(\"_\");\n        Use(\"abc\");\n        Use(\"abc\");\n        Use(\"abc\");\n        Use(\"alpha\");\n        Use(\"alpha\");\n        Use(\"alpha\");\n    }\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S1192");
+    assert_eq!(flagged.len(), 1);
+    assert!(flagged[0].message.contains("'alpha' 3 times."));
+}
+
+#[test]
+fn s1192_spares_duplicated_literals_inside_attribute_arguments() {
+    let report = analyze_default(
+        "using System.Diagnostics.CodeAnalysis;\n\nclass C\n{\n    [SuppressMessage(\"ApiDesign\", \"RS0026:Do not add multiple public overloads\", Justification = \"Grandfathered\")]\n    void One() { }\n\n    [SuppressMessage(\"ApiDesign\", \"RS0026:Do not add multiple public overloads\", Justification = \"Grandfathered\")]\n    void Two() { }\n\n    [SuppressMessage(\"ApiDesign\", \"RS0026:Do not add multiple public overloads\", Justification = \"Grandfathered\")]\n    void Three() { }\n}\n",
     );
     assert!(with_key(&report, "csharpsquid:S1192").is_empty());
 }

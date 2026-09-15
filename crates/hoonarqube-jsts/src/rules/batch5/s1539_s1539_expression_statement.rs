@@ -1,8 +1,7 @@
 use super::collectors_hotspots::MiscCollector;
 use crate::support::RuleScope;
 use crate::support::unparenthesized;
-use oxc_ast::ast::Expression;
-use oxc_ast::ast::ExpressionStatement;
+use oxc_ast::ast::{Expression, ExpressionStatement, FunctionBody};
 use oxc_span::GetSpan;
 
 // Generated per-rule checks (moved out of traversal overrides).
@@ -29,6 +28,23 @@ impl MiscCollector<'_> {
                 "Move this 'use strict' directive to the top of its enclosing scope.",
                 it.span(),
             );
+        }
+    }
+
+    /// `S1539`: `"use strict"` directives in function-body prologues.
+    /// Function-level strict mode is the error-prone form the rule targets;
+    /// the program-level prologue stays exempt (see the divergence note
+    /// above).
+    pub(crate) fn check_s1539_function_body(&mut self, body: &FunctionBody<'_>) {
+        for directive in &body.directives {
+            if directive.expression.value == "use strict" {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S1539",
+                    "Use the global form of 'use strict'.",
+                    directive.expression.span(),
+                );
+            }
         }
     }
 }

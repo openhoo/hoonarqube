@@ -4,7 +4,6 @@ use crate::rules::shared::duplicated_key_name;
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
-use crate::support::member_root_name;
 use crate::support::property_key_name;
 use oxc_allocator::ArenaVec;
 use oxc_ast::ast::ArrowFunctionExpression;
@@ -763,31 +762,6 @@ impl DuplicationCollector<'_> {
             self.emit_duplicate_key(&format!("\"{name}\""), span);
         } else {
             seen.push(name);
-        }
-    }
-}
-/// Detects member accesses rooted at one identifier (`S6582` right-hand
-/// usage probe).
-#[derive(Default)]
-pub(crate) struct RootedMemberScanner<'n> {
-    pub(crate) root: &'n str,
-    pub(crate) found: bool,
-}
-
-impl<'a> Visit<'a> for RootedMemberScanner<'_> {
-    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        if member_root_name(it) == Some(self.root) {
-            self.found = true;
-        }
-        walk_member_expression(self, it);
-    }
-
-    fn visit_expression(&mut self, it: &Expression<'a>) {
-        if !matches!(
-            it,
-            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
-        ) {
-            walk_expression(self, it);
         }
     }
 }

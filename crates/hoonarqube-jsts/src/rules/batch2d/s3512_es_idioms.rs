@@ -7,6 +7,7 @@ use oxc_span::Span;
 
 pub(crate) fn check_es_idioms(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -16,6 +17,7 @@ pub(crate) fn check_es_idioms(
             language,
             issues: Vec::new(),
         },
+        source,
         arguments_shadowed: Vec::new(),
         s6582_spans: Vec::new(),
     };
@@ -28,6 +30,8 @@ pub(crate) fn check_es_idioms(
 /// semantic-model module `s3512_template_literal` (issue #387).
 pub(crate) struct EsIdiomCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    /// File source, used to compare computed member keys by text (`S6582`).
+    pub(crate) source: &'index str,
     /// One frame per enclosing function unit recording whether it shadows
     /// the name `arguments` (`S3513`).
     pub(crate) arguments_shadowed: Vec<bool>,

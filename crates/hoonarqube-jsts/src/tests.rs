@@ -626,6 +626,34 @@ fn typescript_input_parses_and_carries_typescript_prefix() {
 }
 
 #[test]
+fn typescript_declaration_files_stay_outside_the_analysis_scope() {
+    // #382: SonarQube's default configuration excludes declaration files
+    // from analysis entirely; hq emits neither issues nor metrics for
+    // them while regular TypeScript files stay analyzed.
+    let source = "\tconst zoom = 1;\ndeclare const value: {\n\tfirst?: any;\n\tsecond?: string | number;\n};\n";
+    for name in ["types.d.ts", "lib.d.mts", "Lib.D.CTS"] {
+        let report = analyze(
+            PathBuf::from(name),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert!(report.issues.is_empty(), "{name}");
+        assert_eq!(report.metrics.lines, 0, "{name}");
+    }
+
+    // `d.ts` is a plain `.ts` file whose stem happens to end in `d`, so
+    // it stays inside the analysis scope.
+    let report = analyze(
+        PathBuf::from("d.ts"),
+        "\tconst zoom = 1;\n",
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    assert!(report.metrics.lines > 0);
+}
+
+#[test]
 fn jsx_input_parses_cleanly() {
     let report = analyze(
         PathBuf::from("test.jsx"),
