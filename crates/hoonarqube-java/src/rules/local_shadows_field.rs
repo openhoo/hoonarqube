@@ -33,7 +33,9 @@ pub(crate) fn check(root: Node<'_>, source: &str, lines: &LineIndex) -> Vec<Issu
             let local_name = node_text(name, source);
             issues.push(Issue::new(
                 "java:S1117",
-                format!("Rename \"{local_name}\" which hides the field declared at line {field_line}."),
+                format!(
+                    "Rename \"{local_name}\" which hides the field declared at line {field_line}."
+                ),
                 range_of_name(name, source, lines),
             ));
         }
@@ -144,12 +146,14 @@ mod tests {
 
     #[test]
     fn every_declarator_in_multi_declaration_is_checked() {
-        let source =
-            "class A { int a; int b; void f() { int keep = 1, a = 2, b = 3; } }";
+        let source = "class A { int a; int b; void f() { int keep = 1, a = 2, b = 3; } }";
         let findings = findings(source);
         assert_eq!(findings.len(), 2);
-        assert!(findings.iter().all(|issue| issue.message.contains("\"a\"")
-            || issue.message.contains("\"b\"")));
+        assert!(
+            findings
+                .iter()
+                .all(|issue| issue.message.contains("\"a\"") || issue.message.contains("\"b\""))
+        );
     }
 
     #[test]

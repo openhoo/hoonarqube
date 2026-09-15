@@ -76,8 +76,14 @@ mod tests {
     #[test]
     fn legacy_type_use_marks_whole_file() {
         assert_eq!(findings("import java.util.Date; class A { Date now; }"), 1);
-        assert_eq!(findings("import java.util.Calendar; class A { Object c = Calendar.getInstance(); }"), 1);
-        assert_eq!(findings("class A { java.sql.Date day; java.sql.Time at; }"), 1);
+        assert_eq!(
+            findings("import java.util.Calendar; class A { Object c = Calendar.getInstance(); }"),
+            1
+        );
+        assert_eq!(
+            findings("class A { java.sql.Date day; java.sql.Time at; }"),
+            1
+        );
     }
 
     #[test]
@@ -109,10 +115,16 @@ mod tests {
     #[test]
     fn issue_is_file_level_with_reference_message() {
         let tree = parse("import java.util.Date; class A { Date now; }").expect("valid Java");
-        let issues = check(tree.root_node(), "import java.util.Date; class A { Date now; }");
+        let issues = check(
+            tree.root_node(),
+            "import java.util.Date; class A { Date now; }",
+        );
         let issue = &issues[0];
         assert_eq!(issue.rule_key, "java:S2143");
-        assert_eq!(issue.message, "Use the \"java.time\" API for date and time.");
+        assert_eq!(
+            issue.message,
+            "Use the \"java.time\" API for date and time."
+        );
         assert!(issue.range.is_file_level());
     }
 }

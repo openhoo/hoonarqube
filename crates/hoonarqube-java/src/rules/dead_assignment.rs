@@ -175,7 +175,8 @@ fn is_member_position(identifier: Node<'_>) -> bool {
     };
     match parent.kind() {
         "field_access" => parent.child_by_field_name("field").is_some_and(|field| {
-            field.start_byte() == identifier.start_byte() && field.end_byte() == identifier.end_byte()
+            field.start_byte() == identifier.start_byte()
+                && field.end_byte() == identifier.end_byte()
         }),
         "method_invocation" => parent.child_by_field_name("name").is_some_and(|name| {
             name.start_byte() == identifier.start_byte() && name.end_byte() == identifier.end_byte()
@@ -186,11 +187,7 @@ fn is_member_position(identifier: Node<'_>) -> bool {
 
 /// Names of unresolved identifier references inside one body. Any local
 /// sharing such a name is exempt from reporting (reference behavior).
-fn unresolved_names(
-    body: Node<'_>,
-    source: &str,
-    table: &RefTable,
-) -> BTreeSet<String> {
+fn unresolved_names(body: Node<'_>, source: &str, table: &RefTable) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     walk_all(body, &mut |node: Node<'_>| {
         if !matches!(node.kind(), "identifier" | "type_identifier") || is_member_position(node) {
@@ -293,115 +290,246 @@ fn jdk_parent(name: &str) -> Option<&'static str> {
     Some(match name {
         "Exception" => "Throwable",
         // Checked exceptions: direct Exception subtypes.
-        "RuntimeException" | "IOException" | "SQLException" | "InterruptedException"
-        | "ClassNotFoundException" | "CloneNotSupportedException"
-        | "ReflectiveOperationException" | "GeneralSecurityException" | "TimeoutException"
-        | "ExecutionException" | "BrokenBarrierException" | "URISyntaxException"
-        | "ParseException" | "DataFormatException" | "TooManyListenersException"
-        | "PrinterException" | "UnsupportedFlavorException" | "BadLocationException"
-        | "PropertyVetoException" | "JMException" | "RelationException"
-        | "RelationServiceNotRegisteredException" | "NamingException" | "FontFormatException"
-        | "SAXException" | "ParserConfigurationException" | "TransformerException"
-        | "XPathException" | "DatatypeConfigurationException" | "XMLStreamException"
-        | "SOAPException" | "JAXBException" | "ScriptException" | "LambdaConversionException"
-        | "UnsupportedAudioFileException" | "LineUnavailableException"
-        | "MidiUnavailableException" | "AlreadyBoundException" | "NotBoundException"
-        | "MimeTypeParseException" | "BackingStoreException"
+        "RuntimeException"
+        | "IOException"
+        | "SQLException"
+        | "InterruptedException"
+        | "ClassNotFoundException"
+        | "CloneNotSupportedException"
+        | "ReflectiveOperationException"
+        | "GeneralSecurityException"
+        | "TimeoutException"
+        | "ExecutionException"
+        | "BrokenBarrierException"
+        | "URISyntaxException"
+        | "ParseException"
+        | "DataFormatException"
+        | "TooManyListenersException"
+        | "PrinterException"
+        | "UnsupportedFlavorException"
+        | "BadLocationException"
+        | "PropertyVetoException"
+        | "JMException"
+        | "RelationException"
+        | "RelationServiceNotRegisteredException"
+        | "NamingException"
+        | "FontFormatException"
+        | "SAXException"
+        | "ParserConfigurationException"
+        | "TransformerException"
+        | "XPathException"
+        | "DatatypeConfigurationException"
+        | "XMLStreamException"
+        | "SOAPException"
+        | "JAXBException"
+        | "ScriptException"
+        | "LambdaConversionException"
+        | "UnsupportedAudioFileException"
+        | "LineUnavailableException"
+        | "MidiUnavailableException"
+        | "AlreadyBoundException"
+        | "NotBoundException"
+        | "MimeTypeParseException"
+        | "BackingStoreException"
         | "InvalidPreferencesFormatException" => "Exception",
-        "IllegalAccessException" | "InstantiationException" | "InvocationTargetException"
-        | "NoSuchFieldException" | "NoSuchMethodException" => "ReflectiveOperationException",
-        "AclNotFoundException" | "CertificateException" | "CertPathBuilderException"
-        | "InvalidAlgorithmParameterException" | "InvalidParameterSpecException"
-        | "InvalidKeySpecException" | "KeyException" | "KeyManagementException"
-        | "KeyStoreException" | "LastOwnerException" | "NoSuchAlgorithmException"
-        | "NoSuchProviderException" | "NoSuchPaddingException" | "SignatureException"
+        "IllegalAccessException"
+        | "InstantiationException"
+        | "InvocationTargetException"
+        | "NoSuchFieldException"
+        | "NoSuchMethodException" => "ReflectiveOperationException",
+        "AclNotFoundException"
+        | "CertificateException"
+        | "CertPathBuilderException"
+        | "InvalidAlgorithmParameterException"
+        | "InvalidParameterSpecException"
+        | "InvalidKeySpecException"
+        | "KeyException"
+        | "KeyManagementException"
+        | "KeyStoreException"
+        | "LastOwnerException"
+        | "NoSuchAlgorithmException"
+        | "NoSuchProviderException"
+        | "NoSuchPaddingException"
+        | "SignatureException"
         | "UnrecoverableKeyException" => "GeneralSecurityException",
         "InvalidKeyException" => "KeyException",
-        "CertificateEncodingException" | "CertificateExpiredException"
-        | "CertificateNotYetValidException" | "CertificateParsingException"
+        "CertificateEncodingException"
+        | "CertificateExpiredException"
+        | "CertificateNotYetValidException"
+        | "CertificateParsingException"
         | "CertificateRevokedException" => "CertificateException",
         // IOException family.
-        "CharConversionException" | "CharacterCodingException" | "EOFException"
-        | "FileNotFoundException" | "InterruptedIOException" | "MalformedURLException"
-        | "ObjectStreamException" | "ProtocolException" | "RemoteException"
-        | "SocketException" | "SyncFailedException" | "UnknownHostException"
-        | "UnsupportedEncodingException" | "UTFDataFormatException" | "ZipException"
-        | "UnsupportedDataTypeException" | "ClosedChannelException"
-        | "FileLockInterruptionException" | "FileSystemException" | "HttpRetryException"
+        "CharConversionException"
+        | "CharacterCodingException"
+        | "EOFException"
+        | "FileNotFoundException"
+        | "InterruptedIOException"
+        | "MalformedURLException"
+        | "ObjectStreamException"
+        | "ProtocolException"
+        | "RemoteException"
+        | "SocketException"
+        | "SyncFailedException"
+        | "UnknownHostException"
+        | "UnsupportedEncodingException"
+        | "UTFDataFormatException"
+        | "ZipException"
+        | "UnsupportedDataTypeException"
+        | "ClosedChannelException"
+        | "FileLockInterruptionException"
+        | "FileSystemException"
+        | "HttpRetryException"
         | "SyncException" => "IOException",
         "SocketTimeoutException" => "InterruptedIOException",
-        "InvalidClassException" | "InvalidObjectException" | "NotActiveException"
-        | "NotSerializableException" | "OptionalDataException" | "StreamCorruptedException"
+        "InvalidClassException"
+        | "InvalidObjectException"
+        | "NotActiveException"
+        | "NotSerializableException"
+        | "OptionalDataException"
+        | "StreamCorruptedException"
         | "WriteAbortedException" => "ObjectStreamException",
         "ActivateFailedException" | "ServerException" | "UnknownObjectException" => {
             "RemoteException"
         }
-        "BindException" | "ConnectException" | "NoRouteToHostException"
+        "BindException"
+        | "ConnectException"
+        | "NoRouteToHostException"
         | "PortUnreachableException" => "SocketException",
         "JarException" => "ZipException",
-        "AccessDeniedException" | "AtomicMoveNotSupportedException"
-        | "DirectoryNotEmptyException" | "FileAlreadyExistsException" | "NoSuchFileException" => {
-            "FileSystemException"
-        }
+        "AccessDeniedException"
+        | "AtomicMoveNotSupportedException"
+        | "DirectoryNotEmptyException"
+        | "FileAlreadyExistsException"
+        | "NoSuchFileException" => "FileSystemException",
         // SQLException family.
-        "BatchUpdateException" | "SerialException" | "SQLClientInfoException" | "SQLDataException"
-        | "SQLFeatureNotSupportedException" | "SQLIntegrityConstraintViolationException"
-        | "SQLInvalidAuthorizationSpecException" | "SQLNonTransientConnectionException"
-        | "SQLRecoverableException" | "SQLSyntaxErrorException" | "SQLTimeoutException"
-        | "SQLTransactionRollbackException" | "SQLTransientConnectionException" | "SQLWarning"
+        "BatchUpdateException"
+        | "SerialException"
+        | "SQLClientInfoException"
+        | "SQLDataException"
+        | "SQLFeatureNotSupportedException"
+        | "SQLIntegrityConstraintViolationException"
+        | "SQLInvalidAuthorizationSpecException"
+        | "SQLNonTransientConnectionException"
+        | "SQLRecoverableException"
+        | "SQLSyntaxErrorException"
+        | "SQLTimeoutException"
+        | "SQLTransactionRollbackException"
+        | "SQLTransientConnectionException"
+        | "SQLWarning"
         | "SyncProviderException" => "SQLException",
         "RowSetWarning" => "SQLWarning",
         // JMX and naming families.
-        "AttributeNotFoundException" | "BadAttributeValueExpException"
-        | "BadBinaryOpValueExpException" | "BadStringOperationException"
-        | "InstanceNotFoundException" | "InvalidApplicationException"
-        | "InvalidAttributeValueException" | "InvalidTargetObjectTypeException" | "MBeanException"
-        | "ReflectionException" | "RuntimeOperationsException" | "ServiceNotFoundException" => {
-            "JMException"
-        }
-        "InvalidRelationIdException" | "InvalidRelationTypeException" | "InvalidRoleInfoException"
-        | "InvalidRoleValueException" | "RelationNotFoundException"
-        | "RelationTypeNotFoundException" | "RoleInfoNotFoundException" | "RoleNotFoundException" => {
-            "RelationException"
-        }
-        "AuthenticationException" | "AuthenticationNotSupportedException"
-        | "CannotProceedException" | "CommunicationException" | "ConfigurationException"
-        | "ContextNotEmptyException" | "InsufficientResourcesException"
-        | "InterruptedNamingException" | "InvalidNameException" | "LimitExceededException"
-        | "LinkException" | "NameAlreadyBoundException" | "NameNotFoundException"
-        | "NamingSecurityException" | "NoInitialContextException" | "NoPermissionException"
-        | "NotContextException" | "OperationNotSupportedException" | "PartialResultException"
-        | "ReferralException" | "ServiceUnavailableException" | "LdapException" => {
-            "NamingException"
-        }
+        "AttributeNotFoundException"
+        | "BadAttributeValueExpException"
+        | "BadBinaryOpValueExpException"
+        | "BadStringOperationException"
+        | "InstanceNotFoundException"
+        | "InvalidApplicationException"
+        | "InvalidAttributeValueException"
+        | "InvalidTargetObjectTypeException"
+        | "MBeanException"
+        | "ReflectionException"
+        | "RuntimeOperationsException"
+        | "ServiceNotFoundException" => "JMException",
+        "InvalidRelationIdException"
+        | "InvalidRelationTypeException"
+        | "InvalidRoleInfoException"
+        | "InvalidRoleValueException"
+        | "RelationNotFoundException"
+        | "RelationTypeNotFoundException"
+        | "RoleInfoNotFoundException"
+        | "RoleNotFoundException" => "RelationException",
+        "AuthenticationException"
+        | "AuthenticationNotSupportedException"
+        | "CannotProceedException"
+        | "CommunicationException"
+        | "ConfigurationException"
+        | "ContextNotEmptyException"
+        | "InsufficientResourcesException"
+        | "InterruptedNamingException"
+        | "InvalidNameException"
+        | "LimitExceededException"
+        | "LinkException"
+        | "NameAlreadyBoundException"
+        | "NameNotFoundException"
+        | "NamingSecurityException"
+        | "NoInitialContextException"
+        | "NoPermissionException"
+        | "NotContextException"
+        | "OperationNotSupportedException"
+        | "PartialResultException"
+        | "ReferralException"
+        | "ServiceUnavailableException"
+        | "LdapException" => "NamingException",
         "SizeLimitExceededException" | "TimeLimitExceededException" => "LimitExceededException",
         "MarshalException" | "PropertyException" | "ValidationException" => "JAXBException",
         // RuntimeException family.
-        "ArithmeticException" | "ArrayStoreException" | "ClassCastException"
-        | "ConcurrentModificationException" | "IllegalArgumentException"
-        | "IllegalMonitorStateException" | "IllegalStateException" | "IndexOutOfBoundsException"
-        | "NegativeArraySizeException" | "NullPointerException" | "SecurityException"
-        | "UnsupportedOperationException" | "NoSuchElementException" | "EmptyStackException"
-        | "MissingResourceException" | "DateTimeException" | "RejectedExecutionException"
-        | "CompletionException" | "UncheckedIOException" | "BufferOverflowException"
-        | "BufferUnderflowException" | "ReadOnlyBufferException" | "InvalidMarkException"
-        | "TypeNotPresentException" | "AnnotationTypeMismatchException"
-        | "IncompleteAnnotationException" | "MalformedParameterizedTypeException"
-        | "MalformedParametersException" | "WrongMethodTypeException"
-        | "EnumConstantNotPresentException" | "UndeclaredThrowableException" | "DOMException"
-        | "LSException" | "WebServiceException" | "DirectoryIteratorException"
-        | "FileSystemLoopException" | "IllegalDirectoryStreamException"
-        | "ProviderMismatchException" | "JMRuntimeException" | "RuntimeErrorException"
-        | "FileSystemNotFoundException" | "ProviderNotFoundException" => "RuntimeException",
-        "NumberFormatException" | "IllegalCharsetNameException" | "IllegalFormatException"
-        | "PatternSyntaxException" | "ProviderException" | "UnsupportedCharsetException"
-        | "InvalidPathException" | "UnresolvedAddressException"
+        "ArithmeticException"
+        | "ArrayStoreException"
+        | "ClassCastException"
+        | "ConcurrentModificationException"
+        | "IllegalArgumentException"
+        | "IllegalMonitorStateException"
+        | "IllegalStateException"
+        | "IndexOutOfBoundsException"
+        | "NegativeArraySizeException"
+        | "NullPointerException"
+        | "SecurityException"
+        | "UnsupportedOperationException"
+        | "NoSuchElementException"
+        | "EmptyStackException"
+        | "MissingResourceException"
+        | "DateTimeException"
+        | "RejectedExecutionException"
+        | "CompletionException"
+        | "UncheckedIOException"
+        | "BufferOverflowException"
+        | "BufferUnderflowException"
+        | "ReadOnlyBufferException"
+        | "InvalidMarkException"
+        | "TypeNotPresentException"
+        | "AnnotationTypeMismatchException"
+        | "IncompleteAnnotationException"
+        | "MalformedParameterizedTypeException"
+        | "MalformedParametersException"
+        | "WrongMethodTypeException"
+        | "EnumConstantNotPresentException"
+        | "UndeclaredThrowableException"
+        | "DOMException"
+        | "LSException"
+        | "WebServiceException"
+        | "DirectoryIteratorException"
+        | "FileSystemLoopException"
+        | "IllegalDirectoryStreamException"
+        | "ProviderMismatchException"
+        | "JMRuntimeException"
+        | "RuntimeErrorException"
+        | "FileSystemNotFoundException"
+        | "ProviderNotFoundException" => "RuntimeException",
+        "NumberFormatException"
+        | "IllegalCharsetNameException"
+        | "IllegalFormatException"
+        | "PatternSyntaxException"
+        | "ProviderException"
+        | "UnsupportedCharsetException"
+        | "InvalidPathException"
+        | "UnresolvedAddressException"
         | "UnsupportedAddressTypeException" => "IllegalArgumentException",
-        "AlreadyConnectedException" | "CancelledKeyException" | "ClosedDirectoryStreamException"
-        | "ClosedFileSystemException" | "ClosedSelectorException" | "ConnectionPendingException"
-        | "FormatterClosedException" | "IllegalBlockingModeException" | "IllegalSelectorException"
-        | "NotYetBoundException" | "NotYetConnectedException" | "ReadPendingException"
-        | "ShutdownChannelGroupException" | "WritePendingException" | "AcceptPendingException"
+        "AlreadyConnectedException"
+        | "CancelledKeyException"
+        | "ClosedDirectoryStreamException"
+        | "ClosedFileSystemException"
+        | "ClosedSelectorException"
+        | "ConnectionPendingException"
+        | "FormatterClosedException"
+        | "IllegalBlockingModeException"
+        | "IllegalSelectorException"
+        | "NotYetBoundException"
+        | "NotYetConnectedException"
+        | "ReadPendingException"
+        | "ShutdownChannelGroupException"
+        | "WritePendingException"
+        | "AcceptPendingException"
         | "OverlappingFileLockException" => "IllegalStateException",
         "AsynchronousCloseException" => "ClosedChannelException",
         "ClosedByInterruptException" => "AsynchronousCloseException",
@@ -410,23 +538,40 @@ fn jdk_parent(name: &str) -> Option<&'static str> {
             "IndexOutOfBoundsException"
         }
         "InputMismatchException" => "NoSuchElementException",
-        "DuplicateFormatFlagsException" | "FormatFlagsConversionMismatchException"
-        | "IllegalFormatCodePointException" | "IllegalFormatConversionException"
-        | "IllegalFormatFlagsException" | "IllegalFormatPrecisionException"
-        | "IllegalFormatWidthException" | "MissingFormatArgumentException"
-        | "UnknownFormatConversionException" | "UnknownFormatFlagsException" => {
-            "IllegalFormatException"
-        }
+        "DuplicateFormatFlagsException"
+        | "FormatFlagsConversionMismatchException"
+        | "IllegalFormatCodePointException"
+        | "IllegalFormatConversionException"
+        | "IllegalFormatFlagsException"
+        | "IllegalFormatPrecisionException"
+        | "IllegalFormatWidthException"
+        | "MissingFormatArgumentException"
+        | "UnknownFormatConversionException"
+        | "UnknownFormatFlagsException" => "IllegalFormatException",
         // Error family.
         "Error" => "Throwable",
-        "AssertionError" | "LinkageError" | "ThreadDeath" | "VirtualMachineError" | "IOError"
-        | "AnnotationFormatError" | "AWTError" | "CoderMalfunctionError"
-        | "FactoryConfigurationError" | "TransformerFactoryConfigurationError"
+        "AssertionError"
+        | "LinkageError"
+        | "ThreadDeath"
+        | "VirtualMachineError"
+        | "IOError"
+        | "AnnotationFormatError"
+        | "AWTError"
+        | "CoderMalfunctionError"
+        | "FactoryConfigurationError"
+        | "TransformerFactoryConfigurationError"
         | "ServiceConfigurationError" => "Error",
-        "BootstrapMethodError" | "ClassFormatError" | "ExceptionInInitializerError"
-        | "IncompatibleClassChangeError" | "NoClassDefFoundError" | "UnsatisfiedLinkError"
+        "BootstrapMethodError"
+        | "ClassFormatError"
+        | "ExceptionInInitializerError"
+        | "IncompatibleClassChangeError"
+        | "NoClassDefFoundError"
+        | "UnsatisfiedLinkError"
         | "VerifyError" => "LinkageError",
-        "AbstractMethodError" | "IllegalAccessError" | "InstantiationError" | "NoSuchFieldError"
+        "AbstractMethodError"
+        | "IllegalAccessError"
+        | "InstantiationError"
+        | "NoSuchFieldError"
         | "NoSuchMethodError" => "IncompatibleClassChangeError",
         "InternalError" | "OutOfMemoryError" | "StackOverflowError" | "UnknownError" => {
             "VirtualMachineError"
@@ -484,42 +629,40 @@ impl FileFacts {
             method_throws: BTreeMap::new(),
             ctor_throws: BTreeMap::new(),
         };
-        walk_all(root, &mut |node: Node<'_>| {
-            match node.kind() {
-                "class_declaration" | "record_declaration" | "enum_declaration" => {
-                    if let Some(name) = node.child_by_field_name("name") {
-                        let class_name = node_text(name, source).to_owned();
-                        let parent = node
-                            .child_by_field_name("superclass")
-                            .map(|superclass| simple_type_name(superclass, source))
-                            .filter(|name| !name.is_empty());
-                        if let Some(parent) = parent {
-                            facts.class_super.insert(class_name, parent);
-                        }
+        walk_all(root, &mut |node: Node<'_>| match node.kind() {
+            "class_declaration" | "record_declaration" | "enum_declaration" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    let class_name = node_text(name, source).to_owned();
+                    let parent = node
+                        .child_by_field_name("superclass")
+                        .map(|superclass| simple_type_name(superclass, source))
+                        .filter(|name| !name.is_empty());
+                    if let Some(parent) = parent {
+                        facts.class_super.insert(class_name, parent);
                     }
                 }
-                "method_declaration" => {
-                    if let Some(name) = node.child_by_field_name("name") {
-                        let throws = throws_names(node, source);
-                        facts
-                            .method_throws
-                            .entry(node_text(name, source).to_owned())
-                            .or_insert_with(Vec::new)
-                            .extend(throws);
-                    }
-                }
-                "constructor_declaration" | "compact_constructor_declaration" => {
-                    if let Some(name) = node.child_by_field_name("name") {
-                        let throws = throws_names(node, source);
-                        facts
-                            .ctor_throws
-                            .entry(node_text(name, source).to_owned())
-                            .or_insert_with(Vec::new)
-                            .extend(throws);
-                    }
-                }
-                _ => {}
             }
+            "method_declaration" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    let throws = throws_names(node, source);
+                    facts
+                        .method_throws
+                        .entry(node_text(name, source).to_owned())
+                        .or_insert_with(Vec::new)
+                        .extend(throws);
+                }
+            }
+            "constructor_declaration" | "compact_constructor_declaration" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    let throws = throws_names(node, source);
+                    facts
+                        .ctor_throws
+                        .entry(node_text(name, source).to_owned())
+                        .or_insert_with(Vec::new)
+                        .extend(throws);
+                }
+            }
+            _ => {}
         });
         facts
     }
@@ -576,14 +719,14 @@ impl FileFacts {
                 .map(|ty| simple_type_name(ty, source))
                 .and_then(|name| self.ctor_throws.get(&name)),
             "explicit_constructor_invocation" => {
-                let class = call
-                    .child_by_field_name("constructor")
-                    .and_then(|ctor| match ctor.kind() {
-                        "this" => enclosing_class_name(call, source),
-                        "super" => enclosing_class_name(call, source)
-                            .and_then(|name| self.class_super.get(&name).cloned()),
-                        _ => None,
-                    });
+                let class =
+                    call.child_by_field_name("constructor")
+                        .and_then(|ctor| match ctor.kind() {
+                            "this" => enclosing_class_name(call, source),
+                            "super" => enclosing_class_name(call, source)
+                                .and_then(|name| self.class_super.get(&name).cloned()),
+                            _ => None,
+                        });
                 class.and_then(|name| self.ctor_throws.get(&name))
             }
             _ => None,
@@ -609,7 +752,10 @@ impl FileFacts {
         let name = normalize_type_name(name);
         self.class_super.contains_key(&name)
             || jdk_parent(&name).is_some()
-            || matches!(name.as_str(), "Throwable" | "Object" | "Exception" | "RuntimeException" | "Error")
+            || matches!(
+                name.as_str(),
+                "Throwable" | "Object" | "Exception" | "RuntimeException" | "Error"
+            )
     }
 }
 
@@ -663,10 +809,7 @@ impl RefTable {
             .filter(|symbol| symbol.kind == SymbolKind::Local)
             .map(|symbol| ((symbol.byte_start(), symbol.byte_end()), symbol.id))
             .collect();
-        Self {
-            references,
-            locals,
-        }
+        Self { references, locals }
     }
 
     fn at(&self, start: usize, end: usize) -> Option<&ByteReference> {
@@ -895,7 +1038,8 @@ impl<'source, 'index> Flow<'source, 'index> {
                 }
                 return;
             }
-            "method_invocation" | "object_creation_expression"
+            "method_invocation"
+            | "object_creation_expression"
             | "explicit_constructor_invocation" => {
                 out.has_throw_call = true;
                 out.throws_declared
@@ -936,7 +1080,9 @@ impl<'source, 'index> Flow<'source, 'index> {
 
     /// Resolves an identifier to a local or parameter symbol.
     fn local_symbol(&self, identifier: Node<'_>) -> Option<SymbolId> {
-        let reference = self.table.at(identifier.start_byte(), identifier.end_byte())?;
+        let reference = self
+            .table
+            .at(identifier.start_byte(), identifier.end_byte())?;
         let symbol = reference.symbol?;
         matches!(
             self.semantics.symbols.get(symbol.0)?.kind,
@@ -948,10 +1094,15 @@ impl<'source, 'index> Flow<'source, 'index> {
     /// Resolves an identifier to a local symbol only (parameters are not
     /// local variables for this rule).
     fn local_only_symbol(&self, identifier: Node<'_>) -> Option<SymbolId> {
-        let reference = self.table.at(identifier.start_byte(), identifier.end_byte())?;
+        let reference = self
+            .table
+            .at(identifier.start_byte(), identifier.end_byte())?;
         let symbol = reference.symbol?;
-        matches!(self.semantics.symbols.get(symbol.0)?.kind, SymbolKind::Local)
-            .then_some(symbol)
+        matches!(
+            self.semantics.symbols.get(symbol.0)?.kind,
+            SymbolKind::Local
+        )
+        .then_some(symbol)
     }
 
     /// `x = v` stores; compound operators also read the old value. The
@@ -1014,7 +1165,9 @@ impl<'source, 'index> Flow<'source, 'index> {
         out.non_killing_store(Store {
             symbol,
             name: node_text(operand, self.source).to_owned(),
-            range: self.lines.range(self.source, node.start_byte(), node.end_byte()),
+            range: self
+                .lines
+                .range(self.source, node.start_byte(), node.end_byte()),
             flaggable,
             later_reads: BTreeSet::new(),
         });
@@ -1073,11 +1226,10 @@ impl<'source, 'index> Flow<'source, 'index> {
         let condition = self.alloc(node.child_by_field_name("condition"));
         self.connect(&incoming, condition);
         let join = self.alloc(None);
-        let then_end = node
-            .child_by_field_name("consequence")
-            .map_or_else(|| incoming.clone(), |body| {
-                self.statement(body, vec![condition], depth + 1)
-            });
+        let then_end = node.child_by_field_name("consequence").map_or_else(
+            || incoming.clone(),
+            |body| self.statement(body, vec![condition], depth + 1),
+        );
         self.connect(&then_end, join);
         if let Some(body) = node.child_by_field_name("alternative") {
             let else_end = self.statement(body, vec![condition], depth + 1);
@@ -1088,13 +1240,19 @@ impl<'source, 'index> Flow<'source, 'index> {
         vec![join]
     }
 
-    fn while_statement(&mut self, node: Node<'_>, incoming: Vec<usize>, depth: usize) -> Vec<usize> {
+    fn while_statement(
+        &mut self,
+        node: Node<'_>,
+        incoming: Vec<usize>,
+        depth: usize,
+    ) -> Vec<usize> {
         let condition = self.alloc(node.child_by_field_name("condition"));
         self.connect(&incoming, condition);
         let after = self.alloc(None);
         self.edge(condition, after);
         self.break_targets.push((None, vec![after]));
-        self.continue_targets.push((self.loop_label(node), vec![condition]));
+        self.continue_targets
+            .push((self.loop_label(node), vec![condition]));
         if let Some(body) = node.child_by_field_name("body") {
             let ends = self.statement(body, vec![condition], depth + 1);
             self.connect(&ends, condition);
@@ -1108,14 +1266,14 @@ impl<'source, 'index> Flow<'source, 'index> {
         let after = self.alloc(None);
         self.break_targets.push((None, vec![after]));
         let condition = self.alloc(node.child_by_field_name("condition"));
-        self.continue_targets.push((self.loop_label(node), vec![condition]));
+        self.continue_targets
+            .push((self.loop_label(node), vec![condition]));
         let body_start = self.alloc(None);
         self.connect(&incoming, body_start);
-        let ends = node
-            .child_by_field_name("body")
-            .map_or_else(|| vec![body_start], |body| {
-                self.statement(body, vec![body_start], depth + 1)
-            });
+        let ends = node.child_by_field_name("body").map_or_else(
+            || vec![body_start],
+            |body| self.statement(body, vec![body_start], depth + 1),
+        );
         self.connect(&ends, condition);
         self.edge(condition, after);
         self.edge(condition, body_start);
@@ -1156,11 +1314,10 @@ impl<'source, 'index> Flow<'source, 'index> {
         self.connect(&[update_end], condition);
         self.continue_targets
             .push((self.loop_label(node), vec![update_start]));
-        let body_end = node
-            .child_by_field_name("body")
-            .map_or_else(|| vec![condition], |body| {
-                self.statement(body, vec![condition], depth + 1)
-            });
+        let body_end = node.child_by_field_name("body").map_or_else(
+            || vec![condition],
+            |body| self.statement(body, vec![condition], depth + 1),
+        );
         self.connect(&body_end, update_start);
         self.break_targets.pop();
         self.continue_targets.pop();
@@ -1183,7 +1340,9 @@ impl<'source, 'index> Flow<'source, 'index> {
             self.nodes[header].reads.extend(out.reads);
             self.nodes[header].stores.extend(out.stores);
             self.nodes[header].has_throw_call |= out.has_throw_call;
-            self.nodes[header].throws_declared.extend(out.throws_declared);
+            self.nodes[header]
+                .throws_declared
+                .extend(out.throws_declared);
             self.nodes[header].has_cast |= out.has_cast;
         }
         if let Some(name) = node.child_by_field_name("name")
@@ -1198,7 +1357,8 @@ impl<'source, 'index> Flow<'source, 'index> {
         let after = self.alloc(None);
         self.edge(header, after);
         self.break_targets.push((None, vec![after]));
-        self.continue_targets.push((self.loop_label(node), vec![header]));
+        self.continue_targets
+            .push((self.loop_label(node), vec![header]));
         if let Some(body) = node.child_by_field_name("body") {
             let ends = self.statement(body, vec![header], depth + 1);
             self.connect(&ends, header);
@@ -1278,7 +1438,12 @@ impl<'source, 'index> Flow<'source, 'index> {
         frontier
     }
 
-    fn labeled_statement(&mut self, node: Node<'_>, incoming: Vec<usize>, depth: usize) -> Vec<usize> {
+    fn labeled_statement(
+        &mut self,
+        node: Node<'_>,
+        incoming: Vec<usize>,
+        depth: usize,
+    ) -> Vec<usize> {
         let after = self.alloc(None);
         let label = node
             .named_child(0)
@@ -1432,11 +1597,10 @@ impl<'source, 'index> Flow<'source, 'index> {
         for (index, clause) in clauses.iter().enumerate() {
             let entry = self.try_ctxs[ctx_idx].catches[index].1;
             self.region_stack.push((ctx_idx, Region::Catch));
-            let catch_end = clause
-                .child_by_field_name("body")
-                .map_or_else(|| vec![entry], |body| {
-                    self.statement(body, vec![entry], depth + 1)
-                });
+            let catch_end = clause.child_by_field_name("body").map_or_else(
+                || vec![entry],
+                |body| self.statement(body, vec![entry], depth + 1),
+            );
             self.region_stack.pop();
             ends.extend(catch_end);
         }
@@ -1444,11 +1608,10 @@ impl<'source, 'index> Flow<'source, 'index> {
             let entry = self.try_ctxs[ctx_idx].finally_entry.unwrap();
             self.connect(&ends, entry);
             self.region_stack.push((ctx_idx, Region::Finally));
-            let finally_end = finally_clause
-                .child_by_field_name("body")
-                .map_or_else(|| vec![entry], |body| {
-                    self.statement(body, vec![entry], depth + 1)
-                });
+            let finally_end = finally_clause.child_by_field_name("body").map_or_else(
+                || vec![entry],
+                |body| self.statement(body, vec![entry], depth + 1),
+            );
             self.region_stack.pop();
             self.connect(&finally_end, join);
             self.break_targets.pop();
@@ -1552,10 +1715,13 @@ impl<'source, 'index> Flow<'source, 'index> {
             "decimal_integer_literal" => matches!(node_text(expr, self.source), "0" | "1"),
             "true" | "false" | "null_literal" => true,
             "string_literal" => node_text(expr, self.source) == "\"\"",
-            "unary_expression" => expr
-                .child(0)
-                .is_some_and(|op| matches!(op.kind(), "-" | "+"))
-                && expr.named_child(0).is_some_and(|inner| self.is_usual_default(inner)),
+            "unary_expression" => {
+                expr.child(0)
+                    .is_some_and(|op| matches!(op.kind(), "-" | "+"))
+                    && expr
+                        .named_child(0)
+                        .is_some_and(|inner| self.is_usual_default(inner))
+            }
             _ => false,
         }
     }
@@ -1773,7 +1939,11 @@ mod tests {
             "}"
         );
         let findings = findings(source);
-        assert_eq!(findings.len(), 1, "only the non-default initializer is dead");
+        assert_eq!(
+            findings.len(),
+            1,
+            "only the non-default initializer is dead"
+        );
         assert!(findings[0].0.contains("\"h\""));
     }
 

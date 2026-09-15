@@ -50,7 +50,11 @@ pub(crate) fn check(root: Node<'_>, source: &str, lines: &LineIndex) -> Vec<Issu
             names[0].start_byte(),
             names[names.len() - 1].end_byte(),
         );
-        issues.push(Issue::new("java:S2211", format!("Specify a type for: {list}"), range));
+        issues.push(Issue::new(
+            "java:S2211",
+            format!("Specify a type for: {list}"),
+            range,
+        ));
     }
     issues
 }

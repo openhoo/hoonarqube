@@ -248,7 +248,9 @@ impl SemanticIndex {
         index.collect_declarations(root, source, lines);
         index.resolve_symbol_types();
         index.collect_references(root, source, lines);
-        index.byte_references.sort_by_key(|reference| reference.start);
+        index
+            .byte_references
+            .sort_by_key(|reference| reference.start);
         index
     }
 
