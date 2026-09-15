@@ -386,7 +386,12 @@ pub fn analyze_with_context(
         &parsed, &index, source, &file_ctx,
     ));
     issues.extend(check_structural_battery(
-        path.as_path(), &parsed, &index, source, options, &file_ctx,
+        path.as_path(),
+        &parsed,
+        &index,
+        source,
+        options,
+        &file_ctx,
     ));
     if is_test_scope_file(path.as_path()) {
         issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));

@@ -1030,9 +1030,7 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
     issues.extend(check_old_style_classes(index, source, file_ctx));
-    issues.extend(check_keyword_parentheses(
-        parsed, index, source, file_ctx,
-    ));
+    issues.extend(check_keyword_parentheses(parsed, index, source, file_ctx));
     issues.extend(check_missing_return_annotations(
         path, index, source, file_ctx,
     ));
