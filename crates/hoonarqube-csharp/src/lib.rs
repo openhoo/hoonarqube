@@ -323,6 +323,13 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "csharpsquid:S6965",
     "csharpsquid:S6968",
 ];
+
+/// Sonar rules from the frozen catalog that declare scope `TEST`.
+/// `SonarQube` reports these only on test sources, so they are dropped on
+/// every file outside the conventional test-directory scope (the mirror of
+/// the [`MAIN_SCOPE_RULE_KEYS`] drop); dapper's oracle fires
+/// `csharpsquid:S3415` exclusively under `tests/`.
+const TEST_SCOPE_RULE_KEYS: &[&str] = &["csharpsquid:S3415"];
 /// Analyzes one C# source file and lowers every rule finding into a
 /// [`hoonarqube_ir::FileReport`] with sorted issues and file metrics.
 #[must_use]
@@ -400,6 +407,8 @@ pub fn analyze(
     ));
     if semantic::is_test_scope_file(&path) {
         issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+    } else {
+        issues.retain(|issue| !TEST_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
     }
     let mut report = hoonarqube_ir::FileReport {
         path,

@@ -150,7 +150,7 @@ struct BranchFrame {
 /// blanks every excluded or directive line, returning the view a compiler
 /// without `/define` sees.  `None` keeps the source when the directive
 /// structure is unbalanced.
-fn selected_branch_view(source: &str) -> Option<String> {
+pub(crate) fn selected_branch_view(source: &str) -> Option<String> {
     let mut output: Option<String> = None;
     let mut segment_start = 0;
     let mut cursor = 0;

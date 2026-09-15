@@ -1,6 +1,6 @@
 //! Test suite part; the full suite spans `tests/*.rs`.
 
-use super::{analyze_default, with_key};
+use super::{analyze_default, analyze_test_default, with_key};
 
 #[test]
 fn s4143_flags_double_element_writes() {
@@ -267,7 +267,7 @@ fn s2970_completes_assert_that() {
 
 #[test]
 fn s3415_puts_expected_first() {
-    let report = analyze_default(
+    let report = analyze_test_default(
         "class A\n{\n    void M()\n    {\n        Assert.AreEqual(result, 5);\n        Assert.AreEqual(5, result);\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S3415");
