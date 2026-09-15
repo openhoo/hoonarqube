@@ -210,8 +210,10 @@ impl<'a> Visit<'a> for NodeProtocolCollector<'_> {
                     );
                 if (is_static_require || is_process_get_builtin_module) && call.arguments.len() == 1
                 {
-                    if let Some(Expression::StringLiteral(literal)) =
-                        call.arguments.first().and_then(|argument| argument.as_expression())
+                    if let Some(Expression::StringLiteral(literal)) = call
+                        .arguments
+                        .first()
+                        .and_then(|argument| argument.as_expression())
                     {
                         self.report_source(&literal.value, literal.span);
                     }

@@ -202,7 +202,10 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
         }
         // OXC models the function body as `FunctionBody`, the counterpart of
         // the reference's `BlockStatement` climb.
-        if matches!(nodes.kind(parent_id), AstKind::FunctionBody(_) | AstKind::BlockStatement(_)) {
+        if matches!(
+            nodes.kind(parent_id),
+            AstKind::FunctionBody(_) | AstKind::BlockStatement(_)
+        ) {
             parent_id = nodes.parent_id(parent_id);
         }
         if name.is_none() {
@@ -248,8 +251,9 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
             return false;
         }
         match nodes.parent_kind(owner) {
-            AstKind::CallExpression(call) => dotted_path(&call.callee)
-                .is_some_and(|path| REACT_HOOKS.contains(&path.as_str())),
+            AstKind::CallExpression(call) => {
+                dotted_path(&call.callee).is_some_and(|path| REACT_HOOKS.contains(&path.as_str()))
+            }
             _ => false,
         }
     }
@@ -272,8 +276,7 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
         }
         match nodes.kind(ancestor) {
             AstKind::CallExpression(call) => {
-                crate::support::unparenthesized(&call.callee).span()
-                    == nodes.kind(parent_id).span()
+                crate::support::unparenthesized(&call.callee).span() == nodes.kind(parent_id).span()
             }
             _ => false,
         }
@@ -500,7 +503,10 @@ function build() {
             .iter()
             .find(|issue| issue.rule_key == "javascript:S7721")
             .expect("renderCell must be reported");
-        assert_eq!(issue.message, "Move function 'renderCell' to the outer scope.");
+        assert_eq!(
+            issue.message,
+            "Move function 'renderCell' to the outer scope."
+        );
     }
 
     #[test]
@@ -589,7 +595,10 @@ function outer() {
         // `render` directly contains JSX and is exempt; `inner` is not the
         // innermost JSX function and stays reportable.
         assert_eq!(issues.len(), 1);
-        assert_eq!(issues[0].message, "Move function 'inner' to the outer scope.");
+        assert_eq!(
+            issues[0].message,
+            "Move function 'inner' to the outer scope."
+        );
     }
 
     #[test]

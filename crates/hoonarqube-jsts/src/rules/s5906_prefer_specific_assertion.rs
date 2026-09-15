@@ -172,17 +172,16 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
         let expected = unparenthesized(expected);
         let actual_text = self.text(actual.span());
         if let Expression::NullLiteral(_) = expected {
-            return Some(self.not_length(
-                format!("expect({actual_text}{message_arguments}).to{}.be.null", negation(!negated)),
-            ));
+            return Some(self.not_length(format!(
+                "expect({actual_text}{message_arguments}).to{}.be.null",
+                negation(!negated)
+            )));
         }
         if matches!(expected, Expression::Identifier(id) if id.name == "undefined") {
-            return Some(self.not_length(
-                format!(
-                    "expect({actual_text}{message_arguments}).to{}.be.undefined",
-                    negation(!negated)
-                ),
-            ));
+            return Some(self.not_length(format!(
+                "expect({actual_text}{message_arguments}).to{}.be.undefined",
+                negation(!negated)
+            )));
         }
         if let Some(object) = length_access_object(actual) {
             let receiver = self.text(object.span());
@@ -289,10 +288,20 @@ impl<'a> SpecificAssertionCollector<'a, '_> {
             )));
         }
         if let Some(object) = length_access_object(unparenthesized(&binary.left)) {
-            return self.length_equality(object, &self.text(binary.right.span()), same, message_arguments);
+            return self.length_equality(
+                object,
+                &self.text(binary.right.span()),
+                same,
+                message_arguments,
+            );
         }
         if let Some(object) = length_access_object(unparenthesized(&binary.right)) {
-            return self.length_equality(object, &self.text(binary.left.span()), same, message_arguments);
+            return self.length_equality(
+                object,
+                &self.text(binary.left.span()),
+                same,
+                message_arguments,
+            );
         }
         None
     }
@@ -365,11 +374,7 @@ fn nullish_kind(expression: &Expression<'_>) -> Option<Nullish> {
 /// The reference's `negation(positive)`: `.not` when the assertion is
 /// negated, empty otherwise.
 fn negation(positive: bool) -> &'static str {
-    if positive {
-        ""
-    } else {
-        ".not"
-    }
+    if positive { "" } else { ".not" }
 }
 
 /// `isLengthAccess`: `a.length`, non-computed (the reference does not
@@ -399,14 +404,20 @@ fn is_trusted_string_receiver(expression: &Expression<'_>) -> bool {
 fn string_like_identifier(name: &str) -> bool {
     ["text", "string", "message", "content", "html"]
         .iter()
-        .any(|suffix| name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix))
+        .any(|suffix| {
+            name.len() >= suffix.len()
+                && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+        })
 }
 
 fn is_numeric_like_operand(expression: &Expression<'_>) -> bool {
     match unparenthesized(expression) {
         Expression::NumericLiteral(_) | Expression::BigIntLiteral(_) => true,
         Expression::UnaryExpression(unary)
-            if matches!(unary.operator, oxc_ast::ast::UnaryOperator::UnaryPlus | oxc_ast::ast::UnaryOperator::UnaryNegation) =>
+            if matches!(
+                unary.operator,
+                oxc_ast::ast::UnaryOperator::UnaryPlus | oxc_ast::ast::UnaryOperator::UnaryNegation
+            ) =>
         {
             is_numeric_like_operand(&unary.argument)
         }
@@ -440,14 +451,16 @@ fn numeric_like_identifier(name: &str) -> bool {
         "length", "level", "limit", "number", "price", "score", "size", "total", "width",
     ]
     .iter()
-    .any(|suffix| name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix))
+    .any(|suffix| {
+        name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+    })
 }
 
 /// The reference's `DATE_LIKE_IDENTIFIER` suffix test.
 fn date_like_identifier(name: &str) -> bool {
-    ["date", "time", "timestamp"]
-        .iter()
-        .any(|suffix| name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix))
+    ["date", "time", "timestamp"].iter().any(|suffix| {
+        name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+    })
 }
 
 fn is_numeric_comparison(binary: &oxc_ast::ast::BinaryExpression<'_>) -> bool {

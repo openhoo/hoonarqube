@@ -112,7 +112,10 @@ fs.readdirSync(dir).forEach(function(name){ keep(name); });
             .expect("pinned express forEach must be reported");
         assert_eq!(issue.message, "Use `for…of` instead of `.forEach(…)`.");
         assert_eq!(issue.range.start.line, 1);
-        assert_eq!(issue.range.start.column, u32::try_from("fns.".len()).unwrap());
+        assert_eq!(
+            issue.range.start.column,
+            u32::try_from("fns.".len()).unwrap()
+        );
         assert_eq!(issue.range.end.column, issue.range.start.column + 7);
     }
 
