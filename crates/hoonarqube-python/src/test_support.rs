@@ -60,6 +60,12 @@ pub(crate) fn scan_test_file(source: &str) -> hoonarqube_ir::FileReport {
         &AnalyzerOptions::default(),
     )
 }
+
+/// Scans `source` under an explicit file path so path-gated rules see the
+/// same classification the CLI would give the file.
+pub(crate) fn scan_at(path: PathBuf, source: &str) -> hoonarqube_ir::FileReport {
+    analyze(path, source, &AnalyzerOptions::default())
+}
 pub(crate) fn scan_in_project(
     project: &PythonProjectContext,
     path: PathBuf,
