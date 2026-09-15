@@ -30,6 +30,17 @@ pub(crate) fn analyze_default(source: &str) -> hoonarqube_ir::FileReport {
     )
 }
 
+/// Like [`analyze_default`], but inside the conventional `tests/` directory
+/// scope (csharpsquid TEST-scope rules apply, MAIN-scope rules are dropped).
+pub(crate) fn analyze_test_default(source: &str) -> hoonarqube_ir::FileReport {
+    analyze(
+        PathBuf::from("tests/t.cs"),
+        source,
+        CsLanguage::CSharp,
+        &AnalyzerOptions::default(),
+    )
+}
+
 mod suite_10_realworld_s341_350;
 mod suite_1_s2386;
 mod suite_2_s4260;
