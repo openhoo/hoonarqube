@@ -64,6 +64,13 @@ pub(crate) struct Reference<'t> {
     introduces_binding: bool,
 }
 
+impl Reference<'_> {
+    /// Whether this occurrence introduces a binding rather than using one.
+    pub(crate) fn introduces_binding(&self) -> bool {
+        self.introduces_binding
+    }
+}
+
 /// One field write site (`x = …`, `x += …`, `++x`, `x--`, `this.x = …`).
 pub(crate) struct WriteSite<'t> {
     pub(crate) name: &'t str,
