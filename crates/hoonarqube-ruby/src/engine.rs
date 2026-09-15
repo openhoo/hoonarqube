@@ -188,6 +188,33 @@ fn visit_locals(
     }
 }
 
+/// A `def obj.name` receiver reads the local `obj` in the scope that owns the
+/// definition. Without it, stores consumed only by a singleton definition
+/// look dead.
+fn collect_singleton_receiver_read(
+    node: Node<'_>,
+    scope: usize,
+    map: &SourceMap,
+    facts: &mut RubyFacts,
+) {
+    if node.kind() != "singleton_method" {
+        return;
+    }
+    let Some(receiver) = node.child_by_field_name("object") else {
+        return;
+    };
+    if receiver.kind() != "identifier" {
+        return;
+    }
+    // The walk has already descended into the definition's own scope.
+    let receiver_scope = if facts.scopes[scope].start == node.start_byte() {
+        facts.scopes[scope].parent.unwrap_or(scope)
+    } else {
+        scope
+    };
+    add_local(facts, map, receiver, LocalFactKind::Read, receiver_scope);
+}
+
 fn handle_local_node<'tree>(
     node: Node<'tree>,
     scope: usize,
@@ -198,6 +225,7 @@ fn handle_local_node<'tree>(
 ) -> bool {
     match node.kind() {
         "method" | "singleton_method" | "lambda" => {
+            collect_singleton_receiver_read(node, scope, map, facts);
             collect_node_parameters(node, scope, BindingKind::Parameter, map, by_start, facts);
             schedule_node_body(node, scope, pending);
             true
@@ -1063,6 +1091,11 @@ enum CfgBuildTask<'tree> {
         node: Node<'tree>,
         enter: usize,
     },
+    AfterBlockBody {
+        node: Node<'tree>,
+        block: Node<'tree>,
+        head: Option<usize>,
+    },
     BeginAfterMain {
         handlers: Vec<Node<'tree>>,
         ensures: Vec<Node<'tree>>,
@@ -1118,6 +1151,20 @@ impl<'tree, 'ctx> CfgProcessor<'tree, 'ctx> {
         let index = self.cfg.nodes.len();
         self.cfg
             .add(node_from_facts(node, kind, self.map, self.facts, index))
+    }
+
+    fn add_node_range(
+        &mut self,
+        start: usize,
+        end: usize,
+        kind: CfgNodeKind,
+        exclude: &[(usize, usize)],
+    ) -> usize {
+        let index = self.cfg.nodes.len();
+        self.cfg.add(node_from_range(
+            start, end, kind, self.map, self.facts, index, exclude,
+        ));
+        index
     }
 
     fn make_simple_flow(&mut self, node: Node<'tree>, kind: CfgNodeKind) -> Flow {
@@ -1206,6 +1253,9 @@ fn process_cfg_task<'tree>(task: CfgBuildTask<'tree>, processor: &mut CfgProcess
         }
         CfgBuildTask::BlockAfterBody { node, enter } => {
             process_cfg_block_after_body(node, enter, processor);
+        }
+        CfgBuildTask::AfterBlockBody { node, block, head } => {
+            process_cfg_after_block_body(node, block, head, processor);
         }
         CfgBuildTask::BeginAfterMain {
             handlers,
@@ -1522,7 +1572,14 @@ fn process_cfg_fallback_statement<'tree>(
     path: Vec<usize>,
     processor: &mut CfgProcessor<'tree, '_>,
 ) {
-    if node.named_child_count() == 0 || is_statement_node(node) {
+    if node.named_child_count() == 0 {
+        let flow = processor.make_simple_flow(node, CfgNodeKind::Statement);
+        *processor.result = Some(flow);
+    } else if matches!(node.kind(), "assignment" | "operator_assignment")
+        && let Some(block) = outermost_block_descendant(node)
+    {
+        process_cfg_blocked_assignment(node, block, loop_header, path, processor);
+    } else if is_statement_node(node) {
         let flow = processor.make_simple_flow(node, CfgNodeKind::Statement);
         *processor.result = Some(flow);
     } else {
@@ -1534,6 +1591,95 @@ fn process_cfg_fallback_statement<'tree>(
             path,
         });
     }
+}
+
+/// Splits `value = call do ... end` so the value expression runs once, the
+/// block body runs zero or more times, and only then do the statement's own
+/// written locals become visible to the following statements.
+fn process_cfg_blocked_assignment<'tree>(
+    node: Node<'tree>,
+    block: Node<'tree>,
+    loop_header: Option<usize>,
+    path: Vec<usize>,
+    processor: &mut CfgProcessor<'tree, '_>,
+) {
+    let value_start = node
+        .child_by_field_name("right")
+        .map_or(node.start_byte(), |value| value.start_byte());
+    // The statement's own left-hand side must not count as written before the
+    // body runs, so the head only covers the value expression. A `->` lambda
+    // starts with its own node, leaving no separate head at all.
+    let head = (value_start < block.start_byte()).then(|| {
+        processor.add_node_range(value_start, block.start_byte(), CfgNodeKind::Statement, &[])
+    });
+    processor
+        .tasks
+        .push(CfgBuildTask::AfterBlockBody { node, block, head });
+    processor.tasks.push(CfgBuildTask::Statement {
+        node: block,
+        loop_header,
+        path,
+    });
+}
+
+fn process_cfg_after_block_body<'tree>(
+    node: Node<'tree>,
+    block: Node<'tree>,
+    head: Option<usize>,
+    processor: &mut CfgProcessor<'tree, '_>,
+) {
+    let block_flow = processor.result.take().unwrap_or_default();
+    let exclude = (block.start_byte(), block.end_byte());
+    let tail = processor.add_node_range(
+        node.start_byte(),
+        node.end_byte(),
+        CfgNodeKind::Statement,
+        &[exclude],
+    );
+    let block_entry = block_flow.entry;
+    // The value expression runs once, then the body may repeat: its exit
+    // loops back so a write at the end of one iteration stays live for reads
+    // at the start of the next, and `next` continues the iteration.
+    if let Some(head_id) = head {
+        if let Some(entry) = block_entry {
+            processor.cfg.link(head_id, entry);
+        } else {
+            processor.cfg.link(head_id, tail);
+        }
+    }
+    if let Some(entry) = block_entry {
+        for exit in &block_flow.exits {
+            processor.cfg.link(*exit, entry);
+        }
+        for continue_node in &block_flow.continues {
+            processor.cfg.link(*continue_node, entry);
+        }
+    }
+    for exit in &block_flow.exits {
+        processor.cfg.link(*exit, tail);
+    }
+    *processor.result = Some(Flow {
+        entry: head.or(block_entry),
+        exits: vec![tail],
+        breaks: block_flow.breaks,
+        continues: block_flow.continues,
+        retries: block_flow.retries,
+    });
+}
+
+/// Finds the first block body in document order beneath `node`, which for
+/// nested blocks is also the outermost one.
+fn outermost_block_descendant<'tree>(node: Node<'tree>) -> Option<Node<'tree>> {
+    let mut found = None;
+    walk(node, &mut |child: Node<'tree>| {
+        if found.is_none()
+            && child.id() != node.id()
+            && matches!(child.kind(), "block" | "do_block" | "lambda")
+        {
+            found = Some(child);
+        }
+    });
+    found
 }
 
 fn process_cfg_branch_after_then<'tree>(
@@ -1778,20 +1924,27 @@ fn process_cfg_begin_after_ensure<'tree>(
 
 fn process_cfg_call_after_block(call: Flow, processor: &mut CfgProcessor<'_, '_>) {
     let block_flow = processor.result.take().unwrap_or_default();
+    // The yielded body may repeat: its exit loops back so a write at the end
+    // of one iteration stays live for reads at the start of the next, and
+    // `next` continues the iteration.
     if let (Some(call_entry), Some(block_entry)) = (call.entry, block_flow.entry) {
         processor.cfg.link(call_entry, block_entry);
+        for exit in &block_flow.exits {
+            processor.cfg.link(*exit, block_entry);
+        }
+        for continue_node in &block_flow.continues {
+            processor.cfg.link(*continue_node, block_entry);
+        }
     }
     let mut breaks = call.breaks;
     breaks.extend(block_flow.breaks);
-    let mut continues = call.continues;
-    continues.extend(block_flow.continues);
     let mut retries = call.retries;
     retries.extend(block_flow.retries);
     *processor.result = Some(Flow {
         entry: call.entry,
         exits: block_flow.exits,
         breaks,
-        continues,
+        continues: Vec::new(),
         retries,
     });
 }
@@ -1860,9 +2013,59 @@ fn is_statement_node(node: Node<'_>) -> bool {
             | "class"
             | "module"
             | "expression_statement"
-            | "binary"
-            | "unary"
     )
+}
+
+fn node_from_range(
+    start: usize,
+    end: usize,
+    kind: CfgNodeKind,
+    map: &SourceMap,
+    facts: &RubyFacts,
+    id: usize,
+    exclude: &[(usize, usize)],
+) -> CfgNode {
+    let mut reads = BTreeSet::new();
+    let mut writes = BTreeSet::new();
+    let mut scoped_reads = BTreeSet::new();
+    let mut scoped_writes = BTreeSet::new();
+    for local in &facts.locals {
+        if local.byte_start < start
+            || local.byte_end > end
+            || exclude
+                .iter()
+                .any(|(from, to)| local.byte_start >= *from && local.byte_end <= *to)
+        {
+            continue;
+        }
+        let scoped = ScopedLocal {
+            scope_id: local.binding_scope.unwrap_or(local.lexical_scope),
+            name: local.name.clone(),
+        };
+        match local.kind {
+            LocalFactKind::Read => {
+                reads.insert(local.name.clone());
+                scoped_reads.insert(scoped);
+            }
+            LocalFactKind::Write => {
+                writes.insert(local.name.clone());
+                scoped_writes.insert(scoped);
+            }
+        }
+    }
+    CfgNode {
+        id,
+        kind,
+        range: map.range(start, end),
+        byte_start: start,
+        byte_end: end,
+        reads: reads.into_iter().collect(),
+        writes: writes.into_iter().collect(),
+        scoped_reads: scoped_reads.into_iter().collect(),
+        scoped_writes: scoped_writes.into_iter().collect(),
+        successors: Vec::new(),
+        predecessors: Vec::new(),
+    }
 }
 
 fn node_from_facts(
@@ -2257,7 +2460,7 @@ pub fn github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
     }
     let mut issues = Vec::new();
     report_uninitialized(&facts, root, source, &mut issues);
-    report_useless_assignments(&facts, source, &mut issues);
+    report_useless_assignments(&facts, root, source, &mut issues);
     report_database_queries(root, &map, source, &mut issues);
     hoonarqube_ir::sort_issues(&mut issues);
     issues.dedup();
@@ -2487,6 +2690,7 @@ fn guard_proves_not_nil(condition: &str, truthy_branch: bool, local_name: &str) 
 
 fn report_useless_assignments(
     facts: &RubyFacts,
+    root: Node<'_>,
     source: &str,
     issues: &mut Vec<hoonarqube_ir::Issue>,
 ) {
@@ -2498,6 +2702,7 @@ fn report_useless_assignments(
         if local.name.starts_with('_')
             || useless_assignment_excluded(facts, local)
             || assignment_is_live_after(facts, local)
+            || resets_to_nil_or_false(root, source, local)
         {
             continue;
         }
@@ -2558,6 +2763,30 @@ fn local_binding_range(facts: &RubyFacts, local: &LocalFact) -> Option<hoonarqub
         .bindings
         .get(&local.name)
         .map(|binding| binding.declaration.clone())
+}
+
+/// `x = nil` and `x = false` (also in `a = b = nil` chains) are reset idioms,
+/// not dead stores: the modeled upstream rule never reports them.
+fn resets_to_nil_or_false(root: Node<'_>, source: &str, local: &LocalFact) -> bool {
+    let Some(node) = find_node(root, local.byte_start, local.byte_end) else {
+        return false;
+    };
+    let mut current = node.parent();
+    while let Some(assignment) = current {
+        if matches!(assignment.kind(), "assignment" | "operator_assignment") {
+            let mut value = assignment.child_by_field_name("right");
+            while let Some(right) = value {
+                if right.kind() == "assignment" {
+                    value = right.child_by_field_name("right");
+                    continue;
+                }
+                return matches!(node_text(right, source).trim(), "nil" | "false");
+            }
+            return false;
+        }
+        current = assignment.parent();
+    }
+    false
 }
 
 fn useless_assignment_excluded(facts: &RubyFacts, local: &LocalFact) -> bool {
@@ -3693,5 +3922,266 @@ end\n";
         cfg.link(entry, exit);
         let (_, complete) = solve_dataflow_with_budget(&cfg, &[], 1);
         assert!(!complete);
+    }
+
+    #[test]
+    fn and_sequences_initialize_reads_in_later_operands() {
+        for source in [
+            "def load(fn)\n  fn_task = lookup(fn) and fn_task.invoke\nend\n",
+            "def load_or(flag)\n  task = lookup_or(flag) or task.invoke\nend\n",
+            "module Rake\n  class Application\n    def load_imports\n      while fn = next_pending\n        fn_task = lookup(fn) and fn_task.invoke\n      end\n    end\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+                "an operand read dominated by a same-statement assignment is initialized: {source}"
+            );
+        }
+        let conditional =
+            github_quality("def f(flag)\n  x = compute if flag\n  x and x.call\nend\n");
+        assert!(
+            conditional
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+            "a conditionally assigned operand stays a finding"
+        );
+    }
+
+    #[test]
+    fn elsif_condition_assignments_dominate_branch_reads() {
+        let source = "def attempt(sources, level)\n  prereqs = sources.map { |source|\n    if File.exist?(source)\n      source\n    elsif parent = enhance(source, level)\n      parent.name\n    else\n      nil\n    end\n  }\n  prereqs\nend\n";
+        assert!(
+            github_quality(source)
+                .iter()
+                .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+            "the elsif condition assignment dominates its branch body"
+        );
+        let unassigned = github_quality(
+            "def attempt(sources, flag)\n  parent = enhance(sources) if flag\n  sources.map { |source|\n    if flag\n      source\n    elsif other\n      parent.name\n    else\n      nil\n    end\n  }\nend\n",
+        );
+        assert!(
+            unassigned
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+            "a conditionally bound receiver read in an unassigned branch remains a finding"
+        );
+    }
+
+    #[test]
+    fn block_returning_assignments_initialize_reads_after_and_inside_blocks() {
+        for source in [
+            "def sample\n  out = capture do\n    e = assert_raises(SystemExit) do\n      exit 1\n    end\n    assert_equal 1, e.status\n  end\n  out\nend\n",
+            "def loader(loader_dir)\n  capture_output do\n    exc = assert_raises(LoadError) do\n      load loader_dir\n    end\n    assert_match(/missing/, exc.message)\n  end\nend\n",
+            "def anonymous\n  ns = in_namespace(nil) do\n    t = define_task(:t)\n    t.name\n  end\n  ns\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+                "reads following a block-returning assignment inside a passed block are initialized: {source}"
+            );
+        }
+        let conditional = github_quality(
+            "def sample(flag)\n  out = capture do\n    e = assert_raises(SystemExit) if flag\n    e.status\n  end\n  out\nend\n",
+        );
+        assert!(
+            conditional
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+            "a conditionally assigned local inside a block stays a finding"
+        );
+    }
+
+    #[test]
+    fn nil_and_false_resets_are_never_dead_stores() {
+        for source in [
+            "def watch\n  ran = false\n  enhancer = -> { ran = true }\n  maybe(enhancer)\n  assert(ran)\nend\n",
+            "def pool_check\n  captured = nil\n  pool.future { captured = object }\n  assert_equal object, captured\nend\n",
+            "def chained_reset\n  a = b = nil\n  namespace \"x\" do\n    a = task(:a)\n    b = task(:b)\n  end\n  [a, b]\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+                "a nil/false reset whose value can be observed by a later read is not useless: {source}"
+            );
+        }
+        let genuinely_dead = github_quality(
+            "def lookup\n  t1, t2 = (0...2).map { nil }\n  t1 = compute\n  t2 = compute\n  [t1, t2]\nend\n",
+        );
+        assert_eq!(
+            genuinely_dead
+                .iter()
+                .filter(|issue| issue.rule_key == "rb/useless-assignment-to-local")
+                .count(),
+            2,
+            "a mass assignment overwritten before any read stays a finding"
+        );
+    }
+
+    #[test]
+    fn loop_carried_block_writes_stay_live() {
+        for source in [
+            "def chain\n  prev = \"a\"\n  (\"b\"..\"c\").each do |letter|\n    use(\".#{prev}\")\n    prev = letter\n  end\nend\n",
+            "def triple\n  raise_exception = true\n  t = task(:t) do\n    next if !raise_exception\n    raise_exception = false\n    raise \"error\"\n  end\n  t.invoke\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+                "a write read by the next iteration is not useless: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn singleton_method_definitions_read_their_receivers() {
+        let source = "def stamps\n  a = task a: [\"b\", \"c\"]\n  b = task :b\n  c = task :c\n  now = Time.now\n  def b.timestamp() Time.now + 10 end\n  def c.timestamp() Time.now + 5 end\n  assert_in_delta now, a.timestamp, 0.1\nend\n";
+        let issues = github_quality(source);
+        assert!(
+            issues
+                .iter()
+                .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+            "a singleton definition receiver reads the local: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn closure_writes_do_not_report_captured_assignments() {
+        let source = "def flags\n  value = nil\n  task(:pre, :rev) { |t, args| value = args.rev }\n  t = task(:t)\n  t.invoke\n  assert_equal \"1.2\", value\nend\n";
+        assert!(
+            github_quality(source)
+                .iter()
+                .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+            "an initializer captured by a passed block stays live"
+        );
+    }
+
+    #[test]
+    fn case_statements_keep_statement_level_dataflow() {
+        let source = "def display(tasks, truncate)\n  case tasks\n  when :tasks\n    if truncate\n      max_column = 80\n    else\n      max_column = nil\n    end\n    tasks.each do |t|\n      puts(max_column ? t.name : t)\n    end\n  end\nend\n";
+        let issues = github_quality(source);
+        assert!(
+            issues
+                .iter()
+                .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+            "each branch assignment contributes to the post-join read: {issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+            "a definitely initialized local is not reported in a nested block read: {issues:?}"
+        );
+    }
+
+    #[test]
+    fn block_bodies_do_not_initialize_skipped_iteration_reads() {
+        let source = "def f(ready)\n  items.each do\n    puts value.length\n    value = 'hello'\n  end\nend\n";
+        assert!(
+            github_quality(source)
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+            "a first-iteration read before its in-body write stays a finding"
+        );
+    }
+
+    #[test]
+    fn block_bodies_do_not_initialize_first_iteration_reads() {
+        for source in [
+            "def f\n  items.each do\n    puts value.length\n    value = 'hello'\n  end\nend\n",
+            "def g(done)\n  items.each do\n    next if done\n    puts value.length\n    value = 'hello'\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+        let after_loop =
+            "def h\n  items.each do\n    value = 'hello'\n  end\n  puts value.length\nend\n";
+        assert!(
+            github_quality(after_loop)
+                .iter()
+                .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+            "an in-body write initializes a read after the block"
+        );
+    }
+
+    #[test]
+    fn lambda_literal_writes_do_not_kill_enclosing_liveness() {
+        let source = "def build\n  ran = false\n  worker = -> { ran = true }\n  schedule(worker)\n  assert(ran)\nend\n";
+        assert!(
+            github_quality(source)
+                .iter()
+                .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+            "the lambda body write does not make the reset useless"
+        );
+    }
+
+    #[test]
+    fn assignments_read_across_blocks_and_back_edges_are_not_useless() {
+        for source in [
+            "def f(flag)\n  value = 'before'\n  if flag\n    value = 'after'\n  end\n  puts value.length\nend\n",
+            "def g(ready)\n  value = 'ok'\n  while ready\n    puts value.length\n    value = 'changed'\n  end\nend\n",
+            "def h(items, done)\n  value = 'ok'\n  items.each do\n    next if done\n    puts value.length\n    value = 'changed'\n  end\nend\n",
+        ] {
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/useless-assignment-to-local"),
+                "{source}"
+            );
+        }
+        let bad = "def f\n  value = 'unused'\n  value = 'used'\n  puts value.length\nend\n";
+        let useless: Vec<_> = github_quality(bad)
+            .into_iter()
+            .filter(|issue| issue.rule_key == "rb/useless-assignment-to-local")
+            .collect();
+        assert_eq!(useless.len(), 1);
+        assert_eq!(useless[0].range.start.line, 2);
+    }
+
+    #[test]
+    fn block_loop_edges_preserve_definitely_initialized_locals() {
+        for source in [
+            "def f(ready)\n  value = 'hello'\n  items.each do\n    puts value.length\n    break if ready\n  end\nend\n",
+            "def g(items, ready)\n  value = 'hello'\n  items.each do\n    value = 'x'\n    puts value.length\n  end\n  puts value.length\nend\n",
+        ] {
+            assert!(analyze_facts(source).analysis_complete);
+            assert!(
+                github_quality(source)
+                    .iter()
+                    .all(|issue| issue.rule_key != "rb/uninitialized-local-variable"),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn compound_statements_with_blocks_keep_branch_dataflow() {
+        for source in [
+            "def pick(items, flag)\n  case flag\n  when :a\n    items.map { |i| i.name }\n  else\n    items\n  end\nend\n",
+            "def guarded(items)\n  begin\n    items.each { |i| use(i) }\n  rescue\n    nil\n  end\nend\n",
+        ] {
+            assert!(analyze_facts(source).analysis_complete, "{source}");
+            assert!(
+                github_quality(source).is_empty(),
+                "compound statements must not collapse into one opaque node: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn binary_operands_keep_short_circuit_evaluation_order() {
+        let source = "def f(flag)\n  x = compute if flag\n  x = compute && x.call\nend\n";
+        assert!(
+            github_quality(source)
+                .iter()
+                .any(|issue| issue.rule_key == "rb/uninitialized-local-variable"),
+            "a conditionally assigned left operand read by the right stays a finding"
+        );
     }
 }
