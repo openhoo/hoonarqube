@@ -8,9 +8,9 @@ instance_mode = "standard"
 page_size = 500
 scope_classification = "community-plus-enterprise-unverified"
 community_evidence_sha256 = "a21e618ab38418bdc78a5b825cc507bed653073f3a95b9588190a93e37eef3bf"
-catalog_sha256 = "2c02a6e2d643c42165b2b84d7a8396cda886612d701dae7f32457b7261c6db87"
+catalog_sha256 = "3e9c5a48a4ade64445459f25ae97686766530587cbaff41cc5c7690a4fb6df76"
 source_total_rules = 2516
-total_rules = 2608
+total_rules = 2612
 base_catalog_sha256 = "d6082ce6d2a66810554661d37aa3f975dbf6fb9a0d92d94991aea95eaa54ccf5"
 
 [unverified_rules]
@@ -112,7 +112,7 @@ oracle_edition = "community"
 instance_mode = "standard"
 page_size = 500
 source_total = 406
-total = 441
+total = 443
 unique_keys = 406
 page_count = 1
 show_count = 406
@@ -205,6 +205,23 @@ shows_sha256 = "f6483d7f1ce352759b858817bca5f16c4cd6cb43d0cdbfde3f71d904b6e661a5
 selected_count = 8
 selected_keys_sha256 = "e92bfb9c2329365f4861e7e2ffaa0bf640e9732faf5c917df86432c5498eaa49"
 selected_rows_sha256 = "94144a306a453aea6cc73ecc61f07eaef6b603724500f2c441055599ef4b501a"
+
+[languages.javascript.supplements.a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555]
+capture_sha256 = "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555"
+captured_at_utc = "2026-09-15T22:03:11.028414906Z"
+server_version = "26.8.0.126808"
+instance_mode = "mqr"
+page_size = 500
+approval_id = "local-community-loopback"
+source_total = 514
+page_count = 2
+query_sha256 = "84e5065f7c57a49d4e86f3c9093938500febfb63a3261daec17a814b9c719252"
+pages_sha256 = "77bea40ddbfe2886429cbe6ee3cbc2ee005838b62cf3e200041b5b7104db346c"
+keys_sha256 = "13d0300dbf526da95b5a80963ba184a92f57f969214de4f6526c5aa58f140c30"
+shows_sha256 = "1c328e8d8cddef31f3a04ac032b00b7a09be63efe04210738487f5066e088c52"
+selected_count = 2
+selected_keys_sha256 = "17ea3eba2d23131684a65a7b3618a539c7e2228008e83d79013c75f0d939cc9f"
+selected_rows_sha256 = "a03b1606b8a5130a86b448509d0a405727cb8eae300463b6e584cbd4ac5d5ea3"
 
 [languages.javascript.supplements.a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba]
 capture_sha256 = "a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba"
@@ -396,7 +413,7 @@ oracle_edition = "community"
 instance_mode = "standard"
 page_size = 500
 source_total = 412
-total = 451
+total = 453
 unique_keys = 412
 page_count = 1
 show_count = 412
@@ -489,6 +506,23 @@ shows_sha256 = "b493d38cd96456876ff52d2e3400d7c3af84a353a49ec873a4ed7455184e3c39
 selected_count = 8
 selected_keys_sha256 = "6dcf18fd211b0033eccbf9009222bd952cce59208923a32ca189564a02db689b"
 selected_rows_sha256 = "c5d8528062f0c3f3a137f7058a0f1de9fb86febbe8434325387e83099745e221"
+
+[languages.typescript.supplements.a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555]
+capture_sha256 = "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555"
+captured_at_utc = "2026-09-15T22:03:11.028414906Z"
+server_version = "26.8.0.126808"
+instance_mode = "mqr"
+page_size = 500
+approval_id = "local-community-loopback"
+source_total = 532
+page_count = 2
+query_sha256 = "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13"
+pages_sha256 = "7d1f9a72b1c8d53ebfabc6882e8671d854582db7788a00ed9b4a4e088ce99467"
+keys_sha256 = "031e4ee15c67edce9cb74e1213b1e4ca9d84501fd07948104eb446d9493189f0"
+shows_sha256 = "145736fe90f42dc842346db5d72dc67fabc3e894060f71847731ed65a74b03a5"
+selected_count = 2
+selected_keys_sha256 = "9d31545363ebb769666bbdcc954aa6780bcfb92cd666c89d53d68c4df8acba1b"
+selected_rows_sha256 = "80d6ba7930e923170f58ac600f5c41efc493609547d050a756d2b62a77304aad"
 
 [languages.typescript.supplements.a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba]
 capture_sha256 = "a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba"
@@ -1075,11 +1109,11 @@ required_for_languages = []
 csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
 go = "87a2a1861bcbc3b6efcbbdf744091f26c84ec4f0a1a02bf0324433773255183f"
 java = "b817c4c8b9bb09febb1e131dbd1868624406b55f00534003445ab1f2119d4374"
-javascript = "d4b12caa60f43444cc111331be59aa9b61703b1b14bb2a3873f6d0e9fbc260ac"
+javascript = "4835d94c896f778cc9e973e0e563ba140a6bba23bedf4924cb6306d3015861a7"
 python = "e275a76ca8e278276a64defe0e86dc487ce1be3f5a09e8bcdeefdbefae381e61"
 ruby = "1bfa964c2a157715237046db506f8d9b3890e6ec77c88cb14b82457bf0d983b4"
 rust = "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817"
-typescript = "b9a52addf6b6f18cb8a1e1bd287612e39e72922d644bcddf1d8bcb7e5abb46f0"
+typescript = "15ac9e0082fe7c58d9f25dc694b4081d5b20e2fcc2e6b75a8fb8636780032485"
 
 [base_rule_files]
 csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
@@ -1092,6 +1126,6 @@ rust = "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817"
 typescript = "dddc83ab7b93eb3ea366d7e44000da475d357adfb181a26855e97bb1f67c42a8"
 
 [selected_rules]
-javascript = 35
+javascript = 37
 python = 18
-typescript = 39
+typescript = 41

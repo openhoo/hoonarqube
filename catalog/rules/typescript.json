@@ -11406,6 +11406,34 @@
       "provenance_id": "a536f2509654ac4f59db046d9e904b3afd42004b6d5d573fbcb896d357898589"
     },
     {
+      "external_key": "typescript:S7735",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "readability",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555"
+    },
+    {
       "external_key": "typescript:S7737",
       "language": "ts",
       "repository": "typescript",
@@ -12183,6 +12211,34 @@
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
+      "external_key": "typescript:S8786",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "regex",
+        "performance"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555"
+    },
+    {
       "external_key": "typescript:S881",
       "language": "ts",
       "repository": "typescript",
@@ -12411,6 +12467,26 @@
       ],
       "selected_keys_sha256": "6dcf18fd211b0033eccbf9009222bd952cce59208923a32ca189564a02db689b",
       "selected_rows_sha256": "c5d8528062f0c3f3a137f7058a0f1de9fb86febbe8434325387e83099745e221"
+    },
+    {
+      "capture_sha256": "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555",
+      "captured_at_utc": "2026-09-15T22:03:11.028414906Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 532,
+      "page_count": 2,
+      "query_sha256": "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13",
+      "pages_sha256": "7d1f9a72b1c8d53ebfabc6882e8671d854582db7788a00ed9b4a4e088ce99467",
+      "keys_sha256": "031e4ee15c67edce9cb74e1213b1e4ca9d84501fd07948104eb446d9493189f0",
+      "shows_sha256": "145736fe90f42dc842346db5d72dc67fabc3e894060f71847731ed65a74b03a5",
+      "selected_keys": [
+        "typescript:S7735",
+        "typescript:S8786"
+      ],
+      "selected_keys_sha256": "9d31545363ebb769666bbdcc954aa6780bcfb92cd666c89d53d68c4df8acba1b",
+      "selected_rows_sha256": "80d6ba7930e923170f58ac600f5c41efc493609547d050a756d2b62a77304aad"
     },
     {
       "capture_sha256": "a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba",

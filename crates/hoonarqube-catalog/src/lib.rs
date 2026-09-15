@@ -1768,7 +1768,7 @@ mod tests {
     /// Adds-only supplements layered after the base captures: thirty-five
     /// javascript, thirty-nine typescript, and eighteen python keys from
     /// verified community captures.
-    const SUPPLEMENT_RULES: usize = 92;
+    const SUPPLEMENT_RULES: usize = 96;
     const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
@@ -1819,8 +1819,8 @@ mod tests {
             1741 + JAVA_RULES + RUBY_RULES + SUPPLEMENT_RULES
         );
         let expected = [
-            ("javascript", 441),
-            ("typescript", 451),
+            ("javascript", 443),
+            ("typescript", 453),
             ("python", 353),
             ("go", 36),
             ("rust", 85),
