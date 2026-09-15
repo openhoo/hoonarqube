@@ -7,10 +7,8 @@ use crate::cst::{
 use crate::project_index::ProjectTypeIndex;
 use crate::rules::naming::TYPE_DECLARATION_KINDS;
 use crate::rules::structure::name_anchor;
-use crate::semantic::is_test_scope_file;
 use hoonarqube_ir::Issue;
 use std::collections::{BTreeSet, VecDeque};
-use std::path::Path;
 use tree_sitter::Node;
 
 /// Member declaration kinds the reference rule inspects for a forced
@@ -48,17 +46,13 @@ const INTERFACE_MEMBER_KINDS: [&str; 4] = [
 /// declaration's visibility, operators must be public, and interface
 /// implementations must match the interface member's visibility. Interfaces
 /// resolve through the project index with an in-file fallback. The catalog
-/// scope is MAIN, so test/benchmark projects are never reported.
+/// scope is MAIN; test-scoped files are silenced centrally in `analyze`.
 pub(crate) fn check(
     root: Node<'_>,
-    path: &Path,
     source: &str,
     language: CsLanguage,
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
-    if is_test_scope_file(path) {
-        return Vec::new();
-    }
     let declarations = TypeDeclarations::new(root, source, options.project_type_index.as_deref());
     let mut issues = Vec::new();
     for type_node in collect_kinds(

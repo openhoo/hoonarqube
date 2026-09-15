@@ -97,6 +97,7 @@ use crate::rules::items_only_keys_needed::check_items_only_keys_needed;
 use crate::rules::json_response_safe_flag::check_json_response_safe_flag;
 use crate::rules::jwt_secret_arguments::check_jwt_secret_arguments;
 use crate::rules::keras_model_input_shape::check_keras_model_input_shape;
+use crate::rules::keyword_parentheses::check_keyword_parentheses;
 use crate::rules::known_value_comparisons::check_known_value_comparisons;
 use crate::rules::lambda_assignments::check_lambda_assignments;
 use crate::rules::lines_of_code::check_lines_of_code;
@@ -508,9 +509,6 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_async_without_awaits(index, source, file_ctx));
     issues.extend(check_single_task_nurseries(parsed, index, source));
     issues.extend(check_control_flow_in_nurseries(parsed, index, source));
-    issues.extend(check_missing_return_annotations(
-        index, source, options, file_ctx,
-    ));
     issues.extend(check_missing_parameter_annotations(
         index, source, options, file_ctx,
     ));
@@ -1020,6 +1018,7 @@ pub(crate) fn check_future_test_contract_battery(
 // python:S6799), each in its own per-rule module.
 // ---------------------------------------------------------------------------
 pub(crate) fn check_structural_battery(
+    path: &Path,
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
@@ -1034,6 +1033,10 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
     issues.extend(check_old_style_classes(index, source, file_ctx));
+    issues.extend(check_keyword_parentheses(parsed, index, source, file_ctx));
+    issues.extend(check_missing_return_annotations(
+        path, index, source, file_ctx,
+    ));
     issues.extend(check_cognitive_complexity(parsed, index, source, options));
     issues.extend(check_function_complexity(parsed, index, source, options));
     issues.extend(check_file_complexity(parsed, index, source, options));
@@ -1271,7 +1274,7 @@ mod missing_eval_after_load;
 
 mod missing_parameter_annotations;
 
-mod missing_return_annotations;
+pub(crate) mod missing_return_annotations;
 
 pub(crate) mod mixed_string_concatenation;
 
