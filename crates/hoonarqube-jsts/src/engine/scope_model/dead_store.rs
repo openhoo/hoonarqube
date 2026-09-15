@@ -843,10 +843,14 @@ impl<'p> Analyzer<'p, '_> {
 
     fn switch_backward(&mut self, switch: &SwitchStatement<'p>, after: &Flow<'p>) -> Flow<'p> {
         // Cases fall through, so their bodies chain; the no-match path skips
-        // straight to the state after the switch.
+        // straight to the state after the switch. A `break` jumps past the
+        // remaining cases to the join, so every case body also stays may-live
+        // in the join's reads: threading the chained state alone would let a
+        // later case's store kill a value an earlier case's path still reads.
         self.nesting += 1;
         let mut current = after.clone();
         for case in switch.cases.iter().rev() {
+            current.live.extend(after.live.iter().copied());
             current = self.statements_backward(&case.consequent, current);
         }
         self.nesting -= 1;
