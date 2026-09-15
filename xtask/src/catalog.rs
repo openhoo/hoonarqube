@@ -3685,9 +3685,9 @@ mod tests {
 
         let report =
             github_coverage_report(hoonarqube_core::GITHUB_QUALITY_RULES_BY_FAMILY).unwrap();
-        assert_eq!(report.registered, 55);
+        assert_eq!(report.registered, 59);
         assert_eq!(report.total, 382);
-        assert_eq!(report.missing.len(), 327);
+        assert_eq!(report.missing.len(), 323);
         assert_eq!(
             report.rows.iter().map(|row| row.total).collect::<Vec<_>>(),
             [69, 22, 89, 98, 101, 3]

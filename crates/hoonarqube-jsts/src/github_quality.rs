@@ -5,39 +5,44 @@
 //! scope model.  Checks requiring DOM extraction, inferred types, SSA/dataflow,
 //! or control-flow dominance stay out of this entry point.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use hoonarqube_ir::{FlowLocation, Issue, IssueFlow};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BinaryExpression,
-    BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement, Class, Comment, Expression,
-    ForInStatement, ForOfStatement, ForStatement, ForStatementLeft, Function, FunctionBody,
-    JSXOpeningElement, LabeledStatement, MemberExpression, MethodDefinition, NewExpression,
-    ObjectExpression, ObjectProperty, ObjectPropertyKind, PropertyKey, PropertyKind,
-    SimpleAssignmentTarget, Statement, StaticBlock, SwitchCase, SwitchStatement, UpdateExpression,
-    UpdateOperator, VariableDeclarator, WithStatement, YieldExpression,
+    BinaryOperator, BindingIdentifier, BindingPattern, BlockStatement, BreakStatement, Class,
+    Comment, ConditionalExpression, ContinueStatement, DebuggerStatement, DoWhileStatement,
+    Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit, ForStatementLeft,
+    Function, FunctionBody, JSXOpeningElement, LabeledStatement, LogicalExpression,
+    MemberExpression, MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression,
+    ObjectProperty, ObjectPropertyKind, PropertyKey, PropertyKind, ReturnStatement,
+    SimpleAssignmentTarget, Statement, StaticBlock, SwitchCase, SwitchStatement, ThrowStatement,
+    TryStatement, UnaryOperator, UpdateExpression, UpdateOperator, VariableDeclarator,
+    WithStatement, YieldExpression,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_assignment_expression, walk_binary_expression,
-    walk_block_statement, walk_class, walk_expression_statement, walk_for_in_statement,
-    walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_function,
-    walk_jsx_opening_element, walk_labeled_statement, walk_member_expression,
-    walk_method_definition, walk_new_expression, walk_object_expression, walk_program,
-    walk_static_block, walk_switch_case, walk_switch_statement, walk_update_expression,
-    walk_variable_declarator, walk_with_statement, walk_yield_expression,
+    walk_block_statement, walk_break_statement, walk_class, walk_continue_statement,
+    walk_debugger_statement, walk_expression_statement, walk_for_in_statement,
+    walk_for_of_statement, walk_formal_parameters, walk_function, walk_jsx_opening_element,
+    walk_labeled_statement, walk_member_expression, walk_method_definition, walk_new_expression,
+    walk_object_expression, walk_program, walk_return_statement, walk_static_block,
+    walk_switch_case, walk_switch_statement, walk_throw_statement, walk_try_statement,
+    walk_update_expression, walk_variable_declaration, walk_variable_declarator,
+    walk_with_statement, walk_yield_expression,
 };
-use oxc_parser::Parser;
+use oxc_parser::{Kind, Parser, Token, config::TokensParserConfig};
 use oxc_span::{ContentEq, GetSpan, SourceType, Span};
 use oxc_syntax::scope::ScopeFlags;
 
 use crate::JstsLanguage;
-use crate::engine::scope_model::{TbKind, TbModel, build_tb_model};
+use crate::engine::scope_model::{TbKind, TbModel, build_tb_model, github_dead_stores};
 use crate::rules::shared::duplicated_key_name;
 use crate::support::{
-    LineIndex, identifier_name, member_object, sort_issues, span_issue, static_property_name,
-    unparenthesized,
+    LineIndex, identifier_name, member_object, module_export_name_name, property_key_name,
+    sort_issues, span_issue, static_property_name, unparenthesized,
 };
 
 /// Run the high-confidence CodeQL-compatible JavaScript/TypeScript quality checks
@@ -69,9 +74,13 @@ fn analyze_github_quality_inner(source: &str, language: JstsLanguage) -> Vec<Iss
         JstsLanguage::JavaScript => SourceType::unambiguous(),
         JstsLanguage::TypeScript => SourceType::ts(),
     };
-    let parsed = Parser::new(&allocator, source, base_source_type).parse();
+    let parsed = Parser::new(&allocator, source, base_source_type)
+        .with_config(TokensParserConfig)
+        .parse();
     let parsed = if parsed.diagnostics.errors().next().is_some() {
-        Parser::new(&allocator, source, base_source_type.with_jsx(true)).parse()
+        Parser::new(&allocator, source, base_source_type.with_jsx(true))
+            .with_config(TokensParserConfig)
+            .parse()
     } else {
         parsed
     };
@@ -81,9 +90,17 @@ fn analyze_github_quality_inner(source: &str, language: JstsLanguage) -> Vec<Iss
 
     let index = LineIndex::new(source);
     let model = build_tb_model(&parsed.program);
-    let mut collector = QualityCollector::new(source, &index, parsed.program.source_type, &model);
+    let mut collector = QualityCollector::new(
+        source,
+        &index,
+        parsed.program.source_type,
+        &model,
+        parsed.tokens.as_slice(),
+        parsed.program.comments.as_slice(),
+    );
     collector.emit_conditional_comments(&parsed.program.comments);
     collector.emit_const_assignments(&model);
+    collector.emit_useless_assignments(&parsed.program);
     collector.visit_program(&parsed.program);
     sort_issues(&mut collector.issues);
     collector.issues.dedup();
@@ -133,7 +150,7 @@ struct FunctionContext {
     underscore_accessed: bool,
 }
 
-struct QualityCollector<'src, 'index, 'model> {
+struct QualityCollector<'src, 'index, 'model, 'tok> {
     source: &'src str,
     index: &'index LineIndex<'src>,
     model: &'model TbModel<'src>,
@@ -143,16 +160,52 @@ struct QualityCollector<'src, 'index, 'model> {
     arguments_scopes: Vec<ArgumentsScope>,
     binary_stack: Vec<Span>,
     forced_strict: usize,
-    useless_member: Option<Span>,
     issues: Vec<Issue>,
+    /// Parser tokens, for semicolon-boundary decisions (`SemicolonInsertion`).
+    tokens: &'tok [Token],
+    /// Parsed comments, for JSDoc-declaration suppression (`ExprHasNoEffect`).
+    comments: &'tok [Comment],
+    /// One open `StmtContainer` per enclosing function-like node or script.
+    asi_containers: Vec<AsiContainer>,
+    /// Declaration spans of `for` heads, which are not ASI subjects.
+    for_head_spans: Vec<Span>,
+    /// Truthiness refinements from dominating guards, innermost frame last.
+    refinements: Vec<HashMap<usize, bool>>,
+    /// Whether the current point sits inside an if/loop/ternary condition.
+    conditional_depth: u32,
+    /// Declarator bindings whose single initializer is a constant literal.
+    symbolic_inits: HashSet<usize>,
+    /// Property names with a getter in this file; their reads may run code.
+    getter_names: HashSet<String>,
+    /// Spans of first statements of `try` bodies (`ExprHasNoEffect` exclusion).
+    try_first_spans: Vec<Span>,
+    /// Number of top-level statements, for the config-object exclusions.
+    program_stmt_count: usize,
+    /// Whether the file declares any function-like node.
+    file_has_function: bool,
 }
 
-impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
+/// One statement recorded for the `SemicolonInsertion` container analysis.
+struct AsiStmt {
+    span: Span,
+    /// Whether the statement's last token is an explicit semicolon.
+    explicit: bool,
+}
+
+/// One `CodeQL StmtContainer`: a function body or the whole script.
+struct AsiContainer {
+    is_function: bool,
+    stmts: Vec<AsiStmt>,
+}
+
+impl<'src, 'index, 'model, 'tok> QualityCollector<'src, 'index, 'model, 'tok> {
     fn new(
         source: &'src str,
         index: &'index LineIndex<'src>,
         program_source_type: SourceType,
         model: &'model TbModel<'src>,
+        tokens: &'tok [Token],
+        comments: &'tok [Comment],
     ) -> Self {
         Self {
             source,
@@ -164,10 +217,21 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
             arguments_scopes: Vec::new(),
             binary_stack: Vec::new(),
             forced_strict: 0,
-            useless_member: None,
             issues: Vec::new(),
+            tokens,
+            comments,
+            asi_containers: Vec::new(),
+            for_head_spans: Vec::new(),
+            refinements: Vec::new(),
+            conditional_depth: 0,
+            symbolic_inits: HashSet::new(),
+            getter_names: HashSet::new(),
+            try_first_spans: Vec::new(),
+            program_stmt_count: 0,
+            file_has_function: false,
         }
     }
+
     fn emit(&mut self, id: &str, message: impl Into<String>, span: Span) {
         self.issues
             .push(span_issue(self.index, format!("js/{id}"), message, span));
@@ -243,6 +307,24 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
         }
     }
 
+    /// Drops a trailing statement terminator from a span: oxc extends some
+    /// statement-level expressions across the final `;`, while the reference
+    /// query anchors on the expression itself.
+    fn strip_statement_terminator(&self, span: Span) -> Span {
+        let mut end = usize::try_from(span.end)
+            .unwrap_or(self.source.len())
+            .min(self.source.len());
+        while end > span.start as usize {
+            let last = self.source.as_bytes()[end - 1];
+            if last == b';' || last.is_ascii_whitespace() {
+                end -= 1;
+            } else {
+                break;
+            }
+        }
+        Span::new(span.start, u32::try_from(end).unwrap_or(span.end))
+    }
+
     fn first_line_span(&self, span: Span) -> Span {
         let start = usize::try_from(span.start)
             .unwrap_or(self.source.len())
@@ -290,6 +372,41 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
                     *write,
                 );
             }
+        }
+    }
+
+    /// Visits a truthiness-checked condition: the whole test sits in a
+    /// conditional position, so every operand of nested logical expressions
+    /// is checked against the current refinements.
+    fn visit_condition(&mut self, test: &Expression<'_>) {
+        self.report_refined_condition(test);
+        self.conditional_depth += 1;
+        self.visit_expression(test);
+        self.conditional_depth -= 1;
+    }
+
+    /// Marks a `for`-head declaration so it is not recorded as an ASI
+    /// subject; returns whether a guard was pushed.
+    fn push_for_head_guard(&mut self, left: &ForStatementLeft<'_>) -> bool {
+        match left {
+            ForStatementLeft::VariableDeclaration(declaration) => {
+                self.for_head_spans.push(declaration.span());
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn binding_id_for_decl(&self, span: Span) -> Option<usize> {
+        self.model
+            .bindings
+            .iter()
+            .position(|binding| binding.decl == span)
+    }
+
+    fn invalidate_refinements_of(&mut self, binding: usize) {
+        for frame in &mut self.refinements {
+            frame.remove(&binding);
         }
     }
     fn check_parameters(&mut self, params: &oxc_ast::ast::FormalParameters<'_>) {
@@ -537,11 +654,407 @@ impl<'src, 'index, 'model> QualityCollector<'src, 'index, 'model> {
             }
         }
     }
+
+    // --- js/automatic-semicolon-insertion ---
+
+    /// Records one ASI-subject statement into the innermost container.
+    fn record_asi_statement(&mut self, span: Span) {
+        let explicit = self.last_token_is_semicolon(span);
+        if let Some(container) = self.asi_containers.last_mut() {
+            container.stmts.push(AsiStmt { span, explicit });
+        }
+    }
+
+    /// Whether the statement span's last token is an explicit semicolon.
+    fn last_token_is_semicolon(&self, span: Span) -> bool {
+        let end = self.tokens.partition_point(|token| token.end() <= span.end);
+        let last = self.tokens[..end].iter().rev().find(|token| {
+            token.kind() != Kind::Eof && token.start() >= span.start && token.end() <= span.end
+        });
+        last.is_some_and(|token| token.kind() == Kind::Semicolon)
+    }
+
+    /// The statement's span restricted to its last line (`LastLineOf`).
+    fn last_line_span(&self, span: Span) -> Span {
+        let end = usize::try_from(span.end)
+            .unwrap_or(self.source.len())
+            .min(self.source.len());
+        let line_start = self.source[..end]
+            .rfind(['\n', '\r', '\u{2028}', '\u{2029}'])
+            .map_or(0, |index| index + 1);
+        Span::new(
+            span.start.max(u32::try_from(line_start).unwrap_or(0)),
+            span.end,
+        )
+    }
+
+    fn push_asi_container(&mut self, is_function: bool) {
+        self.asi_containers.push(AsiContainer {
+            is_function,
+            stmts: Vec::new(),
+        });
+    }
+
+    /// Judges one finished container: with at least 90% explicit semicolons,
+    /// every statement relying on ASI is a consistency deviation.
+    fn pop_asi_container(&mut self) {
+        let Some(container) = self.asi_containers.pop() else {
+            return;
+        };
+        let total = container.stmts.len();
+        if total == 0 {
+            return;
+        }
+        let inserted = container.stmts.iter().filter(|stmt| !stmt.explicit).count();
+        let percent = (total - inserted) * 100 / total;
+        if percent < 90 {
+            return;
+        }
+        let kind = if container.is_function {
+            "function"
+        } else {
+            "script"
+        };
+        let message = format!(
+            "Avoid automated semicolon insertion ({percent}% of all statements in the \
+             enclosing {kind} have an explicit semicolon)."
+        );
+        for stmt in container.stmts.iter().filter(|stmt| !stmt.explicit) {
+            self.emit(
+                "automatic-semicolon-insertion",
+                &message,
+                self.last_line_span(stmt.span),
+            );
+        }
+    }
+
+    // --- js/trivial-conditional ---
+
+    /// Checks one expression sitting in a truthiness-checking position.
+    fn report_refined_condition(&mut self, expression: &Expression<'_>) {
+        let Some(identifier) = identifier_name(expression) else {
+            return;
+        };
+        let Some(binding) = binding_id_for_expression(self.model, expression, identifier) else {
+            return;
+        };
+        let Some(value) = self
+            .refinements
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(&binding).copied())
+        else {
+            return;
+        };
+        if self.is_symbolic_constant(binding) {
+            return;
+        }
+        self.emit(
+            "trivial-conditional",
+            format!(
+                "This use of variable '{identifier}' always evaluates to {}.",
+                if value { "true" } else { "false" }
+            ),
+            unparenthesized(expression).span(),
+        );
+    }
+
+    /// Constants keep their meaning, so guarding on them never makes a
+    /// re-check useless (`const` declarations and single literal inits).
+    fn is_symbolic_constant(&self, binding: usize) -> bool {
+        let Some(entry) = self.model.bindings.get(binding) else {
+            return false;
+        };
+        entry.kind == TbKind::Const
+            || (entry.writes.is_empty() && self.symbolic_inits.contains(&binding))
+    }
+
+    /// Truthiness implications a guard test establishes for its branches.
+    fn implications(&self, expression: &Expression<'_>, want: bool) -> HashMap<usize, bool> {
+        let mut out = HashMap::new();
+        self.collect_implications(expression, want, &mut out);
+        out
+    }
+
+    fn collect_implications(
+        &self,
+        expression: &Expression<'_>,
+        want: bool,
+        out: &mut HashMap<usize, bool>,
+    ) {
+        let inner = unparenthesized(expression);
+        // `a.b` being truthy implies the root identifier `a` is truthy; a
+        // falsy member access implies nothing about `a`.
+        if want && let Some(member) = inner.as_member_expression() {
+            let mut object = member_object(member);
+            while let Some(nested) = unparenthesized(object).as_member_expression() {
+                object = member_object(nested);
+            }
+            if let Some(name) = identifier_name(object)
+                && let Some(binding) = binding_id_for_expression(self.model, object, name)
+            {
+                out.insert(binding, true);
+            }
+        }
+        match inner {
+            Expression::Identifier(identifier) => {
+                if let Some(binding) =
+                    binding_id_for_expression(self.model, expression, identifier.name.as_str())
+                {
+                    out.insert(binding, want);
+                }
+            }
+            Expression::LogicalExpression(logical) => match logical.operator {
+                oxc_ast::ast::LogicalOperator::And if want => {
+                    self.collect_implications(&logical.left, true, out);
+                    self.collect_implications(&logical.right, true, out);
+                }
+                oxc_ast::ast::LogicalOperator::Or if !want => {
+                    self.collect_implications(&logical.left, false, out);
+                    self.collect_implications(&logical.right, false, out);
+                }
+                _ => {}
+            },
+            Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::LogicalNot => {
+                self.collect_implications(&unary.argument, !want, out);
+            }
+            // `x instanceof T` being true implies `x` is truthy; being false
+            // implies nothing (any non-null value may fail the check).
+            Expression::BinaryExpression(binary)
+                if want && binary.operator == BinaryOperator::Instanceof =>
+            {
+                self.collect_implications(&binary.left, true, out);
+            }
+            _ => {}
+        }
+    }
+
+    /// A store to the binding invalidates every refinement of it.
+    fn invalidate_binding_for_target(&mut self, target: &AssignmentTarget<'_>) {
+        if let AssignmentTarget::AssignmentTargetIdentifier(identifier) = target {
+            self.invalidate_binding_named(identifier.name.as_str(), identifier.span);
+        }
+    }
+
+    fn invalidate_binding_named(&mut self, name: &str, span: Span) {
+        let Some(binding) = self.model.bindings.iter().position(|binding| {
+            binding.name == name && (binding.writes.contains(&span) || binding.decl == span)
+        }) else {
+            return;
+        };
+        for frame in &mut self.refinements {
+            frame.remove(&binding);
+        }
+    }
+
+    // --- js/useless-assignment-to-local ---
+
+    /// Reports the reference query's dead stores for the whole file.
+    fn emit_useless_assignments(&mut self, program: &oxc_ast::ast::Program<'_>) {
+        let exported = exported_binding_names(program);
+        for dead in github_dead_stores(program, self.source) {
+            if exported.contains(dead.name.as_str()) {
+                continue;
+            }
+            let message = if dead.is_declarator && !dead.decl_is_var {
+                format!(
+                    "The initial value of {} is unused, since it is always overwritten.",
+                    dead.name
+                )
+            } else {
+                format!("The value assigned to {} here is unused.", dead.name)
+            };
+            self.emit("useless-assignment-to-local", message, dead.whole);
+        }
+    }
+
+    // --- js/useless-expression ---
+
+    /// Scans one expression tree for pure subexpressions in void contexts,
+    /// reporting only the innermost non-compound nodes.
+    fn scan_void_expression(&mut self, expression: &Expression<'_>, in_void: bool) {
+        if !in_void {
+            return;
+        }
+        match unparenthesized(expression) {
+            // Compounds pass their own void context to the relevant children.
+            Expression::SequenceExpression(sequence) => {
+                for operand in &sequence.expressions {
+                    self.scan_void_expression(operand, true);
+                }
+            }
+            Expression::LogicalExpression(logical) => {
+                self.scan_void_expression(&logical.right, true);
+            }
+            Expression::ConditionalExpression(conditional) => {
+                self.scan_conditional_void_branches(conditional);
+            }
+            // TS-only wrappers do not exist in the reference AST; look
+            // straight through them.
+            Expression::TSAsExpression(inner) => {
+                self.scan_void_expression(&inner.expression, true);
+            }
+            Expression::TSSatisfiesExpression(inner) => {
+                self.scan_void_expression(&inner.expression, true);
+            }
+            Expression::TSNonNullExpression(inner) => {
+                self.scan_void_expression(&inner.expression, true);
+            }
+            Expression::ChainExpression(chain) => {
+                if chain
+                    .expression
+                    .as_member_expression()
+                    .is_some_and(|member| self.is_pure_member_expression(member))
+                {
+                    self.emit(
+                        "useless-expression",
+                        "This expression has no effect.",
+                        self.first_line_span(chain.span()),
+                    );
+                }
+            }
+            other => {
+                if self.is_pure_expression(other) {
+                    self.emit(
+                        "useless-expression",
+                        "This expression has no effect.",
+                        self.strip_statement_terminator(other.span()),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Branches of a void-context conditional are void too, except the
+    /// conventional `null`/`undefined`/`0`/`void` no-op branches.
+    fn scan_conditional_void_branches(&mut self, conditional: &ConditionalExpression<'_>) {
+        for branch in [&conditional.consequent, &conditional.alternate] {
+            let no_op = match unparenthesized(branch) {
+                Expression::NullLiteral(_) => true,
+                Expression::Identifier(identifier) => identifier.name == "undefined",
+                Expression::NumericLiteral(literal) => literal.value == 0.0,
+                Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::Void,
+                _ => false,
+            };
+            if !no_op {
+                self.scan_void_expression(branch, true);
+            }
+        }
+    }
+
+    /// Whether evaluating the expression can run arbitrary code. Mirrors the
+    /// reference query's purity model with file-local knowledge: property
+    /// reads stay pure unless this file defines a getter for the name.
+    fn is_pure_expression(&self, expression: &Expression<'_>) -> bool {
+        let inner = unparenthesized(expression);
+        if let Some(member) = inner.as_member_expression() {
+            return self.is_pure_member_expression(member);
+        }
+        match inner {
+            Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::ThisExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::Identifier(_) => true,
+            Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+            Expression::UnaryExpression(unary) => {
+                !matches!(unary.operator, UnaryOperator::Void | UnaryOperator::Delete)
+                    && self.is_pure_expression(&unary.argument)
+            }
+            Expression::BinaryExpression(binary) => {
+                self.is_pure_expression(&binary.left) && self.is_pure_expression(&binary.right)
+            }
+            Expression::ObjectExpression(object) => object
+                .properties
+                .iter()
+                .all(|property| self.is_pure_object_property(property)),
+            Expression::ArrayExpression(array) => array.elements.iter().all(|element| {
+                !element.is_spread()
+                    && (element.is_elision()
+                        || element
+                            .as_expression()
+                            .is_some_and(|expression| self.is_pure_expression(expression)))
+            }),
+            Expression::NewExpression(new) => Self::is_error_constructor(&new.callee),
+            _ => false,
+        }
+    }
+
+    fn is_pure_member_expression(&self, member: &MemberExpression<'_>) -> bool {
+        if !self.is_pure_expression(member_object(member)) {
+            return false;
+        }
+        match member {
+            MemberExpression::ComputedMemberExpression(computed) => {
+                self.is_pure_expression(&computed.expression)
+            }
+            member => {
+                static_property_name(member).is_none_or(|name| !self.getter_names.contains(name))
+            }
+        }
+    }
+
+    fn is_pure_object_property(&self, property: &ObjectPropertyKind<'_>) -> bool {
+        match property {
+            ObjectPropertyKind::ObjectProperty(property) => {
+                property.kind == PropertyKind::Init
+                    && !property.computed
+                    && self.is_pure_expression(&property.value)
+            }
+            ObjectPropertyKind::SpreadProperty(_) => false,
+        }
+    }
+
+    /// `new Error(...)`, `new TypeError(...)`, and friends allocate without
+    /// observable side effects, exactly like the reference query.
+    fn is_error_constructor(callee: &Expression<'_>) -> bool {
+        identifier_name(callee).is_some_and(|name| {
+            name.ends_with("Error") && name.len() > "Error".len() || name == "Error"
+        })
+    }
+
+    /// `x;`/`x.p;` preceded by a `JSDoc` tag comment reads as a declaration.
+    fn has_attached_jsdoc_tag(&self, statement: &oxc_ast::ast::ExpressionStatement<'_>) -> bool {
+        self.comments.iter().any(|comment| {
+            comment.span.end <= statement.span().start
+                && self.is_adjacent_jsdoc(comment.span, statement.span().start)
+        })
+    }
+
+    fn is_adjacent_jsdoc(&self, comment: Span, statement_start: u32) -> bool {
+        let start = usize::try_from(comment.end).unwrap_or(self.source.len());
+        let end = usize::try_from(statement_start).unwrap_or(self.source.len());
+        let Some(gap) = self.source.get(start..end.min(self.source.len())) else {
+            return false;
+        };
+        gap.chars().filter(|character| *character == '\n').count() <= 1
+            && gap.trim().is_empty()
+            && self.source_text(comment).trim_start().starts_with("/*")
+            && self.source_text(comment).contains('@')
+    }
+
+    fn source_text(&self, span: Span) -> &str {
+        let start = usize::try_from(span.start).unwrap_or(0);
+        let end = usize::try_from(span.end).unwrap_or(self.source.len());
+        self.source
+            .get(start..end.min(self.source.len()))
+            .unwrap_or_default()
+    }
 }
 
-impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
+impl<'a> Visit<'a> for QualityCollector<'_, '_, '_, '_> {
     fn visit_program(&mut self, program: &oxc_ast::ast::Program<'a>) {
+        self.getter_names = collect_getter_names(program);
+        self.program_stmt_count = program.body.len();
+        self.file_has_function = program_has_function(program);
+        self.push_asi_container(false);
         walk_program(self, program);
+        self.pop_asi_container();
     }
 
     fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
@@ -567,7 +1080,13 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
         if let Some(context) = self.functions.last_mut() {
             context.underscore_accessed = underscore_accessed;
         }
+        // Refinements never cross a function boundary.
+        let refinement_barrier = self.refinements.len();
+        self.refinements.clear();
+        self.push_asi_container(true);
         walk_function(self, function, flags);
+        self.pop_asi_container();
+        self.refinements.truncate(refinement_barrier);
         self.pop_function();
     }
 
@@ -600,7 +1119,12 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
                 .as_function_body()
                 .is_some_and(|body| body_references_name(body, "_"));
         }
+        let refinement_barrier = self.refinements.len();
+        self.refinements.clear();
+        self.push_asi_container(true);
         walk_arrow_function_expression(self, function);
+        self.pop_asi_container();
+        self.refinements.truncate(refinement_barrier);
         self.pop_function();
     }
 
@@ -630,6 +1154,12 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
             if name == "arguments" && !self.functions.is_empty() {
                 self.emit("arguments-redefinition", "Redefinition of arguments.", span);
             }
+            if let Some(binding) = self.binding_id_for_decl(span) {
+                self.invalidate_refinements_of(binding);
+                if declarator.init.as_ref().is_some_and(is_constant_literal) {
+                    self.symbolic_inits.insert(binding);
+                }
+            }
         }
         walk_variable_declarator(self, declarator);
     }
@@ -638,21 +1168,19 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
         for span in assignment_target_arguments(&expression.left) {
             self.emit_arguments_redefinition(span);
         }
+        self.invalidate_binding_for_target(&expression.left);
         walk_assignment_expression(self, expression);
     }
 
     fn visit_update_expression(&mut self, expression: &UpdateExpression<'a>) {
         if let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &expression.argument
-            && identifier.name.as_str() == "arguments"
         {
-            self.emit_arguments_redefinition(identifier.span);
+            if identifier.name.as_str() == "arguments" {
+                self.emit_arguments_redefinition(identifier.span);
+            }
+            self.invalidate_binding_named(identifier.name.as_str(), identifier.span);
         }
         walk_update_expression(self, expression);
-    }
-
-    fn visit_object_expression(&mut self, object: &ObjectExpression<'a>) {
-        self.check_object_properties(object);
-        walk_object_expression(self, object);
     }
 
     fn visit_with_statement(&mut self, statement: &WithStatement<'a>) {
@@ -677,20 +1205,141 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
         for span in for_head_assignment_arguments(&loop_.left) {
             self.emit_arguments_redefinition(span);
         }
+        let pushed = self.push_for_head_guard(&loop_.left);
         walk_for_in_statement(self, loop_);
+        if pushed {
+            self.for_head_spans.pop();
+        }
     }
 
     fn visit_for_of_statement(&mut self, loop_: &ForOfStatement<'a>) {
         for span in for_head_assignment_arguments(&loop_.left) {
             self.emit_arguments_redefinition(span);
         }
+        let pushed = self.push_for_head_guard(&loop_.left);
         walk_for_of_statement(self, loop_);
+        if pushed {
+            self.for_head_spans.pop();
+        }
     }
 
     fn visit_for_statement(&mut self, loop_: &ForStatement<'a>) {
         self.check_loop_orientation(loop_);
         self.check_unused_index(loop_);
-        walk_for_statement(self, loop_);
+        match &loop_.init {
+            Some(ForStatementInit::VariableDeclaration(declaration)) => {
+                self.for_head_spans.push(declaration.span());
+                self.visit_variable_declaration(declaration);
+                self.for_head_spans.pop();
+            }
+            Some(init) => self.visit_for_statement_init(init),
+            None => {}
+        }
+        if let Some(test) = &loop_.test {
+            self.visit_condition(test);
+        }
+        if let Some(update) = &loop_.update {
+            self.scan_void_expression(update, true);
+            self.visit_expression(update);
+        }
+        let refinements = loop_
+            .test
+            .as_ref()
+            .map_or_else(HashMap::new, |test| self.implications(test, true));
+        self.refinements.push(refinements);
+        self.visit_statement(&loop_.body);
+        self.refinements.pop();
+    }
+
+    fn visit_if_statement(&mut self, statement: &oxc_ast::ast::IfStatement<'a>) {
+        self.visit_condition(&statement.test);
+        self.refinements
+            .push(self.implications(&statement.test, true));
+        self.visit_statement(&statement.consequent);
+        self.refinements.pop();
+        if let Some(alternate) = &statement.alternate {
+            self.refinements
+                .push(self.implications(&statement.test, false));
+            self.visit_statement(alternate);
+            self.refinements.pop();
+        }
+    }
+
+    fn visit_while_statement(&mut self, statement: &oxc_ast::ast::WhileStatement<'a>) {
+        self.visit_condition(&statement.test);
+        self.refinements
+            .push(self.implications(&statement.test, true));
+        self.visit_statement(&statement.body);
+        self.refinements.pop();
+    }
+
+    fn visit_do_while_statement(&mut self, statement: &DoWhileStatement<'a>) {
+        self.record_asi_statement(statement.span());
+        self.visit_statement(&statement.body);
+        self.visit_condition(&statement.test);
+    }
+
+    fn visit_logical_expression(&mut self, expression: &LogicalExpression<'a>) {
+        self.report_refined_condition(&expression.left);
+        if self.conditional_depth > 0 {
+            self.report_refined_condition(&expression.right);
+        }
+        let guard = match expression.operator {
+            oxc_ast::ast::LogicalOperator::And => self.implications(&expression.left, true),
+            oxc_ast::ast::LogicalOperator::Or => self.implications(&expression.left, false),
+            oxc_ast::ast::LogicalOperator::Coalesce => HashMap::new(),
+        };
+        self.visit_expression(&expression.left);
+        self.refinements.push(guard);
+        self.visit_expression(&expression.right);
+        self.refinements.pop();
+    }
+
+    fn visit_conditional_expression(&mut self, expression: &ConditionalExpression<'a>) {
+        self.visit_condition(&expression.test);
+        self.refinements
+            .push(self.implications(&expression.test, true));
+        self.visit_expression(&expression.consequent);
+        self.refinements.pop();
+        self.refinements
+            .push(self.implications(&expression.test, false));
+        self.visit_expression(&expression.alternate);
+        self.refinements.pop();
+    }
+
+    fn visit_try_statement(&mut self, statement: &TryStatement<'a>) {
+        let first = statement.block.body.first().map(GetSpan::span);
+        if let Some(span) = first {
+            self.try_first_spans.push(span);
+        }
+        walk_try_statement(self, statement);
+        if first.is_some() {
+            self.try_first_spans.pop();
+        }
+    }
+
+    fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
+        self.record_asi_statement(statement.span());
+        walk_return_statement(self, statement);
+    }
+
+    fn visit_throw_statement(&mut self, statement: &ThrowStatement<'a>) {
+        self.record_asi_statement(statement.span());
+        walk_throw_statement(self, statement);
+    }
+
+    fn visit_break_statement(&mut self, statement: &BreakStatement<'a>) {
+        self.record_asi_statement(statement.span());
+        walk_break_statement(self, statement);
+    }
+
+    fn visit_continue_statement(&mut self, statement: &ContinueStatement<'a>) {
+        self.record_asi_statement(statement.span());
+        walk_continue_statement(self, statement);
+    }
+    fn visit_debugger_statement(&mut self, statement: &DebuggerStatement) {
+        self.record_asi_statement(statement.span());
+        walk_debugger_statement(self, statement);
     }
 
     fn visit_binary_expression(&mut self, expression: &BinaryExpression<'a>) {
@@ -719,14 +1368,9 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
         walk_member_expression(self, member);
     }
 
-    fn visit_expression_statement(&mut self, statement: &oxc_ast::ast::ExpressionStatement<'a>) {
-        let saved = self.useless_member;
-        self.useless_member = statement
-            .expression
-            .as_member_expression()
-            .map(GetSpan::span);
-        walk_expression_statement(self, statement);
-        self.useless_member = saved;
+    fn visit_object_expression(&mut self, object: &ObjectExpression<'a>) {
+        self.check_object_properties(object);
+        walk_object_expression(self, object);
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {
@@ -743,10 +1387,35 @@ impl<'a> Visit<'a> for QualityCollector<'_, '_, '_> {
 
     fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
         self.forced_strict += 1;
+        self.push_asi_container(true);
         walk_static_block(self, block);
+        self.pop_asi_container();
         self.forced_strict -= 1;
     }
 
+    fn visit_variable_declaration(&mut self, declaration: &oxc_ast::ast::VariableDeclaration<'a>) {
+        if !self.for_head_spans.contains(&declaration.span()) {
+            self.record_asi_statement(declaration.span());
+        }
+        walk_variable_declaration(self, declaration);
+    }
+
+    fn visit_expression_statement(&mut self, statement: &oxc_ast::ast::ExpressionStatement<'a>) {
+        self.record_asi_statement(statement.span());
+        let expression = &statement.expression;
+        let alone_in_file = self.program_stmt_count == 1 && !self.file_has_function;
+        let config_object = self.program_stmt_count == 1
+            && matches!(unparenthesized(expression), Expression::ObjectExpression(_));
+        let try_first = self
+            .try_first_spans
+            .iter()
+            .any(|span| *span == statement.span());
+        if !alone_in_file && !config_object && !try_first && !self.has_attached_jsdoc_tag(statement)
+        {
+            self.scan_void_expression(expression, true);
+        }
+        walk_expression_statement(self, statement);
+    }
     fn visit_jsx_opening_element(&mut self, opening: &JSXOpeningElement<'a>) {
         // JSX is intentionally not assigned the HTML CodeQL ID here: Oxc has
         // no standalone HTML extractor and cannot reproduce CodeQL's DOM
@@ -952,6 +1621,164 @@ fn source_text(source: &str, span: Span) -> &str {
     let start = usize::try_from(span.start).unwrap_or(0);
     let end = usize::try_from(span.end).unwrap_or(source.len());
     source.get(start..end.min(source.len())).unwrap_or_default()
+}
+
+/// Whether the expression is a constant literal (`Literal` in the reference
+/// query), so a variable initialized from it is a symbolic constant.
+fn is_constant_literal(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::RegExpLiteral(_)
+        | Expression::StringLiteral(_) => true,
+        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        _ => false,
+    }
+}
+
+/// Property names that can run user code when read from this file: class and
+/// object getters, plus conservative `Object.defineProperty` targets.
+fn collect_getter_names(program: &oxc_ast::ast::Program<'_>) -> HashSet<String> {
+    struct Collector {
+        names: HashSet<String>,
+    }
+    impl<'a> Visit<'a> for Collector {
+        fn visit_method_definition(&mut self, method: &MethodDefinition<'a>) {
+            if method.kind == MethodDefinitionKind::Get
+                && let Some(name) = property_key_name(&method.key)
+            {
+                self.names.insert(name.to_owned());
+            }
+            walk_method_definition(self, method);
+        }
+
+        fn visit_object_property(&mut self, property: &ObjectProperty<'a>) {
+            if property.kind == PropertyKind::Get
+                && let Some(name) = property_key_name(&property.key)
+            {
+                self.names.insert(name.to_owned());
+            }
+            oxc_ast_visit::walk::walk_object_property(self, property);
+        }
+
+        fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+            if let Some(expression) = unparenthesized(&call.callee).as_member_expression()
+                && static_property_name(expression) == Some("defineProperty")
+                && identifier_name(member_object(expression)) == Some("Object")
+                && let Some(argument) = call.arguments.get(1)
+                && let Some(Expression::StringLiteral(literal)) = argument.as_expression()
+            {
+                self.names.insert(literal.value.as_str().to_owned());
+            }
+            oxc_ast_visit::walk::walk_call_expression(self, call);
+        }
+    }
+    let mut collector = Collector {
+        names: HashSet::new(),
+    };
+    collector.visit_program(program);
+    collector.names
+}
+
+/// Whether any function-like node exists in the file (`ExprHasNoEffect`
+/// keeps bare single-statement files without functions out of scope).
+fn program_has_function(program: &oxc_ast::ast::Program<'_>) -> bool {
+    struct Counter {
+        count: usize,
+    }
+    impl<'a> Visit<'a> for Counter {
+        fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+            self.count += 1;
+            oxc_ast_visit::walk::walk_function(self, function, flags);
+        }
+
+        fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+            self.count += 1;
+            oxc_ast_visit::walk::walk_arrow_function_expression(self, arrow);
+        }
+
+        fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
+            self.count += 1;
+            oxc_ast_visit::walk::walk_static_block(self, block);
+        }
+    }
+    let mut counter = Counter { count: 0 };
+    counter.visit_program(program);
+    counter.count > 0
+}
+
+/// Names bound by one exported declaration (`export const x`, `export
+/// function f`, `export class C`).
+fn collect_exported_declaration_names(
+    declaration: &oxc_ast::ast::Declaration<'_>,
+    names: &mut HashSet<String>,
+) {
+    match declaration {
+        oxc_ast::ast::Declaration::VariableDeclaration(declaration) => {
+            for declarator in &declaration.declarations {
+                for (name, _) in binding_identifiers(&declarator.id) {
+                    names.insert(name.to_owned());
+                }
+            }
+        }
+        oxc_ast::ast::Declaration::FunctionDeclaration(function) => {
+            if let Some(identifier) = &function.id {
+                names.insert(identifier.name.as_str().to_owned());
+            }
+        }
+        oxc_ast::ast::Declaration::ClassDeclaration(class) => {
+            if let Some(identifier) = &class.id {
+                names.insert(identifier.name.as_str().to_owned());
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Names this module exports; their values escape the file, so stores to
+/// them are never dead (`js/useless-assignment-to-local` exclusion).
+fn exported_binding_names(program: &oxc_ast::ast::Program<'_>) -> HashSet<String> {
+    struct Collector {
+        names: HashSet<String>,
+    }
+    impl<'a> Visit<'a> for Collector {
+        fn visit_export_declaration(&mut self, export: &oxc_ast::ast::ExportDeclaration<'a>) {
+            collect_exported_declaration_names(&export.declaration, &mut self.names);
+            oxc_ast_visit::walk::walk_export_declaration(self, export);
+        }
+
+        fn visit_export_named_declaration(
+            &mut self,
+            declaration: &oxc_ast::ast::ExportNamedDeclaration<'a>,
+        ) {
+            for specifier in &declaration.specifiers {
+                if let Some(name) = module_export_name_name(&specifier.local) {
+                    self.names.insert(name.to_owned());
+                }
+            }
+            oxc_ast_visit::walk::walk_export_named_declaration(self, declaration);
+        }
+
+        fn visit_export_default_declaration(
+            &mut self,
+            declaration: &oxc_ast::ast::ExportDefaultDeclaration<'a>,
+        ) {
+            if let oxc_ast::ast::ExportDefaultDeclarationKind::FunctionDeclaration(function) =
+                &declaration.declaration
+                && let Some(identifier) = &function.id
+            {
+                self.names.insert(identifier.name.as_str().to_owned());
+            }
+            oxc_ast_visit::walk::walk_export_default_declaration(self, declaration);
+        }
+    }
+    let mut collector = Collector {
+        names: HashSet::new(),
+    };
+    collector.visit_program(program);
+    collector.names
 }
 fn loop_counter<'a>(loop_: &'a ForStatement<'a>) -> Option<String> {
     let Expression::UpdateExpression(update) = unparenthesized(loop_.update.as_ref()?) else {
@@ -1196,6 +2023,8 @@ fn operator_gap(source: &str, expression: &BinaryExpression<'_>) -> Option<usize
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use super::analyze_github_quality;
     use crate::JstsLanguage;
 
@@ -1203,6 +2032,25 @@ mod tests {
         analyze_github_quality(source, language)
             .into_iter()
             .map(|issue| issue.rule_key)
+            .collect()
+    }
+
+    /// Rule ids of the original registry, excluding the four reference
+    /// detectors added for issues #144-147: tests written before those
+    /// detectors landed pin only the earlier checks and keep their own
+    /// coverage for the new ids.
+    fn legacy_ids(source: &str, language: JstsLanguage) -> Vec<String> {
+        ids(source, language)
+            .into_iter()
+            .filter(|id| {
+                !matches!(
+                    id.as_str(),
+                    "js/automatic-semicolon-insertion"
+                        | "js/trivial-conditional"
+                        | "js/useless-assignment-to-local"
+                        | "js/useless-expression"
+                )
+            })
             .collect()
     }
 
@@ -1245,7 +2093,7 @@ mod tests {
             "  for (let i = 0; i < xs.length; ++i) xs[i];\n",
             "}\n",
         );
-        assert!(ids(source, JstsLanguage::JavaScript).is_empty());
+        assert!(legacy_ids(source, JstsLanguage::JavaScript).is_empty());
     }
 
     #[test]
@@ -1264,28 +2112,28 @@ mod tests {
     fn structural_duplicates_preserve_literal_values_and_ignore_comments() {
         let different_literals = "const object = { key: 'a b', key: 'ab' };";
         assert!(
-            !ids(different_literals, JstsLanguage::JavaScript)
+            !legacy_ids(different_literals, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-property")
         );
 
         let same_expression = "const object = { key: value /* comment */, key: value };";
         assert!(
-            ids(same_expression, JstsLanguage::JavaScript)
+            legacy_ids(same_expression, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-property")
         );
 
         let computed_same = "const object = { [\"key\"]: value, key: value };";
         assert!(
-            ids(computed_same, JstsLanguage::JavaScript)
+            legacy_ids(computed_same, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-property")
         );
 
         let cases = "switch (value) { case 'a b': break; case 'ab': break; }";
         assert!(
-            !ids(cases, JstsLanguage::JavaScript)
+            !legacy_ids(cases, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-switch-case")
         );
@@ -1294,7 +2142,7 @@ mod tests {
     #[test]
     fn duplicate_properties_normalize_static_computed_keys_without_guessing_dynamic_ones() {
         let duplicate_count = |source: &str, language: JstsLanguage| {
-            ids(source, language)
+            legacy_ids(source, language)
                 .into_iter()
                 .filter(|id| id == "js/duplicate-property")
                 .count()
@@ -1355,13 +2203,13 @@ mod tests {
     fn unused_index_requires_every_access_to_be_an_integer_constant() {
         let dynamic = "for (let i = 0; i < values.length; ++i) { values[0]; values[getIndex()]; }";
         assert!(
-            !ids(dynamic, JstsLanguage::JavaScript)
+            !legacy_ids(dynamic, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/unused-index-variable")
         );
         let constants = "for (let i = 0; i < values.length; ++i) { values[0]; values[1]; }";
         assert!(
-            ids(constants, JstsLanguage::JavaScript)
+            legacy_ids(constants, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/unused-index-variable")
         );
@@ -1371,49 +2219,49 @@ mod tests {
     fn arguments_and_duplicate_parameters_follow_lexical_bindings() {
         let arrow = "const f = () => { arguments = 1; };";
         assert!(
-            !ids(arrow, JstsLanguage::JavaScript)
+            !legacy_ids(arrow, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/arguments-redefinition")
         );
         let destructured = "function f([arguments]) { arguments = 1; }";
         assert!(
-            ids(destructured, JstsLanguage::JavaScript)
+            legacy_ids(destructured, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/arguments-redefinition")
         );
         let accessed_dummy = "function f(_, _) { return _; }";
         assert!(
-            ids(accessed_dummy, JstsLanguage::JavaScript)
+            legacy_ids(accessed_dummy, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-parameter-name")
         );
         let arrow_local = "const f = () => { let arguments = 1; };";
         assert!(
-            ids(arrow_local, JstsLanguage::JavaScript)
+            legacy_ids(arrow_local, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/arguments-redefinition")
         );
         let for_of = "function f() { for ([arguments] of values) {} }";
         assert!(
-            ids(for_of, JstsLanguage::JavaScript)
+            legacy_ids(for_of, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/arguments-redefinition")
         );
         let for_in = "function f() { for ({arguments} in values) {} }";
         assert!(
-            ids(for_in, JstsLanguage::JavaScript)
+            legacy_ids(for_in, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/arguments-redefinition")
         );
         let ambient = "declare function f(arguments: string[]): string;";
         assert!(
-            !ids(ambient, JstsLanguage::TypeScript)
+            !legacy_ids(ambient, JstsLanguage::TypeScript)
                 .iter()
                 .any(|id| id == "js/arguments-redefinition")
         );
         let nested_dummy = "function f(_, _) { function g(_) { return _; } }";
         assert!(
-            !ids(nested_dummy, JstsLanguage::JavaScript)
+            !legacy_ids(nested_dummy, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/duplicate-parameter-name")
         );
@@ -1422,7 +2270,7 @@ mod tests {
     fn shorthand_duplicates_and_shadowed_indexes_use_identity() {
         let shorthand = "const x = value; const object = { x, x };";
         assert_eq!(
-            ids(shorthand, JstsLanguage::JavaScript)
+            legacy_ids(shorthand, JstsLanguage::JavaScript)
                 .iter()
                 .filter(|id| *id == "js/duplicate-property")
                 .count(),
@@ -1431,13 +2279,13 @@ mod tests {
 
         let shadowed = "for (let i = 0; i < values.length; ++i) { let i = 1; values[0]; }";
         assert!(
-            ids(shadowed, JstsLanguage::JavaScript)
+            legacy_ids(shadowed, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/unused-index-variable")
         );
         let used = "for (let i = 0; i < values.length; ++i) { values[i]; }";
         assert!(
-            !ids(used, JstsLanguage::JavaScript)
+            !legacy_ids(used, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/unused-index-variable")
         );
@@ -1447,15 +2295,310 @@ mod tests {
     fn whitespace_zero_gap_and_loop_update_forms_are_exact() {
         let spaced = "const value = a+b * c;";
         assert!(
-            ids(spaced, JstsLanguage::JavaScript)
+            legacy_ids(spaced, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/whitespace-contradicts-precedence")
         );
         let compound_update = "for (let i = 0; i < values.length; i += 1) values[0];";
         assert!(
-            !ids(compound_update, JstsLanguage::JavaScript)
+            !legacy_ids(compound_update, JstsLanguage::JavaScript)
                 .iter()
                 .any(|id| id == "js/inconsistent-loop-direction")
         );
+    }
+
+    // --- GitHub Code Quality pinned-detector regression coverage ---
+
+    fn find_issue<'a>(
+        issues: &'a [hoonarqube_ir::Issue],
+        rule_key: &str,
+    ) -> Vec<&'a hoonarqube_ir::Issue> {
+        issues
+            .iter()
+            .filter(|issue| issue.rule_key == rule_key)
+            .collect()
+    }
+
+    fn assert_issue_at(
+        issues: &[hoonarqube_ir::Issue],
+        rule_key: &str,
+        message: &str,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) {
+        let found = find_issue(issues, rule_key);
+        assert!(
+            found.iter().any(|issue| issue.message == message
+                && (issue.range.start.line, issue.range.start.column) == start
+                && (issue.range.end.line, issue.range.end.column) == end),
+            "expected {rule_key} {message:?} at {start:?}-{end:?}, got: {found:#?}"
+        );
+    }
+
+    #[test]
+    fn automatic_semicolon_insertion_reports_missing_semicolons_in_explicit_majority() {
+        // 13 of 14 script statements are explicit (92%): the one ASI
+        // statement is reported on its last line.
+        let mut source = String::new();
+        for index in 0..13 {
+            let _ = writeln!(source, "var v{index} = {index};");
+        }
+        source.push_str("var rest = 13\n");
+        let issues = analyze_github_quality(&source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/automatic-semicolon-insertion",
+            "Avoid automated semicolon insertion (92% of all statements in the \
+             enclosing script have an explicit semicolon).",
+            (14, 0),
+            (14, 13),
+        );
+
+        // Within a function the container is the enclosing function, not the
+        // script; 19 of 20 statements are explicit (95%).
+        let mut source = String::from("function f() {\n");
+        for index in 0..19 {
+            let _ = writeln!(source, "  this.a('{index:02}');");
+        }
+        source.push_str("  this.a('19')\n}\n");
+        let issues = analyze_github_quality(&source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/automatic-semicolon-insertion",
+            "Avoid automated semicolon insertion (95% of all statements in the \
+             enclosing function have an explicit semicolon).",
+            (21, 2),
+            (21, 14),
+        );
+    }
+
+    #[test]
+    fn automatic_semicolon_insertion_ignores_minority_and_non_subject_statements() {
+        // Only two of three statements are explicit (67%): style is not
+        // consistent enough to judge the ASI statement a deviation.
+        let relaxed = "var a = 1\nvar b = 2\nvar c = 3;\n";
+        assert!(
+            find_issue(
+                &analyze_github_quality(relaxed, JstsLanguage::JavaScript),
+                "js/automatic-semicolon-insertion"
+            )
+            .is_empty()
+        );
+
+        // Blocks, ifs, and loop heads are not subject to semicolon insertion
+        // and must not dilute the denominator: `work();` (explicit) and
+        // `done()` (ASI) split 50/50, so nothing is reported.
+        let mixed = concat!(
+            "function g(c) {\n",
+            "  if (c) {\n",
+            "    work();\n",
+            "  }\n",
+            "  done()\n",
+            "}\n",
+        );
+        assert!(
+            find_issue(
+                &analyze_github_quality(mixed, JstsLanguage::JavaScript),
+                "js/automatic-semicolon-insertion"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn trivial_conditional_reports_guard_refined_variables() {
+        // Inside the `err && ...` guard the left operand of the inner logical
+        // expression is refined to always-truthy (the pinned axios shape).
+        let truthy = concat!(
+            "function handle(err) {\n",
+            "  if (err && err.name === 'TypeError') {\n",
+            "    const extra = err && err.response;\n",
+            "  }\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(truthy, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/trivial-conditional",
+            "This use of variable 'err' always evaluates to true.",
+            (3, 18),
+            (3, 21),
+        );
+
+        // A negated guard refines the same variable to always-falsy.
+        let falsy = concat!(
+            "function reject(err) {\n",
+            "  if (!err) {\n",
+            "    return err && null;\n",
+            "  }\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(falsy, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/trivial-conditional",
+            "This use of variable 'err' always evaluates to false.",
+            (3, 11),
+            (3, 14),
+        );
+    }
+
+    #[test]
+    fn trivial_conditional_whitelists_constants_and_unrefined_conditions() {
+        // Literal tests are whitelisted by the reference query, symbolic
+        // constants stay out even when they appear in guards, and a plain
+        // parameter check without a nested re-check is never constant.
+        let source = concat!(
+            "const DEBUG = true;\n",
+            "function check(x) {\n",
+            "  if (true) {\n",
+            "    ready();\n",
+            "  }\n",
+            "  if (DEBUG && x) {\n",
+            "    go();\n",
+            "  }\n",
+            "}\n",
+        );
+        assert!(
+            find_issue(
+                &analyze_github_quality(source, JstsLanguage::JavaScript),
+                "js/trivial-conditional"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn useless_assignment_reports_overwritten_and_exit_dead_stores() {
+        let source = concat!(
+            "function load(state) {\n",
+            "  let max = state.a;\n",
+            "  max = state.b;\n",
+            "  return max;\n",
+            "}\n",
+            "\n",
+            "function drop(out) {\n",
+            "  let start = out.pos;\n",
+            "  start = out.limit;\n",
+            "  return 1;\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/useless-assignment-to-local",
+            "The initial value of max is unused, since it is always overwritten.",
+            (2, 6),
+            (2, 19),
+        );
+        assert_issue_at(
+            &issues,
+            "js/useless-assignment-to-local",
+            "The initial value of start is unused, since it is always overwritten.",
+            (8, 6),
+            (8, 21),
+        );
+        assert_issue_at(
+            &issues,
+            "js/useless-assignment-to-local",
+            "The value assigned to start here is unused.",
+            (9, 2),
+            (9, 19),
+        );
+    }
+
+    #[test]
+    fn useless_assignment_respects_purely_local_and_value_controls() {
+        // Read after the store: the value is used.
+        let read = "function f() {\n  let x = 1;\n  return x;\n}\n";
+        assert!(
+            find_issue(
+                &analyze_github_quality(read, JstsLanguage::JavaScript),
+                "js/useless-assignment-to-local"
+            )
+            .is_empty()
+        );
+
+        // Captured by a closure: not a purely local variable.
+        let captured =
+            "function f() {\n  let x = 1;\n  return function () {\n    return x;\n  };\n}\n";
+        assert!(
+            find_issue(
+                &analyze_github_quality(captured, JstsLanguage::JavaScript),
+                "js/useless-assignment-to-local"
+            )
+            .is_empty()
+        );
+
+        // null/undefined stores are deliberately out of scope, an
+        // initializer-less `var` is a runtime no-op, a completely unused
+        // declarator belongs to unused-variable rules, and exported bindings
+        // escape the module.
+        let nulls = concat!(
+            "function f() {\n",
+            "  let x = null;\n",
+            "  let y = undefined;\n",
+            "  var later;\n",
+            "  later = 1;\n",
+            "  return later;\n",
+            "}\n",
+            "function g() {\n",
+            "  let unused = 1;\n",
+            "}\n",
+            "export const exported = 1;\n",
+        );
+        assert!(
+            find_issue(
+                &analyze_github_quality(nulls, JstsLanguage::JavaScript),
+                "js/useless-assignment-to-local"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn useless_expression_reports_pure_property_statement() {
+        let source = concat!(
+            "function strict(message) {\n",
+            "  errorUtil.errToObj;\n",
+            "  return 1;\n",
+            "}\n",
+        );
+        let issues = analyze_github_quality(source, JstsLanguage::JavaScript);
+        assert_issue_at(
+            &issues,
+            "js/useless-expression",
+            "This expression has no effect.",
+            (2, 2),
+            (2, 20),
+        );
+    }
+
+    #[test]
+    fn useless_expression_side_effect_and_declaration_controls() {
+        // Calls have effects; JSDoc-tagged reads are declarations; same-file
+        // getters make the property read potentially effectful; the first
+        // statement of a try block is excluded; a lone config object and a
+        // single-statement file without functions stay out; and an
+        // initializer is not a void context.
+        let cases = [
+            "function f(a) {\n  a.foo();\n}\n",
+            "function f() {}\n/** @type {number} */\nflag;\n",
+            "class Counter {\n  get count() {\n    return 1;\n  }\n}\nfunction read(it) {\n  it.count;\n}\n",
+            "function f(it) {\n  try {\n    it.value;\n  } catch (e) {\n    handle(e);\n  }\n}\n",
+            "({ base: 'x' });\n",
+            "onlyValue;\n",
+            "const kept = config.value;\n",
+        ];
+        for source in cases {
+            assert!(
+                find_issue(
+                    &analyze_github_quality(source, JstsLanguage::JavaScript),
+                    "js/useless-expression"
+                )
+                .is_empty(),
+                "unexpected js/useless-expression for {source:?}"
+            );
+        }
     }
 }

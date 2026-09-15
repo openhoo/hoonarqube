@@ -34,6 +34,7 @@ pub use github_quality::analyze_github_quality;
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
     "js/arguments-redefinition",
     "js/assignment-to-constant",
+    "js/automatic-semicolon-insertion",
     "js/conditional-comment",
     "js/duplicate-parameter-name",
     "js/duplicate-property",
@@ -41,7 +42,10 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
     "js/inconsistent-loop-direction",
     "js/label-in-switch",
     "js/shift-out-of-range",
+    "js/trivial-conditional",
     "js/unused-index-variable",
+    "js/useless-assignment-to-local",
+    "js/useless-expression",
     "js/whitespace-contradicts-precedence",
     "js/with-statement",
     "js/yield-outside-generator",
