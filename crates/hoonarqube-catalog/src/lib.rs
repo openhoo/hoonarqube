@@ -2068,18 +2068,18 @@ mod tests {
 
     #[test]
     fn unsupported_per_language_schema_fails_verification() {
-        let tampered = CSHARP_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 3", 1);
+        let tampered = GO_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 3", 1);
         let mut rule_texts = PRISTINE;
-        rule_texts[0] = &tampered;
+        rule_texts[4] = &tampered;
         let error = verify(SNAPSHOT_TOML, rule_texts).expect_err("unknown schema must fail");
         assert_eq!(error, "unsupported rule catalog schema");
     }
 
     #[test]
     fn supplemented_schema_without_receipts_fails_verification() {
-        let tampered = CSHARP_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
+        let tampered = GO_JSON.replacen("\"schema_version\": 1", "\"schema_version\": 2", 1);
         let mut rule_texts = PRISTINE;
-        rule_texts[0] = &tampered;
+        rule_texts[4] = &tampered;
         let error =
             verify(SNAPSHOT_TOML, rule_texts).expect_err("schema 2 without receipts must fail");
         assert_eq!(
