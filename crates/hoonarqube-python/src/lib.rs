@@ -47,7 +47,6 @@ use crate::rules::hardcoded_ips::check_hardcoded_ips;
 use crate::rules::hardcoded_secrets::check_hardcoded_secrets;
 use crate::rules::invalid_string_escapes::check_invalid_string_escapes;
 use crate::rules::issue_tags::check_issue_tags;
-use crate::rules::keyword_parentheses::check_keyword_parentheses;
 use crate::rules::license_header::check_license_header;
 use crate::rules::line_length::check_line_length;
 use crate::rules::lowercase_long_suffix::check_lowercase_long_suffix;
@@ -110,9 +109,11 @@ pub struct AnalyzerOptions {
     /// catalog default semantics (`fmt:`/`type:`/`noqa:` directives and
     /// single-token comments).
     pub legal_trailing_comment_pattern: String,
-    /// Enables `python:S6538`/`python:S6540`. Off by default: the frozen
-    /// catalog defines no parameters for these rules and unannotated legacy
-    /// code would flood every analysis with findings.
+    /// Enables `python:S6540`. Off by default: the frozen catalog defines no
+    /// parameters for the rule and unannotated legacy code would flood every
+    /// analysis with findings. `python:S6538` is catalog-active and always
+    /// runs; its test-scope gate mirrors the reference analyzer's
+    /// production-only execution instead of this knob.
     pub require_type_hints: bool,
     /// Ignore shape for `python:S1481` unused locals; matches the catalog
     /// `regex` default `(_[a-zA-Z0-9_]*|dummy|unused|ignored)` semantics:
@@ -213,7 +214,6 @@ pub fn analyze_with_context(
     issues.extend(check_pre_increment_decrement(&parsed, &index, source));
     issues.extend(check_assign_plus_minus(&parsed, &index, source));
     issues.extend(check_invalid_string_escapes(&index, source, &file_ctx));
-    issues.extend(check_keyword_parentheses(&parsed, &index, source));
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(
