@@ -112,11 +112,19 @@ pub(crate) struct ClassRuleCollector<'a, 'index> {
 
 impl<'a> Visit<'a> for ClassRuleCollector<'a, '_> {
     fn visit_class(&mut self, class: &Class<'a>) {
+        // `React.Component` resolves to the same base as a local
+        // `Component` for component detection (`S6441`).
         let super_name = class
             .heritage
             .as_ref()
             .and_then(|heritage| match &heritage.expression {
                 Expression::Identifier(name) => Some(name.name.to_string()),
+                Expression::StaticMemberExpression(member) => match &member.object {
+                    Expression::Identifier(object) if object.name == "React" => {
+                        Some(member.property.name.to_string())
+                    }
+                    _ => None,
+                },
                 _ => None,
             });
         let frame_id = self.next_frame_id;

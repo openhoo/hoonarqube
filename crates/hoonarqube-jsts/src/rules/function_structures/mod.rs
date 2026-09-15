@@ -1,5 +1,5 @@
 // Family 'function_structures' (generated).
-mod s2376_class_getter_pairing;
+mod s2376_class_accessor_pairing;
 mod walker;
 
 use crate::Issue;
