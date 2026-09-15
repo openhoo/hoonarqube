@@ -13,6 +13,7 @@ use super::instance_writes_to_static_fields::check as check_instance_writes_to_s
 use super::null_returns_from_collection_members::check as check_null_returns_from_collection_members;
 use super::private_methods_called_only_from_nested_types::check as check_private_methods_called_only_from_nested_types;
 use super::readonly_field_candidates::check as check_readonly_field_candidates;
+use super::redundant_null_forgiving::check as check_redundant_null_forgiving;
 use super::single_method_fields::check as check_single_method_fields;
 use super::static_candidate_members::check as check_static_candidate_members;
 use super::static_initialization_order::check as check_static_initialization_order;
@@ -42,6 +43,7 @@ pub(crate) fn usage_analysis_issues<'t>(
     issues.extend(check_single_method_fields(source, language, &symbols));
     issues.extend(check_unassigned_private_fields(source, language, &symbols));
     issues.extend(check_readonly_field_candidates(source, language, &symbols));
+    issues.extend(check_redundant_null_forgiving(root, source, language));
     issues.extend(check_static_candidate_members(source, language, &symbols));
     issues.extend(check_instance_writes_to_static_fields(
         source, language, &symbols,

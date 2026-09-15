@@ -15,6 +15,7 @@ pub(crate) mod instance_writes_to_static_fields;
 pub(crate) mod null_returns_from_collection_members;
 pub(crate) mod private_methods_called_only_from_nested_types;
 pub(crate) mod readonly_field_candidates;
+pub(crate) mod redundant_null_forgiving;
 pub(crate) mod single_method_fields;
 pub(crate) mod static_candidate_members;
 pub(crate) mod static_initialization_order;
