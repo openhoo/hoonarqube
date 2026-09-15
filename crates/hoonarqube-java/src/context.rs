@@ -77,7 +77,7 @@ pub struct Symbol {
     pub declared_at: Range,
     pub scope: ScopeId,
     pub type_fact: Option<TypeFact>,
-    declared_type: Option<String>,
+    pub(crate) declared_type: Option<String>,
     visibility: Option<Vec<ByteSpan>>,
     span: ByteSpan,
 }

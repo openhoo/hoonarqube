@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use hoonarqube_ir::{FlowLocation, Issue, Range};
 use tree_sitter::Node;
 
-use crate::context::SemanticIndex;
+use crate::context::{ReferenceFact, SemanticIndex, SymbolKind};
 use crate::support::{LineIndex, node_text, range_of, walk_all};
 
 pub type NodeId = usize;
@@ -636,7 +636,9 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
             "enum_declaration",
             "record_declaration",
             "annotation_type_declaration",
+            "assignment_expression",
             "method_declaration",
+            "method_invocation",
             "constructor_declaration",
             "compact_constructor_declaration",
             "object_creation_expression",
@@ -670,6 +672,7 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
     issues.extend(javadoc_issues(root, source, index));
     issues.extend(method_name_issues(root, source, index));
     issues.extend(method_signature_issues(root, source, index));
+    issues.extend(unread_local_issues(root, source, index, &semantics));
     hoonarqube_ir::sort_issues(&mut issues);
     issues.dedup();
     issues
@@ -687,6 +690,7 @@ fn collect_node_issues(
     collect_underscore_issue(node, source, index, issues);
     collect_expression_issues(node, source, index, semantics, issues);
     collect_indentation_issue(node, source, index, issues);
+    collect_gcq_batch_issues(node, source, index, semantics, issues);
 }
 
 fn collect_declaration_issues(
@@ -739,7 +743,10 @@ fn collect_expression_issues(
 ) {
     match node.kind() {
         "string_literal" | "text_block" => literal_issues(node, source, index, semantics, issues),
-        "binary_expression" => binary_issues(node, source, index, issues),
+        "binary_expression" => {
+            binary_issues(node, source, index, issues);
+            gcq_comparison_issues(node, source, index, semantics, issues);
+        }
         _ => {}
     }
 }
@@ -2239,6 +2246,1227 @@ fn potentially_confusing(a: &str, b: &str) -> bool {
         )
 }
 
+// -------------------------------------------------------------------------
+// GitHub Code Quality batch 1 (issue #370). Each rule is grounded in the
+// pinned CodeQL source named by `catalog/github-code-quality.json` and uses
+// only facts provable from one file: identifier typing goes through the
+// `SemanticIndex`, unresolved or shadowed types never match, and recovered
+// trees are rejected before any rule runs.
+// -------------------------------------------------------------------------
+
+const CALL_TO_THREAD_RUN: &str = "java/call-to-thread-run";
+const COMPARISON_IDENTICAL: &str = "java/comparison-of-identical-expressions";
+const COMPARISON_WITH_NAN: &str = "java/comparison-with-nan";
+const CONSTANT_COMPARISON: &str = "java/constant-comparison";
+const CONTINUE_IN_FALSE_LOOP: &str = "java/continue-in-false-loop";
+const DO_NOT_CALL_FINALIZE: &str = "java/do-not-call-finalize";
+const EQUALS_ON_ARRAYS: &str = "java/equals-on-arrays";
+const INEFFICIENT_BOXED_CONSTRUCTOR: &str = "java/inefficient-boxed-constructor";
+const INEFFICIENT_EMPTY_STRING_TEST: &str = "java/inefficient-empty-string-test";
+const LOCAL_VARIABLE_IS_NEVER_READ: &str = "java/local-variable-is-never-read";
+const REDUNDANT_ASSIGNMENT: &str = "java/redundant-assignment";
+const REPLACE_ALL_WITH_NON_REGEX: &str = "java/string-replace-all-with-non-regex";
+const TEST_NEGATIVE_CONTAINER_SIZE: &str = "java/test-for-negative-container-size";
+const USELESS_NULL_CHECK: &str = "java/useless-null-check";
+const USELESS_TOSTRING_CALL: &str = "java/useless-tostring-call";
+
+/// `java.lang` wrapper types with their primitive names, mirroring `CodeQL`
+/// `BoxedType`.
+const BOXED_TYPES: [(&str, &str); 8] = [
+    ("Integer", "int"),
+    ("Long", "long"),
+    ("Short", "short"),
+    ("Byte", "byte"),
+    ("Character", "char"),
+    ("Boolean", "boolean"),
+    ("Float", "float"),
+    ("Double", "double"),
+];
+
+/// `java.util` element containers whose `size()` never goes negative.
+const COLLECTION_TYPES: [&str; 17] = [
+    "Collection",
+    "List",
+    "ArrayList",
+    "LinkedList",
+    "Vector",
+    "Stack",
+    "Set",
+    "HashSet",
+    "LinkedHashSet",
+    "TreeSet",
+    "SortedSet",
+    "NavigableSet",
+    "Queue",
+    "Deque",
+    "ArrayDeque",
+    "PriorityQueue",
+    "BlockingQueue",
+];
+
+/// `java.util` key/value containers whose `size()` never goes negative.
+const MAP_TYPES: [&str; 11] = [
+    "Map",
+    "HashMap",
+    "LinkedHashMap",
+    "TreeMap",
+    "SortedMap",
+    "NavigableMap",
+    "Hashtable",
+    "ConcurrentHashMap",
+    "ConcurrentMap",
+    "WeakHashMap",
+    "IdentityHashMap",
+];
+
+fn collect_gcq_batch_issues(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    match node.kind() {
+        "assignment_expression" => gcq_assignment_issues(node, source, index, semantics, issues),
+        "method_invocation" => gcq_method_invocation_issues(node, source, index, semantics, issues),
+        "do_statement" => gcq_continue_issues(node, source, index, issues),
+        "object_creation_expression" => {
+            boxed_constructor_issue(node, source, index, semantics, issues);
+        }
+        _ => {}
+    }
+}
+
+fn gcq_assignment_issues(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(operator) = node.child_by_field_name("operator") else {
+        return;
+    };
+    if node_text(operator, source) != "=" {
+        return;
+    }
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    if !same_variable(left, right, source, index, semantics) {
+        return;
+    }
+    let destination = unwrap_parens(left);
+    let name = match destination.kind() {
+        "field_access" => destination
+            .child_by_field_name("field")
+            .map_or("", |field| node_text(field, source)),
+        _ => node_text(destination, source),
+    };
+    issues.push(issue(
+        REDUNDANT_ASSIGNMENT,
+        &format!("This expression assigns {name} to itself."),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// `CodeQL` treats an unqualified access, its `this`-qualified form, and two
+/// `this`-qualified forms of the same field as one variable; identifiers must
+/// resolve to the same symbol so shadowing never fabricates a match.
+fn same_variable(
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    let left = unwrap_parens(left);
+    let right = unwrap_parens(right);
+    let left_symbol = gcq_symbol(left, source, index, semantics);
+    let right_symbol = gcq_symbol(right, source, index, semantics);
+    if let (Some(left_symbol), Some(right_symbol)) = (left_symbol, right_symbol) {
+        return left_symbol.id == right_symbol.id;
+    }
+    matches_same_field(left, right, left_symbol, source)
+        || matches_same_field(right, left, right_symbol, source)
+        || same_this_field_access(left, right, source, index, semantics)
+        || same_this_field_access(right, left, source, index, semantics)
+}
+
+fn matches_same_field(
+    named: Node<'_>,
+    access: Node<'_>,
+    named_symbol: Option<&crate::context::Symbol>,
+    source: &str,
+) -> bool {
+    if named.kind() != "identifier" || access.kind() != "field_access" {
+        return false;
+    }
+    let Some(object) = access.child_by_field_name("object") else {
+        return false;
+    };
+    if object.kind() != "this" {
+        return false;
+    }
+    let Some(field) = access.child_by_field_name("field") else {
+        return false;
+    };
+    node_text(field, source) == node_text(named, source)
+        && named_symbol.is_some_and(|symbol| symbol.kind == SymbolKind::Field)
+}
+
+fn same_this_field_access(
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    if left.kind() != "field_access" || right.kind() != "field_access" {
+        return false;
+    }
+    let (Some(left_object), Some(right_object)) = (
+        left.child_by_field_name("object"),
+        right.child_by_field_name("object"),
+    ) else {
+        return false;
+    };
+    if left_object.kind() != "this" || right_object.kind() != "this" {
+        return false;
+    }
+    let (Some(left_field), Some(right_field)) = (
+        left.child_by_field_name("field"),
+        right.child_by_field_name("field"),
+    ) else {
+        return false;
+    };
+    if node_text(left_field, source) != node_text(right_field, source) {
+        return false;
+    }
+    match (
+        gcq_symbol(left_field, source, index, semantics),
+        gcq_symbol(right_field, source, index, semantics),
+    ) {
+        (Some(left), Some(right)) => left.id == right.id,
+        // Unresolved fields belong to outer classes; the same name is the
+        // strongest single-file evidence available.
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+/// `java/local-variable-is-never-read`: a plain local whose value is never
+/// read. Plain-assignment destinations are pure writes; `x++` and compound
+/// assignment read. Try-with-resources, catch parameters, and enhanced-`for`
+/// variables are exempt, matching the pinned query's declaration scope.
+fn unread_local_issues(
+    root: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Vec<Issue> {
+    // References exist only for usages, so declaration sites are matched by
+    // position against the local symbols.
+    let local_sites: std::collections::BTreeMap<(u32, u32), usize> = semantics
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Local)
+        .map(|symbol| {
+            (
+                (
+                    symbol.declared_at.start.line,
+                    symbol.declared_at.start.column,
+                ),
+                symbol.id.0,
+            )
+        })
+        .collect();
+    let mut read = BTreeSet::new();
+    let mut exempt = BTreeSet::new();
+    for identifier in crate::support::collect_kinds(root, &["identifier"]) {
+        let position = index.position(source, identifier.start_byte());
+        if let Some(&symbol_index) = local_sites.get(&(position.line, position.column)) {
+            if declaration_site_is_implicit_use(identifier) {
+                exempt.insert(symbol_index);
+            }
+            continue;
+        }
+        let Some(reference) = gcq_reference(identifier, source, index, semantics) else {
+            continue;
+        };
+        let Some(symbol_id) = reference.symbol else {
+            continue;
+        };
+        let Some(symbol) = semantics.symbols.get(symbol_id.0) else {
+            continue;
+        };
+        if symbol.kind != SymbolKind::Local {
+            continue;
+        }
+        if !is_plain_assignment_destination(identifier, source) {
+            read.insert(symbol_id.0);
+        }
+    }
+    semantics
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.kind == SymbolKind::Local)
+        .filter(|symbol| !read.contains(&symbol.id.0) && !exempt.contains(&symbol.id.0))
+        .map(|symbol| {
+            Issue::new(
+                LOCAL_VARIABLE_IS_NEVER_READ,
+                format!("Variable '{}' is never read.", symbol.name),
+                symbol.declared_at.clone(),
+            )
+        })
+        .collect()
+}
+
+fn declaration_site_is_implicit_use(identifier: Node<'_>) -> bool {
+    let mut current = identifier.parent();
+    while let Some(parent) = current {
+        if matches!(
+            parent.kind(),
+            "enhanced_for_statement" | "catch_formal_parameter" | "resource"
+        ) {
+            return true;
+        }
+        current = parent.parent();
+    }
+    false
+}
+
+/// Only `x = ...` is a pure write; `x++` and `x += ...` also read `x`.
+fn is_plain_assignment_destination(identifier: Node<'_>, source: &str) -> bool {
+    let Some(parent) = identifier.parent() else {
+        return false;
+    };
+    if parent.kind() != "assignment_expression" {
+        return false;
+    }
+    let Some(operator) = parent.child_by_field_name("operator") else {
+        return false;
+    };
+    parent
+        .child_by_field_name("left")
+        .is_some_and(|left| left == identifier)
+        && node_text(operator, source) == "="
+}
+
+fn gcq_comparison_issues(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(operator) = node.child_by_field_name("operator") else {
+        return;
+    };
+    let operator = node_text(operator, source);
+    if !matches!(operator, "==" | "!=" | "<" | ">" | "<=" | ">=") {
+        return;
+    }
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    useless_null_check_issue(node, left, right, source, index, issues);
+    comparison_with_nan_issue(node, left, right, source, index, semantics, issues);
+    identical_expressions_issue(node, left, right, source, index, semantics, issues);
+    constant_comparison_issue(node, left, right, operator, source, index, issues);
+    test_negative_container_size_issue(node, left, right, source, index, semantics, issues);
+}
+
+fn useless_null_check_issue(
+    node: Node<'_>,
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let check = if unwrap_parens(left).kind() == "null_literal" {
+        right
+    } else if unwrap_parens(right).kind() == "null_literal" {
+        left
+    } else {
+        return;
+    };
+    let check = unwrap_parens(check);
+    if !clearly_non_null(check) {
+        return;
+    }
+    issues.push(issue(
+        USELESS_NULL_CHECK,
+        &format!(
+            "This check is useless, since {} always is non-null.",
+            node_text(check, source)
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// Facts that make an expression non-null without classpath knowledge:
+/// allocation, array creation, `this`, and string literals (`CodeQL`
+/// `clearlyNotNullExpr`, provable subset).
+fn clearly_non_null(expression: Node<'_>) -> bool {
+    matches!(
+        expression.kind(),
+        "object_creation_expression"
+            | "array_creation_expression"
+            | "this"
+            | "string_literal"
+            | "text_block"
+    )
+}
+
+fn comparison_with_nan_issue(
+    node: Node<'_>,
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(operator) = node.child_by_field_name("operator") else {
+        return;
+    };
+    if !matches!(node_text(operator, source), "==" | "!=") {
+        return;
+    }
+    let Some(class_name) = nan_operand(left, source, index, semantics)
+        .or(nan_operand(right, source, index, semantics))
+    else {
+        return;
+    };
+    issues.push(issue(
+        COMPARISON_WITH_NAN,
+        &format!(
+            "This comparison will always yield the same result since 'NaN != NaN'. \
+             Consider using {class_name}.isNaN instead."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// Resolves `Double.NaN`/`Float.NaN` and statically imported `NaN`; a local
+/// shadowing the wrapper name hides the constant.
+fn nan_operand(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<&'static str> {
+    let expression = unwrap_parens(expression);
+    if expression.kind() == "identifier" {
+        let imported = semantics
+            .resolve_imported_name(node_text(expression, source))?
+            .strip_suffix(".NaN")?
+            .to_owned();
+        return Some(if imported.ends_with("Float") {
+            "Float"
+        } else {
+            "Double"
+        });
+    }
+    if expression.kind() != "field_access" {
+        return None;
+    }
+    let field = expression.child_by_field_name("field")?;
+    if node_text(field, source) != "NaN" {
+        return None;
+    }
+    let object = unwrap_parens(expression.child_by_field_name("object")?);
+    if object.kind() != "identifier" {
+        return None;
+    }
+    let text = node_text(object, source);
+    if (text != "Double" && text != "Float")
+        || gcq_symbol(object, source, index, semantics).is_some()
+        || semantics.type_name_is_shadowed_at(text, object.start_byte())
+    {
+        return None;
+    }
+    Some(if text == "Float" { "Float" } else { "Double" })
+}
+
+fn identical_expressions_issue(
+    node: Node<'_>,
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if !identical_expressions(left, right, source, index, semantics) {
+        return;
+    }
+    issues.push(issue(
+        COMPARISON_IDENTICAL,
+        &format!(
+            "Comparison of identical values {} and {}.",
+            node_text(unwrap_parens(left), source),
+            node_text(unwrap_parens(right), source)
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// Structural equality over literals, resolved variables, and pure
+/// arithmetic, mirroring `CodeQL`'s `equal()` recursion.
+fn identical_expressions(
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    let left = unwrap_parens(left);
+    let right = unwrap_parens(right);
+    if left.kind() != right.kind() {
+        return false;
+    }
+    match left.kind() {
+        "identifier" | "field_access" => same_variable(left, right, source, index, semantics),
+        kind if is_pure_literal(kind) => node_text(left, source) == node_text(right, source),
+        "unary_expression" | "binary_expression" => {
+            same_operator(left, right, source)
+                && operand_fields(left.kind()).iter().all(|field| {
+                    let (Some(left_operand), Some(right_operand)) = (
+                        left.child_by_field_name(field),
+                        right.child_by_field_name(field),
+                    ) else {
+                        return false;
+                    };
+                    identical_expressions(left_operand, right_operand, source, index, semantics)
+                })
+        }
+        _ => false,
+    }
+}
+
+fn operand_fields(kind: &str) -> &'static [&'static str] {
+    if kind == "unary_expression" {
+        &["operand"]
+    } else {
+        &["left", "right"]
+    }
+}
+
+fn is_pure_literal(kind: &str) -> bool {
+    matches!(
+        kind,
+        "decimal_integer_literal"
+            | "hex_integer_literal"
+            | "octal_integer_literal"
+            | "binary_integer_literal"
+            | "decimal_floating_point_literal"
+            | "hex_floating_point_literal"
+            | "character_literal"
+            | "string_literal"
+            | "text_block"
+            | "null_literal"
+            | "true"
+            | "false"
+    )
+}
+
+fn same_operator(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
+    match (
+        left.child_by_field_name("operator"),
+        right.child_by_field_name("operator"),
+    ) {
+        (Some(left), Some(right)) => node_text(left, source) == node_text(right, source),
+        _ => false,
+    }
+}
+
+/// `java/constant-comparison`: two numeric literals whose outcome is fixed.
+/// The pinned query folds final constants through SSA; single-file facts
+/// restrict this batch to literal operands, and `assert` conditions are
+/// excluded exactly as in the query.
+fn constant_comparison_issue(
+    node: Node<'_>,
+    left: Node<'_>,
+    right: Node<'_>,
+    operator: &str,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if ancestor(node, "assert_statement").is_some() {
+        return;
+    }
+    let (Some(left), Some(right)) = (literal_number(left, source), literal_number(right, source))
+    else {
+        return;
+    };
+    let truth = match operator {
+        "<" => left < right,
+        ">" => left > right,
+        "<=" => left <= right,
+        ">=" => left >= right,
+        "==" => left == right,
+        "!=" => left != right,
+        _ => return,
+    };
+    issues.push(issue(
+        CONSTANT_COMPARISON,
+        &format!("Test is always {truth}."),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// Numeric value of an integer-literal expression, honoring a unary minus.
+/// Radix prefixes follow JLS; oversized literals fail closed.
+fn literal_number(expression: Node<'_>, source: &str) -> Option<i64> {
+    let expression = unwrap_parens(expression);
+    let (negative, literal) = if expression.kind() == "unary_expression" {
+        let operator = expression.child_by_field_name("operator")?;
+        if node_text(operator, source) != "-" {
+            return None;
+        }
+        (
+            true,
+            unwrap_parens(expression.child_by_field_name("operand")?),
+        )
+    } else {
+        (false, expression)
+    };
+    if !matches!(
+        literal.kind(),
+        "decimal_integer_literal"
+            | "hex_integer_literal"
+            | "octal_integer_literal"
+            | "binary_integer_literal"
+    ) {
+        return None;
+    }
+    let mut text: String = node_text(literal, source)
+        .chars()
+        .filter(|character| *character != '_')
+        .collect();
+    if text.ends_with('L') || text.ends_with('l') {
+        text.pop();
+    }
+    let (digits, radix) = match text.get(..2) {
+        Some("0x" | "0X") => (&text[2..], 16),
+        Some("0b" | "0B") => (&text[2..], 2),
+        _ if text.len() > 1 && text.starts_with('0') => (&text[1..], 8),
+        _ => (&text[..], 10),
+    };
+    let value = i64::from_str_radix(digits, radix).ok()?;
+    if negative {
+        value.checked_neg()
+    } else {
+        Some(value)
+    }
+}
+
+/// `java/test-for-negative-container-size`: container size against integral
+/// zero in the four always-decided directions of the pinned query.
+fn test_negative_container_size_issue(
+    node: Node<'_>,
+    left: Node<'_>,
+    right: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(operator) = node.child_by_field_name("operator") else {
+        return;
+    };
+    let operator = node_text(operator, source);
+    let (size, zero) = match operator {
+        "<" | ">=" => (left, right),
+        ">" | "<=" => (right, left),
+        _ => return,
+    };
+    let always_true = matches!(operator, ">=" | "<=");
+    if literal_number(zero, source) != Some(0) {
+        return;
+    }
+    let Some(kind) = container_kind(size, source, index, semantics) else {
+        return;
+    };
+    issues.push(issue(
+        TEST_NEGATIVE_CONTAINER_SIZE,
+        &format!(
+            "This expression is always {}, since {kind} can never have negative size.",
+            if always_true { "true" } else { "false" }
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// Container classification: array `.length`, `String` `.length()`,
+/// `java.util` collection/map `.size()`. Unknown types never classify.
+fn container_kind(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<&'static str> {
+    let expression = unwrap_parens(expression);
+    if expression.kind() == "field_access" {
+        let field = expression.child_by_field_name("field")?;
+        if node_text(field, source) != "length" {
+            return None;
+        }
+        let object = expression.child_by_field_name("object")?;
+        return is_array_typed(object, source, index, semantics).then_some("an array");
+    }
+    if expression.kind() != "method_invocation" {
+        return None;
+    }
+    let name = expression.child_by_field_name("name")?;
+    let object = expression.child_by_field_name("object")?;
+    let argument_count = expression
+        .child_by_field_name("arguments")
+        .map_or(0, |arguments| arguments.named_child_count());
+    if argument_count != 0 {
+        return None;
+    }
+    match node_text(name, source) {
+        "length" if expression_is_type(object, semantics, source, index, "String") => {
+            Some("a string")
+        }
+        "size" => java_util_container_kind(object, source, index, semantics),
+        _ => None,
+    }
+}
+
+fn java_util_container_kind(
+    object: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<&'static str> {
+    let (base, is_array) = declared_base_type(object, source, index, semantics)?;
+    if is_array {
+        return None;
+    }
+    let simple = base.rsplit('.').next().unwrap_or(&base);
+    let qualified = base.starts_with("java.util.");
+    let imported = semantics
+        .resolve_imported_name(simple)
+        .is_some_and(|path| path == format!("java.util.{simple}"));
+    if !(qualified || imported) {
+        return None;
+    }
+    if COLLECTION_TYPES.contains(&simple) {
+        Some("a collection")
+    } else if MAP_TYPES.contains(&simple) {
+        Some("a map")
+    } else {
+        None
+    }
+}
+
+fn gcq_method_invocation_issues(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(name) = node.child_by_field_name("name") else {
+        return;
+    };
+    let argument_count = node
+        .child_by_field_name("arguments")
+        .map_or(0, |arguments| arguments.named_child_count());
+    let object = node.child_by_field_name("object");
+    let method = node_text(name, source);
+    match method {
+        "hashCode" | "equals" => {
+            array_method_issue(
+                node,
+                object,
+                argument_count,
+                source,
+                index,
+                semantics,
+                issues,
+            );
+            if method == "equals" {
+                empty_string_equals_issue(
+                    node,
+                    object,
+                    argument_count,
+                    source,
+                    index,
+                    semantics,
+                    issues,
+                );
+            }
+        }
+        "toString" => {
+            useless_tostring_issue(
+                node,
+                object,
+                argument_count,
+                source,
+                index,
+                semantics,
+                issues,
+            );
+        }
+        "finalize" => finalize_issue(node, object, argument_count, source, index, issues),
+        "run" => thread_run_issue(
+            node,
+            object,
+            argument_count,
+            source,
+            index,
+            semantics,
+            issues,
+        ),
+        "replaceAll" => {
+            replace_all_issue(
+                node,
+                object,
+                argument_count,
+                source,
+                index,
+                semantics,
+                issues,
+            );
+        }
+        _ => {}
+    }
+}
+
+/// `java/equals-on-arrays`: `hashCode`/`equals` on array receivers compares
+/// identity only. `equals` additionally requires an array argument, matching
+/// the query's type-intersection requirement.
+fn array_method_issue(
+    node: Node<'_>,
+    object: Option<Node<'_>>,
+    argument_count: usize,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(name) = node.child_by_field_name("name") else {
+        return;
+    };
+    let method = node_text(name, source);
+    let expected = usize::from(method != "hashCode");
+    if argument_count != expected {
+        return;
+    }
+    let Some(object) = object else {
+        return;
+    };
+    if !is_array_typed(object, source, index, semantics) {
+        return;
+    }
+    if method == "equals" {
+        let argument = node
+            .child_by_field_name("arguments")
+            .and_then(|arguments| arguments.named_child(0));
+        let Some(argument) = argument else {
+            return;
+        };
+        if !is_array_typed(argument, source, index, semantics) {
+            return;
+        }
+    }
+    issues.push(issue(
+        EQUALS_ON_ARRAYS,
+        &format!(
+            "The {method} method on arrays only considers object identity and ignores array contents."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+fn useless_tostring_issue(
+    node: Node<'_>,
+    object: Option<Node<'_>>,
+    argument_count: usize,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if argument_count != 0 {
+        return;
+    }
+    let Some(object) = object else {
+        return;
+    };
+    if !expression_is_type(object, semantics, source, index, "String") {
+        return;
+    }
+    issues.push(issue(
+        USELESS_TOSTRING_CALL,
+        "Redundant call to 'toString' on a String object.",
+        node,
+        source,
+        index,
+    ));
+}
+
+fn finalize_issue(
+    node: Node<'_>,
+    object: Option<Node<'_>>,
+    argument_count: usize,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if argument_count != 0 {
+        return;
+    }
+    // `super.finalize()` inside an override is the one sanctioned call.
+    if object.is_some_and(|object| unwrap_parens(object).kind() == "super") {
+        return;
+    }
+    issues.push(issue(
+        DO_NOT_CALL_FINALIZE,
+        "Call to 'finalize()'.",
+        node,
+        source,
+        index,
+    ));
+}
+
+fn thread_run_issue(
+    node: Node<'_>,
+    object: Option<Node<'_>>,
+    argument_count: usize,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if argument_count != 0 {
+        return;
+    }
+    let Some(object) = object else {
+        return;
+    };
+    let object = unwrap_parens(object);
+    let is_thread = declared_type_is_java_lang(object, "Thread", source, index, semantics)
+        || (object.kind() == "object_creation_expression"
+            && creation_type_is_java_lang(object, "Thread", source, semantics));
+    if !is_thread || enclosing_method_is_run(node, source) {
+        return;
+    }
+    issues.push(issue(
+        CALL_TO_THREAD_RUN,
+        "Calling 'Thread.run()' rather than 'Thread.start()' will not spawn a new thread.",
+        node,
+        source,
+        index,
+    ));
+}
+
+fn enclosing_method_is_run(node: Node<'_>, source: &str) -> bool {
+    ancestor(node, "method_declaration")
+        .and_then(|method| method.child_by_field_name("name"))
+        .is_some_and(|name| node_text(name, source) == "run")
+}
+
+fn replace_all_issue(
+    node: Node<'_>,
+    object: Option<Node<'_>>,
+    argument_count: usize,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if argument_count != 2 {
+        return;
+    }
+    let Some(object) = object else {
+        return;
+    };
+    if !expression_is_type(object, semantics, source, index, "String") {
+        return;
+    }
+    let Some(first) = node
+        .child_by_field_name("arguments")
+        .and_then(|arguments| arguments.named_child(0))
+    else {
+        return;
+    };
+    if first.kind() != "string_literal" {
+        return;
+    }
+    // `CodeQL` requires `^[a-zA-Z0-9]+$`; escapes stay in the raw text and
+    // therefore fail the test, which is the conservative direction.
+    let pattern = string_literal_value(first, source);
+    if pattern.is_empty()
+        || !pattern
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+    {
+        return;
+    }
+    let finding = issue(
+        REPLACE_ALL_WITH_NON_REGEX,
+        "This call to 'replaceAll' should be a call to 'replace' as its first argument is not a regular expression.",
+        node,
+        source,
+        index,
+    );
+    issues.push(finding.with_flow(vec![FlowLocation::in_primary_file(
+        "first argument",
+        range_of(first, source, index),
+    )]));
+}
+
+/// `java/inefficient-empty-string-test`: `equals("")` where the pinned query
+/// requires a `String`-typed qualifier and an empty literal on either side.
+fn empty_string_equals_issue(
+    node: Node<'_>,
+    object: Option<Node<'_>>,
+    argument_count: usize,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if argument_count != 1 {
+        return;
+    }
+    let Some(object) = object else {
+        return;
+    };
+    if !expression_is_type(object, semantics, source, index, "String") {
+        return;
+    }
+    let Some(argument) = node
+        .child_by_field_name("arguments")
+        .and_then(|arguments| arguments.named_child(0))
+    else {
+        return;
+    };
+    if !is_empty_string_literal(object, source) && !is_empty_string_literal(argument, source) {
+        return;
+    }
+    issues.push(issue(
+        INEFFICIENT_EMPTY_STRING_TEST,
+        "Inefficient comparison to empty string, check for zero length instead.",
+        node,
+        source,
+        index,
+    ));
+}
+
+fn is_empty_string_literal(expression: Node<'_>, source: &str) -> bool {
+    let expression = unwrap_parens(expression);
+    expression.kind() == "string_literal" && node_text(expression, source) == "\"\""
+}
+
+/// `java/inefficient-boxed-constructor`: `new Integer(...)`-style allocation
+/// instead of `valueOf`. Shadowed wrapper names are not `java.lang` types.
+fn boxed_constructor_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(type_node) = node.child_by_field_name("type") else {
+        return;
+    };
+    let base = node_text(type_node, source)
+        .split(['<', '['])
+        .next()
+        .unwrap_or("")
+        .trim();
+    let Some((wrapper, primitive)) = BOXED_TYPES.iter().find(|boxed| boxed.0 == base) else {
+        return;
+    };
+    let argument_count = node
+        .child_by_field_name("arguments")
+        .map_or(0, |arguments| arguments.named_child_count());
+    if argument_count != 1 || semantics.type_name_is_shadowed_at(base, type_node.start_byte()) {
+        return;
+    }
+    issues.push(issue(
+        INEFFICIENT_BOXED_CONSTRUCTOR,
+        &format!(
+            "Inefficient constructor for {primitive} value, use {wrapper}.valueOf(...) instead."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+/// `java/continue-in-false-loop`: an unlabeled `continue` in
+/// `do { ... } while (false);` always exits the loop.
+fn gcq_continue_issues(node: Node<'_>, source: &str, index: &LineIndex, issues: &mut Vec<Issue>) {
+    let Some(condition) = node.child_by_field_name("condition").map(unwrap_parens) else {
+        return;
+    };
+    if condition.kind() != "false" {
+        return;
+    }
+    for continue_node in crate::support::collect_kinds(node, &["continue_statement"]) {
+        if continue_node.named_child_count() > 0 || nearest_loop(continue_node) != Some(node) {
+            continue;
+        }
+        issues.push(issue(
+            CONTINUE_IN_FALSE_LOOP,
+            "This 'continue' never re-runs the loop - the loop condition is always false.",
+            continue_node,
+            source,
+            index,
+        ));
+    }
+}
+
+fn nearest_loop(mut node: Node<'_>) -> Option<Node<'_>> {
+    while let Some(parent) = node.parent() {
+        if matches!(
+            parent.kind(),
+            "do_statement" | "while_statement" | "for_statement" | "enhanced_for_statement"
+        ) {
+            return Some(parent);
+        }
+        node = parent;
+    }
+    None
+}
+
+fn unwrap_parens(mut node: Node<'_>) -> Node<'_> {
+    while node.kind() == "parenthesized_expression"
+        && let Some(inner) = node.named_child(0)
+    {
+        node = inner;
+    }
+    node
+}
+
+fn gcq_reference<'a>(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &'a SemanticIndex,
+) -> Option<&'a ReferenceFact> {
+    let position = index.position(source, node.start_byte());
+    let found = semantics
+        .references
+        .binary_search_by(|reference| reference.range.start.cmp(&position))
+        .ok()?;
+    let reference = &semantics.references[found];
+    (reference.name == node_text(node, source)).then_some(reference)
+}
+
+fn gcq_symbol<'a>(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &'a SemanticIndex,
+) -> Option<&'a crate::context::Symbol> {
+    gcq_reference(node, source, index, semantics)
+        .and_then(|reference| reference.symbol)
+        .and_then(|id| semantics.symbols.get(id.0))
+}
+
+fn is_array_typed(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    let expression = unwrap_parens(expression);
+    if expression.kind() == "array_creation_expression" {
+        return true;
+    }
+    declared_base_type(expression, source, index, semantics).is_some_and(|(_, is_array)| is_array)
+}
+
+/// `(base type name, is array)` for an identifier declared in this file.
+fn declared_base_type(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<(String, bool)> {
+    let expression = unwrap_parens(expression);
+    if expression.kind() != "identifier" {
+        return None;
+    }
+    let symbol = gcq_symbol(expression, source, index, semantics)?;
+    let declared = symbol.declared_type.as_deref()?;
+    let is_array = declared.contains('[');
+    let base = declared.split(['<', '[']).next()?.trim().to_owned();
+    Some((base, is_array))
+}
+
+/// Whether an identifier's declared type is an unshadowed `java.lang` type.
+fn declared_type_is_java_lang(
+    expression: Node<'_>,
+    name: &str,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    let Some((base, _)) = declared_base_type(expression, source, index, semantics) else {
+        return false;
+    };
+    (base == name || base == format!("java.lang.{name}"))
+        && !semantics.type_name_is_shadowed_at(name, expression.start_byte())
+}
+
+fn creation_type_is_java_lang(
+    creation: Node<'_>,
+    name: &str,
+    source: &str,
+    semantics: &SemanticIndex,
+) -> bool {
+    let Some(type_node) = creation.child_by_field_name("type") else {
+        return false;
+    };
+    let base = node_text(type_node, source)
+        .split(['<', '['])
+        .next()
+        .unwrap_or("")
+        .trim();
+    (base == name || base == format!("java.lang.{name}"))
+        && !semantics.type_name_is_shadowed_at(name, type_node.start_byte())
+}
+
+/// Unescaped inner text of a string literal, escapes left as written.
+fn string_literal_value<'source>(literal: Node<'_>, source: &'source str) -> &'source str {
+    let text = node_text(literal, source);
+    text.strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        .unwrap_or(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{build_cfg, solve_dataflow};
@@ -2654,6 +3882,286 @@ final class Genuine {
         assert_eq!(
             count_rule(&github_issues(reset), "java/unknown-javadoc-parameter"),
             1
+        );
+    }
+
+    #[test]
+    fn redundant_assignment_covers_self_and_this_qualified_fields() {
+        let source =
+            "class C { int f; void m(int x) { x = x; this.f = f; f = this.f; this.f = this.f; } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/redundant-assignment"),
+            4
+        );
+        let distinct = "class C { void m(int x, int y) { x = y; x += x; } }";
+        assert_eq!(
+            count_rule(&github_issues(distinct), "java/redundant-assignment"),
+            0
+        );
+    }
+
+    #[test]
+    fn unread_local_skips_reads_updates_and_implicit_uses() {
+        let dead = "class C { void m() { int dead = 1; } }";
+        assert_eq!(
+            count_rule(&github_issues(dead), "java/local-variable-is-never-read"),
+            1
+        );
+        let reads = "class C { void m() { int used = 1; System.out.println(used); } }";
+        assert_eq!(
+            count_rule(&github_issues(reads), "java/local-variable-is-never-read"),
+            0
+        );
+        let updates = "class C { void m() { int counter = 0; counter++; counter += 2; } }";
+        assert_eq!(
+            count_rule(&github_issues(updates), "java/local-variable-is-never-read"),
+            0
+        );
+        let exempt = "class C { void m(java.util.List<String> xs) throws java.io.IOException { for (String s : xs) {} try (C r = new C()) {} catch (java.io.IOException e) {} } }";
+        assert_eq!(
+            count_rule(&github_issues(exempt), "java/local-variable-is-never-read"),
+            0
+        );
+    }
+
+    #[test]
+    fn identical_comparison_covers_variables_literals_and_this_fields() {
+        let source = "class C { int f; boolean m(int x) { return x == x && this.f == this.f && 'a' == 'a'; } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(source),
+                "java/comparison-of-identical-expressions"
+            ),
+            3
+        );
+        let clean = "class C { int f; boolean m(int x, C other) { return x == other.f; } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(clean),
+                "java/comparison-of-identical-expressions"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn constant_comparison_decides_literal_tests_but_skips_asserts() {
+        let source = "class C { boolean m() { return 1 < 2 && 2 <= 1 && 0x10 == 16; } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/constant-comparison"),
+            3
+        );
+        let asserted = "class C { void m() { assert 1 < 2; } }";
+        assert_eq!(
+            count_rule(&github_issues(asserted), "java/constant-comparison"),
+            0
+        );
+        let dynamic = "class C { boolean m(int x) { return x < 2; } }";
+        assert_eq!(
+            count_rule(&github_issues(dynamic), "java/constant-comparison"),
+            0
+        );
+    }
+
+    #[test]
+    fn useless_null_check_covers_allocation_and_literals() {
+        let source = "class C { boolean m() { return new C() != null && new int[1] == null && \"s\" != null; } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/useless-null-check"),
+            3
+        );
+        let clean = "class C { boolean m(C c) { return c != null; } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/useless-null-check"),
+            0
+        );
+    }
+
+    #[test]
+    fn nan_comparison_names_the_constant_type() {
+        let source = "class C { boolean m(double d, float f) { return d == Double.NaN || f != Float.NaN || Float.NaN == f; } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/comparison-with-nan"),
+            3
+        );
+        let clean = "class C { boolean m(double d, double nan) { return d == nan; } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/comparison-with-nan"),
+            0
+        );
+    }
+
+    #[test]
+    fn array_equals_requires_arrays_on_both_sides() {
+        let source = "class C { boolean m(int[] xs, int[] ys) { return xs.equals(ys) || xs.hashCode() == 1; } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/equals-on-arrays"),
+            2
+        );
+        let clean =
+            "class C { boolean m(int[] xs, java.util.List<Integer> ys) { return xs.equals(ys); } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/equals-on-arrays"),
+            0
+        );
+    }
+
+    #[test]
+    fn tostring_on_strings_is_redundant() {
+        let source = "class C { String m(String s) { return s.toString() + \"x\".toString(); } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/useless-tostring-call"),
+            2
+        );
+        let clean = "class C { String m(Object o) { return o.toString(); } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/useless-tostring-call"),
+            0
+        );
+    }
+
+    #[test]
+    fn finalize_calls_are_flagged_except_super() {
+        let source = "class C { void m() throws Throwable { finalize(); } void n(Object o) throws Throwable { o.finalize(); } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/do-not-call-finalize"),
+            2
+        );
+        let clean = "class C { protected void finalize() { super.finalize(); } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/do-not-call-finalize"),
+            0
+        );
+    }
+
+    #[test]
+    fn thread_run_needs_a_thread_receiver() {
+        let source = "class C { void m() { new Thread().run(); } void n(Thread t) { t.run(); } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/call-to-thread-run"),
+            2
+        );
+        let clean =
+            "class C { void m() { new Thread().start(); } void n(Runnable r) { r.run(); } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/call-to-thread-run"),
+            0
+        );
+        let inside_run = "class C { void run(Thread t) { t.run(); } }";
+        assert_eq!(
+            count_rule(&github_issues(inside_run), "java/call-to-thread-run"),
+            0
+        );
+    }
+
+    #[test]
+    fn empty_string_equals_requires_string_qualifier_and_empty_literal() {
+        let source = "class C { boolean m(String s) { return s.equals(\"\") || \"\".equals(s); } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/inefficient-empty-string-test"),
+            2
+        );
+        let clean = "class C { boolean m(String s, Object o) { return s.equals(\"x\") || o.equals(\"\"); } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/inefficient-empty-string-test"),
+            0
+        );
+    }
+
+    #[test]
+    fn replace_all_flags_only_regex_free_literals() {
+        let source = "class C { String m(String s) { return s.replaceAll(\"abc\", \"-\"); } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(source),
+                "java/string-replace-all-with-non-regex"
+            ),
+            1
+        );
+        let clean = "class C { String m(String s) { return s.replaceAll(\"a.c\", \"-\") + s.replace(\"abc\", \"-\"); } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(clean),
+                "java/string-replace-all-with-non-regex"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn negative_container_size_covers_arrays_strings_collections_and_maps() {
+        let source = "class C { boolean m(int[] xs, String s, java.util.List<String> list, java.util.Map<String, String> map) { return xs.length < 0 || s.length() < 0 || list.size() < 0 || map.size() < 0; } }";
+        let issues = github_issues(source);
+        assert_eq!(
+            count_rule(&issues, "java/test-for-negative-container-size"),
+            4
+        );
+        assert!(
+            issues
+                .iter()
+                .filter(|issue| issue.rule_key == "java/test-for-negative-container-size")
+                .any(|issue| issue.message.contains("a collection"))
+                && issues
+                    .iter()
+                    .filter(|issue| issue.rule_key == "java/test-for-negative-container-size")
+                    .any(|issue| issue.message.contains("a map"))
+        );
+        let reversed = "class C { boolean m(int[] xs) { return 0 > xs.length && xs.length >= 0 && 0 <= xs.length; } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(reversed),
+                "java/test-for-negative-container-size"
+            ),
+            3
+        );
+        let clean = "class C { boolean m(int[] xs) { return xs.length > 0 && xs.length == 0 && 0 < xs.length; } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(clean),
+                "java/test-for-negative-container-size"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn continue_in_false_loop_only_flags_unlabeled_targets() {
+        let source = "class C { void m() { do { continue; } while (false); } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/continue-in-false-loop"),
+            1
+        );
+        let labeled = "class C { void m() { outer: do { do { continue outer; } while (false); } while (false); } }";
+        assert_eq!(
+            count_rule(&github_issues(labeled), "java/continue-in-false-loop"),
+            0
+        );
+        let while_loop = "class C { void m() { while (false) { continue; } } }";
+        assert_eq!(
+            count_rule(&github_issues(while_loop), "java/continue-in-false-loop"),
+            0
+        );
+    }
+
+    #[test]
+    fn boxed_constructor_prefers_valueof_and_respects_import_shadowing() {
+        let source = "class C { Object m() { return new Integer(1); } }";
+        assert_eq!(
+            count_rule(&github_issues(source), "java/inefficient-boxed-constructor"),
+            1
+        );
+        let clean = "class C { Object m() { return Integer.valueOf(1); } }";
+        assert_eq!(
+            count_rule(&github_issues(clean), "java/inefficient-boxed-constructor"),
+            0
+        );
+        let shadowed = "import p.Integer;\nclass C { Object m() { return new Integer(1); } }";
+        assert_eq!(
+            count_rule(
+                &github_issues(shadowed),
+                "java/inefficient-boxed-constructor"
+            ),
+            0
         );
     }
 }
