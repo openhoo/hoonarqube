@@ -273,12 +273,23 @@ mod tests {
     }
 
     #[test]
-    fn single_line_trailing_commas_flagged_but_multiline_kept() {
+    fn trailing_commas_flagged_wherever_they_appear() {
         let flagged = js("const colors = ['red', 'blue',];\nconst pair = {a: 1, b: 2,};\n");
         assert_eq!(filtered(&flagged, "S1537").len(), 2);
         assert_eq!(filtered(&flagged, "S3723").len(), 0);
         let clean_single = js("const colors = ['red', 'blue'];\n");
         assert_eq!(filtered(&clean_single, "S1537").len(), 0);
+
+        // #383: multi-line object literals are flagged like any other
+        // list (`comma-dangle: never`); the multi-line exemption only
+        // belongs to `S3723` (`comma-dangle: always-multiline`).
+        let multiline = js("const o = {\n  a: 1,\n  b: 2,\n};\n");
+        assert_eq!(filtered(&multiline, "S1537").len(), 1);
+        assert_eq!(filtered(&multiline, "S3723").len(), 0);
+
+        // A trailing comment after the comma does not hide it.
+        let commented = js("const o = {\n  zlib: {level: 9}, // Sets the compression level.\n};\n");
+        assert_eq!(filtered(&commented, "S1537").len(), 1);
     }
 
     #[test]

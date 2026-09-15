@@ -4,7 +4,10 @@ use crate::support::{IssueSink, LineIndex, RuleScope, ScannedComment, to_u32};
 use oxc_ast_visit::Visit;
 use oxc_span::Span;
 
-/// `S1537` / `S3723`: trailing commas only where the line breaks allow them.
+/// `S1537` (`comma-dangle: never`): a trailing comma is unexpected in
+/// every list, whatever its line layout. `S3723`
+/// (`comma-dangle: always-multiline`) is the dual check: a multi-line
+/// list must end with a trailing comma.
 pub(crate) fn check_tb_trailing_commas(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
@@ -24,26 +27,22 @@ pub(crate) fn check_tb_trailing_commas(
             continue;
         }
         let single_line = index.pos(last_element.end).line == index.pos(closer).line;
-        let trailing_comma = last_significant_char(source, last_element.end, closer, comments)
+        let trailing_comma = first_significant_char(source, last_element.end, closer, comments)
             .filter(|&(_, byte)| byte == b',');
-        if single_line {
-            if let Some((comma_offset, _)) = trailing_comma {
-                sink.emit_span(
-                    RuleScope::Both,
-                    "S1537",
-                    "Unexpected trailing comma.",
-                    Span::new(comma_offset, comma_offset + 1),
-                );
-            }
-            continue;
-        }
-        if trailing_comma.is_none() {
-            sink.emit_span(
+        match trailing_comma {
+            Some((comma_offset, _)) => sink.emit_span(
+                RuleScope::Both,
+                "S1537",
+                "Unexpected trailing comma.",
+                Span::new(comma_offset, comma_offset + 1),
+            ),
+            None if !single_line => sink.emit_span(
                 RuleScope::Both,
                 "S3723",
                 "Missing trailing comma.",
                 Span::new(last_element.end, closer),
-            );
+            ),
+            None => {}
         }
     }
 }
@@ -57,8 +56,11 @@ fn collect_trailing_comma_lists(
     collector.lists
 }
 
-/// Last non-whitespace byte inside `source[start..end]`, ignoring comment text.
-fn last_significant_char(
+/// First non-whitespace byte inside `source[start..end]`, skipping comment
+/// text. Between a list's last element and its closer only whitespace,
+/// comments, and the trailing comma can appear, so the first significant
+/// byte decides the outcome even when a comment follows the comma.
+fn first_significant_char(
     source: &str,
     start: u32,
     end: u32,
@@ -70,11 +72,9 @@ fn last_significant_char(
             .get(from as usize..to as usize)?
             .iter()
             .enumerate()
-            .rev()
             .find(|(_, byte)| !byte.is_ascii_whitespace())
             .map(|(offset, byte)| (from + to_u32(offset), *byte))
     };
-    let mut best = None;
     let mut cursor = start;
     for comment in comments {
         if comment.token.start >= end {
@@ -83,16 +83,15 @@ fn last_significant_char(
         if comment.token.end <= cursor {
             continue;
         }
-        if comment.token.start > cursor {
-            best = scan(cursor, comment.token.start.min(end));
+        if comment.token.start > cursor
+            && let Some(found) = scan(cursor, comment.token.start.min(end))
+        {
+            return Some(found);
         }
         cursor = cursor.max(comment.token.end);
         if cursor >= end {
-            return best;
+            return None;
         }
     }
-    if end > cursor {
-        best = scan(cursor, end);
-    }
-    best
+    scan(cursor, end)
 }

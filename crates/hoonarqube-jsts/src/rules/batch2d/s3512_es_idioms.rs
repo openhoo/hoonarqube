@@ -7,6 +7,7 @@ use oxc_span::Span;
 
 pub(crate) fn check_es_idioms(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -16,6 +17,7 @@ pub(crate) fn check_es_idioms(
             language,
             issues: Vec::new(),
         },
+        source,
         concat_roots: Vec::new(),
         arguments_shadowed: Vec::new(),
         s6582_spans: Vec::new(),
@@ -47,6 +49,8 @@ pub(crate) fn check_es_idioms(
 /// `S4158`, `S6582`, and `S6594` in one traversal.
 pub(crate) struct EsIdiomCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    /// File source, used to compare computed member keys by text (`S6582`).
+    pub(crate) source: &'index str,
     /// Pure string-concatenation subroots; minimal spans resolved after the
     /// traversal (`S3512`).
     pub(crate) concat_roots: Vec<Span>,
