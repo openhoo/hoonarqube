@@ -9434,6 +9434,39 @@
       "provenance_id": "16855b7507be7cffeb3f12f1cd53713e8429e4b506a6e8212b61532829fce434"
     },
     {
+      "external_key": "python:S8992",
+      "language": "py",
+      "repository": "python",
+      "status": "BETA",
+      "scope": "ALL",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        },
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "pytest",
+        "confusing",
+        "pitfall"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "f736abfa376857f8443735efc0a3136b39173820e8092135422489300cd607a6"
+    },
+    {
       "external_key": "python:S8997",
       "language": "py",
       "repository": "python",
@@ -9822,6 +9855,25 @@
       ],
       "selected_keys_sha256": "015865c4840ddfc00d7053031bc824db6ea5b6cf4604a38acf0c8000891678b0",
       "selected_rows_sha256": "ff8f1d8030dfff1ffdb65efe69df554f0270622ae2347294517251fff73f5631"
+    },
+    {
+      "capture_sha256": "f736abfa376857f8443735efc0a3136b39173820e8092135422489300cd607a6",
+      "captured_at_utc": "2026-09-15T15:42:28.502272352Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 433,
+      "page_count": 1,
+      "query_sha256": "0807b46df1f135a11cb3c3c52291f2d3e82155e6978c618d6513a163c111ce72",
+      "pages_sha256": "ac443cd6e00eaa5edb87124f496cca08f64acbbecdedbc9ae32197d0900f1718",
+      "keys_sha256": "879309d7aee558cd32971480642faddd738612f5508835adf636cca4d19fcb34",
+      "shows_sha256": "94459499bd4c4e3596d5d47f568cc4e7caa155061a889ee0407e0da40960b27b",
+      "selected_keys": [
+        "python:S8992"
+      ],
+      "selected_keys_sha256": "5521ae002e581a4bd69ca39b66df7ae084d33166232c1658986913e43376a8b8",
+      "selected_rows_sha256": "2e8a18fed068eca4da1e3bd7ea005404e39cbdaca531bfc39e270da067913301"
     }
   ]
 }
