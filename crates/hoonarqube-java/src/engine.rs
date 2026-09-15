@@ -3666,36 +3666,41 @@ fn split_declared_generics(declared: &str) -> (String, Vec<String>) {
     };
     let mut arguments = Vec::new();
     if let Some(rest) = rest {
-        let mut depth = 0usize;
-        let mut current = String::new();
-        for character in rest.chars() {
-            match character {
-                '<' => {
-                    depth += 1;
-                    current.push(character);
-                }
-                '>' => {
-                    if depth == 0 {
-                        break;
-                    }
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                    current.push(character);
-                }
-                ',' if depth == 0 => {
-                    arguments.push(current.trim().to_owned());
-                    current.clear();
-                }
-                _ => current.push(character),
-            }
-        }
-        if !current.trim().is_empty() {
-            arguments.push(current.trim().to_owned());
-        }
+        push_generic_arguments(rest, &mut arguments);
     }
     (base.to_owned(), arguments)
+}
+
+/// Collects the top-level generic arguments of the text inside `<..>`.
+fn push_generic_arguments(rest: &str, arguments: &mut Vec<String>) {
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for character in rest.chars() {
+        match character {
+            '<' => {
+                depth += 1;
+                current.push(character);
+            }
+            '>' => {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+                current.push(character);
+            }
+            ',' if depth == 0 => {
+                arguments.push(current.trim().to_owned());
+                current.clear();
+            }
+            _ => current.push(character),
+        }
+    }
+    if !current.trim().is_empty() {
+        arguments.push(current.trim().to_owned());
+    }
 }
 
 fn gcq_batch2_issues(
@@ -4640,55 +4645,12 @@ fn key_set_iterator_issues(
         let Some(body) = callable.child_by_field_name("body") else {
             continue;
         };
-        let mut iterators: Vec<(String, String)> = Vec::new();
-        let mut keys: Vec<(String, String)> = Vec::new();
-        for declaration in crate::support::collect_kinds(body, &["local_variable_declaration"]) {
-            for declarator in direct_named_children(declaration) {
-                if declarator.kind() != "variable_declarator" {
-                    continue;
-                }
-                let (Some(name), Some(value)) = (
-                    declarator.child_by_field_name("name"),
-                    declarator.child_by_field_name("value"),
-                ) else {
-                    continue;
-                };
-                let name = node_text(name, source).to_owned();
-                if let Some(map) = key_set_iterator_base(value, source) {
-                    iterators.push((name, map));
-                } else if let Some(iterator) = iterator_next_base(value, source) {
-                    keys.push((name, iterator));
-                }
-            }
-        }
+        let (iterators, keys) = key_set_locals(body, source);
         if iterators.is_empty() || keys.is_empty() {
             continue;
         }
         for invocation in crate::support::collect_kinds(body, &["method_invocation"]) {
-            if !method_named(invocation, source, "get") {
-                continue;
-            }
-            let Some(arguments) = invocation.child_by_field_name("arguments") else {
-                continue;
-            };
-            if arguments.named_child_count() != 1 {
-                continue;
-            }
-            let (Some(argument), Some(qualifier)) = (
-                arguments.named_child(0),
-                invocation.child_by_field_name("object"),
-            ) else {
-                continue;
-            };
-            let map_name = node_text(unwrap_parens(qualifier), source);
-            let key_name = node_text(unwrap_parens(argument), source);
-            let Some((_, iterator)) = keys.iter().find(|(key, _)| key == key_name) else {
-                continue;
-            };
-            let Some((_, base_map)) = iterators.iter().find(|(name, _)| name == iterator) else {
-                continue;
-            };
-            if base_map == map_name {
+            if key_set_get_is_inefficient(invocation, &iterators, &keys, source) {
                 issues.push(issue(
                     INEFFICIENT_KEY_SET_ITERATOR,
                     "Inefficient use of key set iterator instead of entry set iterator.",
@@ -4699,6 +4661,78 @@ fn key_set_iterator_issues(
             }
         }
     }
+}
+
+/// Iterator and key tables of a body's key-set declarations.
+type KeySetTables = (Vec<(String, String)>, Vec<(String, String)>);
+
+/// `(iterator variable, map expression)` and `(key variable, iterator
+/// variable)` pairs of the body's key-set iteration declarations.
+fn key_set_locals(body: Node<'_>, source: &str) -> KeySetTables {
+    let mut iterators: Vec<(String, String)> = Vec::new();
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for declaration in crate::support::collect_kinds(body, &["local_variable_declaration"]) {
+        for declarator in direct_named_children(declaration) {
+            push_key_set_declarator(declarator, source, &mut iterators, &mut keys);
+        }
+    }
+    (iterators, keys)
+}
+
+/// Files one `keySet().iterator()` or `it.next()` declarator into its table.
+fn push_key_set_declarator(
+    declarator: Node<'_>,
+    source: &str,
+    iterators: &mut Vec<(String, String)>,
+    keys: &mut Vec<(String, String)>,
+) {
+    if declarator.kind() != "variable_declarator" {
+        return;
+    }
+    let (Some(name), Some(value)) = (
+        declarator.child_by_field_name("name"),
+        declarator.child_by_field_name("value"),
+    ) else {
+        return;
+    };
+    let name = node_text(name, source).to_owned();
+    if let Some(map) = key_set_iterator_base(value, source) {
+        iterators.push((name, map));
+    } else if let Some(iterator) = iterator_next_base(value, source) {
+        keys.push((name, iterator));
+    }
+}
+
+/// Whether `get(key)` reads back through the key-set iterator of `map`.
+fn key_set_get_is_inefficient(
+    invocation: Node<'_>,
+    iterators: &[(String, String)],
+    keys: &[(String, String)],
+    source: &str,
+) -> bool {
+    if !method_named(invocation, source, "get") {
+        return false;
+    }
+    let Some(arguments) = invocation.child_by_field_name("arguments") else {
+        return false;
+    };
+    if arguments.named_child_count() != 1 {
+        return false;
+    }
+    let (Some(argument), Some(qualifier)) = (
+        arguments.named_child(0),
+        invocation.child_by_field_name("object"),
+    ) else {
+        return false;
+    };
+    let map_name = node_text(unwrap_parens(qualifier), source);
+    let key_name = node_text(unwrap_parens(argument), source);
+    let Some((_, iterator)) = keys.iter().find(|(key, _)| key == key_name) else {
+        return false;
+    };
+    iterators
+        .iter()
+        .any(|(name, base_map)| name == iterator && base_map == map_name)
 }
 
 // -- java/integer-multiplication-cast-to-long --------------------------------
@@ -4714,30 +4748,17 @@ fn integer_mult_candidates<'tree>(
     let operator = expression
         .child_by_field_name("operator")
         .map(|operator| node_text(operator, source));
+    let mut operand_fields = ["left", "right"];
     match (expression.kind(), operator) {
-        ("binary_expression", Some("*")) => {
-            result.push(expression);
-            for field in ["left", "right"] {
-                if let Some(operand) = expression.child_by_field_name(field) {
-                    integer_mult_candidates(operand, source, result);
-                }
-            }
+        ("binary_expression", Some("*")) => result.push(expression),
+        ("binary_expression", Some("+" | "-" | "/" | "%")) => {}
+        ("ternary_expression", _) => operand_fields = ["consequence", "alternative"],
+        _ => return,
+    }
+    for field in operand_fields {
+        if let Some(operand) = expression.child_by_field_name(field) {
+            integer_mult_candidates(operand, source, result);
         }
-        ("binary_expression", Some("+" | "-" | "/" | "%")) => {
-            for field in ["left", "right"] {
-                if let Some(operand) = expression.child_by_field_name(field) {
-                    integer_mult_candidates(operand, source, result);
-                }
-            }
-        }
-        ("ternary_expression", _) => {
-            for field in ["consequence", "alternative"] {
-                if let Some(branch) = expression.child_by_field_name(field) {
-                    integer_mult_candidates(branch, source, result);
-                }
-            }
-        }
-        _ => {}
     }
 }
 
@@ -5032,63 +5053,92 @@ fn format_spec_references(format: &str) -> Option<Vec<usize>> {
             i += 1;
             continue;
         }
-        i += 1;
-        if i >= chars.len() {
-            return None;
-        }
-        if chars[i] == '%' {
-            i += 1;
+        if i + 1 < chars.len() && chars[i + 1] == '%' {
+            i += 2;
             continue;
         }
-        let mut explicit: Option<usize> = None;
-        if chars[i] == '<' {
-            if sequential == 0 {
-                return None;
-            }
-            explicit = Some(sequential);
-            i += 1;
-        } else {
-            let start = i;
-            while i < chars.len() && chars[i].is_ascii_digit() {
-                i += 1;
-            }
-            if i > start && i < chars.len() && chars[i] == '$' {
-                explicit = chars[start..i].iter().collect::<String>().parse().ok();
-                if explicit == Some(0) {
-                    return None;
-                }
-                i += 1;
-            } else {
-                i = start;
-            }
+        let spec = parse_format_specification(&chars, i + 1, &mut sequential)?;
+        references.push(spec.index);
+        i = spec.next;
+    }
+    (!references.is_empty()).then_some(references)
+}
+
+/// One parsed format specification: its referenced argument index and the
+/// position of the first character after the conversion.
+struct FormatSpec {
+    index: usize,
+    next: usize,
+}
+
+fn parse_format_specification(
+    chars: &[char],
+    start: usize,
+    sequential: &mut usize,
+) -> Option<FormatSpec> {
+    let mut i = start;
+    if i >= chars.len() {
+        return None;
+    }
+    let explicit = if chars[i] == '<' {
+        if *sequential == 0 {
+            return None;
         }
-        while i < chars.len() && matches!(chars[i], '-' | '#' | '+' | ' ' | ',' | '(' | '0') {
-            i += 1;
+        i += 1;
+        Some(*sequential)
+    } else {
+        let explicit = parse_explicit_index(chars, &mut i);
+        if explicit == Some(0) {
+            return None;
         }
+        explicit
+    };
+    i = skip_format_modifiers(chars, i);
+    if i >= chars.len() || !chars[i].is_alphabetic() {
+        return None;
+    }
+    i += 1;
+    let index = explicit.unwrap_or_else(|| {
+        *sequential += 1;
+        *sequential
+    });
+    Some(FormatSpec { index, next: i })
+}
+
+/// Parses an optional `N$` explicit argument index.
+fn parse_explicit_index(chars: &[char], i: &mut usize) -> Option<usize> {
+    let start = *i;
+    while *i < chars.len() && chars[*i].is_ascii_digit() {
+        *i += 1;
+    }
+    if *i > start && *i < chars.len() && chars[*i] == '$' {
+        let parsed = chars[start..*i].iter().collect::<String>().parse().ok();
+        *i += 1;
+        parsed
+    } else {
+        *i = start;
+        None
+    }
+}
+
+/// Skips flags, width, precision, and the `t`/`T` time prefix.
+fn skip_format_modifiers(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len() && matches!(chars[i], '-' | '#' | '+' | ' ' | ',' | '(' | '0') {
+        i += 1;
+    }
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i < chars.len() && chars[i] == '.' {
+        i += 1;
         while i < chars.len() && chars[i].is_ascii_digit() {
             i += 1;
         }
-        if i < chars.len() && chars[i] == '.' {
-            i += 1;
-            while i < chars.len() && chars[i].is_ascii_digit() {
-                i += 1;
-            }
-        }
-        if i < chars.len() && (chars[i] == 't' || chars[i] == 'T') {
-            i += 1;
-        }
-        if i >= chars.len() || !chars[i].is_alphabetic() {
-            return None;
-        }
-        i += 1;
-        if let Some(index) = explicit {
-            references.push(index);
-        } else {
-            sequential += 1;
-            references.push(sequential);
-        }
     }
-    (!references.is_empty()).then_some(references)
+    if i < chars.len() && (chars[i] == 't' || chars[i] == 'T') {
+        i += 1;
+    }
+    i
 }
 
 fn referenced_format_indices(format: &str) -> Option<usize> {
