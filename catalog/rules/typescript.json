@@ -1082,6 +1082,31 @@
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
+      "external_key": "typescript:S1244",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "BUG",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
+    },
+    {
       "external_key": "typescript:S125",
       "language": "ts",
       "repository": "typescript",
@@ -7119,6 +7144,43 @@
       "provenance_id": "a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba"
     },
     {
+      "external_key": "typescript:S5914",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "LOGICAL",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "node",
+        "chai",
+        "tests",
+        "playwright",
+        "bun",
+        "confusing",
+        "suspicious",
+        "vitest",
+        "jasmine",
+        "jest",
+        "cypress"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
+    },
+    {
       "external_key": "typescript:S5958",
       "language": "ts",
       "repository": "typescript",
@@ -11613,6 +11675,125 @@
       "provenance_id": "283287ef4a7eb7060053092a9a3e01b84dbf8d6c71434d3a1dc3b34dd849ceda"
     },
     {
+      "external_key": "typescript:S7758",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        },
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "internationalization",
+        "es2015",
+        "unicode"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
+    },
+    {
+      "external_key": "typescript:S7759",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "readability",
+        "performance",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
+    },
+    {
+      "external_key": "typescript:S7760",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "es2015",
+        "editable-source",
+        "confusing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
+    },
+    {
+      "external_key": "typescript:S7764",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "portability",
+        "es2020"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
+    },
+    {
       "external_key": "typescript:S7765",
       "language": "ts",
       "repository": "typescript",
@@ -11762,6 +11943,33 @@
       "education_principles": [],
       "classification": "community-base",
       "provenance_id": "4f1f9bb14613776eb5bf269d7790176a698c0140b80547a7583e3fbd511dda2e"
+    },
+    {
+      "external_key": "typescript:S7775",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "performance"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
     },
     {
       "external_key": "typescript:S7776",
@@ -12129,6 +12337,31 @@
       ],
       "selected_keys_sha256": "4a9e4c0cb5b85eb756bb551d96ccc67a2c39ee264b410f6637d3426e663028c5",
       "selected_rows_sha256": "9b4052d35164cf9a080006b2cb2f5c292cd3a5e0b417824a824df5decb72565c"
+    },
+    {
+      "capture_sha256": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a",
+      "captured_at_utc": "2026-09-15T21:43:02.612862672Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 532,
+      "page_count": 2,
+      "query_sha256": "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13",
+      "pages_sha256": "ffb08449440db3a354a471d8c5aef4c11b79b0dedd29bd7c9cf766fbc4b9e76d",
+      "keys_sha256": "031e4ee15c67edce9cb74e1213b1e4ca9d84501fd07948104eb446d9493189f0",
+      "shows_sha256": "e7e3e63676fa3d7a03f18756f82bdcaf5169154739b12d30bd2bfeafe38581be",
+      "selected_keys": [
+        "typescript:S1244",
+        "typescript:S5914",
+        "typescript:S7758",
+        "typescript:S7759",
+        "typescript:S7760",
+        "typescript:S7764",
+        "typescript:S7775"
+      ],
+      "selected_keys_sha256": "25553ec2ef54a132caca90431f517d2916f881387d77e7f50b9e02aa1dc43ba3",
+      "selected_rows_sha256": "1c96a743ad061c5b64829ad733e742d32da0bfa2fcedbc862ebc37d789da89f5"
     },
     {
       "capture_sha256": "a3a55f127eaee03f5392f185d709c721664879732590740b3ba122710052efa0",
