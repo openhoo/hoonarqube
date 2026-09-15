@@ -1,2 +1,2 @@
-let x = 1; // hack
+let x = 1; // trailing multi word note
 console.log(x);
