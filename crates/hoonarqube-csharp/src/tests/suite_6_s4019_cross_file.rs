@@ -126,7 +126,8 @@ fn s4019_interface_sharing_base_simple_name_contributes_no_candidates() {
     // A class base and an interface may share a simple name across
     // namespaces; only the class declaration's members are candidates.
     let class_base = "namespace A\n{\n    public class Base\n    {\n        public void Refresh() { }\n    }\n}\n";
-    let interface_base = "namespace B\n{\n    public interface Base\n    {\n        void Refresh();\n    }\n}\n";
+    let interface_base =
+        "namespace B\n{\n    public interface Base\n    {\n        void Refresh();\n    }\n}\n";
     let derived = "namespace C\n{\n    public sealed class Impl : A.Base\n    {\n        public void Refresh() { }\n    }\n}\n";
     let options = options_with_index(&[
         ("Base.cs", class_base),

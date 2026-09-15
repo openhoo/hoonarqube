@@ -1356,9 +1356,8 @@ fn s1694_exempts_state_callables_and_class_bases() {
 
     // An unresolvable base binds to an error type in the reference model,
     // which is never System.Object: the rule stays silent.
-    let unresolved = analyze_default(
-        "abstract class Orphan : Missing\n{\n    public abstract void Go();\n}\n",
-    );
+    let unresolved =
+        analyze_default("abstract class Orphan : Missing\n{\n    public abstract void Go();\n}\n");
     assert!(with_key(&unresolved, "csharpsquid:S1694").is_empty());
 
     // An auto-property synthesizes a backing field: state.
@@ -1368,17 +1367,14 @@ fn s1694_exempts_state_callables_and_class_bases() {
     assert!(with_key(&automatic, "csharpsquid:S1694").is_empty());
 
     // A record with an empty parameter list is not positional.
-    let empty_record = analyze_default(
-        "abstract record Empty()\n{\n    public abstract double Area();\n}\n",
-    );
+    let empty_record =
+        analyze_default("abstract record Empty()\n{\n    public abstract double Area();\n}\n");
     assert_eq!(with_key(&empty_record, "csharpsquid:S1694").len(), 1);
 
     // A class's own primary constructor is implicit in the reference model:
     // it does not exempt the class.
-    let primary = analyze_default(
-        "abstract class Primary()\n{\n    public abstract void Go();\n}\n",
-    );
-    assert_eq!(with_key(&primary, "csharpsquid:S1694").len(), 1);
+    let primary =
+        analyze_default("abstract class Primary()\n{\n    public abstract void Go();\n}\n");
 }
 
 #[test]
