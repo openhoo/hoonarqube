@@ -30,6 +30,7 @@ pub(crate) fn analyze_default(source: &str) -> hoonarqube_ir::FileReport {
     )
 }
 
+mod suite_10_realworld_s341_350;
 mod suite_1_s2386;
 mod suite_2_s4260;
 mod suite_3_s3329;
