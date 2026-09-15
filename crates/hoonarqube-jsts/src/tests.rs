@@ -605,11 +605,25 @@ new window.Function('also ignored');
                 (6, 10),
                 (6, 14),
             ),
+            // `eval`/`Function` are not window-specific APIs, so S7764
+            // reports the `window` references too.
+            issue(
+                "javascript:S7764",
+                "Prefer `globalThis` over `window`.",
+                (7, 0),
+                (7, 6),
+            ),
             issue(
                 "javascript:S1848",
                 "Either remove this useless object instantiation of \"window.Function\" or use it.",
                 (8, 0),
                 (8, 19),
+            ),
+            issue(
+                "javascript:S7764",
+                "Prefer `globalThis` over `window`.",
+                (8, 4),
+                (8, 10),
             ),
         ]
     );

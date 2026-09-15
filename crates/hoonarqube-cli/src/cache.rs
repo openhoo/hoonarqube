@@ -1029,11 +1029,13 @@ fn rust_options_value(options: &RustAnalyzerOptions) -> serde_json::Value {
 
 fn ruby_options_value(options: &RubyAnalyzerOptions) -> serde_json::Value {
     serde_json::json!([
+        "ruby-v2",
         options.maximum_line_length,
         options.maximum_lines_of_code,
         options.maximum_function_parameters,
         options.maximum_function_lines,
         options.maximum_nesting_depth,
+        options.maximum_conditional_operators,
         options.maximum_cognitive_complexity,
         options.duplicate_string_threshold,
     ])

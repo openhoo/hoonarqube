@@ -42,8 +42,16 @@ mod s7723_new_for_builtins;
 mod s7724_eslint_disable;
 mod s7726_named_default_export;
 mod s7728_no_array_for_each;
+// issue-400 batch 1
+mod s6437_hardcoded_credentials;
+mod s7727_array_callback_reference;
+mod s7731_for_of;
+mod s7732_instanceof_builtins;
+mod s7735_negated_condition;
 mod s7737_object_default_param;
+mod s7740_this_assignment;
 mod s7741_typeof_undefined;
+mod s7742_unnecessary_polyfills;
 mod s7744_useless_fallback_spread;
 mod s7746_useless_promise_resolve_reject;
 mod s7751_prefer_array_flat;
@@ -55,9 +63,12 @@ mod s7770_native_coercion_functions;
 mod s7772_prefer_node_protocol;
 mod s7773_prefer_number_properties;
 mod s7776_prefer_set_has;
+mod s7778_prefer_single_call;
 mod s7780_prefer_string_raw;
 mod s7781_prefer_string_replace_all;
 mod s7786_prefer_type_error;
+mod s8754_unique_test_titles;
+mod s8786_super_linear_regex;
 mod self_assignments;
 pub(crate) mod semantic_context;
 pub(crate) mod shared;
@@ -67,6 +78,15 @@ mod swapped_call_arguments;
 mod switch_flow;
 mod tier_b;
 mod tier_c;
+// issue-400 batch 2
+mod s1244_float_equality;
+mod s5914_trivial_assertions;
+mod s7758_prefer_code_point;
+mod s7759_prefer_date_now;
+mod s7760_prefer_default_parameters;
+mod s7764_prefer_global_this;
+mod s7775_prefer_regexp_test;
+pub(crate) mod test_assertions;
 
 use crate::Issue;
 use crate::context::AnalysisContext;
@@ -101,6 +121,16 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(s5906_prefer_specific_assertion::check(ctx));
     issues.extend(s7721_consistent_function_scoping::check(ctx));
     issues.extend(s7728_no_array_for_each::check(ctx));
+    // issue-400 batch 1
+    issues.extend(s6437_hardcoded_credentials::check(ctx));
+    issues.extend(s7727_array_callback_reference::check(ctx));
+    issues.extend(s7731_for_of::check(ctx));
+    issues.extend(s7732_instanceof_builtins::check(ctx));
+    issues.extend(s7735_negated_condition::check(ctx));
+    issues.extend(s7740_this_assignment::check(ctx));
+    issues.extend(s7742_unnecessary_polyfills::check(ctx));
+    issues.extend(s7778_prefer_single_call::check(ctx));
+    issues.extend(s8754_unique_test_titles::check(ctx));
     issues.extend(s7737_object_default_param::check(ctx));
     issues.extend(s7741_typeof_undefined::check(ctx));
     issues.extend(s7744_useless_fallback_spread::check(ctx));
@@ -117,6 +147,7 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(s7780_prefer_string_raw::check(ctx));
     issues.extend(s7781_prefer_string_replace_all::check(ctx));
     issues.extend(s7786_prefer_type_error::check(ctx));
+    issues.extend(s8786_super_linear_regex::check(ctx));
     issues.extend(self_assignments::run_all(ctx));
     issues.extend(statement::run_all(ctx));
     issues.extend(statement_sequences::run_all(ctx));
@@ -124,6 +155,14 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(switch_flow::run_all(ctx));
     issues.extend(tier_b::run_all(ctx));
     issues.extend(tier_c::run_all(ctx));
+    // issue-400 batch 2
+    issues.extend(s1244_float_equality::check(ctx));
+    issues.extend(s5914_trivial_assertions::check(ctx));
+    issues.extend(s7758_prefer_code_point::check(ctx));
+    issues.extend(s7759_prefer_date_now::check(ctx));
+    issues.extend(s7760_prefer_default_parameters::check(ctx));
+    issues.extend(s7764_prefer_global_this::check(ctx));
+    issues.extend(s7775_prefer_regexp_test::check(ctx));
     issues.extend(s103_line_length::check(ctx));
     issues.extend(s105_tab_characters::check(ctx));
     issues.extend(s113_newline_at_eof::check(ctx));
