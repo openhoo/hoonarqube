@@ -54,25 +54,27 @@ use oxc_syntax::symbol::SymbolId;
 /// `secretSignatures`: fully-qualified callee → secret argument indices.
 fn secret_signature_indices(fqn: &str) -> Option<&'static [usize]> {
     Some(match fqn {
-        "cookie-parser" => &[0],
+        "cookie-parser"
+        | "crypto.X509Certificate.checkPrivateKey"
+        | "crypto.createDiffieHellman.setPrivateKey"
+        | "crypto.createECDH.setPrivateKey"
+        | "crypto.createSecretKey"
+        | "crypto.createSign.sign"
+        | "crypto.createVerify.verify"
+        | "crypto.privateDecrypt"
+        | "crypto.privateEncrypt"
+        | "jose.SignJWT"
+        | "node-jose.JWK.asKey"
+        | "superagent.auth" => &[0],
         "cookie-parser.JSONCookie"
         | "cookie-parser.signedCookies"
-        | "cookie-parser.signedCookie" => &[1],
-        "crypto.X509Certificate.checkPrivateKey" => &[0],
-        "crypto.createDiffieHellman.setPrivateKey" => &[0],
-        "crypto.createECDH.setPrivateKey" => &[0],
-        "crypto.createHmac" => &[1],
-        "crypto.createSecretKey" => &[0],
-        "crypto.createSign.sign" => &[0],
-        "crypto.createVerify.verify" => &[0],
-        "crypto.privateDecrypt" | "crypto.privateEncrypt" => &[0],
+        | "cookie-parser.signedCookie"
+        | "crypto.createHmac"
+        | "jose.jwtVerify"
+        | "jsonwebtoken.sign"
+        | "jsonwebtoken.verify"
+        | "ldapjs.createClient.bind" => &[1],
         "crypto.sign" | "crypto.verify" => &[2],
-        "jose.SignJWT" => &[0],
-        "jose.jwtVerify" => &[1],
-        "jsonwebtoken.sign" | "jsonwebtoken.verify" => &[1],
-        "ldapjs.createClient.bind" => &[1],
-        "node-jose.JWK.asKey" => &[0],
-        "superagent.auth" => &[0],
         _ => return None,
     })
 }
@@ -83,9 +85,11 @@ fn secret_object_signature(fqn: &str) -> Option<(usize, &'static str)> {
     Some(match fqn {
         "cookie-session" => (0, "keys"),
         "express-session" => (0, "secret"),
-        "typeorm.createConnection" => (0, "password"),
-        "mysql.createConnection" | "mysql.createPool" => (0, "password"),
-        "mysql2.createConnection" | "mysql2.createPool" => (0, "password"),
+        "typeorm.createConnection"
+        | "mysql.createConnection"
+        | "mysql.createPool"
+        | "mysql2.createConnection"
+        | "mysql2.createPool" => (0, "password"),
         _ => return None,
     })
 }
@@ -158,29 +162,41 @@ fn check_secret_property(
         return;
     };
     for property in &object.properties {
-        let ObjectPropertyKind::ObjectProperty(property) = property else {
-            continue;
-        };
-        if property.computed {
-            continue;
-        }
-        let Some(name) = property.key.name() else {
-            continue;
-        };
-        if name != property_name {
-            continue;
-        }
-        let value = &property.value;
-        if is_hardcoded_string(semantic, value) {
-            report(sink, call, value);
-        } else if let Expression::ArrayExpression(array) = unparenthesized(value) {
-            for element in &array.elements {
-                let Some(element) = element.as_expression() else {
-                    continue;
-                };
-                if is_hardcoded_string(semantic, element) {
-                    report(sink, call, element);
-                }
+        check_object_property(sink, semantic, call, property, property_name);
+    }
+}
+
+/// One object member: report the named property's hard-coded value, or
+/// each hard-coded element of an array value.
+fn check_object_property(
+    sink: &mut IssueSink<'_>,
+    semantic: &Semantic<'_>,
+    call: &CallExpression<'_>,
+    property: &oxc_ast::ast::ObjectPropertyKind<'_>,
+    property_name: &str,
+) {
+    let ObjectPropertyKind::ObjectProperty(property) = property else {
+        return;
+    };
+    if property.computed {
+        return;
+    }
+    let Some(name) = property.key.name() else {
+        return;
+    };
+    if name != property_name {
+        return;
+    }
+    let value = &property.value;
+    if is_hardcoded_string(semantic, value) {
+        report(sink, call, value);
+    } else if let Expression::ArrayExpression(array) = unparenthesized(value) {
+        for element in &array.elements {
+            let Some(element) = element.as_expression() else {
+                continue;
+            };
+            if is_hardcoded_string(semantic, element) {
+                report(sink, call, element);
             }
         }
     }
@@ -249,7 +265,7 @@ fn unique_write_or_node<'a>(
     if semantic
         .scoping()
         .get_resolved_references(symbol)
-        .any(|reference| reference.is_write())
+        .any(oxc_semantic::Reference::is_write)
     {
         return Some(expression);
     }
@@ -467,6 +483,51 @@ fn is_excluded_secret_value(value: &str) -> bool {
         || looks_like_path_or_version(value)
 }
 
+/// `sample|example|placeholder|replace|change|foo|bar|test|fake|abcd`
+const OBVIOUS_1: [&str; 10] = [
+    "sample",
+    "example",
+    "placeholder",
+    "replace",
+    "change",
+    "foo",
+    "bar",
+    "test",
+    "fake",
+    "abcd",
+];
+
+/// `redacted|cafebabe|deadbeef|whatever|123456|admin|pass|secret|
+///  default|dummy|qwerty|setting|obfuscated`
+const OBVIOUS_2: [&str; 13] = [
+    "redacted",
+    "cafebabe",
+    "deadbeef",
+    "whatever",
+    "123456",
+    "admin",
+    "pass",
+    "secret",
+    "default",
+    "dummy",
+    "qwerty",
+    "setting",
+    "obfuscated",
+];
+
+/// `^(?:none|undefined|null|true|false|yes|no|1|0)$`
+const NON_VALUES: [&str; 9] = [
+    "none",
+    "undefined",
+    "null",
+    "true",
+    "false",
+    "yes",
+    "no",
+    "1",
+    "0",
+];
+
 /// Pattern group 1: short values, obvious/fake words, `pass(word)`-style
 /// names, common non-values, `your…` prefixes, and 4+ repeated chars.
 fn looks_like_non_secret(lower: &str) -> bool {
@@ -474,39 +535,9 @@ fn looks_like_non_secret(lower: &str) -> bool {
     if lower.chars().count() <= 5 {
         return true;
     }
-    // `sample|example|placeholder|replace|change|foo|bar|test|fake|abcd`
-    const OBVIOUS_1: [&str; 10] = [
-        "sample",
-        "example",
-        "placeholder",
-        "replace",
-        "change",
-        "foo",
-        "bar",
-        "test",
-        "fake",
-        "abcd",
-    ];
     if OBVIOUS_1.iter().any(|word| lower.contains(word)) {
         return true;
     }
-    // `redacted|cafebabe|deadbeef|whatever|123456|admin|pass|secret|
-    //  default|dummy|qwerty|setting|obfuscated`
-    const OBVIOUS_2: [&str; 13] = [
-        "redacted",
-        "cafebabe",
-        "deadbeef",
-        "whatever",
-        "123456",
-        "admin",
-        "pass",
-        "secret",
-        "default",
-        "dummy",
-        "qwerty",
-        "setting",
-        "obfuscated",
-    ];
     if OBVIOUS_2.iter().any(|word| lower.contains(word)) {
         return true;
     }
@@ -518,18 +549,6 @@ fn looks_like_non_secret(lower: &str) -> bool {
     if is_passw0rd(lower) {
         return true;
     }
-    // `^(?:none|undefined|null|true|false|yes|no|1|0)$`
-    const NON_VALUES: [&str; 9] = [
-        "none",
-        "undefined",
-        "null",
-        "true",
-        "false",
-        "yes",
-        "no",
-        "1",
-        "0",
-    ];
     if NON_VALUES.contains(&lower) {
         return true;
     }

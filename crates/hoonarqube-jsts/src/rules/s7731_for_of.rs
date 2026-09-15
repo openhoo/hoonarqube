@@ -242,7 +242,7 @@ fn is_literal_one(expression: &Expression<'_>) -> bool {
 fn is_numeric_literal(expression: &Expression<'_>, expected: f64) -> bool {
     matches!(
         unparenthesized(expression),
-        Expression::NumericLiteral(literal) if literal.value == expected
+        Expression::NumericLiteral(literal) if (literal.value - expected).abs() < f64::EPSILON
     )
 }
 
@@ -362,9 +362,8 @@ fn array_reads_are_only_indexed_elements(
 /// Offset of the `)` closing the `for` header: the last non-trivia byte
 /// before the body's `{`.
 fn header_end_offset(source: &str, body_start: u32) -> u32 {
-    crate::support::previous_non_trivia_offset(source, body_start).map_or(body_start, |offset| {
-        u32::try_from(offset).unwrap_or(body_start) + 1
-    })
+    crate::support::previous_non_trivia_offset(source, body_start)
+        .map_or(body_start, |offset| offset + 1)
 }
 
 #[cfg(test)]

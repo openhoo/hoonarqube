@@ -78,7 +78,7 @@ fn builtin_ignored(method: &str, name: &str) -> bool {
 }
 
 /// Default ignored callee dotted paths (the reference
-/// `defaultIgnoredCallees`; the `ignore` option is empty under SonarJS).
+/// `defaultIgnoredCallees`; the `ignore` option is empty under `SonarJS`).
 const IGNORED_CALLEES: [&str; 11] = [
     "Promise",
     "React.Children",
@@ -157,7 +157,7 @@ fn check_call(
                 "Do not pass function `{}` directly to `.{}(…)`.",
                 identifier.name, method
             ),
-            _ => format!("Do not pass function directly to `.{}(…)`.", method),
+            _ => format!("Do not pass function directly to `.{method}(…)`."),
         };
         sink.emit_span(RuleScope::Both, "S7727", &message, callback.span());
     }
@@ -294,13 +294,14 @@ fn should_ignore_callback(
 ) -> bool {
     let callback = unparenthesized(callback);
     match callback {
-        Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => return true,
+        Expression::FunctionExpression(_)
+        | Expression::ArrowFunctionExpression(_)
         // All CallExpressions are ignored, including `fn.bind()`.
-        Expression::CallExpression(_) => return true,
-        Expression::Identifier(identifier) => {
-            if builtin_ignored(method, identifier.name.as_str()) {
-                return true;
-            }
+        | Expression::CallExpression(_) => return true,
+        Expression::Identifier(identifier)
+            if builtin_ignored(method, identifier.name.as_str()) =>
+        {
+            return true;
         }
         _ => {}
     }

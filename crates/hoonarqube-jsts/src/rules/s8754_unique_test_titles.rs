@@ -92,7 +92,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     let model = TestModel::new(semantic);
     // Frame 0 is the file root; each concrete suite call gets its own
     // frame id recorded in `suite_frame_of`.
-    let mut frames: Vec<HashMap<String, ()>> = vec![HashMap::new()];
+    let mut frames: Vec<std::collections::HashSet<String>> = vec![std::collections::HashSet::new()];
     let mut suite_frame_of: HashMap<NodeId, usize> = HashMap::new();
     for node in semantic.nodes().iter() {
         let AstKind::CallExpression(call) = node.kind() else {
@@ -100,7 +100,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         };
         match model.classify(semantic, call) {
             CallKind::Suite => {
-                frames.push(HashMap::new());
+                frames.push(std::collections::HashSet::new());
                 suite_frame_of.insert(node.id(), frames.len() - 1);
             }
             CallKind::Test => {
@@ -119,7 +119,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
                 let Some(title) = static_title(title_expression) else {
                     continue;
                 };
-                if frames[frame_id].insert(title.to_string(), ()).is_some() {
+                if !frames[frame_id].insert(title.to_string()) {
                     sink.emit_span(
                         RuleScope::Both,
                         "S8754",
@@ -142,7 +142,7 @@ fn static_title<'a>(expression: &'a Expression<'a>) -> Option<&'a str> {
         Expression::TemplateLiteral(template) if template.expressions.is_empty() => template
             .quasis
             .first()
-            .and_then(|quasi| quasi.value.cooked.as_ref().map(|cooked| cooked.as_str())),
+            .and_then(|quasi| quasi.value.cooked.as_ref().map(oxc_ast::ast::Str::as_str)),
         _ => None,
     }
 }
@@ -175,7 +175,7 @@ impl TestModel {
         if let Some(kind) = self.classify_mocha(semantic, call) {
             return kind;
         }
-        self.classify_playwright(semantic, call)
+        Self::classify_playwright(semantic, call)
     }
 
     /// Mocha-style constructs: `describe`/`context`/`suite` and
@@ -186,7 +186,7 @@ impl TestModel {
         call: &CallExpression<'_>,
     ) -> Option<CallKind> {
         let (base, modifiers) = callee_parts(&call.callee)?;
-        let construct = self.construct_name(semantic, base, &modifiers)?;
+        let construct = Self::construct_name(semantic, base, &modifiers)?;
         if TEST_NAMES.contains(&construct.as_str()) {
             if !self.all_concrete(&modifiers) {
                 return Some(CallKind::Other);
@@ -209,7 +209,7 @@ impl TestModel {
 
     /// Playwright constructs: `test.describe[.parallel|.serial][.only]`
     /// suites and `test[.only|.fail]` tests.
-    fn classify_playwright(&self, semantic: &Semantic<'_>, call: &CallExpression<'_>) -> CallKind {
+    fn classify_playwright(semantic: &Semantic<'_>, call: &CallExpression<'_>) -> CallKind {
         let Some((base, qualifiers)) = member_chain(&call.callee) else {
             return CallKind::Other;
         };
@@ -249,7 +249,7 @@ impl TestModel {
         {
             return CallKind::Other;
         }
-        if !self.is_playwright_test_base(semantic, &call.callee) {
+        if !Self::is_playwright_test_base(semantic, &call.callee) {
             return CallKind::Other;
         }
         if qualifiers.contains(&"fail") && !has_callback(call) {
@@ -260,7 +260,7 @@ impl TestModel {
 
     /// Whether the callee's base identifier binds to a
     /// `@playwright/test` `test` import.
-    fn is_playwright_test_base(&self, semantic: &Semantic<'_>, callee: &Expression<'_>) -> bool {
+    fn is_playwright_test_base(semantic: &Semantic<'_>, callee: &Expression<'_>) -> bool {
         let Expression::Identifier(base) = callee_root(callee) else {
             return false;
         };
@@ -276,7 +276,6 @@ impl TestModel {
     /// fully-qualified name, unbound globals use their own name, and
     /// locally bound identifiers are not constructs.
     fn construct_name(
-        &self,
         semantic: &Semantic<'_>,
         base: &IdentifierReference<'_>,
         modifiers: &[String],
@@ -544,7 +543,6 @@ fn import_source(semantic: &Semantic<'_>, declaration: NodeId) -> Option<String>
 /// FQN of an expression: `require('m')` → `m`, `require('m').x.y` →
 /// `m.x.y`, `require('m')(...)` → `m`, a bound identifier → its
 /// binding's FQN, member/call chains reduce through their object/callee.
-
 fn expression_fqn_inner(
     semantic: &Semantic<'_>,
     expression: &Expression<'_>,
