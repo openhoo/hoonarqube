@@ -19,6 +19,7 @@ mod s2999_tb_constructor_resolution;
 mod s3353_tb_let_to_const;
 mod s3500_tb_const_reassigned;
 mod s3686_tb_mixed_construction;
+mod s3827_globals;
 mod s3827_tb_use_before_declaration;
 mod s4030_tb_useless_collections;
 mod s4043_tb_in_place_captures;

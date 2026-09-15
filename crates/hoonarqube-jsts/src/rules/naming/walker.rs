@@ -1,26 +1,34 @@
-// Family walker for 'naming' (generated).
+// Family walker for 'naming'.
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
-    IssueSink, LineIndex, RuleScope, binding_identifier_name, constructor_name, property_key_name,
+    IssueSink, LineIndex, RuleScope, binding_identifier_name, callee_name, constructor_name,
+    member_rooted_at, property_key_name, static_property_name, unparenthesized,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    BindingIdentifier, Declaration, ExportDefaultDeclarationKind, Expression, FormalParameter,
-    JSXAttribute, MemberExpression, MethodDefinition, MethodDefinitionKind, NewExpression,
-    NumericLiteral, ObjectProperty, StringLiteral, UnaryExpression, UnaryOperator,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    AssignmentExpression, AssignmentPattern, AssignmentTarget, BinaryExpression, BinaryOperator,
+    BindingIdentifier, CallExpression, Declaration, ExportAllDeclaration,
+    ExportDefaultDeclarationKind, ExportFromDeclaration, ExportNamedDeclaration, Expression,
+    ExpressionStatement, FormalParameter, ImportDeclaration, ImportExpression, JSXAttribute,
+    JSXExpressionContainer, JSXSpreadAttribute, MemberExpression, MethodDefinition,
+    MethodDefinitionKind, ModuleExportName, NewExpression, NumericLiteral, ObjectProperty,
+    PropertyDefinition, PropertyKey, StringLiteral, TSEnumMember, TSLiteralType, UnaryExpression,
+    UnaryOperator, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_binding_pattern, walk_declaration, walk_export_default_declaration_kind, walk_expression,
-    walk_formal_parameter, walk_member_expression, walk_method_definition, walk_new_expression,
-    walk_object_property, walk_unary_expression, walk_variable_declaration,
-    walk_variable_declarator,
+    walk_assignment_expression, walk_assignment_pattern, walk_binary_expression,
+    walk_call_expression, walk_declaration, walk_export_all_declaration,
+    walk_export_default_declaration_kind, walk_export_from_declaration,
+    walk_export_named_declaration, walk_expression, walk_expression_statement,
+    walk_formal_parameter, walk_import_declaration, walk_import_expression, walk_member_expression,
+    walk_method_definition, walk_new_expression, walk_object_property, walk_property_definition,
+    walk_ts_enum_member, walk_ts_literal_type, walk_unary_expression, walk_variable_declarator,
 };
 use oxc_span::{GetSpan, Span};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 fn check_naming_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -44,9 +52,8 @@ fn check_naming_rules(
             language,
             issues: Vec::new(),
         },
-        const_initializer_depth: 0,
-        index_depth: 0,
-        default_depth: 0,
+        exempt: HashSet::new(),
+        type_depth: 0,
         negation_depth: 0,
     };
     magic.visit_program(program);
@@ -59,6 +66,7 @@ fn check_naming_rules(
         single_quotes: rules.single_quotes,
         duplicate_threshold: rules.duplicate_string_threshold,
         ignored_strings: rules.ignored_strings.clone(),
+        suppressed: HashSet::new(),
         string_occurrences: Vec::new(),
     };
     strings.visit_program(program);
@@ -76,7 +84,11 @@ struct StringStyleCollector<'a, 'index> {
     single_quotes: bool,
     duplicate_threshold: usize,
     ignored_strings: Vec<String>,
-    /// Literal values are arena-backed and outlive the traversal.
+    /// Literal spans whose usage context the reference rule excludes from
+    /// duplication counting (import sources, `require` calls, member
+    /// accesses, property keys, bare string statements, TS literal types).
+    suppressed: HashSet<(u32, u32)>,
+    /// Grouping keys are arena-backed and outlive the traversal.
     string_occurrences: Vec<(&'a str, Span)>,
 }
 
@@ -89,6 +101,86 @@ impl<'a> Visit<'a> for StringStyleCollector<'a, '_> {
     fn visit_jsx_attribute(&mut self, _it: &JSXAttribute<'a>) {
         // JSX attribute strings are exempt from quote-style and
         // duplication checks.
+    }
+
+    fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
+        // Directive-style bare string statements are excluded.
+        self.suppress_expression(&it.expression);
+        walk_expression_statement(self, it);
+    }
+
+    fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
+        self.suppress_module_source(&it.source);
+        walk_import_declaration(self, it);
+    }
+
+    fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'a>) {
+        self.suppress_module_source(&it.source);
+        if let Some(exported) = &it.exported {
+            self.suppress_export_name(exported);
+        }
+        walk_export_all_declaration(self, it);
+    }
+
+    fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'a>) {
+        for specifier in &it.specifiers {
+            self.suppress_export_name(&specifier.exported);
+        }
+        walk_export_named_declaration(self, it);
+    }
+
+    fn visit_export_from_declaration(&mut self, it: &ExportFromDeclaration<'a>) {
+        self.suppress_module_source(&it.source);
+        for specifier in &it.specifiers {
+            self.suppress_export_name(&specifier.exported);
+        }
+        walk_export_from_declaration(self, it);
+    }
+
+    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
+        self.suppress_expression(&it.source);
+        walk_import_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // `require('...')` module loads are excluded, like import sources.
+        if callee_name(it) == Some("require") {
+            for argument in &it.arguments {
+                if let Some(expression) = argument.as_expression() {
+                    self.suppress_expression(expression);
+                }
+            }
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
+        self.suppress_property_key(&it.key);
+        walk_object_property(self, it);
+    }
+
+    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        match it {
+            MemberExpression::ComputedMemberExpression(member) => {
+                self.suppress_expression(&member.object);
+                self.suppress_expression(&member.expression);
+            }
+            MemberExpression::StaticMemberExpression(member) => {
+                self.suppress_expression(&member.object);
+            }
+            MemberExpression::PrivateFieldExpression(member) => {
+                self.suppress_expression(&member.object);
+            }
+        }
+        walk_member_expression(self, it);
+    }
+
+    fn visit_ts_literal_type(&mut self, it: &TSLiteralType<'a>) {
+        if let oxc_ast::ast::TSLiteral::StringLiteral(literal) = &it.literal {
+            self.suppressed
+                .insert((literal.span.start, literal.span.end));
+        }
+        walk_ts_literal_type(self, it);
     }
 }
 
@@ -117,12 +209,55 @@ impl<'a> StringStyleCollector<'a, '_> {
         );
     }
 
+    fn suppress_expression(&mut self, expression: &Expression<'_>) {
+        if let Some(span) = string_leaf_span(expression) {
+            self.suppressed.insert((span.start, span.end));
+        }
+    }
+
+    fn suppress_module_source(&mut self, source: &StringLiteral<'_>) {
+        self.suppressed.insert((source.span.start, source.span.end));
+    }
+
+    fn suppress_property_key(&mut self, key: &PropertyKey<'_>) {
+        if let PropertyKey::StringLiteral(literal) = key {
+            self.suppressed
+                .insert((literal.span.start, literal.span.end));
+        }
+    }
+
+    fn suppress_export_name(&mut self, name: &ModuleExportName<'_>) {
+        if let ModuleExportName::StringLiteral(literal) = name {
+            self.suppressed
+                .insert((literal.span.start, literal.span.end));
+        }
+    }
+
     fn record_occurrence(&mut self, literal: &StringLiteral<'a>) {
         let value = literal.value.as_str();
-        if value.chars().count() < 2 || self.ignored_strings.iter().any(|word| word == value) {
+        if self
+            .suppressed
+            .contains(&(literal.span.start, literal.span.end))
+        {
             return;
         }
-        self.string_occurrences.push((value, literal.span));
+        if self.ignored_strings.iter().any(|word| word == value) {
+            return;
+        }
+        let key = value.trim();
+        // The reference rule counts a literal only when its trimmed content
+        // has at least ten characters and carries a separator: `\w`-only
+        // content is identifier-like and never grouped.
+        if key.chars().count() < 10 {
+            return;
+        }
+        if key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            return;
+        }
+        self.string_occurrences.push((key, literal.span));
     }
 
     /// One `S1192` issue per over-duplicated value, anchored at the first
@@ -148,43 +283,116 @@ impl<'a> StringStyleCollector<'a, '_> {
     }
 }
 
-/// `S109`: numeric literals outside the catalog-allowed contexts — const
-/// initializers, computed array indexes, and `-1..=2` parameter defaults.
+/// `S109`: numeric literals outside the reference rule's authorized contexts.
+/// The upstream check folds unary `+`/`-` into the literal and exempts the
+/// values `-1`, `0`, `1`, `24`, `60` plus integral powers of two and ten;
+/// contextual exemptions (assignments, property values, defaults, enum
+/// members, class fields, bitwise operands, `parseInt` radixes, JSX) apply
+/// only to the literal a context directly holds.
 struct MagicNumberCollector<'index> {
     sink: IssueSink<'index>,
-    const_initializer_depth: u32,
-    index_depth: u32,
-    default_depth: u32,
+    /// Literal spans whose direct context the reference rule exempts.
+    exempt: HashSet<(u32, u32)>,
+    /// Inside a TypeScript literal type (`type A = 5`).
+    type_depth: u32,
     negation_depth: u32,
 }
 
 impl<'a> Visit<'a> for MagicNumberCollector<'_> {
-    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
-        let in_const = matches!(it.kind, VariableDeclarationKind::Const);
-        self.const_initializer_depth += u32::from(in_const);
-        walk_variable_declaration(self, it);
-        self.const_initializer_depth -= u32::from(in_const);
+    fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        // Any declarator initializer is an authorized context; numbers nested
+        // inside a call there stay checked.
+        if let Some(init) = &it.init {
+            record_exempt_leaf(&mut self.exempt, init);
+        }
+        walk_variable_declarator(self, it);
     }
 
-    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        if let MemberExpression::ComputedMemberExpression(member) = it {
-            walk_expression(self, &member.object);
-            self.index_depth += 1;
-            walk_expression(self, &member.expression);
-            self.index_depth -= 1;
-        } else {
-            walk_member_expression(self, it);
+    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
+        // Member-target assignments are authorized; simple `x = 5` targets
+        // stay checked, mirroring the reference condition.
+        if !matches!(it.left, AssignmentTarget::AssignmentTargetIdentifier(_)) {
+            record_exempt_leaf(&mut self.exempt, &it.right);
         }
+        walk_assignment_expression(self, it);
+    }
+
+    fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
+        record_exempt_key(&mut self.exempt, &it.key);
+        record_exempt_leaf(&mut self.exempt, &it.value);
+        walk_object_property(self, it);
+    }
+
+    fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
+        if let Some(value) = &it.value {
+            record_exempt_leaf(&mut self.exempt, value);
+        }
+        walk_property_definition(self, it);
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
-        walk_binding_pattern(self, &it.pattern);
         if let Some(initializer) = &it.initializer {
-            self.default_depth += 1;
-            walk_expression(self, initializer);
-            self.default_depth -= 1;
+            record_exempt_leaf(&mut self.exempt, initializer);
         }
+        walk_formal_parameter(self, it);
     }
+
+    fn visit_assignment_pattern(&mut self, it: &AssignmentPattern<'a>) {
+        // Destructuring defaults.
+        record_exempt_leaf(&mut self.exempt, &it.right);
+        walk_assignment_pattern(self, it);
+    }
+
+    fn visit_ts_enum_member(&mut self, it: &TSEnumMember<'a>) {
+        if let Some(initializer) = &it.initializer {
+            record_exempt_leaf(&mut self.exempt, initializer);
+        }
+        walk_ts_enum_member(self, it);
+    }
+
+    fn visit_ts_literal_type(&mut self, it: &TSLiteralType<'a>) {
+        self.type_depth += 1;
+        walk_ts_literal_type(self, it);
+        self.type_depth -= 1;
+    }
+
+    fn visit_binary_expression(&mut self, it: &BinaryExpression<'a>) {
+        if is_bitwise_operator(it.operator) {
+            record_exempt_leaf(&mut self.exempt, &it.left);
+            record_exempt_leaf(&mut self.exempt, &it.right);
+        }
+        walk_binary_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        // A `parseInt` radix argument is always authorized.
+        if (callee_name(it) == Some("parseInt") || is_number_parse_int(it))
+            && let Some(radix) = it.arguments.get(1)
+            && let Some(expression) = radix.as_expression()
+        {
+            record_exempt_leaf(&mut self.exempt, expression);
+        }
+        // `JSON.stringify` with the full three-argument form exempts its
+        // arguments.
+        if is_three_arg_json_stringify(it) {
+            for argument in &it.arguments {
+                if let Some(expression) = argument.as_expression() {
+                    record_exempt_leaf(&mut self.exempt, expression);
+                }
+            }
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_jsx_attribute(&mut self, _it: &JSXAttribute<'a>) {
+        // Numeric JSX attribute values are exempt from magic-number checks.
+    }
+
+    fn visit_jsx_expression_container(&mut self, _it: &JSXExpressionContainer<'a>) {
+        // Every descendant of a JSX context is exempt.
+    }
+
+    fn visit_jsx_spread_attribute(&mut self, _it: &JSXSpreadAttribute<'a>) {}
 
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         let negated = matches!(it.operator, UnaryOperator::UnaryNegation);
@@ -194,26 +402,124 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
     }
 
     fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
+        if self.type_depth > 0 || self.exempt.contains(&(it.span.start, it.span.end)) {
+            return;
+        }
         let value = if self.negation_depth % 2 == 1 {
             -it.value
         } else {
             it.value
         };
-        let allowed = self.const_initializer_depth > 0
-            || self.index_depth > 0
-            || (self.default_depth > 0 && (-2.0..=2.0).contains(&value));
-        if !allowed {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S109",
-                "This numeric literal should be replaced by a named constant.",
-                it.span,
-            );
+        if is_authorized_number(value) {
+            return;
+        }
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S109",
+            "This numeric literal should be replaced by a named constant.",
+            it.span,
+        );
+    }
+}
+
+/// Span of the numeric literal behind unary `+`/`-` and parenthesized
+/// wrappers, matching the reference rule's folded number node.
+fn numeric_leaf_span(expression: &Expression<'_>) -> Option<Span> {
+    match unparenthesized(expression) {
+        Expression::NumericLiteral(literal) => Some(literal.span),
+        Expression::UnaryExpression(unary) => {
+            if !matches!(
+                unary.operator,
+                UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus
+            ) {
+                return None;
+            }
+            match unparenthesized(&unary.argument) {
+                Expression::NumericLiteral(literal) => Some(literal.span),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn record_exempt_leaf(spans: &mut HashSet<(u32, u32)>, expression: &Expression<'_>) {
+    if let Some(span) = numeric_leaf_span(expression) {
+        spans.insert((span.start, span.end));
+    }
+}
+
+fn record_exempt_key(spans: &mut HashSet<(u32, u32)>, key: &PropertyKey<'_>) {
+    match key {
+        PropertyKey::NumericLiteral(literal) => {
+            spans.insert((literal.span.start, literal.span.end));
+        }
+        PropertyKey::UnaryExpression(unary) => {
+            if let Expression::NumericLiteral(literal) = unparenthesized(&unary.argument) {
+                spans.insert((literal.span.start, literal.span.end));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_bitwise_operator(operator: BinaryOperator) -> bool {
+    matches!(
+        operator,
+        BinaryOperator::BitwiseAnd
+            | BinaryOperator::BitwiseOR
+            | BinaryOperator::BitwiseXOR
+            | BinaryOperator::ShiftLeft
+            | BinaryOperator::ShiftRight
+            | BinaryOperator::ShiftRightZeroFill
+    )
+}
+
+/// Integral powers of `base`, including fractions below one (`0.5`, `0.1`).
+fn is_power_of(mut value: f64, base: f64) -> bool {
+    if value <= 0.0 || !value.is_finite() {
+        return false;
+    }
+    while value > 1.0 {
+        value /= base;
+        if value.fract() > 0.0 {
+            return false;
         }
     }
+    while value < 1.0 {
+        value *= base;
+        if value.fract() > 0.0 {
+            return false;
+        }
+    }
+    (value - 1.0).abs() < f64::EPSILON
+}
 
-    fn visit_jsx_attribute(&mut self, _it: &JSXAttribute<'a>) {
-        // Numeric JSX attribute values are exempt from magic-number checks.
+fn is_authorized_number(value: f64) -> bool {
+    if matches!(value, -1.0 | 0.0 | 1.0 | 24.0 | 60.0) {
+        return true;
+    }
+    is_power_of(value, 2.0) || is_power_of(value, 10.0)
+}
+
+fn is_number_parse_int(call: &CallExpression<'_>) -> bool {
+    call.callee.as_member_expression().is_some_and(|member| {
+        member_rooted_at(member, "Number") && static_property_name(member) == Some("parseInt")
+    })
+}
+
+fn is_three_arg_json_stringify(call: &CallExpression<'_>) -> bool {
+    call.arguments.len() >= 3
+        && call.callee.as_member_expression().is_some_and(|member| {
+            member_rooted_at(member, "JSON") && static_property_name(member) == Some("stringify")
+        })
+}
+
+/// Span of the string literal behind parenthesized wrappers.
+fn string_leaf_span(expression: &Expression<'_>) -> Option<Span> {
+    match unparenthesized(expression) {
+        Expression::StringLiteral(literal) => Some(literal.span),
+        _ => None,
     }
 }
 
@@ -513,10 +819,16 @@ mod tests {
 
     #[test]
     fn magic_numbers_flagged_only_outside_allowed_contexts() {
+        // Assignments, defaults, whitelisted values, and powers of two or ten
+        // are exempt; call arguments, comparisons, array elements, and simple
+        // `x = 45` assignments stay checked.
         let report = js(
             "const LIMIT = 42;\nlet retries = 3;\nitems[0] = LIMIT;\nfunction g(x = 1, y = 5) { return x; }\nfunction h(z = -1) { return z; }\nlet offset = -7;\ng(2);\n",
         );
-        let magic: Vec<_> = report
+        assert_eq!(count_key(&report_keys(&report), "javascript:S109"), 0);
+
+        let flagged = js("g(45);\ncounter = 45;\nif (n > 45) {}\n");
+        let magic: Vec<_> = flagged
             .issues
             .iter()
             .filter(|found| found.rule_key == "javascript:S109")
@@ -525,37 +837,43 @@ mod tests {
         assert_eq!(
             magic,
             vec![
-                &issue("javascript:S109", message, (2, 14), (2, 15)),
-                &issue("javascript:S109", message, (4, 22), (4, 23)),
-                &issue("javascript:S109", message, (6, 14), (6, 15)),
-                &issue("javascript:S109", message, (7, 2), (7, 3)),
+                &issue("javascript:S109", message, (1, 2), (1, 4)),
+                &issue("javascript:S109", message, (2, 10), (2, 12)),
+                &issue("javascript:S109", message, (3, 8), (3, 10)),
             ]
         );
+    }
 
-        // Boundary: `-1..=2` parameter defaults are allowed, larger ones are not.
-        let boundary = js("function k(a = 2, b = 3) {}\n");
-        assert_eq!(count_key(&report_keys(&boundary), "javascript:S109"), 1);
+    #[test]
+    fn magic_number_context_exemptions_follow_the_reference_rule() {
+        let clean = js(
+            "obj.count = 45;\nconst conf = { width: 45, 45: 'x' };\nclass Box { pad = 45; }\nfunction k(a = 45) {}\nconst { extra = 45 } = box;\nconst radix = parseInt(text, 8);\nconst masked = flag | 45;\n",
+        );
+        assert_eq!(count_key(&report_keys(&clean), "javascript:S109"), 0);
+
+        let typescript = ts("enum Level { Base = 45 }\ntype Retry = 45;\n");
+        assert_eq!(count_key(&report_keys(&typescript), "typescript:S109"), 0);
     }
 
     #[test]
     fn duplicate_string_literals_report_once_at_first_occurrence() {
         let report = js(
-            "log('application/json');\nlog('application/json');\nlog('application/json');\nwarn('dup');\nwarn('dup');\nwarn('dup');\ntag('x');\ntag('x');\n",
+            "log('application/json');\nlog('application/json');\nlog('application/json');\nwarn('lorem ipsum');\nwarn('lorem ipsum');\nwarn('lorem ipsum');\ntag('dup');\ntag('dup');\n",
         );
         let duplicates: Vec<_> = report
             .issues
             .iter()
             .filter(|found| found.rule_key == "javascript:S1192")
             .collect();
-        // The configured `ignoreStrings` entry never fires; single-character
-        // literals are excluded; the third occurrence reaches the threshold.
+        // The configured `ignoreStrings` entry never fires; short literals are
+        // excluded; the threshold counts the first three occurrences.
         assert_eq!(
             duplicates,
             vec![&issue(
                 "javascript:S1192",
                 "Define a constant instead of duplicating this literal 3 times.",
                 (4, 5),
-                (4, 10),
+                (4, 18),
             )]
         );
 
@@ -563,8 +881,40 @@ mod tests {
             duplicate_string_threshold: 2,
             ..RuleOptions::default()
         };
-        let flagged = keys_with_rules("a('aa');\nb('aa');\nc('bb');\n", &eager);
+        let flagged = keys_with_rules(
+            "a('lorem ipsum');\nb('lorem ipsum');\nc('other text');\n",
+            &eager,
+        );
         assert_eq!(count_key(&flagged, "javascript:S1192"), 1);
+    }
+
+    #[test]
+    fn s1192_excludes_identifier_like_and_structural_contexts() {
+        // `require` sources, computed member accesses, property keys, and
+        // word-only content never form duplication groups.
+        let excluded = js(
+            "const a = require('lorem ipsum');\nconst b = require('lorem ipsum');\nconst c = require('lorem ipsum');\n",
+        );
+        assert_eq!(count_key(&report_keys(&excluded), "javascript:S1192"), 0);
+
+        let member =
+            js("headers['lorem ipsum'];\nheaders['lorem ipsum'];\nheaders['lorem ipsum'];\n");
+        assert_eq!(count_key(&report_keys(&member), "javascript:S1192"), 0);
+
+        let key = js(
+            "const a = { 'lorem ipsum': 1 };\nconst b = { 'lorem ipsum': 2 };\nconst c = { 'lorem ipsum': 3 };\n",
+        );
+        assert_eq!(count_key(&report_keys(&key), "javascript:S1192"), 0);
+
+        let word_only = js("check('loremipsum');\ncheck('loremipsum');\ncheck('loremipsum');\n");
+        assert_eq!(count_key(&report_keys(&word_only), "javascript:S1192"), 0);
+
+        let literal_type =
+            ts("type A = 'lorem ipsum';\ntype B = 'lorem ipsum';\ntype C = 'lorem ipsum';\n");
+        assert_eq!(
+            count_key(&report_keys(&literal_type), "typescript:S1192"),
+            0
+        );
     }
 
     #[test]
@@ -653,10 +1003,13 @@ log(item);
     #[test]
     fn s1192_configured_ignore_strings_never_fire() {
         let rules = RuleOptions {
-            ignored_strings: vec!["dup".to_string()],
+            ignored_strings: vec!["lorem ipsum".to_string()],
             ..RuleOptions::default()
         };
-        let flagged = keys_with_rules("a('dup');\nb('dup');\nc('dup');\n", &rules);
+        let flagged = keys_with_rules(
+            "a('lorem ipsum');\nb('lorem ipsum');\nc('lorem ipsum');\n",
+            &rules,
+        );
         assert_eq!(count_key(&flagged, "javascript:S1192"), 0);
     }
 
