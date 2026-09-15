@@ -8,9 +8,9 @@ instance_mode = "standard"
 page_size = 500
 scope_classification = "community-plus-enterprise-unverified"
 community_evidence_sha256 = "a21e618ab38418bdc78a5b825cc507bed653073f3a95b9588190a93e37eef3bf"
-catalog_sha256 = "3e9c5a48a4ade64445459f25ae97686766530587cbaff41cc5c7690a4fb6df76"
+catalog_sha256 = "b11700d33340e96d024c81f1aa08a47df12830593b995258db3978a4c324c723"
 source_total_rules = 2516
-total_rules = 2612
+total_rules = 2613
 base_catalog_sha256 = "d6082ce6d2a66810554661d37aa3f975dbf6fb9a0d92d94991aea95eaa54ccf5"
 
 [unverified_rules]
@@ -52,7 +52,7 @@ oracle_edition = "community"
 instance_mode = "standard"
 page_size = 500
 source_total = 467
-total = 467
+total = 468
 unique_keys = 467
 page_count = 1
 show_count = 467
@@ -60,6 +60,24 @@ query_sha256 = "c8416155d871fb46e610a66f1a89b85f0036d95b1ed3a21820f07dcb63671b8b
 pages_sha256 = "c5fad1aec0977b6c519b0cfe42b890209af349dded259ff1b8f395046f7bdf5d"
 keys_sha256 = "68d4121428e43ae35c099bbdc8d8267f23ee7e4154e8dc904926150d339a4bf1"
 shows_sha256 = "6edd50154d54423884b4bfcdf2038e4b47b97a9b6c437bd0cddd4b1da64d223e"
+
+
+[languages.csharp.supplements.73962989734fae815ea5fff5377d54f4c298059ab2789d6b822d31d45043f945]
+capture_sha256 = "73962989734fae815ea5fff5377d54f4c298059ab2789d6b822d31d45043f945"
+captured_at_utc = "2026-09-15T21:51:32.466755833Z"
+server_version = "26.8.0.126808"
+instance_mode = "mqr"
+page_size = 500
+approval_id = "local-community-loopback"
+source_total = 456
+page_count = 1
+query_sha256 = "c8416155d871fb46e610a66f1a89b85f0036d95b1ed3a21820f07dcb63671b8b"
+pages_sha256 = "a8aafd43d49a23127ff8018d198fd76d7a71ff97355bd7cd1e36037b7e408f49"
+keys_sha256 = "0e7a59a059a482e82093e48f9e9baab616eb8d531340b33d821c620c504269f7"
+shows_sha256 = "ed99c883a67ce78f9b0be0ead510fa2cd2788c15305a7b69330c720d3a2ba603"
+selected_count = 1
+selected_keys_sha256 = "f5379f36d9fbce05a6d80f9a997ab898a5c988a2e4da63da675f12aada23e28d"
+selected_rows_sha256 = "9ae38928940c2305464a44b48b37f83fe57fdb9815210cfd755fc0c8e2e7b725"
 
 [languages.go]
 language = "go"
@@ -1106,7 +1124,7 @@ plugin_type = "EXTERNAL"
 required_for_languages = []
 
 [rule_files]
-csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
+csharp = "c2ec1a557115ac5a516939c092901d51f64466fdcf9445401b32f6f3b5560fda"
 go = "87a2a1861bcbc3b6efcbbdf744091f26c84ec4f0a1a02bf0324433773255183f"
 java = "b817c4c8b9bb09febb1e131dbd1868624406b55f00534003445ab1f2119d4374"
 javascript = "4835d94c896f778cc9e973e0e563ba140a6bba23bedf4924cb6306d3015861a7"
@@ -1116,7 +1134,7 @@ rust = "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817"
 typescript = "15ac9e0082fe7c58d9f25dc694b4081d5b20e2fcc2e6b75a8fb8636780032485"
 
 [base_rule_files]
-csharp = "390b16f1af8d6f4d4fef8ea371bd75803152844887acc01146dddc204dc79689"
+csharp = "c2ec1a557115ac5a516939c092901d51f64466fdcf9445401b32f6f3b5560fda"
 go = "87a2a1861bcbc3b6efcbbdf744091f26c84ec4f0a1a02bf0324433773255183f"
 java = "b817c4c8b9bb09febb1e131dbd1868624406b55f00534003445ab1f2119d4374"
 javascript = "645c262219bc8c94fdc0af482b44b61a8324135a8b1f890461a631a101192e90"
@@ -1126,6 +1144,7 @@ rust = "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817"
 typescript = "dddc83ab7b93eb3ea366d7e44000da475d357adfb181a26855e97bb1f67c42a8"
 
 [selected_rules]
+csharp = 1
 javascript = 37
 python = 18
 typescript = 41

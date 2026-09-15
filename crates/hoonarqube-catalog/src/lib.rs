@@ -1768,7 +1768,7 @@ mod tests {
     /// Adds-only supplements layered after the base captures: thirty-five
     /// javascript, thirty-nine typescript, and eighteen python keys from
     /// verified community captures.
-    const SUPPLEMENT_RULES: usize = 96;
+    const SUPPLEMENT_RULES: usize = 97;
     const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
@@ -1826,6 +1826,7 @@ mod tests {
             ("rust", 85),
             ("java", JAVA_RULES),
             ("ruby", RUBY_RULES),
+            ("csharp", 468),
         ];
         for (name, count) in expected {
             let language = catalog

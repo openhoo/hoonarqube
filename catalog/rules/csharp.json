@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "language": "cs",
   "source_capture_sha256": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0",
   "classification": "community-plus-enterprise-unverified",
@@ -12538,6 +12538,33 @@
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
+      "external_key": "csharpsquid:S8969",
+      "language": "cs",
+      "repository": "csharpsquid",
+      "status": "READY",
+      "scope": "ALL",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "redundant"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "73962989734fae815ea5fff5377d54f4c298059ab2789d6b822d31d45043f945"
+    },
+    {
       "external_key": "csharpsquid:S907",
       "language": "cs",
       "repository": "csharpsquid",
@@ -12590,6 +12617,27 @@
       "education_principles": [],
       "classification": "community-base",
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
+    }
+  ],
+  "supplements": [
+    {
+      "capture_sha256": "73962989734fae815ea5fff5377d54f4c298059ab2789d6b822d31d45043f945",
+      "captured_at_utc": "2026-09-15T21:51:32.466755833Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 456,
+      "page_count": 1,
+      "query_sha256": "c8416155d871fb46e610a66f1a89b85f0036d95b1ed3a21820f07dcb63671b8b",
+      "pages_sha256": "a8aafd43d49a23127ff8018d198fd76d7a71ff97355bd7cd1e36037b7e408f49",
+      "keys_sha256": "0e7a59a059a482e82093e48f9e9baab616eb8d531340b33d821c620c504269f7",
+      "shows_sha256": "ed99c883a67ce78f9b0be0ead510fa2cd2788c15305a7b69330c720d3a2ba603",
+      "selected_keys": [
+        "csharpsquid:S8969"
+      ],
+      "selected_keys_sha256": "f5379f36d9fbce05a6d80f9a997ab898a5c988a2e4da63da675f12aada23e28d",
+      "selected_rows_sha256": "9ae38928940c2305464a44b48b37f83fe57fdb9815210cfd755fc0c8e2e7b725"
     }
   ]
 }
