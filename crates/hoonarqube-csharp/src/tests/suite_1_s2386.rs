@@ -1375,6 +1375,7 @@ fn s1694_exempts_state_callables_and_class_bases() {
     // it does not exempt the class.
     let primary =
         analyze_default("abstract class Primary()\n{\n    public abstract void Go();\n}\n");
+    assert_eq!(with_key(&primary, "csharpsquid:S1694").len(), 1);
 }
 
 #[test]
