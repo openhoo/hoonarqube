@@ -1789,12 +1789,30 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         go,
         java: hoonarqube_core::JavaAnalyzerOptions::default(),
         rust,
-        ruby: hoonarqube_core::RubyAnalyzerOptions {
-            duplicate_string_threshold: parameter("ruby:S1192", "threshold")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(3),
-            ..hoonarqube_core::RubyAnalyzerOptions::default()
-        },
+        ruby: ruby_analyzer_options(catalog),
+    }
+}
+
+/// Resolves the Ruby analyzer knobs from the frozen catalog's per-rule
+/// parameter defaults; any miss falls back to the library default.
+fn ruby_analyzer_options(catalog: &Catalog) -> hoonarqube_core::RubyAnalyzerOptions {
+    let parameter = |rule_key: &str, key: &str| {
+        catalog
+            .rule(rule_key)
+            .and_then(|rule| rule.parameters.iter().find(|p| p.key == key))
+            .and_then(|p| p.default_value.as_deref())
+    };
+    hoonarqube_core::RubyAnalyzerOptions {
+        duplicate_string_threshold: parameter("ruby:S1192", "threshold")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(3),
+        maximum_conditional_operators: parameter("ruby:S1067", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(3),
+        maximum_nesting_depth: parameter("ruby:S134", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(3),
+        ..hoonarqube_core::RubyAnalyzerOptions::default()
     }
 }
 
