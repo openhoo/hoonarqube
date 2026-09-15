@@ -1,4 +1,3 @@
-use std::path::Path;
 
 use crate::engine::file_context::FileContext;
 use crate::support::to_range;
