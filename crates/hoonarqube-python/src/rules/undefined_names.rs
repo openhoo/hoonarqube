@@ -38,3 +38,31 @@ pub(crate) fn check_undefined_names(
     }
     issues
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5953_accepts_star_args_kwargs_and_builtin_exceptions() {
+        let source = concat!(
+            "import socket\n",
+            "def forward(*args, **kwargs):\n",
+            "    return args, kwargs\n",
+            "def relay(**kwargs):\n",
+            "    return forward(**kwargs)\n",
+            "def collect(*args):\n",
+            "    return forward(*args)\n",
+            "def risky():\n",
+            "    try:\n",
+            "        socket.create_connection(('host', 1))\n",
+            "    except OSError:\n",
+            "        return None\n",
+        );
+        assert!(findings(&scan(source), "python:S5953").is_empty());
+
+        // A genuinely undefined name still fires.
+        let undefined = scan("value = missing_name + 1\n");
+        assert_eq!(findings(&undefined, "python:S5953").len(), 1);
+    }
+}

@@ -45,14 +45,14 @@ mod tests {
 
     #[test]
     fn trailing_whitespace_span_covers_only_padding() {
-        let report = js("render(chart);   \n");
+        let report = js("'text';   \n");
         assert_eq!(
             report.issues,
             vec![issue(
                 "javascript:S1131",
                 "Trailing spaces not allowed.",
-                (1, 14),
-                (1, 17),
+                (1, 7),
+                (1, 10),
             )]
         );
     }

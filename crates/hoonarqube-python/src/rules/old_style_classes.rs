@@ -1,4 +1,7 @@
+use std::path::Path;
+
 use crate::engine::file_context::FileContext;
+use crate::support::is_test_scope_file;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::StmtClassDef;
@@ -11,7 +14,13 @@ pub(crate) fn check_old_style_classes(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
+    path: &Path,
 ) -> Vec<Issue> {
+    // Catalog scope MAIN: the reference platform never reports S1722 on
+    // test files, so bare classes there stay clean.
+    if is_test_scope_file(path) {
+        return Vec::new();
+    }
     let mut issues = Vec::new();
     for class in &file_ctx.classes {
         flag_empty_bases(class, &mut issues, index, source);
@@ -45,7 +54,9 @@ fn flag_empty_bases(
 #[cfg(test)]
 mod tests {
 
-    use crate::test_support::{findings, scan};
+    use std::path::PathBuf;
+
+    use crate::test_support::{findings, scan, scan_at};
 
     #[test]
     fn s1722_flags_classes_without_bases() {
@@ -68,5 +79,26 @@ mod tests {
         ] {
             assert!(findings(&scan(clean), "python:S1722").is_empty());
         }
+    }
+
+    #[test]
+    fn s1722_spares_test_scope_files() {
+        // S1722 is a Main-scope rule: production bare classes still fire.
+        assert_eq!(
+            findings(&scan("class Bare:\n    pass\n"), "python:S1722").len(),
+            1
+        );
+
+        let test_file = scan_at(
+            PathBuf::from("tests/test_requests.py"),
+            "class TestRequests:\n    pass\n",
+        );
+        assert!(findings(&test_file, "python:S1722").is_empty());
+
+        let conftest = scan_at(
+            PathBuf::from("tests/conftest.py"),
+            "class Helper:\n    pass\n",
+        );
+        assert!(findings(&conftest, "python:S1722").is_empty());
     }
 }

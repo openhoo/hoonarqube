@@ -1276,6 +1276,15 @@ fn declaring_type(mut node: Node<'_>) -> Option<Node<'_>> {
         if parent.kind() == "enum_constant" {
             return Some(parent);
         }
+        // Members of an anonymous class body belong to that anonymous
+        // class, not to the named type the body happens to sit inside.
+        if parent.kind() == "class_body"
+            && parent
+                .parent()
+                .is_some_and(|grand| grand.kind() == "object_creation_expression")
+        {
+            return Some(parent);
+        }
         if matches!(
             parent.kind(),
             "class_declaration"
@@ -1289,6 +1298,22 @@ fn declaring_type(mut node: Node<'_>) -> Option<Node<'_>> {
         node = parent;
     }
     None
+}
+
+fn declaring_type_label(owner: Node<'_>, source: &str) -> String {
+    if let Some(name) = owner.child_by_field_name("name") {
+        return node_text(name, source).to_owned();
+    }
+    // Anonymous class bodies have no name; label them by the instantiated
+    // type instead of falling back to the enclosing type's name.
+    if owner.kind() == "class_body"
+        && let Some(creation) = owner.parent()
+        && creation.kind() == "object_creation_expression"
+        && let Some(ty) = creation.child_by_field_name("type")
+    {
+        return format!("new {}", node_text(ty, source));
+    }
+    String::new()
 }
 
 fn next_named_sibling(node: Node<'_>) -> Option<Node<'_>> {
@@ -1572,15 +1597,17 @@ fn string_tail(node: Node<'_>, source: &str) -> String {
 }
 
 fn missing_space(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
-    let l = string_tail(left, source);
-    let r = string_tail(right, source);
+    // Java escapes must be decoded before the word tests: a literal ending
+    // in a `\n` escape ends in whitespace, not in the raw word characters
+    // backslash + `n`.
+    let l = decode_java_escapes(&string_tail(left, source));
+    let r = decode_java_escapes(&string_tail(right, source));
     if !r.chars().next().is_some_and(char::is_alphabetic) {
         return false;
     }
-    let mut word = l.trim_end();
-    if word.len() != l.len() {
-        return false;
-    }
+    // The word must terminate directly before the closing quote, with only
+    // grammatical punctuation allowed between the word and the quote.
+    let mut word = l.as_str();
     while word
         .chars()
         .last()
@@ -1588,7 +1615,93 @@ fn missing_space(left: Node<'_>, right: Node<'_>, source: &str) -> bool {
     {
         word = word.get(..word.len().saturating_sub(1)).unwrap_or("");
     }
-    word.chars().last().is_some_and(char::is_alphanumeric)
+    if !word.chars().last().is_some_and(char::is_alphanumeric) {
+        return false;
+    }
+    // The word must also be preceded by an in-literal space.
+    word.contains(' ')
+}
+
+fn decode_java_escapes(raw: &str) -> String {
+    if !raw.contains('\\') {
+        return raw.to_owned();
+    }
+    let mut decoded = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            decoded.push(ch);
+            continue;
+        }
+        decode_escape(&mut chars, &mut decoded);
+    }
+    decoded
+}
+
+type EscapeChars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
+
+/// Decodes the escape sequence whose backslash was just consumed.
+/// Malformed escapes keep their raw text.
+fn decode_escape(chars: &mut EscapeChars<'_>, decoded: &mut String) {
+    let Some(escape) = chars.next() else {
+        decoded.push('\\');
+        return;
+    };
+    match escape {
+        'b' => decoded.push('\u{0008}'),
+        't' => decoded.push('\t'),
+        'n' => decoded.push('\n'),
+        'f' => decoded.push('\u{000C}'),
+        'r' => decoded.push('\r'),
+        's' => decoded.push(' '),
+        '"' => decoded.push('"'),
+        '\'' => decoded.push('\''),
+        '\\' => decoded.push('\\'),
+        'u' => decode_unicode_escape(chars, decoded),
+        '0'..='7' => decode_octal_escape(escape, chars, decoded),
+        other => {
+            decoded.push('\\');
+            decoded.push(other);
+        }
+    }
+}
+
+fn decode_unicode_escape(chars: &mut EscapeChars<'_>, decoded: &mut String) {
+    while chars.peek() == Some(&'u') {
+        chars.next();
+    }
+    let mut value: u32 = 0;
+    let mut digits = 0;
+    while digits < 4 {
+        let Some(digit) = chars.peek().and_then(|c| c.to_digit(16)) else {
+            break;
+        };
+        value = value * 16 + digit;
+        chars.next();
+        digits += 1;
+    }
+    if digits == 4 {
+        decoded.push(char::from_u32(value).unwrap_or('\u{FFFD}'));
+    } else {
+        // Malformed escape: keep the raw text.
+        decoded.push('\\');
+        decoded.push('u');
+    }
+}
+
+fn decode_octal_escape(first: char, chars: &mut EscapeChars<'_>, decoded: &mut String) {
+    let mut value = first.to_digit(8).unwrap_or(0);
+    let max_digits = if matches!(first, '0'..='3') { 3 } else { 2 };
+    let mut digits = 1;
+    while digits < max_digits {
+        let Some(digit) = chars.peek().and_then(|c| c.to_digit(8)) else {
+            break;
+        };
+        value = value * 8 + digit;
+        chars.next();
+        digits += 1;
+    }
+    decoded.push(char::from_u32(value).unwrap_or('\u{FFFD}'));
 }
 
 fn whitespace_contradicts(node: Node<'_>, source: &str) -> bool {
@@ -2057,8 +2170,8 @@ fn method_signature_issues(root: Node<'_>, source: &str, index: &LineIndex) -> V
                 (*other, *method)
             };
             let owner_name = declaring_type(primary)
-                .and_then(|n| n.child_by_field_name("name"))
-                .map_or("", |n| node_text(n, source));
+                .map(|owner| declaring_type_label(owner, source))
+                .unwrap_or_default();
             let method_name = primary
                 .child_by_field_name("name")
                 .map_or("", |n| node_text(n, source));
@@ -2336,6 +2449,142 @@ final class OrdinaryOverloads {
         let issues = github_issues(same_constant_names);
         assert_eq!(count_rule(&issues, "java/confusing-method-name"), 1);
     }
+    #[test]
+    fn anonymous_class_methods_are_distinct_declaring_types() {
+        let source = r"
+import java.io.Writer;
+
+interface Op {
+  int run(int x);
+}
+
+final class Outer {
+  int same(int a) { return a; }
+  int same(Object a) { return 0; }
+
+  Op first() {
+    return new Op() {
+      public int run(int x) { return x; }
+    };
+  }
+
+  Op second() {
+    return new Op() {
+      public int run(int x) { return x + 1; }
+    };
+  }
+
+  private final Writer sink = new Writer() {
+    public void close() {}
+    public void flush() {}
+    public void write(char[] cbuf, int off, int len) {}
+  };
+
+  public void close() {}
+  public void flush() {}
+}
+";
+        let issues = github_issues(source);
+        assert_eq!(
+            count_rule(&issues, "java/confusing-method-signature"),
+            0,
+            "methods of distinct anonymous classes, or of an anonymous class and its \
+             enclosing type, must not pair as overloads: {issues:?}"
+        );
+    }
+    #[test]
+    fn genuine_signature_conflicts_inside_anonymous_bodies_still_report() {
+        let source = r"
+interface Op {
+  void handle(Object value);
+}
+
+final class Holder {
+  Op make() {
+    return new Op() {
+      public void handle(Object value) {}
+      public void handle(String value) {}
+    };
+  }
+}
+";
+        let issues = github_issues(source);
+        assert_eq!(
+            count_rule(&issues, "java/confusing-method-signature"),
+            1,
+            "a confusing overload pair inside one anonymous body still reports: {issues:?}"
+        );
+        assert!(
+            issues.iter().any(|issue| issue.message.contains("new Op")),
+            "the pair must report under the anonymous class, not the enclosing type: {issues:?}"
+        );
+    }
+    #[test]
+    fn escape_sequence_tails_are_not_missing_space_word_characters() {
+        let source = r#"
+final class Messages {
+  String gsonIdiom() {
+    return "line one ends $\n" + "See https://example.com/troubleshooting";
+  }
+  String loneNewline() {
+    return "\n" + "See https://example.com/troubleshooting";
+  }
+  String tabTail() {
+    return "done\t" + "next";
+  }
+  String backslashTail() {
+    return "dir\\" + "file";
+  }
+  String escapedRightStart() {
+    return "foo" + "\tbar";
+  }
+  String wordSplitWithoutSpace() {
+    return "Hello" + "World";
+  }
+  String textBlockEndsAtNewline() {
+    return """
+        done
+        """ + "tail";
+  }
+}
+"#;
+        let issues = github_issues(source);
+        assert_eq!(
+            count_rule(&issues, "java/missing-space-in-concatenation"),
+            0,
+            "escape-sequence tails and word splits without an in-literal space are not \
+             missing-space findings: {issues:?}"
+        );
+    }
+    #[test]
+    fn genuine_concatenation_missing_space_still_reports() {
+        let source = r#"
+final class Genuine {
+  String split() {
+    return "This text is" + "missing a space.";
+  }
+  String spaced() {
+    return "This text is " + "missing a space.";
+  }
+  String digits() {
+    return "line 12" + "column 3";
+  }
+}
+"#;
+        let issues = github_issues(source);
+        assert_eq!(
+            count_rule(&issues, "java/missing-space-in-concatenation"),
+            2,
+            "the QL-shape split and digit-word controls fire; the space-terminated literal stays quiet: {issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message.contains("This text is")),
+            "the surviving finding points at the split literal: {issues:?}"
+        );
+    }
+
     #[test]
     fn type_parameter_javadoc_tags_require_exact_names() {
         let bad = "/**\n * @param <T> wrong type parameter\n */\npublic class Probe<TT> {}";
