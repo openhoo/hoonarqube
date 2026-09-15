@@ -78,7 +78,7 @@ pub(crate) fn structure_issues(
     issues.extend(check_property_getter_throws(root, source, language));
     issues.extend(check_write_only_properties(root, source, language));
     issues.extend(check_trivial_properties(root, source, language));
-    issues.extend(check_abstract_member_mix(root, source, language));
+    issues.extend(check_abstract_member_mix(root, source, language, options));
     issues.extend(check_empty_classes_and_records(
         root, source, language, options,
     ));
