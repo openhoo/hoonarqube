@@ -19,9 +19,12 @@ pub use context::*;
 pub use engine::analyze_facts;
 
 /// Knobs for the Ruby analyzer; defaults mirror the frozen catalog rule
-/// parameters. The sonar-parity route consumes `duplicate_string_threshold`
-/// (`ruby:S1192` catalog default `3`); the remaining knobs are retained for
-/// parity with the other language frontends as further rules register.
+/// parameters. The sonar-parity route consumes
+/// `duplicate_string_threshold` (`ruby:S1192` catalog default `3`),
+/// `maximum_conditional_operators` (`ruby:S1067` `max` default `3`), and
+/// `maximum_nesting_depth` (`ruby:S134` `max` default `3`); the remaining
+/// knobs are retained for parity with the other language frontends as
+/// further rules register.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
     pub maximum_line_length: usize,
@@ -29,6 +32,7 @@ pub struct AnalyzerOptions {
     pub maximum_function_parameters: usize,
     pub maximum_function_lines: usize,
     pub maximum_nesting_depth: usize,
+    pub maximum_conditional_operators: usize,
     pub maximum_cognitive_complexity: usize,
     pub duplicate_string_threshold: usize,
 }
@@ -40,7 +44,8 @@ impl Default for AnalyzerOptions {
             maximum_lines_of_code: 1000,
             maximum_function_parameters: 7,
             maximum_function_lines: 100,
-            maximum_nesting_depth: 4,
+            maximum_nesting_depth: 3,
+            maximum_conditional_operators: 3,
             maximum_cognitive_complexity: 15,
             duplicate_string_threshold: 3,
         }
@@ -321,6 +326,144 @@ end
                 .issues
                 .iter()
                 .all(|issue| issue.rule_key != "ruby:S1192")
+        );
+    }
+
+    #[test]
+    fn s1067_flags_overloaded_condition_with_reference_message() {
+        // Mirrors the rake oracle site in lib/rake/application.rb.
+        let source = "def raw_load\n  if (!options.ignore_system) &&\n      (options.load_system || rakefile.nil?) &&\n      system_dir && File.directory?(system_dir)\n    print_dir\n  end\nend\n";
+        let report = analyze(
+            PathBuf::from("lib/rake/application.rb"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "ruby:S1067")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(
+            findings[0].message,
+            "Reduce the number of conditional operators (4) used in the expression (maximum allowed 3)."
+        );
+        assert_eq!(findings[0].range.start.line, 2);
+        assert_eq!(findings[0].range.start.column, 5);
+        assert_eq!(findings[0].range.end.line, 4);
+    }
+
+    #[test]
+    fn s126_flags_elsif_chain_without_else() {
+        // Mirrors the rake oracle site in lib/rake/task_arguments.rb.
+        let source = "def lookup(name)\n  if @hash.has_key?(name)\n    @hash[name]\n  elsif @parent\n    @parent.lookup(name)\n  end\nend\n";
+        let report = analyze(
+            PathBuf::from("lib/rake/task_arguments.rb"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "ruby:S126")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].message, "Add the missing \"else\" clause.");
+        assert_eq!(findings[0].range.start.line, 4);
+        assert_eq!(findings[0].range.start.column, 2);
+        assert_eq!(findings[0].range.end.column, 7);
+    }
+
+    #[test]
+    fn s126_exempts_all_jump_chains() {
+        // Mirrors the rake oracle's silent site in lib/rake/application.rb.
+        let source = "def have_rakefile\n  @rakefiles.each do |fn|\n    if File.exist?(fn)\n      return fn\n    elsif fn == \"\"\n      return fn\n    end\n  end\nend\n";
+        let report = analyze(
+            PathBuf::from("lib/rake/application.rb"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            report
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "ruby:S126"),
+            "all-jump chain must stay silent: {:?}",
+            report.issues
+        );
+    }
+
+    #[test]
+    fn s134_flags_deep_nesting_with_reference_flows() {
+        // Mirrors the rake oracle site in lib/rake/task.rb: a begin inside a
+        // do-block counts as depth 1, so the third nested if is depth 4.
+        let source = "class T\n  def invoke\n    @lock.synchronize do\n      begin\n        if @already_invoked\n          if @invocation_exception\n            if application.options.trace\n              trace\n            end\n          end\n        end\n      end\n    end\n  end\nend\n";
+        let report = analyze(
+            PathBuf::from("lib/rake/task.rb"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "ruby:S134")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        let finding = findings[0];
+        assert_eq!(
+            finding.message,
+            "Refactor this code to not nest more than 3 control flow statements."
+        );
+        assert_eq!(finding.range.start.line, 7);
+        assert_eq!(finding.range.start.column, 12);
+        let locations = &finding.flows[0].locations;
+        assert_eq!(locations.len(), 3);
+        assert_eq!(locations[0].message, "Nesting depth 1");
+        assert_eq!(locations[0].range.start.line, 4);
+        assert_eq!(locations[2].message, "Nesting depth 3");
+        assert_eq!(locations[2].range.start.line, 6);
+    }
+
+    #[test]
+    fn s1764_flags_identical_operands_with_reference_flow() {
+        // Mirrors the rake oracle site in test/test_rake_early_time.rb.
+        let source = "def test_early_time\n  assert t1 == t1\nend\n";
+        let report = analyze(
+            PathBuf::from("test/test_rake_early_time.rb"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "ruby:S1764")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        let finding = findings[0];
+        assert_eq!(
+            finding.message,
+            "Correct one of the identical sub-expressions on both sides this operator"
+        );
+        assert_eq!(finding.range.start.line, 2);
+        assert_eq!(finding.range.start.column, 15);
+        assert_eq!(finding.flows[0].locations[0].range.start.column, 9);
+    }
+
+    #[test]
+    fn new_rules_never_fabricate_findings_on_malformed_input() {
+        let source = "def broken(\n  if a && b && c && d && e\n    x == x\n  elsif b\n";
+        let report = analyze(
+            PathBuf::from("broken.rb"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            report.issues.iter().all(|issue| !matches!(
+                issue.rule_key.as_str(),
+                "ruby:S1067" | "ruby:S126" | "ruby:S134" | "ruby:S1764"
+            )),
+            "recovered trees fail closed: {:?}",
+            report.issues
         );
     }
 }

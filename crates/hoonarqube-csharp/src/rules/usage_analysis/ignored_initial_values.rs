@@ -30,28 +30,61 @@ fn check_callable(callable: Node<'_>, source: &str, language: CsLanguage, issues
     let Some(body) = body_of(callable) else {
         return;
     };
-    for parameter in parameters_of(callable) {
-        check_parameter(parameter, body, source, language, issues);
+    for name_node in parameter_name_nodes(callable) {
+        check_parameter(name_node, body, source, language, issues);
     }
 }
 
+/// Name nodes of every parameter, covering both the grammar's `parameter`
+/// nodes and the flattened `params T name` spelling the parser emits
+/// directly under `parameter_list` (`params`, `array_type`, `identifier`
+/// siblings without a `parameter` wrapper).
+fn parameter_name_nodes<'t>(callable: Node<'t>) -> Vec<Node<'t>> {
+    let mut names: Vec<Node<'t>> = parameters_of(callable)
+        .iter()
+        .filter_map(|parameter| parameter.child_by_field_name("name"))
+        .collect();
+    let Some(list) = callable.child_by_field_name("parameters") else {
+        return names;
+    };
+    let mut cursor = list.walk();
+    let children: Vec<Node<'t>> = list.children(&mut cursor).collect();
+    for (index, child) in children.iter().enumerate() {
+        if child.kind() != "params" || child.is_named() {
+            continue;
+        }
+        let is_flattened_params = children
+            .get(index + 1)
+            .is_some_and(|ty| ty.kind() == "array_type")
+            && children
+                .get(index + 2)
+                .is_some_and(|name| name.kind() == "identifier");
+        if is_flattened_params {
+            names.push(children[index + 2]);
+        }
+    }
+    names
+}
+
 fn check_parameter(
-    parameter: Node<'_>,
+    name_node: Node<'_>,
     body: Node<'_>,
     source: &str,
     language: CsLanguage,
     issues: &mut Vec<Issue>,
 ) {
-    if is_error_tainted(parameter)
-        || modifiers_of(parameter, source)
-            .iter()
-            .any(|modifier| matches!(*modifier, "ref" | "out" | "in"))
+    if is_error_tainted(name_node)
+        || name_node
+            .parent()
+            .filter(|parent| parent.kind() == "parameter")
+            .is_some_and(|parameter| {
+                modifiers_of(parameter, source)
+                    .iter()
+                    .any(|modifier| matches!(*modifier, "ref" | "out" | "in"))
+            })
     {
         return;
     }
-    let Some(name_node) = parameter.child_by_field_name("name") else {
-        return;
-    };
     let name = node_text(name_node, source);
     if let Some(assignment) = ignored_initial_value(body, name, source) {
         push_issue(issues, assignment, name, source, language);
@@ -131,6 +164,24 @@ mod tests {
     fn s1226_ignores_nested_local_function_rebinding() {
         let report = analyze_default(
             "class C\n{\n    public void Run(int value)\n    {\n        void Reset() { value = 0; }\n        System.Console.WriteLine(value);\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1226").is_empty());
+    }
+
+    #[test]
+    fn s1226_flags_params_parameter_overwritten_before_read() {
+        let report = analyze_default(
+            "class C\n{\n    public object Build(string where, object key, params object[] args)\n    {\n        if (key != null)\n        {\n            args = new object[] { key };\n        }\n        return Create(args);\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1226");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 7);
+    }
+
+    #[test]
+    fn s1226_ignores_params_parameter_read_before_write() {
+        let report = analyze_default(
+            "class C\n{\n    public object Build(object key, params object[] args)\n    {\n        var count = args.Length;\n        args = new object[] { key };\n        return Create(args, count);\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S1226").is_empty());
     }
