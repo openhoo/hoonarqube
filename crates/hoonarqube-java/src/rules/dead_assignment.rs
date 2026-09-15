@@ -340,7 +340,10 @@ const JDK_PARENTS: &[(&str, &str)] = &[
     ("AclNotFoundException", "GeneralSecurityException"),
     ("CertificateException", "GeneralSecurityException"),
     ("CertPathBuilderException", "GeneralSecurityException"),
-    ("InvalidAlgorithmParameterException", "GeneralSecurityException"),
+    (
+        "InvalidAlgorithmParameterException",
+        "GeneralSecurityException",
+    ),
     ("InvalidParameterSpecException", "GeneralSecurityException"),
     ("InvalidKeySpecException", "GeneralSecurityException"),
     ("KeyException", "GeneralSecurityException"),
@@ -517,7 +520,10 @@ const JDK_PARENTS: &[(&str, &str)] = &[
     ("UnsupportedCharsetException", "IllegalArgumentException"),
     ("InvalidPathException", "IllegalArgumentException"),
     ("UnresolvedAddressException", "IllegalArgumentException"),
-    ("UnsupportedAddressTypeException", "IllegalArgumentException"),
+    (
+        "UnsupportedAddressTypeException",
+        "IllegalArgumentException",
+    ),
     ("AlreadyConnectedException", "IllegalStateException"),
     ("CancelledKeyException", "IllegalStateException"),
     ("ClosedDirectoryStreamException", "IllegalStateException"),
@@ -536,12 +542,24 @@ const JDK_PARENTS: &[(&str, &str)] = &[
     ("OverlappingFileLockException", "IllegalStateException"),
     ("AsynchronousCloseException", "ClosedChannelException"),
     ("ClosedByInterruptException", "AsynchronousCloseException"),
-    ("ReadOnlyFileSystemException", "UnsupportedOperationException"),
-    ("ArrayIndexOutOfBoundsException", "IndexOutOfBoundsException"),
-    ("StringIndexOutOfBoundsException", "IndexOutOfBoundsException"),
+    (
+        "ReadOnlyFileSystemException",
+        "UnsupportedOperationException",
+    ),
+    (
+        "ArrayIndexOutOfBoundsException",
+        "IndexOutOfBoundsException",
+    ),
+    (
+        "StringIndexOutOfBoundsException",
+        "IndexOutOfBoundsException",
+    ),
     ("InputMismatchException", "NoSuchElementException"),
     ("DuplicateFormatFlagsException", "IllegalFormatException"),
-    ("FormatFlagsConversionMismatchException", "IllegalFormatException"),
+    (
+        "FormatFlagsConversionMismatchException",
+        "IllegalFormatException",
+    ),
     ("IllegalFormatCodePointException", "IllegalFormatException"),
     ("IllegalFormatConversionException", "IllegalFormatException"),
     ("IllegalFormatFlagsException", "IllegalFormatException"),
@@ -1248,12 +1266,7 @@ impl<'source, 'index> Flow<'source, 'index> {
         vec![join]
     }
 
-    fn while_statement(
-        &mut self,
-        node: Node<'_>,
-        incoming: &[usize],
-        depth: usize,
-    ) -> Vec<usize> {
+    fn while_statement(&mut self, node: Node<'_>, incoming: &[usize], depth: usize) -> Vec<usize> {
         let condition = self.alloc(node.child_by_field_name("condition"));
         self.connect(incoming, condition);
         let after = self.alloc(None);
@@ -1376,12 +1389,7 @@ impl<'source, 'index> Flow<'source, 'index> {
         vec![after]
     }
 
-    fn switch_statement(
-        &mut self,
-        node: Node<'_>,
-        incoming: &[usize],
-        depth: usize,
-    ) -> Vec<usize> {
+    fn switch_statement(&mut self, node: Node<'_>, incoming: &[usize], depth: usize) -> Vec<usize> {
         let condition = self.alloc(node.child_by_field_name("condition"));
         self.connect(incoming, condition);
         let join = self.alloc(None);
@@ -1597,9 +1605,7 @@ impl<'source, 'index> Flow<'source, 'index> {
         self.region_stack.push((ctx_idx, Region::Body));
         let body_end = node
             .child_by_field_name("body")
-            .map_or_else(Vec::new, |body| {
-                self.statement(body, &[marker], depth + 1)
-            });
+            .map_or_else(Vec::new, |body| self.statement(body, &[marker], depth + 1));
         self.region_stack.pop();
         let mut ends = body_end;
         for (index, clause) in clauses.iter().enumerate() {
