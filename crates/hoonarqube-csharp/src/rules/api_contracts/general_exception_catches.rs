@@ -5,12 +5,14 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// csharpsquid:S2221 — catching bare `Exception` also swallows unrelated
-/// runtime failures.
+/// runtime failures. Clauses already narrowed by a `when` filter stay
+/// exempt: the filter expresses the specific handling the rule asks for.
 pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
     collect_kinds(root, &["catch_clause"])
         .into_iter()
         .filter(|clause| !is_error_tainted(*clause))
         .filter(|clause| catch_type_tail(*clause, source) == Some("Exception"))
+        .filter(|clause| collect_kinds(*clause, &["catch_filter_clause"]).is_empty())
         .map(|clause| {
             issue(
                 language,
