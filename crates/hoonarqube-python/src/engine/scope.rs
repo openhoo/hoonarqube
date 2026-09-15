@@ -578,6 +578,26 @@ fn collect_function_def(
             0,
         );
     }
+    // `*args` / `**kwargs` bind like ordinary parameters inside the body;
+    // leaving them unbound made every use an undefined-name false positive.
+    if let Some(vararg) = function.parameters.vararg.as_deref() {
+        bind_symbol(
+            &mut table.scopes[fn_scope],
+            vararg.name.as_str(),
+            vararg.name.range(),
+            BindingKind::Parameter,
+            0,
+        );
+    }
+    if let Some(kwarg) = function.parameters.kwarg.as_deref() {
+        bind_symbol(
+            &mut table.scopes[fn_scope],
+            kwarg.name.as_str(),
+            kwarg.name.range(),
+            BindingKind::Parameter,
+            0,
+        );
+    }
     table.def_sites.push(DefSite {
         enclosing_scope: current,
         own_scope: fn_scope,
@@ -860,6 +880,26 @@ fn record_lambda_scope(
                 &mut table.scopes[fn_scope],
                 parameter.parameter.name.as_str(),
                 parameter.parameter.name.range(),
+                BindingKind::Parameter,
+                0,
+            );
+        }
+        // Lambda `*args` / `**kwargs` bind inside the lambda scope just like
+        // function parameters do.
+        if let Some(vararg) = parameters.vararg.as_deref() {
+            bind_symbol(
+                &mut table.scopes[fn_scope],
+                vararg.name.as_str(),
+                vararg.name.range(),
+                BindingKind::Parameter,
+                0,
+            );
+        }
+        if let Some(kwarg) = parameters.kwarg.as_deref() {
+            bind_symbol(
+                &mut table.scopes[fn_scope],
+                kwarg.name.as_str(),
+                kwarg.name.range(),
                 BindingKind::Parameter,
                 0,
             );

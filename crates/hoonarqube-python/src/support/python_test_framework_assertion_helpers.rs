@@ -31,6 +31,27 @@ pub(crate) fn is_pytest_file_name(path: &Path) -> bool {
     name.starts_with("test_") || name.ends_with("_test.py")
 }
 
+/// Sonar's Main/TEST scope boundary for rules whose catalog scope is MAIN:
+/// a file is test-scoped when a path component is a conventional test
+/// directory (`test`, `tests`, `testing`) or the file name follows the
+/// pytest/`conftest` conventions. MAIN-scope rules never report on such
+/// files, mirroring the reference platform's issue filtering.
+pub(crate) fn is_test_scope_file(path: &Path) -> bool {
+    let in_test_directory = path.components().any(|component| {
+        matches!(
+            component.as_os_str().to_str(),
+            Some("test" | "tests" | "testing")
+        )
+    });
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return in_test_directory;
+    };
+    in_test_directory
+        || name.starts_with("test")
+        || name.starts_with("conftest")
+        || name.ends_with("_test.py")
+}
+
 /// Nearest-ancestor context shared by the family's walkers.
 #[derive(Clone, Copy)]
 pub(crate) struct TestScope<'a> {
