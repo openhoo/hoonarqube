@@ -673,6 +673,7 @@ pub fn github_quality_issues(root: Node<'_>, source: &str, index: &LineIndex) ->
     issues.extend(method_name_issues(root, source, index));
     issues.extend(method_signature_issues(root, source, index));
     issues.extend(unread_local_issues(root, source, index, &semantics));
+    issues.extend(gcq_batch2_issues(root, source, index, &semantics));
     hoonarqube_ir::sort_issues(&mut issues);
     issues.dedup();
     issues
@@ -3465,6 +3466,2199 @@ fn string_literal_value<'source>(literal: Node<'_>, source: &'source str) -> &'s
     text.strip_prefix('"')
         .and_then(|text| text.strip_suffix('"'))
         .unwrap_or(text)
+}
+
+// == Batch 2 of the pinned GitHub `CodeQL` Java queries =====================
+//
+// Grounded in the catalog sources pinned at revision
+// `cb55cf1f281101f8e6d1522998e821d1b3547ce4`: RefEqBoxed.ql,
+// SynchOnBoxedType.ql, LShiftLargerThanTypeWidth.ql, IterableIterator.ql,
+// PrintLnArray.ql, DefaultToString.ql, HashedButNoHash.ql,
+// InefficientKeySetIterator.ql, IntMultToLong.ql, JdkInternalAccess.ql,
+// SuspiciousDateFormat.ql, SynchSetUnsynchGet.ql, UselessTypeTest.ql,
+// UnusedFormatArg.ql, ContainsTypeMismatch.ql, RemoveTypeMismatch.ql, and
+// LocalShadowsFieldConfusing.ql. Only single-file-provable facts are used.
+
+const CALL_TO_OBJECT_TOSTRING: &str = "java/call-to-object-tostring";
+const HASHING_WITHOUT_HASHCODE: &str = "java/hashing-without-hashcode";
+const INEFFICIENT_KEY_SET_ITERATOR: &str = "java/inefficient-key-set-iterator";
+const INTEGER_MULT_CAST_TO_LONG: &str = "java/integer-multiplication-cast-to-long";
+const ITERATOR_IMPLEMENTS_ITERABLE: &str = "java/iterator-implements-iterable";
+const JDK_INTERNAL_API_ACCESS: &str = "java/jdk-internal-api-access";
+const LOCAL_SHADOWS_FIELD: &str = "java/local-shadows-field";
+const LSHIFT_LARGER_THAN_TYPE_WIDTH: &str = "java/lshift-larger-than-type-width";
+const PRINT_ARRAY: &str = "java/print-array";
+const REFERENCE_EQUALITY_OF_BOXED_TYPES: &str = "java/reference-equality-of-boxed-types";
+const SUSPICIOUS_DATE_FORMAT: &str = "java/suspicious-date-format";
+const SYNC_ON_BOXED_TYPES: &str = "java/sync-on-boxed-types";
+const TYPE_MISMATCH_ACCESS: &str = "java/type-mismatch-access";
+const TYPE_MISMATCH_MODIFICATION: &str = "java/type-mismatch-modification";
+const UNSYNCHRONIZED_GETTER: &str = "java/unsynchronized-getter";
+const UNUSED_FORMAT_ARGUMENT: &str = "java/unused-format-argument";
+const USELESS_TYPE_TEST: &str = "java/useless-type-test";
+
+/// Packages of unsupported JDK-internal APIs, from the pinned
+/// `JdkInternals.qll` list (`jdk8_internals.txt`). A package matches when it
+/// equals an entry or lives underneath one.
+const JDK_INTERNAL_PACKAGE_PREFIXES: [&str; 16] = [
+    "apple.applescript",
+    "apple.laf",
+    "apple.launcher",
+    "apple.security",
+    "com.apple",
+    "com.oracle",
+    "com.sun",
+    "java.awt.dnd.peer",
+    "java.awt.peer",
+    "javafx.embed",
+    "jdk",
+    "oracle.jrockit",
+    "org.jcp",
+    "org.omg",
+    "org.relaxng",
+    "sun",
+];
+
+/// `java.lang` types that cannot be subclassed, with their fixed supertypes.
+const CLOSED_JAVA_LANG_TYPES: [(&str, &[&str]); 9] = [
+    ("String", &["CharSequence", "Object"]),
+    ("Integer", &["Number", "Object"]),
+    ("Long", &["Number", "Object"]),
+    ("Short", &["Number", "Object"]),
+    ("Byte", &["Number", "Object"]),
+    ("Double", &["Number", "Object"]),
+    ("Float", &["Number", "Object"]),
+    ("Character", &["Object"]),
+    ("Boolean", &["Object"]),
+];
+
+/// Wrapper types compared by `RefEqBoxed.ql` and synchronized on by
+/// `SynchOnBoxedType.ql`.
+const BOXED_TYPE_NAMES: [&str; 8] = [
+    "Integer",
+    "Long",
+    "Short",
+    "Byte",
+    "Character",
+    "Boolean",
+    "Float",
+    "Double",
+];
+
+const PRIMITIVE_TYPE_NAMES: [&str; 8] = [
+    "int", "long", "short", "byte", "char", "boolean", "float", "double",
+];
+
+/// A named type declared in the analyzed file plus its provable supertypes.
+#[derive(Debug, Default)]
+struct LocalTypeDecl {
+    supers: Vec<String>,
+    closed: bool,
+}
+
+/// Single-file type graph for `notHaveIntersection` decisions.
+#[derive(Debug, Default)]
+struct LocalTypeGraph {
+    decls: std::collections::BTreeMap<String, LocalTypeDecl>,
+}
+
+impl LocalTypeGraph {
+    fn build(root: Node<'_>, source: &str) -> Self {
+        let mut graph = Self::default();
+        for declaration in crate::support::collect_kinds(
+            root,
+            &[
+                "class_declaration",
+                "interface_declaration",
+                "enum_declaration",
+                "record_declaration",
+            ],
+        ) {
+            let Some(name) = declaration.child_by_field_name("name") else {
+                continue;
+            };
+            let supers = direct_supertype_nodes(declaration)
+                .iter()
+                .map(|supertype| simple_supertype_name(*supertype, source).to_owned())
+                .collect::<Vec<_>>();
+            let closed = has_modifier(declaration, source, "final")
+                || declaration.kind() == "record_declaration"
+                || declaration.kind() == "enum_declaration";
+            graph.decls.insert(
+                node_text(name, source).to_owned(),
+                LocalTypeDecl { supers, closed },
+            );
+        }
+        graph
+    }
+
+    fn push_supertypes(&self, name: &str, pending: &mut Vec<String>) {
+        if let Some((_, library_supers)) =
+            CLOSED_JAVA_LANG_TYPES.iter().find(|(key, _)| *key == name)
+        {
+            pending.extend(library_supers.iter().map(std::string::ToString::to_string));
+            return;
+        }
+        if let Some(declaration) = self.decls.get(name) {
+            pending.extend(declaration.supers.iter().cloned());
+            if !declaration
+                .supers
+                .iter()
+                .any(|supertype| supertype == "Object")
+            {
+                pending.push("Object".to_owned());
+            }
+        }
+    }
+
+    /// `Some(false)` proves there is no common subtype; `None` means unknown.
+    fn may_intersect(&self, left: &str, right: &str) -> Option<bool> {
+        if left == right {
+            return Some(true);
+        }
+        let reaches = |from: &str, to: &str| -> bool {
+            let mut seen = std::collections::BTreeSet::new();
+            let mut pending = vec![from.to_owned()];
+            while let Some(current) = pending.pop() {
+                if !seen.insert(current.clone()) {
+                    continue;
+                }
+                if current == to {
+                    return true;
+                }
+                self.push_supertypes(&current, &mut pending);
+            }
+            false
+        };
+        if reaches(left, right) || reaches(right, left) {
+            return Some(true);
+        }
+        let closed = |name: &str| {
+            self.decls
+                .get(name)
+                .is_some_and(|declaration| declaration.closed)
+                || CLOSED_JAVA_LANG_TYPES.iter().any(|(key, _)| *key == name)
+        };
+        (closed(left) || closed(right)).then_some(false)
+    }
+}
+
+/// Strips generics from a type node's text.
+fn base_type_text(node: Node<'_>, source: &str) -> String {
+    node_text(node, source)
+        .split('<')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_owned()
+}
+
+/// Short name of a possibly qualified type text.
+fn short_type_name(text: &str) -> &str {
+    text.rsplit('.').next().unwrap_or(text)
+}
+
+/// `(base name, top-level generic arguments)` of a declared type text.
+fn split_declared_generics(declared: &str) -> (String, Vec<String>) {
+    let (base, rest) = match declared.find('<') {
+        Some(index) => (declared[..index].trim(), Some(&declared[index + 1..])),
+        None => (declared.trim(), None),
+    };
+    let mut arguments = Vec::new();
+    if let Some(rest) = rest {
+        push_generic_arguments(rest, &mut arguments);
+    }
+    (base.to_owned(), arguments)
+}
+
+/// Collects the top-level generic arguments of the text inside `<..>`.
+fn push_generic_arguments(rest: &str, arguments: &mut Vec<String>) {
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for character in rest.chars() {
+        match character {
+            '<' => {
+                depth += 1;
+                current.push(character);
+            }
+            '>' => {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+                current.push(character);
+            }
+            ',' if depth == 0 => {
+                arguments.push(current.trim().to_owned());
+                current.clear();
+            }
+            _ => current.push(character),
+        }
+    }
+    if !current.trim().is_empty() {
+        arguments.push(current.trim().to_owned());
+    }
+}
+
+fn gcq_batch2_issues(
+    root: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let graph = LocalTypeGraph::build(root, source);
+    walk_all(root, &mut |node| match node.kind() {
+        "import_declaration" => {
+            jdk_internal_import_issue(node, source, index, semantics, &mut issues);
+        }
+        "binary_expression" => {
+            boxed_reference_equality_issue(node, source, index, semantics, &mut issues);
+            left_shift_width_issue(node, source, index, semantics, &mut issues);
+            concat_default_to_string_issue(node, source, index, semantics, &mut issues);
+        }
+        "synchronized_statement" => {
+            sync_on_boxed_issue(node, source, index, semantics, &mut issues);
+        }
+        "instanceof_expression" => {
+            useless_type_test_issue(node, source, index, semantics, &mut issues);
+        }
+        "method_invocation" => {
+            print_array_issue(node, source, index, semantics, &mut issues);
+            default_to_string_issue(node, source, index, semantics, &mut issues);
+            unused_format_argument_issue(node, source, index, semantics, &mut issues);
+            container_mismatch_issue(
+                node,
+                source,
+                index,
+                semantics,
+                &graph,
+                TYPE_MISMATCH_ACCESS,
+                &mut issues,
+            );
+            container_mismatch_issue(
+                node,
+                source,
+                index,
+                semantics,
+                &graph,
+                TYPE_MISMATCH_MODIFICATION,
+                &mut issues,
+            );
+            hashing_usage_issue(node, source, index, semantics, root, &mut issues);
+        }
+        "object_creation_expression" => {
+            suspicious_date_format_issue(node, source, index, semantics, &mut issues);
+            hashing_constructor_issue(node, source, index, semantics, root, &mut issues);
+        }
+        "local_variable_declaration" => {
+            integer_mult_to_long_declaration_issue(node, source, index, semantics, &mut issues);
+            local_shadows_field_issue(node, source, index, semantics, &mut issues);
+        }
+        "assignment_expression" => {
+            integer_mult_to_long_assignment_issue(node, source, index, semantics, &mut issues);
+        }
+        "return_statement" => {
+            integer_mult_to_long_return_issue(node, source, index, semantics, &mut issues);
+        }
+        _ => {}
+    });
+    key_set_iterator_issues(root, source, index, &mut issues);
+    class_level_gcq_issues(root, source, index, semantics, &mut issues);
+    issues
+}
+
+// -- java/reference-equality-of-boxed-types ----------------------------------
+
+fn boxed_type_at(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<&'static str> {
+    let expression = unwrap_parens(expression);
+    if expression.kind() == "object_creation_expression" {
+        let type_node = expression.child_by_field_name("type")?;
+        let text = base_type_text(type_node, source);
+        let base = short_type_name(&text);
+        return BOXED_TYPE_NAMES
+            .iter()
+            .find(|boxed| **boxed == base)
+            .copied();
+    }
+    let (base, is_array) = declared_base_type(expression, source, index, semantics)?;
+    if is_array {
+        return None;
+    }
+    let base = short_type_name(&base);
+    BOXED_TYPE_NAMES
+        .iter()
+        .find(|boxed| **boxed == base)
+        .copied()
+}
+
+fn boxed_reference_equality_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let operator = node
+        .child_by_field_name("operator")
+        .map(|operator| node_text(operator, source));
+    if !matches!(operator, Some("==" | "!=")) {
+        return;
+    }
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    // The pinned query compares boxed types on both sides and excludes the
+    // reference-comparison-safe `Boolean` type.
+    let left_boxed = boxed_type_at(left, source, index, semantics);
+    let right_boxed = boxed_type_at(right, source, index, semantics);
+    if left_boxed.is_none() || right_boxed.is_none() {
+        return;
+    }
+    if left_boxed == Some("Boolean") || right_boxed == Some("Boolean") {
+        return;
+    }
+    issues.push(issue(
+        REFERENCE_EQUALITY_OF_BOXED_TYPES,
+        "Suspicious reference comparison of boxed numerical values.",
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/lshift-larger-than-type-width --------------------------------------
+
+fn integral_type_width(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<u32> {
+    let expression = unwrap_parens(expression);
+    if matches!(
+        expression.kind(),
+        "decimal_integer_literal"
+            | "hex_integer_literal"
+            | "octal_integer_literal"
+            | "binary_integer_literal"
+    ) {
+        let text = node_text(expression, source);
+        return Some(if text.ends_with('L') || text.ends_with('l') {
+            64
+        } else {
+            32
+        });
+    }
+    let declared = declared_base_type(expression, source, index, semantics)?.0;
+    match short_type_name(&declared) {
+        "long" | "Long" => Some(64),
+        "int" | "Integer" | "short" | "Short" | "byte" | "Byte" | "char" | "Character" => Some(32),
+        _ => None,
+    }
+}
+
+fn left_shift_width_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let operator = node
+        .child_by_field_name("operator")
+        .map(|operator| node_text(operator, source));
+    if operator != Some("<<") {
+        return;
+    }
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    let Some(width) = integral_type_width(left, source, index, semantics) else {
+        return;
+    };
+    let Some(value) = literal_number(right, source) else {
+        return;
+    };
+    if value < 0 || value < i64::from(width) {
+        return;
+    }
+    let declared = declared_base_type(left, source, index, semantics).map_or_else(
+        || "int".to_owned(),
+        |(base, _)| short_type_name(&base).to_owned(),
+    );
+    let article = if declared.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    };
+    let truncated = value % i64::from(width);
+    issues.push(issue(
+        LSHIFT_LARGER_THAN_TYPE_WIDTH,
+        &format!(
+            "Left-shifting {article} {declared} by more than {width} truncates the shift amount from {value} to {truncated}."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/sync-on-boxed-types ------------------------------------------------
+
+fn synchronized_expression(statement: Node<'_>) -> Option<Node<'_>> {
+    let parenthesized = direct_named_children(statement)
+        .into_iter()
+        .find(|child| child.kind() == "parenthesized_expression")?;
+    parenthesized.named_child(0).map(unwrap_parens)
+}
+
+fn sync_on_boxed_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(expression) = synchronized_expression(node) else {
+        return;
+    };
+    let type_name = if matches!(expression.kind(), "string_literal" | "text_block")
+        || expression_is_type(expression, semantics, source, index, "String")
+    {
+        Some("String")
+    } else {
+        boxed_type_at(expression, source, index, semantics)
+    };
+    let Some(type_name) = type_name else {
+        return;
+    };
+    issues.push(issue(
+        SYNC_ON_BOXED_TYPES,
+        &format!("Do not synchronize on objects of type {type_name}."),
+        expression,
+        source,
+        index,
+    ));
+}
+
+// -- java/suspicious-date-format ---------------------------------------------
+
+fn suspicious_date_format_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(type_node) = node.child_by_field_name("type") else {
+        return;
+    };
+    if short_type_name(&base_type_text(type_node, source)) != "SimpleDateFormat"
+        || semantics.type_name_is_shadowed_at("SimpleDateFormat", type_node.start_byte())
+    {
+        return;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let Some(first) = arguments.named_child(0) else {
+        return;
+    };
+    let first = unwrap_parens(first);
+    if !matches!(first.kind(), "string_literal" | "text_block") {
+        return;
+    }
+    let format = string_literal_value(first, source);
+    if !(format.contains('Y') && format.contains('M')) {
+        return;
+    }
+    issues.push(issue(
+        SUSPICIOUS_DATE_FORMAT,
+        &format!("Date formatter is passed a suspicious pattern \"{format}\"."),
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/print-array --------------------------------------------------------
+
+fn print_array_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(name) = node.child_by_field_name("name") else {
+        return;
+    };
+    if !matches!(node_text(name, source), "println" | "print") {
+        return;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    if arguments.named_child_count() != 1 {
+        return;
+    }
+    let Some(argument) = arguments.named_child(0) else {
+        return;
+    };
+    if !is_array_typed(argument, source, index, semantics) {
+        return;
+    }
+    issues.push(issue(
+        PRINT_ARRAY,
+        "Implicit conversion from Array to String.",
+        argument,
+        source,
+        index,
+    ));
+}
+
+// -- java/iterator-implements-iterable + java/unsynchronized-getter ----------
+
+fn class_level_gcq_issues(
+    root: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    for declaration in crate::support::collect_kinds(root, &["class_declaration"]) {
+        iterator_implements_iterable_issue(declaration, source, index, semantics, issues);
+        unsynchronized_getter_issues(declaration, source, index, issues);
+    }
+}
+
+fn class_methods(declaration: Node<'_>) -> Vec<Node<'_>> {
+    let Some(body) = declaration.child_by_field_name("body") else {
+        return Vec::new();
+    };
+    crate::support::collect_kinds(body, &["method_declaration"])
+}
+
+fn method_named(method: Node<'_>, source: &str, wanted: &str) -> bool {
+    method
+        .child_by_field_name("name")
+        .is_some_and(|name| node_text(name, source) == wanted)
+}
+
+fn returns_this(method: Node<'_>, source: &str) -> bool {
+    let Some(body) = method.child_by_field_name("body") else {
+        return false;
+    };
+    crate::support::collect_kinds(body, &["return_statement"])
+        .iter()
+        .any(|statement| {
+            statement
+                .named_child(0)
+                .is_some_and(|expression| node_text(expression, source) == "this")
+        })
+}
+
+fn always_returns_false(method: Node<'_>, source: &str) -> bool {
+    let Some(body) = method.child_by_field_name("body") else {
+        return false;
+    };
+    let statements = crate::support::collect_kinds(body, &["return_statement"]);
+    !statements.is_empty()
+        && statements.iter().all(|statement| {
+            statement
+                .named_child(0)
+                .is_some_and(|expression| node_text(expression, source) == "false")
+        })
+}
+
+fn iterator_implements_iterable_issue(
+    declaration: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let mut supertype_nodes = Vec::new();
+    if let Some(interfaces) = declaration.child_by_field_name("interfaces") {
+        push_supertype_nodes(interfaces, &mut supertype_nodes);
+    }
+    let interfaces = supertype_nodes
+        .iter()
+        .map(|node| simple_supertype_name(*node, source).to_owned())
+        .collect::<Vec<_>>();
+    let implements_both = ["Iterator", "Iterable"].iter().all(|wanted| {
+        interfaces.iter().any(|name| name == wanted)
+            && !semantics.type_name_is_shadowed_at(wanted, declaration.start_byte())
+    });
+    if !implements_both {
+        return;
+    }
+    let Some(iterator_method) = class_methods(declaration)
+        .into_iter()
+        .find(|method| method_named(*method, source, "iterator"))
+    else {
+        return;
+    };
+    if !returns_this(iterator_method, source) {
+        return;
+    }
+    // The pinned query excludes iterators whose `hasNext` always returns
+    // `false`: reuse of an empty iterator is safe.
+    if class_methods(declaration).iter().any(|method| {
+        method_named(*method, source, "hasNext") && always_returns_false(*method, source)
+    }) {
+        return;
+    }
+    if let Some(name) = declaration.child_by_field_name("name") {
+        issues.push(issue(
+            ITERATOR_IMPLEMENTS_ITERABLE,
+            "This Iterable is its own Iterator, but does not guard against multiple iterations.",
+            name,
+            source,
+            index,
+        ));
+    }
+}
+
+fn is_synchronized_method(method: Node<'_>, source: &str) -> bool {
+    if has_modifier(method, source, "synchronized") {
+        return true;
+    }
+    let Some(body) = method.child_by_field_name("body") else {
+        return false;
+    };
+    crate::support::collect_kinds(body, &["synchronized_statement"])
+        .iter()
+        .any(|statement| {
+            synchronized_expression(*statement)
+                .is_some_and(|expression| node_text(expression, source) == "this")
+        })
+}
+
+struct ClassField<'tree> {
+    name: String,
+    declaration: Node<'tree>,
+}
+
+fn class_fields<'tree>(declaration: Node<'tree>, source: &str) -> Vec<ClassField<'tree>> {
+    let Some(body) = declaration.child_by_field_name("body") else {
+        return Vec::new();
+    };
+    let mut fields = Vec::new();
+    for field in crate::support::collect_kinds(body, &["field_declaration"]) {
+        for child in direct_named_children(field) {
+            if child.kind() != "variable_declarator" {
+                continue;
+            }
+            let Some(name) = child.child_by_field_name("name") else {
+                continue;
+            };
+            fields.push(ClassField {
+                name: node_text(name, source).to_owned(),
+                declaration: field,
+            });
+        }
+    }
+    fields
+}
+
+fn body_mentions_field(method: Node<'_>, field: &str, source: &str) -> bool {
+    let Some(body) = method.child_by_field_name("body") else {
+        return false;
+    };
+    crate::support::collect_kinds(body, &["identifier", "field_access"])
+        .iter()
+        .any(|node| {
+            node_text(*node, source)
+                .rsplit('.')
+                .next()
+                .is_some_and(|name| name == field)
+        })
+}
+
+fn unsynchronized_getter_issues(
+    declaration: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let methods = class_methods(declaration);
+    let fields = class_fields(declaration, source);
+    for setter in &methods {
+        let Some(setter_name) = setter.child_by_field_name("name") else {
+            continue;
+        };
+        let setter_name = node_text(setter_name, source);
+        let Some(suffix) = setter_name.strip_prefix("set") else {
+            continue;
+        };
+        if suffix.is_empty() || !is_synchronized_method(*setter, source) {
+            continue;
+        }
+        let field_name = format!("{}{}", suffix[..1].to_ascii_lowercase(), &suffix[1..]);
+        let Some(field) = fields.iter().find(|field| field.name == field_name) else {
+            continue;
+        };
+        if has_modifier(field.declaration, source, "volatile") {
+            continue;
+        }
+        let getter_name = format!("get{suffix}");
+        let Some(getter) = methods
+            .iter()
+            .find(|method| method_named(**method, source, &getter_name))
+        else {
+            continue;
+        };
+        if is_synchronized_method(*getter, source) {
+            continue;
+        }
+        // The pinned query pairs a getter that reads the field with a setter
+        // that writes it.
+        if !body_mentions_field(*getter, &field_name, source)
+            || !body_mentions_field(*setter, &field_name, source)
+        {
+            continue;
+        }
+        if let Some(name) = getter.child_by_field_name("name") {
+            issues.push(issue(
+                UNSYNCHRONIZED_GETTER,
+                "This get method is unsynchronized, but the corresponding set method is synchronized.",
+                name,
+                source,
+                index,
+            ));
+        }
+    }
+}
+
+// -- java/jdk-internal-api-access --------------------------------------------
+
+fn jdk_internal_package(package: &str) -> bool {
+    JDK_INTERNAL_PACKAGE_PREFIXES
+        .iter()
+        .any(|prefix| package == *prefix || package.starts_with(&format!("{prefix}.")))
+}
+
+fn jdk_internal_import_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let mut path = node_text(node, source)
+        .trim()
+        .trim_start_matches("import")
+        .trim();
+    let is_static = path.starts_with("static");
+    if is_static {
+        path = path.trim_start_matches("static").trim();
+    }
+    let path = path.trim_end_matches(';').trim();
+    let wildcard = path.ends_with(".*");
+    let path = path.trim_end_matches(".*").trim();
+    let mut segments: Vec<&str> = path.split('.').collect();
+    if !wildcard {
+        segments.pop();
+    }
+    if is_static {
+        segments.pop();
+    }
+    let Some(package) = (!segments.is_empty()).then(|| segments.join(".")) else {
+        return;
+    };
+    if !jdk_internal_package(&package) {
+        return;
+    }
+    // Files that already live in an internal package are exempt in the
+    // pinned query.
+    if semantics.package_name().is_some_and(jdk_internal_package) {
+        return;
+    }
+    issues.push(issue(
+        JDK_INTERNAL_API_ACCESS,
+        &format!("Access to unsupported JDK-internal API '{path}'."),
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/call-to-object-tostring --------------------------------------------
+
+fn tree_root_of(node: Node<'_>) -> Node<'_> {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        current = parent;
+    }
+    current
+}
+
+fn declares_tostring(declaration: Node<'_>, source: &str) -> bool {
+    class_methods(declaration)
+        .iter()
+        .any(|method| method_named(*method, source, "toString"))
+}
+
+/// Whether `class_name` (declared once in this file) inherits the default
+/// `Object.toString()` through its same-file supertype chain.
+fn inherits_object_tostring(class_name: &str, root: Node<'_>, source: &str) -> bool {
+    let mut current = class_name.to_owned();
+    for _ in 0..16 {
+        let Some(declaration) = find_unique_type(root, &current, source) else {
+            return true;
+        };
+        if has_modifier(declaration, source, "abstract") {
+            return false;
+        }
+        if declares_tostring(declaration, source) {
+            return false;
+        }
+        let Some(superclass) = declaration.child_by_field_name("superclass") else {
+            return true;
+        };
+        current = base_type_text(superclass, source);
+    }
+    true
+}
+
+fn local_class_type(
+    expression: Node<'_>,
+    root: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<String> {
+    let expression = unwrap_parens(expression);
+    match expression.kind() {
+        "identifier" => {
+            let (base, is_array) = declared_base_type(expression, source, index, semantics)?;
+            let base = short_type_name(&base);
+            (!is_array && find_unique_type(root, base, source).is_some()).then(|| base.to_owned())
+        }
+        "field_access" => {
+            let field = expression.child_by_field_name("field")?;
+            let declared = gcq_symbol(field, source, index, semantics)?
+                .declared_type
+                .as_deref()?;
+            if declared.contains('[') {
+                return None;
+            }
+            let base = short_type_name(declared.split('<').next()?.trim());
+            find_unique_type(root, base, source).map(|_| base.to_owned())
+        }
+        "this" => {
+            let declaration = declaring_type(expression)?;
+            let name = declaration.child_by_field_name("name")?;
+            Some(node_text(name, source).to_owned())
+        }
+        _ => None,
+    }
+}
+
+fn default_to_string_message(class_name: &str) -> String {
+    format!(
+        "Default toString(): {class_name} inherits toString() from Object, and so is not suitable for printing."
+    )
+}
+
+fn default_to_string_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if !method_named(node, source, "toString") {
+        return;
+    }
+    if node
+        .child_by_field_name("arguments")
+        .is_some_and(|arguments| arguments.named_child_count() != 0)
+    {
+        return;
+    }
+    let Some(qualifier) = node.child_by_field_name("object") else {
+        return;
+    };
+    let root = tree_root_of(node);
+    let Some(class_name) = local_class_type(qualifier, root, source, index, semantics) else {
+        return;
+    };
+    if !inherits_object_tostring(&class_name, root, source) {
+        return;
+    }
+    issues.push(issue(
+        CALL_TO_OBJECT_TOSTRING,
+        &default_to_string_message(&class_name),
+        qualifier,
+        source,
+        index,
+    ));
+}
+
+fn concat_default_to_string_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let operator = node
+        .child_by_field_name("operator")
+        .map(|operator| node_text(operator, source));
+    if operator != Some("+") {
+        return;
+    }
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    let root = tree_root_of(node);
+    for operand in [left, right] {
+        let Some(class_name) = local_class_type(operand, root, source, index, semantics) else {
+            continue;
+        };
+        if !inherits_object_tostring(&class_name, root, source) {
+            continue;
+        }
+        issues.push(issue(
+            CALL_TO_OBJECT_TOSTRING,
+            &default_to_string_message(&class_name),
+            unwrap_parens(operand),
+            source,
+            index,
+        ));
+    }
+}
+
+// -- java/hashing-without-hashcode -------------------------------------------
+
+fn equals_without_hashcode_classes(root: Node<'_>, source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for declaration in crate::support::collect_kinds(root, &["class_declaration"]) {
+        let Some(name) = declaration.child_by_field_name("name") else {
+            continue;
+        };
+        let methods = class_methods(declaration);
+        if methods
+            .iter()
+            .any(|method| method_named(*method, source, "hashCode"))
+        {
+            continue;
+        }
+        let has_plain_equals = methods.iter().any(|method| {
+            if !method_named(*method, source, "equals") {
+                return false;
+            }
+            let parameter_ok = method
+                .child_by_field_name("parameters")
+                .and_then(|parameters| parameters.named_child(0))
+                .and_then(|parameter| parameter.child_by_field_name("type"))
+                .is_some_and(|type_node| {
+                    matches!(
+                        base_type_text(type_node, source).as_str(),
+                        "Object" | "java.lang.Object"
+                    )
+                });
+            parameter_ok
+                && method
+                    .child_by_field_name("body")
+                    .is_some_and(|body| !node_text(body, source).contains("super.equals"))
+        });
+        if has_plain_equals {
+            names.push(node_text(name, source).to_owned());
+        }
+    }
+    names
+}
+
+fn hashing_receiver_base(
+    qualifier: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<String> {
+    let qualifier = unwrap_parens(qualifier);
+    match qualifier.kind() {
+        "identifier" => {
+            declared_base_type(qualifier, source, index, semantics).map(|(base, _)| base)
+        }
+        "field_access" => {
+            let field = qualifier.child_by_field_name("field")?;
+            gcq_symbol(field, source, index, semantics)
+                .and_then(|symbol| symbol.declared_type.clone())
+        }
+        _ => None,
+    }
+}
+
+fn hashing_type_base(base: &str) -> bool {
+    let short = short_type_name(base);
+    short.contains("Hash") && short != "IdentityHashMap"
+}
+
+fn hashing_usage_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    root: Node<'_>,
+    issues: &mut Vec<Issue>,
+) {
+    let classes = equals_without_hashcode_classes(root, source);
+    if classes.is_empty() {
+        return;
+    }
+    if !matches!(
+        node.child_by_field_name("name")
+            .map(|name| node_text(name, source)),
+        Some("add" | "contains" | "containsKey" | "get" | "put" | "remove")
+    ) {
+        return;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let Some(first) = arguments.named_child(0) else {
+        return;
+    };
+    let Some(qualifier) = node.child_by_field_name("object") else {
+        return;
+    };
+    let Some(declared) = hashing_receiver_base(qualifier, source, index, semantics) else {
+        return;
+    };
+    if !hashing_type_base(&declared) {
+        return;
+    }
+    let Some(argument_type) = local_class_type(first, root, source, index, semantics) else {
+        return;
+    };
+    if !classes.contains(&argument_type) {
+        return;
+    }
+    issues.push(issue(
+        HASHING_WITHOUT_HASHCODE,
+        &format!(
+            "Type '{argument_type}' does not define hashCode(), but is used in a hashing data-structure."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+fn hashing_constructor_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    _semantics: &SemanticIndex,
+    root: Node<'_>,
+    issues: &mut Vec<Issue>,
+) {
+    let classes = equals_without_hashcode_classes(root, source);
+    if classes.is_empty() {
+        return;
+    }
+    let Some(type_node) = node.child_by_field_name("type") else {
+        return;
+    };
+    let type_text = node_text(type_node, source);
+    if !type_text.contains('<') || !hashing_type_base(type_text) {
+        return;
+    }
+    let (_, arguments) = split_declared_generics(type_text);
+    let Some(first) = arguments.first() else {
+        return;
+    };
+    let element = short_type_name(first.trim());
+    if !classes.iter().any(|class| class == element) {
+        return;
+    }
+    issues.push(issue(
+        HASHING_WITHOUT_HASHCODE,
+        &format!(
+            "Type '{element}' does not define hashCode(), but is used in a hashing data-structure."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/inefficient-key-set-iterator ---------------------------------------
+
+/// `map.keySet().iterator()` -> `map` text.
+fn key_set_iterator_base(value: Node<'_>, source: &str) -> Option<String> {
+    let value = unwrap_parens(value);
+    if value.kind() != "method_invocation" || !method_named(value, source, "iterator") {
+        return None;
+    }
+    let receiver = unwrap_parens(value.child_by_field_name("object")?);
+    if receiver.kind() != "method_invocation" || !method_named(receiver, source, "keySet") {
+        return None;
+    }
+    let base = unwrap_parens(receiver.child_by_field_name("object")?);
+    Some(node_text(base, source).to_owned())
+}
+
+/// `it.next()` or `(T) it.next()` -> `it` text.
+fn iterator_next_base(value: Node<'_>, source: &str) -> Option<String> {
+    let mut value = unwrap_parens(value);
+    if value.kind() == "cast_expression" {
+        value = unwrap_parens(value.child_by_field_name("value")?);
+    }
+    if value.kind() != "method_invocation" || !method_named(value, source, "next") {
+        return None;
+    }
+    let receiver = unwrap_parens(value.child_by_field_name("object")?);
+    Some(node_text(receiver, source).to_owned())
+}
+
+fn key_set_iterator_issues(
+    root: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    issues: &mut Vec<Issue>,
+) {
+    for callable in
+        crate::support::collect_kinds(root, &["method_declaration", "constructor_declaration"])
+    {
+        let Some(body) = callable.child_by_field_name("body") else {
+            continue;
+        };
+        let (iterators, keys) = key_set_locals(body, source);
+        if iterators.is_empty() || keys.is_empty() {
+            continue;
+        }
+        for invocation in crate::support::collect_kinds(body, &["method_invocation"]) {
+            if key_set_get_is_inefficient(invocation, &iterators, &keys, source) {
+                issues.push(issue(
+                    INEFFICIENT_KEY_SET_ITERATOR,
+                    "Inefficient use of key set iterator instead of entry set iterator.",
+                    invocation,
+                    source,
+                    index,
+                ));
+            }
+        }
+    }
+}
+
+/// Iterator and key tables of a body's key-set declarations.
+type KeySetTables = (Vec<(String, String)>, Vec<(String, String)>);
+
+/// `(iterator variable, map expression)` and `(key variable, iterator
+/// variable)` pairs of the body's key-set iteration declarations.
+fn key_set_locals(body: Node<'_>, source: &str) -> KeySetTables {
+    let mut iterators: Vec<(String, String)> = Vec::new();
+    let mut keys: Vec<(String, String)> = Vec::new();
+    for declaration in crate::support::collect_kinds(body, &["local_variable_declaration"]) {
+        for declarator in direct_named_children(declaration) {
+            push_key_set_declarator(declarator, source, &mut iterators, &mut keys);
+        }
+    }
+    (iterators, keys)
+}
+
+/// Files one `keySet().iterator()` or `it.next()` declarator into its table.
+fn push_key_set_declarator(
+    declarator: Node<'_>,
+    source: &str,
+    iterators: &mut Vec<(String, String)>,
+    keys: &mut Vec<(String, String)>,
+) {
+    if declarator.kind() != "variable_declarator" {
+        return;
+    }
+    let (Some(name), Some(value)) = (
+        declarator.child_by_field_name("name"),
+        declarator.child_by_field_name("value"),
+    ) else {
+        return;
+    };
+    let name = node_text(name, source).to_owned();
+    if let Some(map) = key_set_iterator_base(value, source) {
+        iterators.push((name, map));
+    } else if let Some(iterator) = iterator_next_base(value, source) {
+        keys.push((name, iterator));
+    }
+}
+
+/// Whether `get(key)` reads back through the key-set iterator of `map`.
+fn key_set_get_is_inefficient(
+    invocation: Node<'_>,
+    iterators: &[(String, String)],
+    keys: &[(String, String)],
+    source: &str,
+) -> bool {
+    if !method_named(invocation, source, "get") {
+        return false;
+    }
+    let Some(arguments) = invocation.child_by_field_name("arguments") else {
+        return false;
+    };
+    if arguments.named_child_count() != 1 {
+        return false;
+    }
+    let (Some(argument), Some(qualifier)) = (
+        arguments.named_child(0),
+        invocation.child_by_field_name("object"),
+    ) else {
+        return false;
+    };
+    let map_name = node_text(unwrap_parens(qualifier), source);
+    let key_name = node_text(unwrap_parens(argument), source);
+    let Some((_, iterator)) = keys.iter().find(|(key, _)| key == key_name) else {
+        return false;
+    };
+    iterators
+        .iter()
+        .any(|(name, base_map)| name == iterator && base_map == map_name)
+}
+
+// -- java/integer-multiplication-cast-to-long --------------------------------
+
+/// Multiplications reachable from `expression` through the pinned query's
+/// value-preserving parents (`ArithExpr` and `ConditionalExpr`).
+fn integer_mult_candidates<'tree>(
+    expression: Node<'tree>,
+    source: &str,
+    result: &mut Vec<Node<'tree>>,
+) {
+    let expression = unwrap_parens(expression);
+    let operator = expression
+        .child_by_field_name("operator")
+        .map(|operator| node_text(operator, source));
+    let mut operand_fields = ["left", "right"];
+    match (expression.kind(), operator) {
+        ("binary_expression", Some("*")) => result.push(expression),
+        ("binary_expression", Some("+" | "-" | "/" | "%")) => {}
+        ("ternary_expression", _) => operand_fields = ["consequence", "alternative"],
+        _ => return,
+    }
+    for field in operand_fields {
+        if let Some(operand) = expression.child_by_field_name(field) {
+            integer_mult_candidates(operand, source, result);
+        }
+    }
+}
+
+fn mult_operands_are_narrow_ints(
+    mult: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    for field in ["left", "right"] {
+        let Some(operand) = mult.child_by_field_name(field) else {
+            return false;
+        };
+        let operand = unwrap_parens(operand);
+        if matches!(
+            operand.kind(),
+            "decimal_integer_literal"
+                | "hex_integer_literal"
+                | "octal_integer_literal"
+                | "binary_integer_literal"
+        ) {
+            let text = node_text(operand, source);
+            if text.ends_with('L') || text.ends_with('l') {
+                return false;
+            }
+            continue;
+        }
+        if let Some((base, _)) = declared_base_type(operand, source, index, semantics)
+            && matches!(
+                short_type_name(&base),
+                "long" | "Long" | "double" | "Double" | "float" | "Float"
+            )
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// The pinned query skips multiplications provably bounded within `int`.
+fn mult_is_provably_small(mult: Node<'_>, source: &str) -> bool {
+    let mut product: i128 = 1;
+    for field in ["left", "right"] {
+        let Some(operand) = mult.child_by_field_name(field) else {
+            return false;
+        };
+        let Some(value) = literal_number(operand, source) else {
+            return false;
+        };
+        product *= i128::from(value);
+    }
+    product.abs() <= i128::from(i32::MAX)
+}
+
+fn integer_mult_issues_at(
+    anchor: Node<'_>,
+    expression: Node<'_>,
+    context: &str,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let mut candidates = Vec::new();
+    integer_mult_candidates(expression, source, &mut candidates);
+    for mult in candidates {
+        if !mult_operands_are_narrow_ints(mult, source, index, semantics)
+            || mult_is_provably_small(mult, source)
+        {
+            continue;
+        }
+        issues.push(issue(
+            INTEGER_MULT_CAST_TO_LONG,
+            &format!(
+                "Potential overflow in int multiplication before it is converted to long by use in {context}."
+            ),
+            anchor,
+            source,
+            index,
+        ));
+        return;
+    }
+}
+
+fn declared_type_is_wide_integral(declared: &str) -> bool {
+    matches!(
+        short_type_name(declared.split('<').next().unwrap_or(declared).trim()),
+        "long" | "Long"
+    )
+}
+
+fn integer_mult_to_long_declaration_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(type_node) = node.child_by_field_name("type") else {
+        return;
+    };
+    if !matches!(base_type_text(type_node, source).as_str(), "long" | "Long") {
+        return;
+    }
+    for declarator in direct_named_children(node) {
+        if declarator.kind() != "variable_declarator" {
+            continue;
+        }
+        let Some(value) = declarator.child_by_field_name("value") else {
+            continue;
+        };
+        integer_mult_issues_at(
+            declarator,
+            value,
+            "an assignment context",
+            source,
+            index,
+            semantics,
+            issues,
+        );
+    }
+}
+
+fn integer_mult_to_long_assignment_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let operator = node
+        .child_by_field_name("operator")
+        .map(|operator| node_text(operator, source));
+    if operator != Some("=") {
+        return;
+    }
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    let left = unwrap_parens(left);
+    if left.kind() != "identifier" {
+        return;
+    }
+    let Some(declared) =
+        gcq_symbol(left, source, index, semantics).and_then(|symbol| symbol.declared_type.clone())
+    else {
+        return;
+    };
+    if !declared_type_is_wide_integral(&declared) {
+        return;
+    }
+    integer_mult_issues_at(
+        node,
+        right,
+        "an assignment context",
+        source,
+        index,
+        semantics,
+        issues,
+    );
+}
+
+fn integer_mult_to_long_return_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(expression) = node.child_by_field_name("expression") else {
+        return;
+    };
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        current = parent;
+        if matches!(
+            current.kind(),
+            "method_declaration" | "constructor_declaration"
+        ) {
+            break;
+        }
+    }
+    if current.kind() != "method_declaration" {
+        return;
+    }
+    let Some(return_type) = current.child_by_field_name("type") else {
+        return;
+    };
+    if !matches!(
+        base_type_text(return_type, source).as_str(),
+        "long" | "Long"
+    ) {
+        return;
+    }
+    integer_mult_issues_at(
+        node,
+        expression,
+        "a return context",
+        source,
+        index,
+        semantics,
+        issues,
+    );
+}
+
+// -- java/useless-type-test --------------------------------------------------
+
+fn supertype_chain_contains(root: Node<'_>, from: &str, wanted: &str, source: &str) -> bool {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pending = vec![from.to_owned()];
+    while let Some(current) = pending.pop() {
+        if !seen.insert(current.clone()) {
+            continue;
+        }
+        if current == wanted {
+            return true;
+        }
+        let Some(declaration) = find_unique_type(root, &current, source) else {
+            continue;
+        };
+        for supertype in direct_supertype_nodes(declaration) {
+            pending.push(simple_supertype_name(supertype, source).to_owned());
+        }
+        pending.push("Object".to_owned());
+    }
+    false
+}
+
+fn useless_type_test_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let (Some(operand), Some(checked)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    let operand = unwrap_parens(operand);
+    if operand.kind() != "identifier" {
+        return;
+    }
+    let Some(declared) = gcq_symbol(operand, source, index, semantics)
+        .and_then(|symbol| symbol.declared_type.clone())
+    else {
+        return;
+    };
+    if declared.contains('[') {
+        return;
+    }
+    let declared_base =
+        short_type_name(declared.split('<').next().unwrap_or(&declared).trim()).to_owned();
+    let checked_text = base_type_text(checked, source);
+    let checked_name = short_type_name(&checked_text).to_owned();
+    let always_true = if checked_name == "Object" {
+        !semantics.type_name_is_shadowed_at("Object", checked.start_byte())
+            && !PRIMITIVE_TYPE_NAMES.contains(&declared_base.as_str())
+    } else {
+        supertype_chain_contains(tree_root_of(node), &declared_base, &checked_name, source)
+    };
+    if !always_true {
+        return;
+    }
+    issues.push(issue(
+        USELESS_TYPE_TEST,
+        &format!(
+            "There is no need to test whether an instance of {declared_base} is also an instance of {checked_name} - it always is."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/unused-format-argument ---------------------------------------------
+
+/// Referenced 1-based argument indices of a `Formatter`-style format string.
+/// `None` means the string has no specifications or cannot be parsed.
+fn format_spec_references(format: &str) -> Option<Vec<usize>> {
+    let chars: Vec<char> = format.chars().collect();
+    let mut references = Vec::new();
+    let mut sequential = 0usize;
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] != '%' {
+            i += 1;
+            continue;
+        }
+        if i + 1 < chars.len() && chars[i + 1] == '%' {
+            i += 2;
+            continue;
+        }
+        let spec = parse_format_specification(&chars, i + 1, &mut sequential)?;
+        references.push(spec.index);
+        i = spec.next;
+    }
+    (!references.is_empty()).then_some(references)
+}
+
+/// One parsed format specification: its referenced argument index and the
+/// position of the first character after the conversion.
+struct FormatSpec {
+    index: usize,
+    next: usize,
+}
+
+fn parse_format_specification(
+    chars: &[char],
+    start: usize,
+    sequential: &mut usize,
+) -> Option<FormatSpec> {
+    let mut i = start;
+    if i >= chars.len() {
+        return None;
+    }
+    let explicit = if chars[i] == '<' {
+        if *sequential == 0 {
+            return None;
+        }
+        i += 1;
+        Some(*sequential)
+    } else {
+        let explicit = parse_explicit_index(chars, &mut i);
+        if explicit == Some(0) {
+            return None;
+        }
+        explicit
+    };
+    i = skip_format_modifiers(chars, i);
+    if i >= chars.len() || !chars[i].is_alphabetic() {
+        return None;
+    }
+    i += 1;
+    let index = explicit.unwrap_or_else(|| {
+        *sequential += 1;
+        *sequential
+    });
+    Some(FormatSpec { index, next: i })
+}
+
+/// Parses an optional `N$` explicit argument index.
+fn parse_explicit_index(chars: &[char], i: &mut usize) -> Option<usize> {
+    let start = *i;
+    while *i < chars.len() && chars[*i].is_ascii_digit() {
+        *i += 1;
+    }
+    if *i > start && *i < chars.len() && chars[*i] == '$' {
+        let parsed = chars[start..*i].iter().collect::<String>().parse().ok();
+        *i += 1;
+        parsed
+    } else {
+        *i = start;
+        None
+    }
+}
+
+/// Skips flags, width, precision, and the `t`/`T` time prefix.
+fn skip_format_modifiers(chars: &[char], mut i: usize) -> usize {
+    while i < chars.len() && matches!(chars[i], '-' | '#' | '+' | ' ' | ',' | '(' | '0') {
+        i += 1;
+    }
+    while i < chars.len() && chars[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i < chars.len() && chars[i] == '.' {
+        i += 1;
+        while i < chars.len() && chars[i].is_ascii_digit() {
+            i += 1;
+        }
+    }
+    if i < chars.len() && (chars[i] == 't' || chars[i] == 'T') {
+        i += 1;
+    }
+    i
+}
+
+fn referenced_format_indices(format: &str) -> Option<usize> {
+    let references = format_spec_references(format)?;
+    let max = *references.iter().max()?;
+    let skipped = (1..=max)
+        .filter(|index| !references.contains(index))
+        .count();
+    Some(max - skipped)
+}
+
+fn argument_type_is_throwable(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> bool {
+    let expression = unwrap_parens(expression);
+    let name = match expression.kind() {
+        "object_creation_expression" => expression
+            .child_by_field_name("type")
+            .map(|type_node| short_type_name(&base_type_text(type_node, source)).to_owned()),
+        "identifier" => declared_base_type(expression, source, index, semantics)
+            .map(|(base, _)| short_type_name(&base).to_owned()),
+        _ => None,
+    };
+    name.is_some_and(|name| {
+        name.ends_with("Exception") || name.ends_with("Error") || name == "Throwable"
+    })
+}
+
+fn unused_format_argument_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    if !matches!(
+        node.child_by_field_name("name")
+            .map(|name| node_text(name, source)),
+        Some("format" | "printf")
+    ) {
+        return;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let count = arguments.named_child_count();
+    if count < 2 {
+        return;
+    }
+    let Some(first) = arguments.named_child(0) else {
+        return;
+    };
+    let first = unwrap_parens(first);
+    if !matches!(first.kind(), "string_literal" | "text_block") {
+        return;
+    }
+    let Some(referenced) = referenced_format_indices(string_literal_value(first, source)) else {
+        return;
+    };
+    let supplied = count - 1;
+    if referenced >= supplied {
+        return;
+    }
+    // The pinned query exempts a trailing throwable argument.
+    if referenced + 1 == supplied
+        && arguments
+            .named_child(count - 1)
+            .is_some_and(|last| argument_type_is_throwable(last, source, index, semantics))
+    {
+        return;
+    }
+    issues.push(issue(
+        UNUSED_FORMAT_ARGUMENT,
+        &format!(
+            "This format call refers to {referenced} argument(s) but supplies {supplied} argument(s)."
+        ),
+        node,
+        source,
+        index,
+    ));
+}
+
+// -- java/type-mismatch-access / java/type-mismatch-modification -------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContainerFamily {
+    Collection,
+    List,
+    Deque,
+    Vector,
+    Map,
+    Hashtable,
+    Dictionary,
+}
+
+fn container_family(base: &str) -> Option<ContainerFamily> {
+    Some(match short_type_name(base) {
+        "Collection"
+        | "Set"
+        | "HashSet"
+        | "LinkedHashSet"
+        | "TreeSet"
+        | "SortedSet"
+        | "NavigableSet"
+        | "Queue"
+        | "BlockingQueue"
+        | "PriorityQueue"
+        | "AbstractCollection"
+        | "Iterable"
+        | "ConcurrentLinkedQueue"
+        | "LinkedBlockingQueue" => ContainerFamily::Collection,
+        "List" | "ArrayList" | "LinkedList" | "AbstractList" | "CopyOnWriteArrayList" => {
+            ContainerFamily::List
+        }
+        "Deque"
+        | "ArrayDeque"
+        | "ConcurrentLinkedDeque"
+        | "LinkedBlockingDeque"
+        | "BlockingDeque" => ContainerFamily::Deque,
+        "Vector" | "Stack" => ContainerFamily::Vector,
+        "Map"
+        | "HashMap"
+        | "TreeMap"
+        | "LinkedHashMap"
+        | "WeakHashMap"
+        | "ConcurrentMap"
+        | "ConcurrentHashMap"
+        | "ConcurrentNavigableMap"
+        | "AbstractMap"
+        | "SortedMap"
+        | "NavigableMap"
+        | "EnumMap"
+        | "IdentityHashMap" => ContainerFamily::Map,
+        "Hashtable" | "Properties" => ContainerFamily::Hashtable,
+        "Dictionary" => ContainerFamily::Dictionary,
+        _ => return None,
+    })
+}
+
+fn map_like_family(family: ContainerFamily) -> bool {
+    matches!(
+        family,
+        ContainerFamily::Map | ContainerFamily::Hashtable | ContainerFamily::Dictionary
+    )
+}
+
+fn receiver_declared_type(
+    receiver: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<String> {
+    let receiver = unwrap_parens(receiver);
+    match receiver.kind() {
+        "identifier" => gcq_symbol(receiver, source, index, semantics)
+            .and_then(|symbol| symbol.declared_type.clone()),
+        "field_access" => {
+            let field = receiver.child_by_field_name("field")?;
+            gcq_symbol(field, source, index, semantics)
+                .and_then(|symbol| symbol.declared_type.clone())
+        }
+        _ => None,
+    }
+}
+
+/// `(method, argument count, family, receiver base)` -> generic positions and
+/// argument indices to compare, mirroring the pinned `containerAccess` and
+/// `containerModification` tables.
+fn container_mismatch_checks(
+    rule: &str,
+    method: &str,
+    argument_count: usize,
+    family: ContainerFamily,
+    receiver_base: &str,
+) -> Vec<(usize, usize)> {
+    let is_access = matches!(
+        method,
+        "contains"
+            | "get"
+            | "getOrDefault"
+            | "containsKey"
+            | "containsValue"
+            | "indexOf"
+            | "lastIndexOf"
+    );
+    let is_modification = matches!(
+        method,
+        "remove" | "removeFirstOccurrence" | "removeLastOccurrence" | "removeElement"
+    );
+    if (rule == TYPE_MISMATCH_ACCESS && !is_access)
+        || (rule == TYPE_MISMATCH_MODIFICATION && !is_modification)
+    {
+        return Vec::new();
+    }
+    let map_like = map_like_family(family);
+    match (method, argument_count) {
+        ("contains", 1) => {
+            if family == ContainerFamily::Hashtable
+                || short_type_name(receiver_base) == "ConcurrentHashMap"
+            {
+                vec![(1, 0)]
+            } else if matches!(
+                family,
+                ContainerFamily::Collection
+                    | ContainerFamily::List
+                    | ContainerFamily::Deque
+                    | ContainerFamily::Vector
+            ) {
+                vec![(0, 0)]
+            } else {
+                Vec::new()
+            }
+        }
+        ("get" | "containsKey", 1) | ("getOrDefault", 2) if map_like => vec![(0, 0)],
+        ("containsValue", 1) if map_like => vec![(1, 0)],
+        ("indexOf" | "lastIndexOf", 1)
+            if matches!(family, ContainerFamily::List | ContainerFamily::Vector) =>
+        {
+            vec![(0, 0)]
+        }
+        ("remove", 1)
+            if map_like
+                || matches!(
+                    family,
+                    ContainerFamily::Collection
+                        | ContainerFamily::List
+                        | ContainerFamily::Deque
+                        | ContainerFamily::Vector
+                ) =>
+        {
+            vec![(0, 0)]
+        }
+        ("remove", 2) if family == ContainerFamily::Map => vec![(0, 0), (1, 1)],
+        ("removeFirstOccurrence" | "removeLastOccurrence", 1)
+            if family == ContainerFamily::Deque =>
+        {
+            vec![(0, 0)]
+        }
+        ("removeElement", 1) if family == ContainerFamily::Vector => vec![(0, 0)],
+        _ => Vec::new(),
+    }
+}
+
+/// The declared argument type, boxed when primitive, as the pinned query's
+/// `getArgumentType` does.
+fn container_argument_type(
+    expression: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+) -> Option<String> {
+    let expression = unwrap_parens(expression);
+    let name = match expression.kind() {
+        "string_literal" | "text_block" => "String".to_owned(),
+        "character_literal" => "Character".to_owned(),
+        "true" | "false" => "Boolean".to_owned(),
+        "decimal_integer_literal"
+        | "hex_integer_literal"
+        | "octal_integer_literal"
+        | "binary_integer_literal" => {
+            let text = node_text(expression, source);
+            if text.ends_with('L') || text.ends_with('l') {
+                "Long"
+            } else {
+                "Integer"
+            }
+            .to_owned()
+        }
+        "decimal_floating_point_literal" | "hex_floating_point_literal" => {
+            let text = node_text(expression, source);
+            if text.ends_with('f') || text.ends_with('F') {
+                "Float"
+            } else {
+                "Double"
+            }
+            .to_owned()
+        }
+        "unary_expression" => {
+            return container_argument_type(
+                expression.child_by_field_name("operand")?,
+                source,
+                index,
+                semantics,
+            );
+        }
+        "identifier" => {
+            let declared = gcq_symbol(expression, source, index, semantics)?
+                .declared_type
+                .as_deref()?;
+            if declared.contains('[') {
+                return None;
+            }
+            short_type_name(declared.split('<').next()?.trim()).to_owned()
+        }
+        "object_creation_expression" | "cast_expression" => {
+            let type_node = expression.child_by_field_name("type")?;
+            short_type_name(&base_type_text(type_node, source)).to_owned()
+        }
+        _ => return None,
+    };
+    let boxed = match name.as_str() {
+        "int" => "Integer",
+        "long" => "Long",
+        "short" => "Short",
+        "byte" => "Byte",
+        "char" => "Character",
+        "boolean" => "Boolean",
+        "double" => "Double",
+        "float" => "Float",
+        other => other,
+    };
+    Some(boxed.to_owned())
+}
+
+fn container_mismatch_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    graph: &LocalTypeGraph,
+    rule: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let Some(method) = node
+        .child_by_field_name("name")
+        .map(|name| node_text(name, source))
+    else {
+        return;
+    };
+    if !matches!(
+        method,
+        "contains"
+            | "get"
+            | "getOrDefault"
+            | "containsKey"
+            | "containsValue"
+            | "indexOf"
+            | "lastIndexOf"
+            | "remove"
+            | "removeFirstOccurrence"
+            | "removeLastOccurrence"
+            | "removeElement"
+    ) {
+        return;
+    }
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return;
+    };
+    let argument_count = arguments.named_child_count();
+    let Some(qualifier) = node.child_by_field_name("object") else {
+        return;
+    };
+    let Some(declared) = receiver_declared_type(qualifier, source, index, semantics) else {
+        return;
+    };
+    let (base, generics) = split_declared_generics(&declared);
+    let Some(family) = container_family(&base) else {
+        return;
+    };
+    for (position, argument_index) in
+        container_mismatch_checks(rule, method, argument_count, family, &base)
+    {
+        let Some(element) = generics.get(position) else {
+            continue;
+        };
+        let element = element.trim();
+        if element.is_empty() || element.starts_with('?') {
+            continue;
+        }
+        let element = short_type_name(element);
+        let Some(argument) = arguments.named_child(argument_index) else {
+            continue;
+        };
+        let Some(argument_type) = container_argument_type(argument, source, index, semantics)
+        else {
+            continue;
+        };
+        // `List.remove(int)` overloads the object removal, so an integer
+        // argument on a list is never a type mismatch.
+        if rule == TYPE_MISMATCH_MODIFICATION
+            && method == "remove"
+            && !map_like_family(family)
+            && argument_type == "Integer"
+        {
+            continue;
+        }
+        if element == "Object" || argument_type == "Object" {
+            continue;
+        }
+        if graph.may_intersect(element, &argument_type) != Some(false) {
+            continue;
+        }
+        issues.push(issue(
+            rule,
+            &format!(
+                "Actual argument type '{argument_type}' is incompatible with expected argument type '{element}'."
+            ),
+            argument,
+            source,
+            index,
+        ));
+    }
+}
+
+// -- java/local-shadows-field ------------------------------------------------
+
+fn local_shadows_field_issue(
+    node: Node<'_>,
+    source: &str,
+    index: &LineIndex,
+    semantics: &SemanticIndex,
+    issues: &mut Vec<Issue>,
+) {
+    let _ = semantics;
+    for declarator in direct_named_children(node) {
+        if declarator.kind() != "variable_declarator" {
+            continue;
+        }
+        let Some(name) = declarator.child_by_field_name("name") else {
+            continue;
+        };
+        let name = node_text(name, source);
+        let mut current = node;
+        loop {
+            let Some(parent) = current.parent() else {
+                return;
+            };
+            current = parent;
+            if current.kind() == "class_declaration" {
+                break;
+            }
+        }
+        let fields = class_fields(current, source);
+        if !fields.iter().any(|field| field.name == name) {
+            continue;
+        }
+        let Some(callable) = nearest_callable(node) else {
+            continue;
+        };
+        if !has_confusing_local_use(callable, declarator, name, source) {
+            continue;
+        }
+        let callable_name = callable
+            .child_by_field_name("name")
+            .map_or("<constructor>", |callable_name| {
+                node_text(callable_name, source)
+            });
+        issues.push(issue(
+            LOCAL_SHADOWS_FIELD,
+            &format!(
+                "Confusing name: method {callable_name} also refers to field {name} (without qualifying it with 'this')."
+            ),
+            declarator,
+            source,
+            index,
+        ));
+    }
+}
+
+fn nearest_callable(node: Node<'_>) -> Option<Node<'_>> {
+    let mut current = node;
+    while let Some(parent) = current.parent() {
+        current = parent;
+        if matches!(
+            current.kind(),
+            "method_declaration" | "constructor_declaration"
+        ) {
+            return Some(current);
+        }
+    }
+    None
+}
+
+/// Whether the callable uses the shadowing local outside the pure
+/// `this.f = local` / `local = this.f` accessor patterns of the pinned
+/// `assignmentToShadowingLocal` / `assignmentFromShadowingLocal` exemptions.
+fn has_confusing_local_use(
+    callable: Node<'_>,
+    declarator: Node<'_>,
+    name: &str,
+    source: &str,
+) -> bool {
+    let mut confusing = false;
+    walk_all(callable, &mut |node| {
+        if node.kind() != "identifier" || node_text(node, source) != name {
+            return;
+        }
+        if declarator.start_byte() <= node.start_byte() && node.end_byte() <= declarator.end_byte()
+        {
+            return;
+        }
+        let mut excluded = node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "field_access");
+        if let Some(assignment) = node
+            .parent()
+            .filter(|parent| parent.kind() == "assignment_expression")
+        {
+            let left = assignment
+                .child_by_field_name("left")
+                .map(|left| node_text(left, source));
+            let right = assignment
+                .child_by_field_name("right")
+                .map(|right| node_text(right, source));
+            let value = node_text(node, source);
+            let qualified = format!("this.{name}");
+            if (left == Some(qualified.as_str()) && right == Some(value))
+                || (right == Some(qualified.as_str()) && left == Some(value))
+            {
+                excluded = true;
+            }
+        }
+        if !excluded {
+            confusing = true;
+        }
+    });
+    confusing
 }
 
 #[cfg(test)]

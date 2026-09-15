@@ -33,6 +33,7 @@ mod s1291_nosonar;
 mod s139_disallowed_comment_pattern;
 mod s1438_semicolon;
 mod s1451_file_header;
+mod s3512_template_literal;
 mod s7719_date_clone;
 mod s7722_error_message;
 mod s7723_new_for_builtins;
@@ -92,6 +93,7 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(one_stmt::run_all(ctx));
     issues.extend(react_jsx::run_all(ctx));
     issues.extend(regex_family::run_all(ctx));
+    issues.extend(s3512_template_literal::check(ctx));
     issues.extend(s7737_object_default_param::check(ctx));
     issues.extend(s7741_typeof_undefined::check(ctx));
     issues.extend(s7744_useless_fallback_spread::check(ctx));
