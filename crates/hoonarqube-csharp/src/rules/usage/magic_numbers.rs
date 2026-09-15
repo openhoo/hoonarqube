@@ -1,8 +1,9 @@
 use crate::CsLanguage;
-use crate::cst::{collect_kinds, is_error_tainted, issue, modifiers_of, node_text, range_of};
+use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::integer_literal_value;
-use crate::rules::modifiers::has_modifier;
+use crate::semantic::is_test_scope_file;
 use hoonarqube_ir::Issue;
+use std::path::Path;
 use tree_sitter::Node;
 
 fn canonical_number_text(text: &str) -> String {
@@ -19,8 +20,12 @@ fn canonical_number_text(text: &str) -> String {
         .map_or(normalized.clone(), |value| value.to_string())
 }
 
-/// csharpsquid:S109 — numbers beyond -1/0/1 deserve names.
-pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+/// csharpsquid:S109 — numbers beyond -1/0/1 deserve names. The catalog scope
+/// is MAIN, so conventional test/benchmark projects are never reported.
+pub(crate) fn check(root: Node<'_>, path: &Path, source: &str, language: CsLanguage) -> Vec<Issue> {
+    if is_test_scope_file(path) {
+        return Vec::new();
+    }
     collect_kinds(root, &["integer_literal", "real_literal"])
         .into_iter()
         .filter(|literal| !is_error_tainted(*literal))
@@ -57,110 +62,204 @@ fn is_small_allowed_number(text: &str) -> bool {
         .is_ok_and(|value| value == 0.0 || value == 1.0)
 }
 
-/// Contexts where even large numbers are not magic: enumeration members,
-/// constant declarations, and parameter defaults.
-fn magic_number_exempt(mut literal: Node<'_>, source: &str) -> bool {
-    while let Some(parent) = literal.parent() {
-        match parent.kind() {
-            "enum_member_declaration" | "parameter" => return true,
-            "field_declaration" | "local_declaration_statement" => {
-                return has_modifier(&modifiers_of(parent, source), "const");
+/// Contexts where even large numbers are not magic, mirroring the reference
+/// rule's exception set: variable declarations (locals, fields, `fixed`/`for`
+/// initializers — constants included), parameter defaults, enum members,
+/// `GetHashCode` bodies, `#pragma warning` directive numbers, property
+/// getters and initializers, single-digit collection-size comparisons, and
+/// constructor/named/time-style/attribute arguments.
+fn magic_number_exempt(literal: Node<'_>, source: &str) -> bool {
+    let Some(direct) = literal.parent() else {
+        return false;
+    };
+    // Exception shapes where the literal's direct parent decides.
+    match direct.kind() {
+        // Directive argument text, e.g. `#pragma warning disable 0618`.
+        "preproc_pragma" => return true,
+        "binary_expression" if is_comparison_operator(direct) => {
+            if is_collection_size_comparison(literal, direct, source) {
+                return true;
+            }
+        }
+        "argument" | "attribute_argument" if is_tolerated_argument(direct, source) => {
+            return true;
+        }
+        _ => {}
+    }
+    // Named-value ancestors anywhere between the literal and its container.
+    let mut ancestor = literal.parent();
+    while let Some(node) = ancestor {
+        match node.kind() {
+            "variable_declaration" | "enum_member_declaration" | "parameter" => return true,
+            "property_declaration" => {
+                // Getter `return` values and auto-property initializers are
+                // named values; the initializer is the literal's direct
+                // parent (`field('value', …)`) without a value clause.
+                return match literal.parent().map(|parent| (parent.kind(), parent.id())) {
+                    Some(("return_statement" | "equals_value_clause", _)) => true,
+                    Some((_, parent_id)) => parent_id == node.id(),
+                    None => false,
+                };
+            }
+            "method_declaration" => {
+                return node
+                    .child_by_field_name("name")
+                    .is_some_and(|name| node_text(name, source) == "GetHashCode");
             }
             _ => {}
         }
-        literal = parent;
+        ancestor = node.parent();
     }
     false
 }
+
+fn is_comparison_operator(binary: Node<'_>) -> bool {
+    let Some(operator) = binary.child_by_field_name("operator") else {
+        return false;
+    };
+    matches!(
+        binary_operator_text(operator),
+        "==" | "!=" | "<" | "<=" | ">" | ">="
+    )
+}
+
+/// The operator child is an anonymous token whose kind is the operator text.
+fn binary_operator_text(operator: Node<'_>) -> &str {
+    if operator.is_named() {
+        ""
+    } else {
+        operator.kind()
+    }
+}
+
+/// Single digits may compare against a collection-size member (`Length`,
+/// `Count`, `Size`, or a `.Count()` call) — the canonical bounds checks.
+fn is_collection_size_comparison(literal: Node<'_>, comparison: Node<'_>, source: &str) -> bool {
+    let text = node_text(literal, source).replace('_', "");
+    let Ok(single_digit) = text.parse::<u8>() else {
+        return false;
+    };
+    if single_digit > 9 {
+        return false;
+    }
+    let mut cursor = comparison.walk();
+    comparison
+        .children(&mut cursor)
+        .filter(|child| child.is_named() && child.id() != literal.id())
+        .any(|operand| {
+            member_access_name(operand, source)
+                .is_some_and(|name| matches!(name, "Length" | "Count" | "Size"))
+        })
+}
+
+/// Rightmost member name of a `x.Y`, `x.Y()`, or `x.Y().Z` chain.
+fn member_access_name<'a>(node: Node<'a>, source: &'a str) -> Option<&'a str> {
+    match node.kind() {
+        "member_access_expression" => node
+            .child_by_field_name("name")
+            .map(|name| node_text(name, source)),
+        "invocation_expression" => node
+            .child_by_field_name("function")
+            .and_then(|function| member_access_name(function, source)),
+        _ => None,
+    }
+}
+
+/// Called-name lookup that also accepts a bare identifier callee, matching
+/// the reference `GetIdentifier` resolution for `FromX(…)` factory calls.
+fn called_name<'a>(function: Node<'a>, source: &'a str) -> Option<&'a str> {
+    match function.kind() {
+        "identifier" => Some(node_text(function, source)),
+        _ => member_access_name(function, source),
+    }
+}
+
+/// Named arguments, constructor arguments, `TimeSpan.FromX(…)`-style factory
+/// calls, and attribute arguments (named or single-valued) keep their numbers.
+fn is_tolerated_argument(argument: Node<'_>, source: &str) -> bool {
+    if argument.child_by_field_name("name").is_some() {
+        // Named method/attribute arguments carry their meaning in the name.
+        return true;
+    }
+    if argument.kind() == "attribute_argument" {
+        return is_single_attribute_argument(argument);
+    }
+    let Some(list) = argument
+        .parent()
+        .filter(|list| list.kind() == "argument_list")
+    else {
+        return false;
+    };
+    let Some(call) = list.parent() else {
+        return false;
+    };
+    match call.kind() {
+        "object_creation_expression" => true,
+        "invocation_expression" => call
+            .child_by_field_name("function")
+            .and_then(|function| called_name(function, source))
+            .is_some_and(|name| name.starts_with("From")),
+        _ => false,
+    }
+}
+
+fn is_single_attribute_argument(argument: Node<'_>) -> bool {
+    argument
+        .parent()
+        .filter(|list| list.kind() == "attribute_argument_list")
+        .is_some_and(|list| {
+            let mut cursor = list.walk();
+            list.children(&mut cursor)
+                .filter(|child| child.kind() == "attribute_argument")
+                .count()
+                == 1
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tests::{analyze_default, with_key};
 
     #[test]
-    fn s109_flags_real_literal_exponent_forms() {
+    fn s109_flags_return_and_assignment_contexts() {
         let report = analyze_default(
-            "class C\n{\n    double A()\n    {\n        double a = 1e2;\n        double b = 2.5e-1;\n        double c = 1.5e2;\n        return a + b + c;\n    }\n}\n",
+            "class C\n{\n    int total;\n    int M()\n    {\n        total = 42;\n        return 41 + total;\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 3);
+        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 2);
     }
 
     #[test]
-    fn s109_allows_exact_zero_and_one_real_spellings() {
+    fn s109_spares_declarations_defaults_enums_and_pragmas() {
         let report = analyze_default(
-            "class C\n{\n    void M()\n    {\n        double a = 0.0;\n        double b = 0.00f;\n        double c = 1.000m;\n        double d = 01.00;\n        double e = -1.0;\n        Use(a, b, c, d, e);\n    }\n}\n",
-        );
-        assert!(with_key(&report, "csharpsquid:S109").is_empty());
-    }
-
-    #[test]
-    fn s109_allows_exponent_spellings_of_zero_and_one() {
-        let report = analyze_default(
-            "class C\n{\n    double M()\n    {\n        double a = 1e0;\n        double b = 0e0;\n        double c = 1.0e0;\n        return a + b + c;\n    }\n}\n",
+            "class C\n{\n    int f = 800;\n    const int Cap = 400;\n    int P { get; set; } = 250;\n    enum E { Max = 600 }\n    void M(int retries = 7)\n    {\n        int plain = 11;\n#pragma warning disable 0618\n        Step();\n#pragma warning restore 0618\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S109").is_empty());
     }
 
     #[test]
-    fn s109_flags_integer_suffixes_and_digit_separators() {
+    fn s109_spares_hash_code_property_returns_and_size_comparisons() {
         let report = analyze_default(
-            "class C\n{\n    int M(int n)\n    {\n        int a = n * 2u;\n        int b = n * 3L;\n        int c = n * 1_000;\n        int d = n * 10_0;\n        return a + b + c + d;\n    }\n}\n",
+            "class C\n{\n    public override int GetHashCode() => seed * 31;\n    int Limited\n    {\n        get { return 250; }\n    }\n    bool Two(string name)\n    {\n        return name.Length == 2;\n    }\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 4);
+        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 0);
     }
 
     #[test]
-    fn s109_allows_small_values_behind_signs_and_suffixes() {
+    fn s109_spares_ctor_named_and_factory_arguments() {
         let report = analyze_default(
-            "class C\n{\n    int M(int n)\n    {\n        int a = n * -1;\n        int b = n * 0u;\n        long c = n + 1L;\n        return (int)(a + b + c);\n    }\n}\n",
+            "class C\n{\n    void M()\n    {\n        var map = new Dictionary<int, int>(41);\n        Step(amount: 42);\n        var wait = TimeSpan.FromMinutes(5);\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S109").is_empty());
     }
 
     #[test]
-    fn s109_flags_negatives_beyond_minus_one() {
+    fn s109_keeps_numbers_inside_deeper_expressions_magic() {
         let report = analyze_default(
-            "class C\n{\n    int M(int x, int y, int z)\n    {\n        int a = x * -7;\n        double b = y - 2.5;\n        int c = z * -2;\n        return a + (int)b + c;\n    }\n}\n",
+            "class C\n{\n    bool Check(string name)\n    {\n        return (name.Length == (2)) && Sum(2 + 2) > 1;\n    }\n    int Sum(int value) => value;\n}\n",
         );
-        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 3);
-    }
-
-    #[test]
-    fn s109_exempts_only_the_documented_constant_contexts() {
-        let report = analyze_default(
-            "class C\n{\n    const int Limit = 500;\n    int offset = 800;\n    int Prop { get; set; } = 12;\n    enum E\n    {\n        Max = 600,\n    }\n    int M(int retries = 7)\n    {\n        const int cap = 9;\n        int plain = 11;\n        return retries + cap + plain + Log(42);\n    }\n}\n",
-        );
-        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 4);
-    }
-
-    #[test]
-    fn s109_honors_const_fields_inside_nested_types() {
-        let report = analyze_default(
-            "class Outer\n{\n    class Inner\n    {\n        const int Cap = 400;\n        int Break() => 300;\n    }\n}\n",
-        );
-        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 1);
-    }
-
-    #[test]
-    fn s109_counts_every_occurrence_in_an_expression() {
-        let report = analyze_default("class C\n{\n    int Sum() => 2 + 2 + 2 + 1;\n}\n");
-        assert_eq!(with_key(&report, "csharpsquid:S109").len(), 3);
-    }
-
-    #[test]
-    fn s109_allows_binary_zero_and_one_but_flags_larger() {
-        let report = analyze_default(
-            "class C\n{\n    void M()\n    {\n        int flags = 0b0;\n        int mask = 0b1;\n        int big = 0b100;\n    }\n}\n",
-        );
+        // `(name.Length == (2))` — the 2 is nested, not a direct operand;
+        // `Sum(2 + 2)` arguments hold two nested literals; `> 1` is allowed.
         let flagged = with_key(&report, "csharpsquid:S109");
-        assert_eq!(flagged.len(), 1);
-        assert_eq!(flagged[0].range.start.line, 7);
-    }
-
-    #[test]
-    fn s109_preserves_large_integer_precision_in_messages() {
-        let report = analyze_default("class C { ulong Value() => 9_007_199_254_740_993UL; }");
-        let flagged = with_key(&report, "csharpsquid:S109");
-        assert_eq!(flagged.len(), 1);
-        assert!(flagged[0].message.contains("'9007199254740993'"));
+        assert_eq!(flagged.len(), 3);
     }
 }

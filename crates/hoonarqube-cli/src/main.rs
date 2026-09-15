@@ -2244,6 +2244,32 @@ fn sarif_location(file_path: &str, message: Option<&str>, range: &Range) -> serd
     location
 }
 
+/// Renders a GitHub Code Quality result message.
+///
+/// Language engines keep `$@` slots in their message templates for the names
+/// carried by the finding's ordered flow locations (an overloaded method, a
+/// local variable, ...). SARIF consumers only see rendered text, so each slot
+/// is substituted with its flow-location name in order; a slot without a
+/// matching flow location stays literal instead of silently disappearing.
+fn sarif_message_text(issue: &hoonarqube_ir::Issue) -> std::borrow::Cow<'_, str> {
+    if !issue.message.contains("$@") {
+        return std::borrow::Cow::Borrowed(issue.message.as_str());
+    }
+    let mut names = issue
+        .flows
+        .iter()
+        .flat_map(|flow| &flow.locations)
+        .map(|location| location.message.as_str());
+    let mut rendered = String::with_capacity(issue.message.len());
+    for (index, part) in issue.message.split("$@").enumerate() {
+        if index > 0 {
+            rendered.push_str(names.next().unwrap_or("$@"));
+        }
+        rendered.push_str(part);
+    }
+    std::borrow::Cow::Owned(rendered)
+}
+
 fn sarif_validate_range(range: &Range, context: &str) -> Result<(), String> {
     if !range.is_file_level()
         && (range.start.line == 0
@@ -2449,7 +2475,7 @@ fn sarif_results(
             "ruleIndex": rule_indices[issue.rule_key.as_str()],
             "level": sarif_level(definition.severity),
             "message": {
-                "text": issue.message,
+                "text": sarif_message_text(issue),
             },
             "locations": [
                 sarif_location(&file_path, None, &issue.range),
@@ -4661,6 +4687,110 @@ mod tests {
             result["codeFlows"][0]["threadFlows"][0]["locations"][0]["location"]["physicalLocation"]
                 ["region"]["startColumn"],
             3
+        );
+    }
+
+    #[test]
+    fn sarif_substitutes_placeholder_names_in_engine_message_templates() {
+        // Pinned java and ruby engine message templates carrying `$@` slots
+        // (issue #372): each slot renders with its ordered flow-location
+        // name instead of the literal placeholder.
+        fn span(line: u32, start_column: u32, end_column: u32) -> Range {
+            Range {
+                start: Pos {
+                    line,
+                    column: start_column,
+                },
+                end: Pos {
+                    line,
+                    column: end_column,
+                },
+            }
+        }
+        let java_confusing_signature = Issue::new(
+            "java/confusing-method-signature",
+            "Method Gson.toJson(..) could be confused with overloaded method $@, since dispatch depends on static types.",
+            Range {
+                start: Pos {
+                    line: 707,
+                    column: 2,
+                },
+                end: Pos {
+                    line: 711,
+                    column: 3,
+                },
+            },
+        )
+        .with_flow(vec![FlowLocation::in_primary_file("toJson", span(721, 11, 17))]);
+        let java_misleading_indentation = Issue::new(
+            "java/misleading-indentation",
+            "Indentation suggests that $@ belongs to $@, but this is not the case; consider adding braces or adjusting indentation.",
+            span(3, 0, 4),
+        )
+        .with_flow(vec![
+            FlowLocation::in_primary_file("the next statement", span(4, 0, 4)),
+            FlowLocation::in_primary_file("the control structure", span(2, 0, 1)),
+        ]);
+        let ruby_useless_assignment = Issue::new(
+            "rb/useless-assignment-to-local",
+            "This assignment to $@ is useless, since its value is never read.",
+            span(1, 2, 7),
+        )
+        // The flow range equals the primary range, so the name-bearing
+        // location is filtered out of relatedLocations yet must still feed
+        // message substitution.
+        .with_flow(vec![FlowLocation::in_primary_file("value", span(1, 2, 7))]);
+        let ruby_uninitialized = Issue::new(
+            "rb/uninitialized-local-variable",
+            "Local variable $@ may be used before it is initialized.",
+            span(4, 2, 9),
+        )
+        .with_flow(vec![FlowLocation::in_primary_file(
+            "fn_task",
+            span(6, 2, 9),
+        )]);
+        let value = sarif_value(
+            embedded(),
+            &[
+                sample_report(
+                    "src/Main.java",
+                    "java",
+                    vec![java_confusing_signature, java_misleading_indentation],
+                ),
+                sample_report(
+                    "lib/app.rb",
+                    "ruby",
+                    vec![ruby_useless_assignment, ruby_uninitialized],
+                ),
+            ],
+        )
+        .expect("SARIF");
+        let rendered = |rule: &str| {
+            value["runs"][0]["results"]
+                .as_array()
+                .expect("results")
+                .iter()
+                .find(|result| result["ruleId"] == rule)
+                .unwrap_or_else(|| panic!("missing result for {rule}"))["message"]["text"]
+                .as_str()
+                .expect("message text")
+                .to_owned()
+        };
+        assert_eq!(
+            rendered("java/confusing-method-signature"),
+            "Method Gson.toJson(..) could be confused with overloaded method toJson, since dispatch depends on static types.",
+        );
+        assert_eq!(
+            rendered("java/misleading-indentation"),
+            "Indentation suggests that the next statement belongs to the control structure, but this is not the case; consider adding braces or adjusting indentation.",
+        );
+        assert_eq!(
+            rendered("rb/useless-assignment-to-local"),
+            "This assignment to value is useless, since its value is never read.",
+        );
+        assert_eq!(
+            rendered("rb/uninitialized-local-variable"),
+            "Local variable fn_task may be used before it is initialized.",
         );
     }
 
