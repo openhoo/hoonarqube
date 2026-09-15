@@ -24,6 +24,18 @@ Local grammar repair, applied to the v0.23.5 grammar:
   its first modifier, followed by the existing modifier repeat. This preserves
   plain `static`, `static async`, `async static`, and plain `async` local
   functions instead of falling through to the lambda interpretation.
+- Incorporate the `attribute_target_specifier` repair from upstream PR
+  https://github.com/tree-sitter/tree-sitter-c-sharp/pull/429 (commit
+  d8e28bb75, still unreleased): wrap the specifier in `prec(1, …)` so the
+  `[target: Attr]` reading wins over a `_reserved_identifier` plus bogus `:`,
+  and list `field`, `method`, `param`, `property`, `type`, and `typevar` in
+  `_reserved_identifier`. Without the identifier entries the LR table
+  preferred the literal-keyword interpretation and broke `[type] = value`
+  element bindings and `[type]` collection-expression elements (Dapper
+  `SqlMapper.cs`, issue #328). `'event'` and `'return'` stay excluded because
+  they are real C# keywords. The PR's C# 14 features (extension declarations,
+  compound-assignment operators, simple-lambda parameter modifiers,
+  null-conditional assignment, slice patterns) are intentionally not imported.
 
 Generated artifacts (`src/grammar.json`, `src/node-types.json`, and
 `src/parser.c`) were regenerated from this exact grammar with:
