@@ -10797,6 +10797,34 @@
       "provenance_id": "df6b82d51fe00e17a90952edbda3ac822bef3a91dea88e3c04379f4ec14048a4"
     },
     {
+      "external_key": "javascript:S7735",
+      "language": "js",
+      "repository": "javascript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "readability",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555"
+    },
+    {
       "external_key": "javascript:S7737",
       "language": "js",
       "repository": "javascript",
@@ -11275,6 +11303,34 @@
       "provenance_id": "f423f0d8b8001af94dbf28bb8e3af368702447a9318b1200650cb3f9b3a332f0"
     },
     {
+      "external_key": "javascript:S8786",
+      "language": "js",
+      "repository": "javascript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "EFFICIENT",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "MEDIUM"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "regex",
+        "performance"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555"
+    },
+    {
       "external_key": "javascript:S881",
       "language": "js",
       "repository": "javascript",
@@ -11479,6 +11535,26 @@
       ],
       "selected_keys_sha256": "0a72efb0292ee51060200d07b738bc3df6d433d486201e5688862347b1a103b7",
       "selected_rows_sha256": "672a731351ead914c1b30bdfd2e43ec4c8463d566268cc9c4ea50f77a3fb6ce2"
+    },
+    {
+      "capture_sha256": "a8a5246b392eca43dafd5ca54cfcfa764d051f93a02b9f8b75eae62c45f68555",
+      "captured_at_utc": "2026-09-15T22:03:11.028414906Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 514,
+      "page_count": 2,
+      "query_sha256": "84e5065f7c57a49d4e86f3c9093938500febfb63a3261daec17a814b9c719252",
+      "pages_sha256": "77bea40ddbfe2886429cbe6ee3cbc2ee005838b62cf3e200041b5b7104db346c",
+      "keys_sha256": "13d0300dbf526da95b5a80963ba184a92f57f969214de4f6526c5aa58f140c30",
+      "shows_sha256": "1c328e8d8cddef31f3a04ac032b00b7a09be63efe04210738487f5066e088c52",
+      "selected_keys": [
+        "javascript:S7735",
+        "javascript:S8786"
+      ],
+      "selected_keys_sha256": "17ea3eba2d23131684a65a7b3618a539c7e2228008e83d79013c75f0d939cc9f",
+      "selected_rows_sha256": "a03b1606b8a5130a86b448509d0a405727cb8eae300463b6e584cbd4ac5d5ea3"
     },
     {
       "capture_sha256": "df6b82d51fe00e17a90952edbda3ac822bef3a91dea88e3c04379f4ec14048a4",
