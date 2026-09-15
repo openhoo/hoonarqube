@@ -38,10 +38,27 @@ pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport 
 
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
+    "go/comparison-of-identical-expressions",
+    "go/constant-length-comparison",
+    "go/duplicate-branches",
     "go/duplicate-condition",
     "go/duplicate-switch-case",
+    "go/impossible-interface-nil-check",
+    "go/inconsistent-loop-direction",
+    "go/index-out-of-bounds",
+    "go/missing-error-check",
     "go/mistyped-exponentiation",
     "go/negative-length-check",
+    "go/redundant-assignment",
+    "go/redundant-operation",
+    "go/redundant-recover",
+    "go/shift-out-of-range",
+    "go/unexpected-nil-value",
+    "go/unhandled-writable-file-close",
+    "go/unreachable-statement",
+    "go/useless-assignment-to-field",
+    "go/useless-assignment-to-local",
+    "go/useless-expression",
     "go/whitespace-contradicts-precedence",
 ];
 

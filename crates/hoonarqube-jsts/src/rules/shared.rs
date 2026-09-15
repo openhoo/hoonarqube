@@ -1,8 +1,9 @@
 // Helpers shared across rule families (hoisted from rule-specific modules).
 use crate::support::static_property_name;
 use oxc_ast::ast::{
-    BinaryOperator, CallExpression, Expression, JSXAttribute, JSXAttributeItem, JSXAttributeName,
-    JSXElementName, JSXOpeningElement, MemberExpression, PropertyKey, RegExpLiteral, Statement,
+    BinaryOperator, CallExpression, Class, Expression, JSXAttribute, JSXAttributeItem,
+    JSXAttributeName, JSXElementName, JSXOpeningElement, MemberExpression, PropertyKey,
+    RegExpLiteral, Statement,
 };
 
 /// `console` members flagged by `S106`.
@@ -53,6 +54,26 @@ pub(crate) fn duplicated_key_name<'data>(key: &PropertyKey<'data>) -> Option<&'d
         PropertyKey::StaticIdentifier(identifier) => Some(identifier.name.as_str()),
         PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
         _ => None,
+    }
+}
+
+/// Whether a class extends the built-in React component bases:
+/// `Component`/`PureComponent` or `React.Component`/`React.PureComponent`
+/// (`S6435`/`S6441`/`S6746` provenance gate; non-React classes with
+/// similarly named methods are never components).
+pub(crate) fn is_builtin_react_superclass(class: &Class<'_>) -> bool {
+    let Some(heritage) = &class.heritage else {
+        return false;
+    };
+    match &heritage.expression {
+        Expression::Identifier(identifier) => {
+            matches!(identifier.name.as_str(), "Component" | "PureComponent")
+        }
+        Expression::StaticMemberExpression(member) => {
+            matches!(&member.object, Expression::Identifier(object) if object.name == "React")
+                && matches!(member.property.name.as_str(), "Component" | "PureComponent")
+        }
+        _ => false,
     }
 }
 

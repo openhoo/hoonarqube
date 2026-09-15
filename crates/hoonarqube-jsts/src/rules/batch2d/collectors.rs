@@ -6,11 +6,9 @@ use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
 use crate::support::member_object;
 use crate::support::property_key_name;
-use crate::support::static_property_name;
 use crate::support::unparenthesized;
 use oxc_allocator::ArenaVec;
 use oxc_ast::ast::ArrowFunctionExpression;
-use oxc_ast::ast::AssignmentExpression;
 use oxc_ast::ast::BinaryExpression;
 use oxc_ast::ast::BinaryOperator;
 use oxc_ast::ast::BlockStatement;
@@ -41,10 +39,10 @@ use oxc_ast::ast::ObjectExpression;
 use oxc_ast::ast::ObjectPropertyKind;
 use oxc_ast::ast::PropertyKind;
 use oxc_ast::ast::ReturnStatement;
-use oxc_ast::ast::SimpleAssignmentTarget;
 use oxc_ast::ast::Statement;
 use oxc_ast::ast::StaticBlock;
 use oxc_ast::ast::SwitchStatement;
+use oxc_ast::ast::TSAccessibility;
 use oxc_ast::ast::TryStatement;
 use oxc_ast::ast::UnaryExpression;
 use oxc_ast::ast::UnaryOperator;
@@ -56,13 +54,13 @@ use oxc_ast_visit::walk::walk_function_body;
 use oxc_ast_visit::walk::walk_program;
 use oxc_ast_visit::walk::walk_static_block;
 use oxc_ast_visit::walk::{
-    walk_arrow_function_expression, walk_assignment_expression, walk_binary_expression,
-    walk_break_statement, walk_call_expression, walk_class, walk_conditional_expression,
-    walk_continue_statement, walk_declaration, walk_do_while_statement, walk_export_declaration,
-    walk_expression, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
-    walk_formal_parameters, walk_if_statement, walk_logical_expression, walk_member_expression,
-    walk_method_definition, walk_new_expression, walk_object_expression, walk_statements,
-    walk_switch_statement, walk_try_statement, walk_unary_expression, walk_while_statement,
+    walk_arrow_function_expression, walk_binary_expression, walk_break_statement,
+    walk_call_expression, walk_class, walk_conditional_expression, walk_continue_statement,
+    walk_declaration, walk_do_while_statement, walk_export_declaration, walk_expression,
+    walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_formal_parameters,
+    walk_if_statement, walk_logical_expression, walk_member_expression, walk_method_definition,
+    walk_new_expression, walk_object_expression, walk_statements, walk_switch_statement,
+    walk_try_statement, walk_unary_expression, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -398,45 +396,64 @@ impl<'a> Visit<'a> for ThisUseScanner {
     }
 }
 
-/// Tracks reads and writes of one expected accessor field (`S4275`).
-pub(crate) struct FieldAccessScanner<'n> {
-    pub(crate) field: &'n str,
-    pub(crate) read: bool,
-    pub(crate) written: bool,
-}
-
-impl<'a> Visit<'a> for FieldAccessScanner<'_> {
-    fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        if matches!(member_object(it), Expression::ThisExpression(_))
-            && static_property_name(it) == Some(self.field)
-        {
-            self.read = true;
-        }
-        walk_member_expression(self, it);
-    }
-
-    fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        if let Some(SimpleAssignmentTarget::StaticMemberExpression(member)) =
-            it.left.as_simple_assignment_target()
-            && matches!(member.object, Expression::ThisExpression(_))
-            && matches!(member.object, Expression::ThisExpression(_))
-            && member.property.name == self.field
-        {
-            self.written = true;
-        }
-        walk_assignment_expression(self, it);
-    }
-}
-
 /// Constructor and accessor rules over class bodies (`S3854`, `S6635`,
 /// `S4275`) plus object-literal accessors (`S4275`).
 pub(crate) struct ClassAccessorCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
 }
 
+/// Data-field names declared in one class body: instance property
+/// definitions keyed case-insensitively (`S4275` field-existence gate).
+fn class_field_names(class: &Class<'_>) -> BTreeSet<String> {
+    class
+        .body
+        .body
+        .iter()
+        .filter_map(|element| match element {
+            ClassElement::PropertyDefinition(definition) if !definition.r#static => {
+                property_key_name(&definition.key).map(str::to_ascii_lowercase)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Data-property names of one object literal (entries with `init` kind,
+/// `S4275` field-existence gate).
+fn object_field_names(object: &ObjectExpression<'_>) -> BTreeSet<String> {
+    object
+        .properties
+        .iter()
+        .filter_map(|property| match property {
+            ObjectPropertyKind::ObjectProperty(inner) if inner.kind == PropertyKind::Init => {
+                property_key_name(&inner.key).map(str::to_ascii_lowercase)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether the accessor name has a matching data field under the reference
+/// spelling set: the exact name (case-insensitive) plus `_name`/`name_`.
+pub(crate) fn accessor_has_matching_field(name: &str, fields: &BTreeSet<String>) -> bool {
+    let lowered = name.to_ascii_lowercase();
+    fields.contains(&lowered)
+        || fields.contains(&format!("_{lowered}"))
+        || fields.contains(&format!("{lowered}_"))
+}
+
+/// Whether `used` names the accessor's own field under the reference
+/// spelling set (`S4275`): exact, `_`-prefixed, or `_`-suffixed.
+pub(crate) fn accessor_names_field(name: &str, used: &str) -> bool {
+    let lowered = used.to_ascii_lowercase();
+    let name = name.to_ascii_lowercase();
+    lowered == name || lowered == format!("_{name}") || lowered == format!("{name}_")
+}
+
 impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
     fn visit_class(&mut self, it: &Class<'a>) {
         let heritage = it.heritage.is_some();
+        let fields = class_field_names(it);
         for element in &it.body.body {
             if let ClassElement::MethodDefinition(method) = element {
                 match method.kind {
@@ -444,11 +461,20 @@ impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
                         self.check_constructor(method, heritage);
                     }
                     MethodDefinitionKind::Get | MethodDefinitionKind::Set => {
+                        // Non-public accessors are interface plumbing, not
+                        // field contracts (`S4275` reference exemption).
+                        if matches!(
+                            method.accessibility,
+                            Some(TSAccessibility::Private | TSAccessibility::Protected)
+                        ) {
+                            continue;
+                        }
                         self.check_accessor(
                             property_key_name(&method.key),
                             method.key.span(),
                             method.kind == MethodDefinitionKind::Set,
                             method.value.body.as_deref(),
+                            &fields,
                         );
                     }
                     MethodDefinitionKind::Method => {}
@@ -459,6 +485,7 @@ impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
     }
 
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        let fields = object_field_names(it);
         for property in &it.properties {
             if let ObjectPropertyKind::ObjectProperty(inner) = property
                 && inner.kind != PropertyKind::Init
@@ -470,6 +497,7 @@ impl<'a> Visit<'a> for ClassAccessorCollector<'_> {
                     inner.key.span(),
                     inner.kind == PropertyKind::Set,
                     Some(body),
+                    &fields,
                 );
             }
         }

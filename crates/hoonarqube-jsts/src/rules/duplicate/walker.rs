@@ -27,6 +27,7 @@ fn check_duplicate_rules(
         source,
         if_statements: Vec::new(),
         function_bodies: Vec::new(),
+        s4144_parents: Vec::new(),
         return_groups: Vec::new(),
         return_group_anchors: Vec::new(),
         current_return_group: None,
@@ -50,6 +51,11 @@ struct DuplicateCollector<'a, 'index> {
     source: &'a str,
     if_statements: Vec<&'a IfStatement<'a>>,
     function_bodies: Vec<&'a FunctionBody<'a>>,
+    /// Ancestor chain for `S4144` collection: a body participates only when
+    /// a collectable shape (function declaration, declarator- or
+    /// method-owned function/arrow) encloses it, mirroring the reference
+    /// selector set.
+    s4144_parents: Vec<bool>,
     return_groups: Vec<Vec<&'a ReturnStatement<'a>>>,
     return_group_anchors: Vec<Option<Span>>,
     current_return_group: Option<usize>,
@@ -81,12 +87,40 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
                 }
             }
             AstKind::SwitchStatement(statement) => self.check_switch_cases(statement),
+            AstKind::VariableDeclarator(declarator) => {
+                self.s4144_parents
+                    .push(declarator.init.as_ref().is_some_and(|init| {
+                        matches!(
+                            init,
+                            Expression::FunctionExpression(_)
+                                | Expression::ArrowFunctionExpression(_)
+                        )
+                    }));
+            }
+            AstKind::MethodDefinition(method) => self.s4144_parents.push(
+                matches!(
+                    method.value.r#type,
+                    oxc_ast::ast::FunctionType::FunctionExpression
+                ) && method.value.body.is_some(),
+            ),
+            AstKind::Function(function) => self.s4144_parents.push(
+                function.body.is_some()
+                    && matches!(
+                        function.r#type,
+                        oxc_ast::ast::FunctionType::FunctionDeclaration
+                    ),
+            ),
+            AstKind::ArrowFunctionExpression(_) => self.s4144_parents.push(false),
             AstKind::FunctionBody(body) => {
                 let group = self.return_groups.len();
                 self.return_groups.push(Vec::new());
                 self.return_group_anchors
                     .push(function_name_before(self.source, body.span.start));
-                self.function_bodies.push(body);
+                // `S4144` collects only reference-shaped functions:
+                // declarations plus declarator/method function values.
+                if self.s4144_parents.iter().any(|&collectable| collectable) {
+                    self.function_bodies.push(body);
+                }
                 self.group_stack.push(self.current_return_group);
                 self.current_return_group = Some(group);
             }
@@ -102,6 +136,15 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
     fn leave_node(&mut self, kind: AstKind<'a>) {
         if matches!(kind, AstKind::FunctionBody(_)) {
             self.current_return_group = self.group_stack.pop().flatten();
+        }
+        if matches!(
+            kind,
+            AstKind::VariableDeclarator(_)
+                | AstKind::MethodDefinition(_)
+                | AstKind::Function(_)
+                | AstKind::ArrowFunctionExpression(_)
+        ) {
+            self.s4144_parents.pop();
         }
     }
 }
@@ -247,13 +290,14 @@ impl<'a> DuplicateCollector<'a, '_> {
     }
 
     /// `S4144`: function bodies identical to an earlier body in the same
-    /// file; single-line bodies count as trivial and are skipped.
+    /// file. Bodies spanning fewer than three content lines are exempt —
+    /// the reference rule's `minLines` default — which keeps idiomatic
+    /// short callbacks and accessors out of the report.
     fn check_similar_functions(&mut self) {
         let bodies = std::mem::take(&mut self.function_bodies);
-        // Multi-line bodies only; single-line bodies count as trivial.
         let candidates: Vec<&FunctionBody> = bodies
             .iter()
-            .filter(|body| self.spans_multiple_lines(body.span))
+            .filter(|body| self.body_content_lines(body) >= 3)
             .copied()
             .collect();
         // Bucket by statement count: `ContentEq`-equal bodies always share
@@ -323,10 +367,19 @@ impl<'a> DuplicateCollector<'a, '_> {
         }
     }
 
-    fn spans_multiple_lines(&self, span: Span) -> bool {
-        let start = self.sink.index.pos(span.start).line;
-        let end = self.sink.index.pos(span.end).line;
-        start != end
+    /// Content lines of a body (first statement start to last statement
+    /// end, inclusive), mirroring the reference rule's brace-excluded
+    /// token span (`S4144` threshold).
+    fn body_content_lines(&self, body: &FunctionBody<'_>) -> usize {
+        let Some(first) = body.statements.first() else {
+            return 0;
+        };
+        let Some(last) = body.statements.last() else {
+            return 0;
+        };
+        let first_line = self.sink.index.pos(first.span().start).line;
+        let last_line = self.sink.index.pos(last.span().end).line;
+        (last_line - first_line + 1) as usize
     }
 }
 
@@ -442,18 +495,30 @@ mod tests {
     }
 
     #[test]
-    fn identical_function_bodies_flagged_but_trivial_ones_skipped() {
+    fn identical_function_bodies_flagged_but_short_ones_exempt() {
+        // Issue #379: bodies below three content lines are exempt, so both
+        // functions here stay silent even though they are identical.
+        let short_pair = js(
+            "function alpha() {\n  setup();\n  run();\n}\nfunction beta() {\n  setup();\n  run();\n}\n",
+        );
+        assert_eq!(count_key(&report_keys(&short_pair), "javascript:S4144"), 0);
+
+        // Three content lines reach the reference threshold and flag the
+        // later duplicate once.
         let source = "\
 function alpha() {
   setup();
   run();
+  verify();
 }
 function beta() {
   setup();
   run();
+  verify();
 }
 function gamma() {
-  other();
+  setup();
+  stop();
 }
 ";
         let report = js(source);
@@ -461,6 +526,28 @@ function gamma() {
 
         let trivial = js("function d1() { x(); }\nfunction d2() { x(); }\n");
         assert_eq!(count_key(&report_keys(&trivial), "javascript:S4144"), 0);
+    }
+
+    #[test]
+    fn s4144_collects_only_reference_shaped_functions() {
+        // Identical call-argument callbacks are not collected by the
+        // reference selector set and stay silent.
+        let listeners = js(
+            "el.addEventListener('x', function () {\n  a();\n  b();\n  c();\n});\nel.addEventListener('y', function () {\n  a();\n  b();\n  c();\n});\n",
+        );
+        assert_eq!(count_key(&report_keys(&listeners), "javascript:S4144"), 0);
+
+        // Method-owned function values are collected and flagged.
+        let methods = js(
+            "class C {\n  one() {\n    a();\n    b();\n    c();\n  }\n  two() {\n    a();\n    b();\n    c();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&report_keys(&methods), "javascript:S4144"), 1);
+
+        // Declarator-owned arrows are collected and flagged.
+        let arrows = js(
+            "const one = () => {\n  a();\n  b();\n  c();\n};\nconst two = () => {\n  a();\n  b();\n  c();\n};\n",
+        );
+        assert_eq!(count_key(&report_keys(&arrows), "javascript:S4144"), 1);
     }
 
     #[test]

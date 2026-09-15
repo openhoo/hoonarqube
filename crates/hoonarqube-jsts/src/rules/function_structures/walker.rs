@@ -1,5 +1,5 @@
 // Family walker for 'function_structures' (generated).
-use super::s2376_class_getter_pairing::check_class_getter_pairing;
+use super::s2376_class_accessor_pairing::check_class_setter_pairing;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{
@@ -228,38 +228,39 @@ impl<'a> Visit<'a> for FunctionStructureCollector<'a, '_> {
     }
 
     fn visit_class(&mut self, it: &Class<'a>) {
-        check_class_getter_pairing(&mut self.sink, &it.body.body);
+        check_class_setter_pairing(&mut self.sink, &it.body.body);
         walk_class(self, it);
     }
 
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
-        // `S2376` over object-literal accessors.
-        let getters: Vec<(Option<&str>, Span)> = it
+        // `S2376` over object-literal accessors (reference defaults:
+        // setters without getters only).
+        let getters: Vec<Option<&str>> = it
             .properties
             .iter()
             .filter_map(|property| match property {
                 ObjectPropertyKind::ObjectProperty(inner) if inner.kind == PropertyKind::Get => {
-                    Some((property_key_name(&inner.key), inner.key.span()))
-                }
-                _ => None,
-            })
-            .collect();
-        let setters: Vec<Option<&str>> = it
-            .properties
-            .iter()
-            .filter_map(|property| match property {
-                ObjectPropertyKind::ObjectProperty(inner) if inner.kind == PropertyKind::Set => {
                     Some(property_key_name(&inner.key))
                 }
                 _ => None,
             })
             .collect();
-        for (name, span) in getters {
-            if !setters.contains(&name) {
+        let setters: Vec<(Option<&str>, Span)> = it
+            .properties
+            .iter()
+            .filter_map(|property| match property {
+                ObjectPropertyKind::ObjectProperty(inner) if inner.kind == PropertyKind::Set => {
+                    Some((property_key_name(&inner.key), inner.key.span()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (name, span) in setters {
+            if !getters.contains(&name) {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S2376",
-                    "Add a setter matching this getter.",
+                    "Add a getter matching this setter.",
                     span,
                 );
             }
@@ -422,19 +423,19 @@ mod tests {
     }
 
     #[test]
-    fn s2376_flags_unpaired_getters_on_classes_and_objects() {
+    fn s2376_flags_unpaired_setters_on_classes_and_objects() {
         assert_eq!(
             count_key(
-                &js_keys(
-                    "class A {\n  get a() {\n    return 1;\n  }\n  get b() {\n    return 2;\n  }\n}\n"
-                ),
+                &js_keys("class A {\n  set a(v) {}\n  set b(v) {}\n}\n"),
                 "javascript:S2376"
             ),
             2
         );
+        // Setter-less derived getters are exempt under the reference
+        // defaults (issue #380).
         assert_eq!(
             count_key(
-                &js_keys("const o = {\n  get n() {\n    return 1;\n  },\n  set n(v) {},\n};\n"),
+                &js_keys("class A {\n  get a() {\n    return 1;\n  }\n}\n"),
                 "javascript:S2376"
             ),
             0
