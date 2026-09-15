@@ -237,8 +237,7 @@ fn is_polyfill_ancestor(
                 && inside_span(node, logical.right.span())
         }
         AstKind::ConditionalExpression(conditional) => {
-            is_date_now_member(&conditional.test)
-                && inside_span(node, conditional.alternate.span())
+            is_date_now_member(&conditional.test) && inside_span(node, conditional.alternate.span())
         }
         AstKind::IfStatement(statement) => {
             is_negated_date_now(&statement.test)

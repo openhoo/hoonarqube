@@ -175,16 +175,32 @@ fn resolve_comparison(
 fn deep_equality_matcher(style: AssertionStyle, negated: bool) -> &'static str {
     match style {
         AssertionStyle::JestLike | AssertionStyle::Jasmine | AssertionStyle::Playwright => {
-            if negated { "not.toEqual" } else { "toEqual" }
+            if negated {
+                "not.toEqual"
+            } else {
+                "toEqual"
+            }
         }
         AssertionStyle::ChaiBdd => {
-            if negated { "not.deep.equal" } else { "deep.equal" }
+            if negated {
+                "not.deep.equal"
+            } else {
+                "deep.equal"
+            }
         }
         AssertionStyle::ChaiAssert => {
-            if negated { "notDeepEqual" } else { "deepEqual" }
+            if negated {
+                "notDeepEqual"
+            } else {
+                "deepEqual"
+            }
         }
         AssertionStyle::NodeAssert => {
-            if negated { "notDeepStrictEqual" } else { "deepStrictEqual" }
+            if negated {
+                "notDeepStrictEqual"
+            } else {
+                "deepStrictEqual"
+            }
         }
     }
 }

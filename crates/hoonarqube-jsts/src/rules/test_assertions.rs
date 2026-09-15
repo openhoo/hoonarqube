@@ -22,8 +22,8 @@
 use crate::support::unparenthesized;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    Argument, BindingPattern, CallExpression, Expression, IdentifierReference,
-    LogicalOperator, ModuleExportName, VariableDeclarationKind,
+    Argument, BindingPattern, CallExpression, Expression, IdentifierReference, LogicalOperator,
+    ModuleExportName, VariableDeclarationKind,
 };
 use oxc_semantic::{AstNode, Semantic};
 use oxc_span::{GetSpan, Span};
@@ -114,8 +114,9 @@ pub(crate) fn collect_file_imports(semantic: &Semantic<'_>) -> HashSet<String> {
 /// `getRequireModuleName` ∪ `getDynamicImportModuleName` for one initializer.
 fn require_or_import_module(expression: &Expression<'_>) -> Option<String> {
     match unparenthesized(expression) {
-        Expression::CallExpression(call) => require_module_name(call)
-            .or_else(|| member_require_module_name(&call.callee)),
+        Expression::CallExpression(call) => {
+            require_module_name(call).or_else(|| member_require_module_name(&call.callee))
+        }
         Expression::ImportExpression(import) => string_literal(&import.source),
         Expression::AwaitExpression(await_expression) => {
             match unparenthesized(&await_expression.argument) {
@@ -190,9 +191,7 @@ pub(crate) fn extract_test_assertion<'a>(
     imports: &HashSet<String>,
 ) -> Option<Assertion<'a>> {
     match node.kind() {
-        AstKind::CallExpression(call) => {
-            extract_call_assertion(semantic, node, call, imports)
-        }
+        AstKind::CallExpression(call) => extract_call_assertion(semantic, node, call, imports),
         AstKind::StaticMemberExpression(member) => {
             extract_chai_property_assertion(semantic, member, imports)
         }
@@ -210,7 +209,12 @@ const CHAI_MODULES: [&str; 5] = [
     "chai/register-should",
     "cypress",
 ];
-const NODE_ASSERT_MODULES: [&str; 4] = ["assert", "node:assert", "assert/strict", "node:assert/strict"];
+const NODE_ASSERT_MODULES: [&str; 4] = [
+    "assert",
+    "node:assert",
+    "assert/strict",
+    "node:assert/strict",
+];
 
 fn any_import(imports: &HashSet<String>, modules: &[&str]) -> bool {
     modules.iter().any(|module| imports.contains(*module))
@@ -320,9 +324,7 @@ fn extract_expect_chain<'a>(
     let Expression::CallExpression(expect_call) = unparenthesized(current) else {
         return None;
     };
-    if expect_call.arguments.len() != 1
-        || identifier_name(&expect_call.callee) != Some("expect")
-    {
+    if expect_call.arguments.len() != 1 || identifier_name(&expect_call.callee) != Some("expect") {
         return None;
     }
     Some((expect_call, negated))
@@ -486,8 +488,7 @@ fn extract_chai_expect_chain<'a>(
     if expect_call.arguments.is_empty() {
         return None;
     }
-    let is_chai_expect = fully_qualified_name(semantic, node, &expect_call.callee)
-        .as_deref()
+    let is_chai_expect = fully_qualified_name(semantic, node, &expect_call.callee).as_deref()
         == Some("chai.expect")
         || identifier_name(&expect_call.callee) == Some("expect");
     if !is_chai_expect {
@@ -528,8 +529,9 @@ pub(crate) fn extract_chai_property_assertion<'a>(
     let (predicate, predicate_negated) = chai_property_predicate(member.property.name.as_str())?;
     // The member node itself is not the reference's `node` for scope
     // lookups; any node in the file works for `is_unbound`.
-    let (actual, negated) = extract_chai_expect_chain(semantic, member_node(semantic, member), &member.object)
-        .or_else(|| extract_chai_should_chain(&member.object))?;
+    let (actual, negated) =
+        extract_chai_expect_chain(semantic, member_node(semantic, member), &member.object)
+            .or_else(|| extract_chai_should_chain(&member.object))?;
     Some(Assertion {
         style: AssertionStyle::ChaiBdd,
         kind: AssertionKind::Predicate { predicate, actual },
@@ -584,9 +586,7 @@ fn extract_chai_should_chain<'a>(
 
 /// `extractMemberChain`: base expression plus property names in chain
 /// order (leftmost first).
-fn member_chain<'a>(
-    expression: &'a Expression<'a>,
-) -> Option<(&'a Expression<'a>, Vec<&'a str>)> {
+fn member_chain<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a>, Vec<&'a str>)> {
     let mut properties: Vec<&str> = Vec::new();
     let mut current = expression;
     while let Expression::StaticMemberExpression(member) = unparenthesized(current) {
@@ -632,9 +632,7 @@ fn extract_node_assertion<'a>(
 
 fn node_assert_comparison(method: &str) -> Comparison {
     match method {
-        "deepStrictEqual" | "notDeepStrictEqual" | "deepEqual" | "notDeepEqual" => {
-            Comparison::Deep
-        }
+        "deepStrictEqual" | "notDeepStrictEqual" | "deepEqual" | "notDeepEqual" => Comparison::Deep,
         "looseDeepEqual" | "looseNotDeepEqual" => Comparison::Loose,
         _ => Comparison::Strict,
     }
@@ -663,7 +661,11 @@ fn node_assert_call<'a>(
         return None;
     }
     let normalized = normalize_node_assert_method(method, false);
-    Some((normalized, method.starts_with("not"), member.property.span()))
+    Some((
+        normalized,
+        method.starts_with("not"),
+        member.property.span(),
+    ))
 }
 
 fn node_assert_method_from_fqn(fqn: &str) -> Option<&'static str> {
@@ -706,7 +708,10 @@ fn normalize_node_assert_method(method: &'static str, strict: bool) -> &'static 
 /// Whether `name` has no binding visible from `node`'s scope (the
 /// reference's `defs.length === 0` global check).
 fn is_unbound(semantic: &Semantic<'_>, node: &AstNode<'_>, name: &str) -> bool {
-    semantic.scoping().find_binding(node.scope_id(), name.into()).is_none()
+    semantic
+        .scoping()
+        .find_binding(node.scope_id(), name.into())
+        .is_none()
 }
 
 /// Symbol an identifier reference resolves to; `None` for globals.
@@ -797,9 +802,7 @@ fn chain_element_inner<'a>(
 ) -> Option<&'a Expression<'a>> {
     match element {
         oxc_ast::ast::ChainElement::CallExpression(call) => Some(&call.callee),
-        oxc_ast::ast::ChainElement::TSNonNullExpression(non_null) => {
-            Some(&non_null.expression)
-        }
+        oxc_ast::ast::ChainElement::TSNonNullExpression(non_null) => Some(&non_null.expression),
         oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
             qualifiers.insert(0, member.property.name.to_string());
             Some(&member.object)
@@ -964,9 +967,7 @@ pub(crate) fn predicate_holds(predicate: Predicate, value: &ConstantValue) -> bo
         Predicate::Defined => !matches!(value, ConstantValue::Undefined),
         Predicate::Undefined => matches!(value, ConstantValue::Undefined),
         Predicate::Null => matches!(value, ConstantValue::Null),
-        Predicate::Exists => {
-            !matches!(value, ConstantValue::Null | ConstantValue::Undefined)
-        }
+        Predicate::Exists => !matches!(value, ConstantValue::Null | ConstantValue::Undefined),
     }
 }
 
@@ -975,7 +976,10 @@ pub(crate) fn predicate_holds(predicate: Predicate, value: &ConstantValue) -> bo
 pub(crate) fn fresh_reference_predicate_holds(predicate: Predicate) -> bool {
     match predicate {
         Predicate::Truthy | Predicate::Defined | Predicate::Exists => true,
-        Predicate::Falsy | Predicate::True | Predicate::False | Predicate::Undefined
+        Predicate::Falsy
+        | Predicate::True
+        | Predicate::False
+        | Predicate::Undefined
         | Predicate::Null => false,
     }
 }
@@ -1070,12 +1074,12 @@ fn resolve_constant_inner<'a>(
         Expression::StringLiteral(literal) => {
             Some(ConstantValue::String(literal.value.to_string()))
         }
-        Expression::BigIntLiteral(literal) => parse_bigint(&literal.value).map(ConstantValue::BigInt),
-        Expression::Identifier(identifier) => {
-            (identifier.name == "undefined"
-                && reference_symbol(semantic, identifier).is_none())
-            .then_some(ConstantValue::Undefined)
+        Expression::BigIntLiteral(literal) => {
+            parse_bigint(&literal.value).map(ConstantValue::BigInt)
         }
+        Expression::Identifier(identifier) => (identifier.name == "undefined"
+            && reference_symbol(semantic, identifier).is_none())
+        .then_some(ConstantValue::Undefined),
         Expression::TemplateLiteral(template) => {
             if !template.expressions.is_empty() {
                 return None;
@@ -1087,9 +1091,13 @@ fn resolve_constant_inner<'a>(
                 .map(|cooked| ConstantValue::String(cooked.to_string()))
         }
         Expression::UnaryExpression(unary) => resolve_unary(semantic, unary, visited),
-        Expression::BinaryExpression(binary) => {
-            resolve_binary(semantic, &binary.left, binary.operator.into(), &binary.right, visited)
-        }
+        Expression::BinaryExpression(binary) => resolve_binary(
+            semantic,
+            &binary.left,
+            binary.operator.into(),
+            &binary.right,
+            visited,
+        ),
         Expression::LogicalExpression(logical) => resolve_binary(
             semantic,
             &logical.left,
@@ -1166,25 +1174,27 @@ fn string_to_number(value: &str) -> f64 {
         .strip_prefix("0x")
         .or_else(|| digits.strip_prefix("0X"))
     {
-        u64::from_str_radix(hex, 16).map(|v| v as f64).unwrap_or(f64::NAN)
+        u64::from_str_radix(hex, 16)
+            .map(|v| v as f64)
+            .unwrap_or(f64::NAN)
     } else if let Some(octal) = digits
         .strip_prefix("0o")
         .or_else(|| digits.strip_prefix("0O"))
     {
-        u64::from_str_radix(octal, 8).map(|v| v as f64).unwrap_or(f64::NAN)
+        u64::from_str_radix(octal, 8)
+            .map(|v| v as f64)
+            .unwrap_or(f64::NAN)
     } else if let Some(binary) = digits
         .strip_prefix("0b")
         .or_else(|| digits.strip_prefix("0B"))
     {
-        u64::from_str_radix(binary, 2).map(|v| v as f64).unwrap_or(f64::NAN)
+        u64::from_str_radix(binary, 2)
+            .map(|v| v as f64)
+            .unwrap_or(f64::NAN)
     } else {
         digits.parse::<f64>().unwrap_or(f64::NAN)
     };
-    if negative {
-        -magnitude
-    } else {
-        magnitude
-    }
+    if negative { -magnitude } else { magnitude }
 }
 
 /// `ToBigInt` for strings (integer literal syntax only).
@@ -1337,7 +1347,11 @@ fn evaluate_binary(
         BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
             eval_relational(operator, left, right)
         }
-        BinaryOp::Shl | BinaryOp::Shr | BinaryOp::Ushr | BinaryOp::BitAnd | BinaryOp::BitOr
+        BinaryOp::Shl
+        | BinaryOp::Shr
+        | BinaryOp::Ushr
+        | BinaryOp::BitAnd
+        | BinaryOp::BitOr
         | BinaryOp::BitXor => eval_bitwise(operator, left, right),
         BinaryOp::Unsupported => None,
     }
@@ -1496,16 +1510,14 @@ pub(crate) fn loose_equals(left: &ConstantValue, right: &ConstantValue) -> bool 
         (C::String(a), C::String(b)) => a == b,
         (C::Boolean(a), C::Boolean(b)) => a == b,
         (C::BigInt(a), C::BigInt(b)) => a == b,
-        (C::Number(_), C::String(b)) => {
-            to_number(left) == Some(string_to_number(b))
-        }
+        (C::Number(_), C::String(b)) => to_number(left) == Some(string_to_number(b)),
         (C::String(a), C::Number(b)) => string_to_number(a) == *b,
-        (C::Boolean(_), _) => to_number(left).is_some_and(|a| {
-            loose_equals(&ConstantValue::Number(a), right)
-        }),
-        (_, C::Boolean(_)) => to_number(right).is_some_and(|b| {
-            loose_equals(left, &ConstantValue::Number(b))
-        }),
+        (C::Boolean(_), _) => {
+            to_number(left).is_some_and(|a| loose_equals(&ConstantValue::Number(a), right))
+        }
+        (_, C::Boolean(_)) => {
+            to_number(right).is_some_and(|b| loose_equals(left, &ConstantValue::Number(b)))
+        }
         (C::BigInt(a), C::Number(b)) | (C::Number(b), C::BigInt(a)) => {
             b.fract() == 0.0 && b.is_finite() && *a == *b as i128
         }
@@ -1528,9 +1540,7 @@ fn resolve_const_binding<'a>(
         .scoping()
         .get_reference(identifier.reference_id.get()?);
     let symbol = reference.symbol_id()?;
-    if visited.contains(&symbol)
-        || semantic.scoping().symbol_declarations(symbol).count() != 1
-    {
+    if visited.contains(&symbol) || semantic.scoping().symbol_declarations(symbol).count() != 1 {
         return None;
     }
     let declaration = semantic.symbol_declaration(symbol);
@@ -1554,9 +1564,7 @@ fn resolve_const_binding<'a>(
     let read_context = execution_context_scope(semantic, reference.scope_id());
     let declaration_scope = semantic.scoping().symbol_scope_id(symbol);
     let declaration_context = execution_context_scope(semantic, declaration_scope);
-    if read_context == declaration_context
-        && identifier.span.start < declarator.span.start
-    {
+    if read_context == declaration_context && identifier.span.start < declarator.span.start {
         return None;
     }
     visited.insert(symbol);

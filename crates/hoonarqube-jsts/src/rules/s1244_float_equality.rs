@@ -27,9 +27,7 @@
 // token equivalence is approximated by whitespace-stripped source text.
 
 use crate::context::AnalysisContext;
-use crate::rules::test_assertions::{
-    AssertionKind, collect_file_imports, extract_test_assertion,
-};
+use crate::rules::test_assertions::{AssertionKind, collect_file_imports, extract_test_assertion};
 use crate::support::{IssueSink, RuleScope, span_text, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
@@ -71,8 +69,7 @@ fn check_node(
     match node.kind() {
         AstKind::BinaryExpression(binary) => {
             if is_equality_operator(binary.operator)
-                && (is_sensitive(semantic, &binary.left)
-                    || is_sensitive(semantic, &binary.right))
+                && (is_sensitive(semantic, &binary.left) || is_sensitive(semantic, &binary.right))
             {
                 emit(sink, binary.span());
             }
@@ -154,9 +151,9 @@ fn is_sensitive_inner(
             ) && is_sensitive_inner(semantic, &unary.argument, visited)
         }
         Expression::BinaryExpression(binary) => {
-            if numeric_expression_value(expression)
-                .is_some_and(|value| value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0)
-            {
+            if numeric_expression_value(expression).is_some_and(|value| {
+                value.is_finite() && value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0
+            }) {
                 return false;
             }
             if binary.operator == BinaryOperator::Division {
@@ -195,9 +192,7 @@ fn is_floating_point_const(
     else {
         return false;
     };
-    if visited.contains(&symbol)
-        || semantic.scoping().symbol_declarations(symbol).count() != 1
-    {
+    if visited.contains(&symbol) || semantic.scoping().symbol_declarations(symbol).count() != 1 {
         return false;
     }
     let declaration = semantic.symbol_declaration(symbol);
@@ -210,7 +205,10 @@ fn is_floating_point_const(
     if kind.kind != oxc_ast::ast::VariableDeclarationKind::Const {
         return false;
     }
-    if !matches!(declarator.id, oxc_ast::ast::BindingPattern::BindingIdentifier(_)) {
+    if !matches!(
+        declarator.id,
+        oxc_ast::ast::BindingPattern::BindingIdentifier(_)
+    ) {
         return false;
     }
     let Some(init) = declarator.init.as_ref() else {
@@ -380,10 +378,8 @@ fn is_fraction_producing_division(binary: &oxc_ast::ast::BinaryExpression<'_>) -
     if !(left.fract() == 0.0 && left.is_finite() && result.fract() != 0.0) {
         return false;
     }
-    let (Ok(left_i), Ok(right_i)) = (
-        i64::try_from(left as i128),
-        i64::try_from(right as i128),
-    ) else {
+    let (Ok(left_i), Ok(right_i)) = (i64::try_from(left as i128), i64::try_from(right as i128))
+    else {
         return false;
     };
     !is_exactly_representable_integer_division(left_i, right_i)
@@ -397,7 +393,10 @@ fn is_indirect_exact_comparison(
     logical: &oxc_ast::ast::LogicalExpression<'_>,
 ) -> bool {
     let accepted: &[BinaryOperator] = match logical.operator {
-        LogicalOperator::And => &[BinaryOperator::LessEqualThan, BinaryOperator::GreaterEqualThan],
+        LogicalOperator::And => &[
+            BinaryOperator::LessEqualThan,
+            BinaryOperator::GreaterEqualThan,
+        ],
         LogicalOperator::Or => &[BinaryOperator::LessThan, BinaryOperator::GreaterThan],
         _ => return false,
     };
@@ -415,9 +414,15 @@ fn is_indirect_exact_comparison(
             if left_orientation.is_above == right_orientation.is_above {
                 continue;
             }
-            if !are_equivalent(source, left_orientation.expression, right_orientation.expression)
-                || !are_equivalent(source, left_orientation.threshold, right_orientation.threshold)
-            {
+            if !are_equivalent(
+                source,
+                left_orientation.expression,
+                right_orientation.expression,
+            ) || !are_equivalent(
+                source,
+                left_orientation.threshold,
+                right_orientation.threshold,
+            ) {
                 continue;
             }
             if is_sensitive(semantic, left_orientation.expression)

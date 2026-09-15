@@ -201,8 +201,7 @@ fn boolean_expression_ancestor<'a, 'b>(
                 current = parent;
             }
             AstKind::CallExpression(call)
-                if is_boolean_call(call)
-                    && call.arguments[0].span() == current.kind().span() =>
+                if is_boolean_call(call) && call.arguments[0].span() == current.kind().span() =>
             {
                 current = parent;
             }
@@ -227,9 +226,7 @@ fn is_boolean_expression(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool {
         AstKind::UnaryExpression(unary) => {
             unary.operator == UnaryOperator::LogicalNot && unary.argument.span() == span
         }
-        AstKind::CallExpression(call) => {
-            is_boolean_call(call) && call.arguments[0].span() == span
-        }
+        AstKind::CallExpression(call) => is_boolean_call(call) && call.arguments[0].span() == span,
         AstKind::LogicalExpression(logical)
             if matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or) =>
         {
@@ -251,9 +248,10 @@ fn is_control_flow_test(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool {
         AstKind::ConditionalExpression(statement) => statement.test.span() == span,
         AstKind::WhileStatement(statement) => statement.test.span() == span,
         AstKind::DoWhileStatement(statement) => statement.test.span() == span,
-        AstKind::ForStatement(statement) => {
-            statement.test.as_ref().is_some_and(|test| test.span() == span)
-        }
+        AstKind::ForStatement(statement) => statement
+            .test
+            .as_ref()
+            .is_some_and(|test| test.span() == span),
         AstKind::LogicalExpression(logical)
             if matches!(logical.operator, LogicalOperator::And | LogicalOperator::Or) =>
         {

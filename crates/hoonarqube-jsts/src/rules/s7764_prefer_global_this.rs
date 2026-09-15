@@ -133,14 +133,22 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         let Some(reference_id) = identifier.reference_id.get() else {
             continue;
         };
-        if semantic.scoping().get_reference(reference_id).symbol_id().is_some() {
+        if semantic
+            .scoping()
+            .get_reference(reference_id)
+            .symbol_id()
+            .is_some()
+        {
             continue;
         }
         if identifier.name == "window" && is_window_specific_usage(semantic, node) {
             continue;
         }
         let (replacement, value) = if is_typeof_argument(semantic, node) {
-            (format!("globalThis.{}", identifier.name), identifier.name.to_string())
+            (
+                format!("globalThis.{}", identifier.name),
+                identifier.name.to_string(),
+            )
         } else {
             ("globalThis".to_string(), identifier.name.to_string())
         };
@@ -179,8 +187,7 @@ fn is_typeof_argument(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool {
     };
     match parent.kind() {
         AstKind::UnaryExpression(unary) => {
-            unary.operator == oxc_ast::ast::UnaryOperator::Typeof
-                && unary.argument.span() == span
+            unary.operator == oxc_ast::ast::UnaryOperator::Typeof && unary.argument.span() == span
         }
         _ => false,
     }
@@ -219,7 +226,10 @@ fn is_window_specific_member(
     if !is_window_specific_api(name) {
         return false;
     }
-    if matches!(name, "addEventListener" | "removeEventListener" | "dispatchEvent") {
+    if matches!(
+        name,
+        "addEventListener" | "removeEventListener" | "dispatchEvent"
+    ) {
         let Some(call_node) = significant_parent(semantic, member_node) else {
             return false;
         };

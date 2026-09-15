@@ -24,9 +24,7 @@ use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
-use oxc_ast::ast::{
-    ArrowFunctionBody, AssignmentTarget, Expression, LogicalOperator,
-};
+use oxc_ast::ast::{ArrowFunctionBody, AssignmentTarget, Expression, LogicalOperator};
 use oxc_semantic::{AstNode, Semantic};
 use oxc_span::GetSpan;
 use oxc_syntax::symbol::SymbolId;
@@ -159,7 +157,10 @@ fn default_expression<'a>(right: &'a Expression<'a>) -> Option<(&'a str, &'a Exp
     let Expression::LogicalExpression(logical) = unparenthesized(right) else {
         return None;
     };
-    if !matches!(logical.operator, LogicalOperator::Or | LogicalOperator::Coalesce) {
+    if !matches!(
+        logical.operator,
+        LogicalOperator::Or | LogicalOperator::Coalesce
+    ) {
         return None;
     }
     let Expression::Identifier(identifier) = unparenthesized(&logical.left) else {
@@ -209,12 +210,10 @@ fn enclosing_function<'a, 'b>(
 }
 
 /// `findVariable` for a name referenced inside `node`'s scope.
-fn resolve_symbol(
-    semantic: &Semantic<'_>,
-    node: &AstNode<'_>,
-    name: &str,
-) -> Option<SymbolId> {
-    semantic.scoping().find_binding(node.scope_id(), name.into())
+fn resolve_symbol(semantic: &Semantic<'_>, node: &AstNode<'_>, name: &str) -> Option<SymbolId> {
+    semantic
+        .scoping()
+        .find_binding(node.scope_id(), name.into())
 }
 
 /// `isLastParameter`: the resolved symbol must be the last formal
