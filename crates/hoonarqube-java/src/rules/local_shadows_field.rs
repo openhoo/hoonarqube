@@ -1,7 +1,7 @@
 //! `java:S1117` — local variables should not shadow class fields.
 //!
-//! Contract pinned against the live SonarQube 26.8 Community reference
-//! (rule show: scope ALL, MAJOR CODE_SMELL, no parameters; oracle: the
+//! Contract pinned against the live `SonarQube` 26.8 Community reference
+//! (rule show: scope ALL, MAJOR `CODE_SMELL`, no parameters; oracle: the
 //! pinned `gson` scan with 92 findings). The reference reports every local
 //! variable declaration whose simple name equals a field of any type in the
 //! enclosing chain of the declaration site — the immediate type first, then

@@ -1,7 +1,7 @@
 //! `java:S2211` — types should be used in lambdas.
 //!
-//! Contract pinned against the live SonarQube 26.8 Community reference
-//! (rule show: scope MAIN, MAJOR CODE_SMELL, no parameters; oracle: the
+//! Contract pinned against the live `SonarQube` 26.8 Community reference
+//! (rule show: scope MAIN, MAJOR `CODE_SMELL`, no parameters; oracle: the
 //! pinned `gson` scan with 44 findings). A lambda with at least one
 //! implicitly typed parameter is reported once, listing every parameter,
 //! unless the reference exception applies: one or two parameters with an

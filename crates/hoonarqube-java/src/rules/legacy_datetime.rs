@@ -1,7 +1,7 @@
 //! `java:S2143` — `java.time` classes should be used for dates and times.
 //!
-//! Contract pinned against the live SonarQube 26.8 Community reference
-//! (rule show: scope MAIN, INFO CODE_SMELL, no parameters; oracle: the
+//! Contract pinned against the live `SonarQube` 26.8 Community reference
+//! (rule show: scope MAIN, INFO `CODE_SMELL`, no parameters; oracle: the
 //! pinned `gson` scan with 18 findings). The reference attaches one
 //! file-level finding (no text range) to every compilation unit that uses a
 //! legacy date/time type: `java.util.Date`, `java.util.Calendar`
