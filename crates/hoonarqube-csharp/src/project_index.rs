@@ -19,7 +19,7 @@ use crate::cst::{
     parameter_signature_texts, range_of,
 };
 use crate::parse;
-use crate::rules::modifiers::has_modifier;
+use crate::rules::modifiers::{has_modifier, type_parameter_list_of};
 use crate::rules::naming::support::{
     full_type_identity, has_explicit_interface_specifier, type_members,
 };
@@ -64,6 +64,10 @@ pub(crate) struct IndexedType {
     /// Fully qualified syntactic identity (`namespace.outer.inner`), shared
     /// by every partial declaration of the type.
     pub(crate) identity: String,
+    /// Number of declared type parameters, so generic and arity-0
+    /// declarations sharing a simple name stay distinguishable
+    /// (`Identity` ≠ `Identity<TFirst, …, TSeventh>`).
+    pub(crate) arity: u32,
     /// Simple names of every base in the type's base list.
     pub(crate) bases: Vec<String>,
     /// Declared methods grouped by simple name.
@@ -101,19 +105,36 @@ impl ProjectTypeIndex {
         }
     }
 
-    /// Every same-name method declared by any indexed type of `type_name`.
+    /// Every same-name method declared by any indexed type of `type_name`,
+    /// paired with its declaring type so callers can exclude the querying
+    /// type's own (partial) declarations.
     pub(crate) fn same_name_methods(
         &self,
         type_name: &str,
         method_name: &str,
-    ) -> Vec<&IndexedMethod> {
+    ) -> Vec<(&IndexedType, &IndexedMethod)> {
         self.types
             .get(type_name)
             .into_iter()
             .flatten()
-            .filter_map(|declaration| declaration.methods.get(method_name))
-            .flatten()
+            .flat_map(|declaration| {
+                declaration
+                    .methods
+                    .get(method_name)
+                    .into_iter()
+                    .flatten()
+                    .map(move |method| (declaration, method))
+            })
             .collect()
+    }
+
+    /// Whether every indexed declaration of `type_name` is an interface.
+    /// Interface members are implemented, never hidden, so a base-list entry
+    /// that resolves only to interfaces contributes no hiding candidates.
+    pub(crate) fn interface_only_name(&self, type_name: &str) -> bool {
+        self.types.get(type_name).is_some_and(|declarations| {
+            !declarations.is_empty() && declarations.iter().all(|d| d.is_interface)
+        })
     }
 
     /// Whether the indexed type `descendant` transitively inherits from the
@@ -211,6 +232,7 @@ fn index_source(path: &Path, source: &str, types: &mut BTreeMap<String, Vec<Inde
         let modifiers = modifiers_of(declaration, source);
         let indexed = IndexedType {
             identity,
+            arity: type_parameter_list_of(declaration).map_or(0, |(_, count)| count),
             bases: base_simple_names(declaration, source)
                 .into_iter()
                 .map(str::to_string)
@@ -321,7 +343,7 @@ fn indexed_methods(declaration: Node<'_>, source: &str) -> BTreeMap<String, Vec<
     methods
 }
 fn index_digest(types: &BTreeMap<String, Vec<IndexedType>>) -> String {
-    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v3\0");
+    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v4\0");
     for (name, declarations) in types {
         for declaration in declarations {
             push_indexed_declaration(&mut canonical, name, declaration);
@@ -335,6 +357,8 @@ fn push_indexed_declaration(canonical: &mut String, name: &str, declaration: &In
     canonical.push_str(name);
     canonical.push('\u{1}');
     canonical.push_str(&declaration.identity);
+    canonical.push('\u{1}');
+    canonical.push_str(declaration.arity.to_string().as_str());
     canonical.push('\u{1}');
     canonical.push_str(declaration.bases.join("\u{5}").as_str());
     canonical.push('\u{1}');
