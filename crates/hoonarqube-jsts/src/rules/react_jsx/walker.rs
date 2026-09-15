@@ -7,6 +7,7 @@ use crate::rules::shared::argument_expression;
 use crate::rules::shared::call_property;
 use crate::rules::shared::duplicated_key_name;
 use crate::rules::shared::expression_through_this_link;
+use crate::rules::shared::is_builtin_react_superclass;
 use crate::rules::shared::jsx_element_tag;
 use crate::rules::shared::jsx_find_attribute;
 use crate::support::IssueSink;
@@ -104,6 +105,7 @@ fn check_react_jsx_rules(
         context_bindings: Vec::new(),
         s6478_callback_objects: Vec::new(),
         class_depth: 0,
+        react_class_depth: 0,
         method_guard: 0,
         prop_declarations: BTreeMap::new(),
         prop_defaults: BTreeMap::new(),
@@ -131,6 +133,9 @@ pub(crate) struct ReactCollector<'index> {
     pub(crate) context_bindings: Vec<ContextBinding>,
     pub(crate) s6478_callback_objects: Vec<Span>,
     pub(crate) class_depth: usize,
+    /// Nesting depth inside classes extending the built-in React bases
+    /// (`S6746` provenance gate).
+    pub(crate) react_class_depth: usize,
     pub(crate) method_guard: usize,
     pub(crate) prop_declarations: BTreeMap<String, BTreeMap<String, PropKind>>,
     pub(crate) prop_defaults: BTreeMap<String, BTreeMap<String, Span>>,
@@ -312,9 +317,16 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
                 .then(|| it.id.as_ref().map(|id| id.name.to_string()))
                 .flatten(),
         );
+        let react_component = is_builtin_react_superclass(it);
+        if react_component {
+            self.react_class_depth += 1;
+        }
         self.class_depth += 1;
         walk_class(self, it);
         self.class_depth -= 1;
+        if react_component {
+            self.react_class_depth -= 1;
+        }
         self.component_stack.pop();
         self.component_names.pop();
     }
@@ -890,10 +902,15 @@ mod tests {
 
     #[test]
     fn direct_state_mutations_are_flagged() {
-        let method_mutation = js_keys("this.state.items.push(1);\n");
+        // `S6746` requires React provenance: a component class or a
+        // JSX-rendering component frame.
+        let method_mutation = js_keys(
+            "class Widget extends Component {\n  update() {\n    this.state.items.push(1);\n  }\n}\n",
+        );
         assert_eq!(count_key(&method_mutation, "javascript:S6746"), 1);
 
-        let field_write = js_keys("this.state.count = 5;\n");
+        let field_write =
+            js_keys("function Widget() {\n  this.state.count = 5;\n  return <span/>;\n}\n");
         assert_eq!(count_key(&field_write, "javascript:S6746"), 1);
 
         let copy_first = js_keys("const copy = [...this.state.items];\ncopy.push(1);\n");
@@ -971,7 +988,8 @@ mod tests {
         let returns_jsx = js_keys("class A {\n  render() {\n    return <span/>;\n  }\n}\n");
         assert_eq!(count_key(&returns_jsx, "javascript:S6435"), 0);
 
-        let returns_nothing = js_keys("class A {\n  render() {\n    console.log(1);\n  }\n}\n");
+        let returns_nothing =
+            js_keys("class A extends Component {\n  render() {\n    console.log(1);\n  }\n}\n");
         assert_eq!(count_key(&returns_nothing, "javascript:S6435"), 1);
 
         let conditional_null = js_keys(

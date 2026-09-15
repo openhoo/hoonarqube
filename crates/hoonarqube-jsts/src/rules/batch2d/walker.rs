@@ -322,17 +322,38 @@ mod tests {
 
     #[test]
     fn accessors_must_touch_their_named_field() {
-        let getter_bad = js_keys(
+        // Issue #380: without a declared same-named data field, accessors
+        // are derived/computed and never suspects.
+        let fieldless = js_keys(
             "class C {\n  get size() {\n    return this.length;\n  }\n}\nconst o = {\n  get count() {\n    return 1;\n  },\n};\n",
         );
-        assert_eq!(count_key(&getter_bad, "javascript:S4275"), 2);
+        assert_eq!(count_key(&fieldless, "javascript:S4275"), 0);
 
-        let setter_bad =
-            js_keys("class C {\n  set size(value) {\n    this.length = value;\n  }\n}\n");
+        // A declared field plus an accessor pointing at a different field
+        // is the reference mismatch shape.
+        let getter_bad =
+            js_keys("class C {\n  size = 1;\n  get size() {\n    return this.length;\n  }\n}\n");
+        assert_eq!(count_key(&getter_bad, "javascript:S4275"), 1);
+
+        let setter_bad = js_keys(
+            "class C {\n  size = 1;\n  set size(value) {\n    this.width = value;\n  }\n}\n",
+        );
         assert_eq!(count_key(&setter_bad, "javascript:S4275"), 1);
 
+        // Underscored backing fields satisfy the reference spelling set.
+        let backing = js_keys(
+            "class C {\n  _size = 1;\n  get size() {\n    return this._size;\n  }\n  set size(value) {\n    this._size = value;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&backing, "javascript:S4275"), 0);
+
+        // Derived and multi-statement accessors never name a field.
+        let derived = js_keys(
+            "class C {\n  size = 1;\n  get size() {\n    return this.base && this.base.size;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&derived, "javascript:S4275"), 0);
+
         let clean = js_keys(
-            "class C {\n  get size() {\n    return this.size;\n  }\n  set size(value) {\n    this.size = value;\n  }\n}\n",
+            "class C {\n  size = 1;\n  get size() {\n    return this.size;\n  }\n  set size(value) {\n    this.size = value;\n  }\n}\n",
         );
         assert_eq!(count_key(&clean, "javascript:S4275"), 0);
     }
