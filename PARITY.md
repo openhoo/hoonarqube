@@ -68,7 +68,8 @@ within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
 Java, Rust, and Ruby. Java/Ruby measurement support is separate from rule
 detection: catalog membership does not imply implemented detectors, and the
 implemented detector surface grows incrementally (Ruby currently implements
-`ruby:S1192`; Java implements `java:S1117`, `java:S1854`, `java:S2143`, and
+`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, and `ruby:S1764`;
+Java implements `java:S1117`, `java:S1854`, `java:S2143`, and
 `java:S2211`).
 
 The native duplication defaults resemble SonarQube's documented thresholds:
@@ -282,9 +283,10 @@ evidence, and optional IDE actions are separate contracts. Java adds
 measurement support plus its first four cataloged sonar-parity detectors
 (`java:S1117`, `java:S1854`, `java:S2143`, `java:S2211`, probe-verified
 against the live SonarQube 26.8 Community reference). Ruby ships
-measurement support plus the first cataloged sonar-parity detector
-(`ruby:S1192`, oracle-exact on the pinned `rake` scan); frozen-catalog
-membership alone still implies nothing about implemented detectors.
+measurement support plus five cataloged sonar-parity detectors
+(`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, `ruby:S1764`,
+oracle-exact on the pinned `rake` scan); frozen-catalog membership alone
+still implies nothing about implemented detectors.
 Reference plugins or profiles do not create local analyzers. Optional rule
 quick fixes are tracked in `QUICKFIX.md`, not inferred from semantic-context
 or metric evidence.
