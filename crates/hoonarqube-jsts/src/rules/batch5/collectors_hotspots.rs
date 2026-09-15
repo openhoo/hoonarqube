@@ -173,6 +173,7 @@ impl<'a> Visit<'a> for TestFrameworkCollector<'_, '_> {
         self.check_this_timeout_zero(it);
         self.check_test_callback(it);
         self.check_expect_call(it);
+        self.check_throw_assertion_type(it);
         if let Some(name) = callee_name(it)
             && TEST_FRAMEWORK_GLOBALS.contains(&name)
         {
