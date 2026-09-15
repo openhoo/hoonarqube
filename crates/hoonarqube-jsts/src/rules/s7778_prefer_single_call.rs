@@ -92,8 +92,10 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
 fn check_statement_list(sink: &mut IssueSink<'_>, statements: &[Statement<'_>]) {
     for pair in statements.windows(2) {
         let [first, second] = pair else { continue };
-        let (Statement::ExpressionStatement(first_stmt), Statement::ExpressionStatement(second_stmt)) =
-            (first, second)
+        let (
+            Statement::ExpressionStatement(first_stmt),
+            Statement::ExpressionStatement(second_stmt),
+        ) = (first, second)
         else {
             continue;
         };
@@ -226,10 +228,7 @@ fn same_reference(first: &Expression<'_>, second: &Expression<'_>) -> bool {
     match (unparenthesized(first), unparenthesized(second)) {
         (Expression::Identifier(a), Expression::Identifier(b)) => a.name == b.name,
         (Expression::ThisExpression(_), Expression::ThisExpression(_)) => true,
-        (
-            Expression::StaticMemberExpression(a),
-            Expression::StaticMemberExpression(b),
-        ) => {
+        (Expression::StaticMemberExpression(a), Expression::StaticMemberExpression(b)) => {
             !a.optional
                 && !b.optional
                 && a.property.name == b.property.name
@@ -394,4 +393,3 @@ function f() {
         assert_eq!(count_key(&report_keys(&main_report), "javascript:S7778"), 1);
     }
 }
-

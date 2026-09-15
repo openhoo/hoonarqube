@@ -267,7 +267,11 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     for node in semantic.nodes().iter() {
         match node.kind() {
             AstKind::ImportDeclaration(import) => {
-                check_module_literal(&mut sink, import.source.value.as_str(), import.source.span());
+                check_module_literal(
+                    &mut sink,
+                    import.source.value.as_str(),
+                    import.source.span(),
+                );
             }
             AstKind::CallExpression(call) => {
                 check_require(&mut sink, call);

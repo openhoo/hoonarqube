@@ -55,7 +55,8 @@ use oxc_syntax::symbol::SymbolId;
 fn secret_signature_indices(fqn: &str) -> Option<&'static [usize]> {
     Some(match fqn {
         "cookie-parser" => &[0],
-        "cookie-parser.JSONCookie" | "cookie-parser.signedCookies"
+        "cookie-parser.JSONCookie"
+        | "cookie-parser.signedCookies"
         | "cookie-parser.signedCookie" => &[1],
         "crypto.X509Certificate.checkPrivateKey" => &[0],
         "crypto.createDiffieHellman.setPrivateKey" => &[0],
@@ -217,7 +218,11 @@ fn is_excluded_literal(expression: &Expression<'_>) -> bool {
     match unparenthesized(expression) {
         Expression::StringLiteral(literal) => is_excluded_secret_value(literal.value.as_str()),
         Expression::TemplateLiteral(template) if template.expressions.is_empty() => {
-            match template.quasis.first().and_then(|quasi| quasi.value.cooked.as_ref()) {
+            match template
+                .quasis
+                .first()
+                .and_then(|quasi| quasi.value.cooked.as_ref())
+            {
                 Some(cooked) => is_excluded_secret_value(cooked.as_str()),
                 None => true,
             }
@@ -515,7 +520,15 @@ fn looks_like_non_secret(lower: &str) -> bool {
     }
     // `^(?:none|undefined|null|true|false|yes|no|1|0)$`
     const NON_VALUES: [&str; 9] = [
-        "none", "undefined", "null", "true", "false", "yes", "no", "1", "0",
+        "none",
+        "undefined",
+        "null",
+        "true",
+        "false",
+        "yes",
+        "no",
+        "1",
+        "0",
     ];
     if NON_VALUES.contains(&lower) {
         return true;
@@ -705,9 +718,9 @@ fn looks_like_path(value: &str) -> bool {
     segments.len() >= 3
         && segments.iter().all(|segment| {
             !segment.is_empty()
-                && segment
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+                && segment.chars().all(|c| {
+                    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-')
+                })
         })
 }
 
@@ -750,9 +763,7 @@ fn looks_like_semver(value: &str) -> bool {
 /// `major.minor.patch` — three `0|[1-9]\d*` parts.
 fn valid_semver_main(main: &str) -> bool {
     let mut parts = main.split('.');
-    let (Some(major), Some(minor), Some(patch)) =
-        (parts.next(), parts.next(), parts.next())
-    else {
+    let (Some(major), Some(minor), Some(patch)) = (parts.next(), parts.next(), parts.next()) else {
         return false;
     };
     parts.next().is_none()
@@ -800,7 +811,9 @@ fn looks_like_paren_version(value: &str) -> bool {
     };
     let (version, suffix) = rest.split_at(open);
     let mut parts = version.split('.');
-    if parts.clone().count() < 2 || !parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+    if parts.clone().count() < 2
+        || !parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+    {
         return false;
     }
     // Suffix: one or more `(...)` groups with no parens inside.
@@ -887,7 +900,6 @@ mysql.createPool({ password: 'keyboard cat' });
         assert_eq!(count_key(&findings, "javascript:S6437"), 4);
     }
 
-
     #[test]
     fn s6437_excluded_and_dynamic_values_stay_silent() {
         let source = "\
@@ -939,4 +951,3 @@ session({ secret: 'keyboard cat' });
         assert_eq!(count_key(&test_file_keys(source), "javascript:S6437"), 0);
     }
 }
-

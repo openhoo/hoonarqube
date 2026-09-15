@@ -104,7 +104,8 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
                 suite_frame_of.insert(node.id(), frames.len() - 1);
             }
             CallKind::Test => {
-                let Some(frame_id) = model.enclosing_suite_frame(semantic, node.id(), &suite_frame_of)
+                let Some(frame_id) =
+                    model.enclosing_suite_frame(semantic, node.id(), &suite_frame_of)
                 else {
                     continue;
                 };
@@ -378,7 +379,9 @@ fn callee_root<'a>(callee: &'a Expression<'a>) -> &'a Expression<'a> {
 /// the reference `getMochaCalleeParts`: member properties unshift as
 /// modifiers, call applications unwrap to their callee, and a bare
 /// `.each` factory (not applied as a call) disqualifies the construct.
-fn callee_parts<'a>(callee: &'a Expression<'a>) -> Option<(&'a IdentifierReference<'a>, Vec<String>)> {
+fn callee_parts<'a>(
+    callee: &'a Expression<'a>,
+) -> Option<(&'a IdentifierReference<'a>, Vec<String>)> {
     let mut modifiers = Vec::new();
     let mut current = unparenthesized(callee);
     let mut applied_as_call = false;

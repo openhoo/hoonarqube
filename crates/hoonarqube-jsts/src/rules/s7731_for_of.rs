@@ -165,7 +165,11 @@ fn array_identifier<'a>(
 }
 
 /// `i++`, `i += 1`, `i = i + 1`, or `i = 1 + i` on the index variable.
-fn check_update(semantic: &Semantic<'_>, for_statement: &ForStatement<'_>, index_symbol: SymbolId) -> bool {
+fn check_update(
+    semantic: &Semantic<'_>,
+    for_statement: &ForStatement<'_>,
+    index_symbol: SymbolId,
+) -> bool {
     let Some(update) = &for_statement.update else {
         return false;
     };
@@ -188,8 +192,7 @@ fn check_update(semantic: &Semantic<'_>, for_statement: &ForStatement<'_>, index
             match assignment.operator {
                 AssignmentOperator::Addition => is_literal_one(&assignment.right),
                 AssignmentOperator::Assign => {
-                    let Expression::BinaryExpression(binary) =
-                        unparenthesized(&assignment.right)
+                    let Expression::BinaryExpression(binary) = unparenthesized(&assignment.right)
                     else {
                         return false;
                     };
@@ -359,8 +362,9 @@ fn array_reads_are_only_indexed_elements(
 /// Offset of the `)` closing the `for` header: the last non-trivia byte
 /// before the body's `{`.
 fn header_end_offset(source: &str, body_start: u32) -> u32 {
-    crate::support::previous_non_trivia_offset(source, body_start)
-        .map_or(body_start, |offset| u32::try_from(offset).unwrap_or(body_start) + 1)
+    crate::support::previous_non_trivia_offset(source, body_start).map_or(body_start, |offset| {
+        u32::try_from(offset).unwrap_or(body_start) + 1
+    })
 }
 
 #[cfg(test)]

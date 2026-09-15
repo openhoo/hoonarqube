@@ -40,9 +40,7 @@ use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, is_test_file, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
-use oxc_ast::ast::{
-    CallExpression, Expression, IdentifierReference,
-};
+use oxc_ast::ast::{CallExpression, Expression, IdentifierReference};
 use oxc_semantic::Semantic;
 use oxc_span::GetSpan;
 use oxc_syntax::symbol::SymbolId;
@@ -374,18 +372,16 @@ fn is_type_predicate_callback(semantic: &Semantic<'_>, callback: &Expression<'_>
                 return false;
             };
             match unparenthesized(init) {
-                Expression::ArrowFunctionExpression(arrow) => arrow
-                    .return_type
-                    .as_ref()
-                    .is_some_and(|annotation| {
+                Expression::ArrowFunctionExpression(arrow) => {
+                    arrow.return_type.as_ref().is_some_and(|annotation| {
                         is_type_predicate_annotation(&annotation.type_annotation)
-                    }),
-                Expression::FunctionExpression(function) => function
-                    .return_type
-                    .as_ref()
-                    .is_some_and(|annotation| {
+                    })
+                }
+                Expression::FunctionExpression(function) => {
+                    function.return_type.as_ref().is_some_and(|annotation| {
                         is_type_predicate_annotation(&annotation.type_annotation)
-                    }),
+                    })
+                }
                 _ => false,
             }
         }
@@ -399,9 +395,7 @@ fn is_type_predicate_callback(semantic: &Semantic<'_>, callback: &Expression<'_>
 
 /// Whether a type annotation is a predicate function type
 /// (`cb: (x) => x is T`).
-fn annotation_has_predicate_type(
-    annotation: Option<&oxc_ast::ast::TSTypeAnnotation<'_>>,
-) -> bool {
+fn annotation_has_predicate_type(annotation: Option<&oxc_ast::ast::TSTypeAnnotation<'_>>) -> bool {
     let Some(annotation) = annotation else {
         return false;
     };
@@ -553,4 +547,3 @@ items.map();
         assert_eq!(count_key(&test_file_keys(source), "javascript:S7727"), 0);
     }
 }
-
