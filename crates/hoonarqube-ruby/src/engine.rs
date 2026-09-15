@@ -15,7 +15,7 @@ use crate::support::{SourceMap, lexical_metrics, node_text, walk};
 #[must_use]
 pub fn analyze_facts(source: &str) -> RubyFacts {
     let map = SourceMap::new(source);
-    let Some(tree) = parse(source) else {
+    let Some(tree) = parse_source(source) else {
         return empty_facts(source, &map, true, 1);
     };
     analyze_facts_with_tree(source, &tree, &map)
@@ -41,7 +41,7 @@ fn analyze_facts_with_tree(source: &str, tree: &Tree, map: &SourceMap) -> RubyFa
     facts
 }
 
-fn parse(source: &str) -> Option<Tree> {
+pub(crate) fn parse_source(source: &str) -> Option<Tree> {
     let mut parser = Parser::new();
     parser
         .set_language(&tree_sitter_ruby::LANGUAGE.into())
@@ -2447,7 +2447,7 @@ fn collect_ruby_metrics(
 #[must_use]
 pub fn github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
     let map = SourceMap::new(source);
-    let Some(tree) = parse(source) else {
+    let Some(tree) = parse_source(source) else {
         return Vec::new();
     };
     let root = tree.root_node();

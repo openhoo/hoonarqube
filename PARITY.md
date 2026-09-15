@@ -63,8 +63,10 @@ coverage alternative in [issue #213](https://github.com/openhoo/hoonarqube/issue
 Rule parity and project-measurement parity are separate contracts. The
 versioned project report provides source size, scope/completeness, and
 within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
-Java, Rust, and Ruby. Java/Ruby measurement support does not add either
-language to the frozen Sonar rule catalog.
+Java, Rust, and Ruby. Java/Ruby measurement support is separate from rule
+detection: catalog membership does not imply implemented detectors, and the
+implemented detector surface grows incrementally (Ruby currently implements
+`ruby:S1192`; Java implements no frozen-catalog detectors yet).
 
 The native duplication defaults resemble SonarQube's documented thresholds:
 100 normalized syntax tokens across 10 physical lines for non-Java input,
@@ -273,8 +275,11 @@ metrics or duplication. The ordinary `main.py` measurement remains
 HTML, or Docker syntax support.
 
 Native metric support, native language syntax support, Sonar server reference
-evidence, and optional IDE actions are separate contracts. Java and Ruby add
-measurement support only; they do not add frozen Sonar rule families.
+evidence, and optional IDE actions are separate contracts. Java adds
+measurement support only. Ruby ships measurement support plus the first
+cataloged sonar-parity detector (`ruby:S1192`, oracle-exact on the pinned
+`rake` scan); frozen-catalog membership alone still implies nothing about
+implemented detectors.
 Reference plugins or profiles do not create local analyzers. Optional rule
 quick fixes are tracked in `QUICKFIX.md`, not inferred from semantic-context
 or metric evidence.

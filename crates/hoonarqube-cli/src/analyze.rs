@@ -1789,7 +1789,12 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         go,
         java: hoonarqube_core::JavaAnalyzerOptions::default(),
         rust,
-        ruby: hoonarqube_core::RubyAnalyzerOptions::default(),
+        ruby: hoonarqube_core::RubyAnalyzerOptions {
+            duplicate_string_threshold: parameter("ruby:S1192", "threshold")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(3),
+            ..hoonarqube_core::RubyAnalyzerOptions::default()
+        },
     }
 }
 
