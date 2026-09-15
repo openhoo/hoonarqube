@@ -8,7 +8,7 @@ use super::s6759_s6759_ts_interface_declaration::check_s6759;
 use super::s7059_s7059_await_expression::S7059State;
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, LineIndex};
+use crate::support::{IssueSink, LineIndex, is_test_file};
 use hoonarqube_ir::Issue;
 use oxc_ast_visit::Visit;
 use oxc_semantic::Semantic;
@@ -93,24 +93,6 @@ fn check_security_hotspot_rules(
     collector.visit_program(program);
     collector.finish_security();
     collector.sink.issues
-}
-
-/// Whether `path` looks like a test file (`foo.test.js`, `foo.spec.ts`, or
-/// anywhere under a `__tests__` directory).
-fn is_test_file(path: &Path) -> bool {
-    let stem_is_test =
-        path.file_stem()
-            .and_then(|stem| stem.to_str())
-            .is_some_and(|stem| match stem.rsplit_once('.') {
-                Some((_, extension)) => {
-                    matches!(extension.to_ascii_lowercase().as_str(), "test" | "spec")
-                }
-                None => false,
-            });
-    let in_tests_dir = path
-        .components()
-        .any(|component| component.as_os_str() == "__tests__");
-    stem_is_test || in_tests_dir
 }
 
 /// All Batch5 misc Tier-A rules in one pass.
