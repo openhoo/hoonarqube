@@ -32,6 +32,7 @@ impl TbKind {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)] // per-facet flags, not states
 pub(crate) struct TbBinding<'a> {
     pub(crate) name: &'a str,
     pub(crate) kind: TbKind,
@@ -52,6 +53,10 @@ pub(crate) struct TbBinding<'a> {
     pub(crate) global: bool,
     /// Initialized from an array literal (`javascript:S2870`).
     pub(crate) array_like: bool,
+    /// Initialized from a value that provably lacks constructor semantics:
+    /// arrow/`async` functions, object or primitive literals, and module
+    /// namespace imports (`javascript:S2999`).
+    pub(crate) non_constructible: bool,
 }
 
 /// Aggregated shape of one function signature.

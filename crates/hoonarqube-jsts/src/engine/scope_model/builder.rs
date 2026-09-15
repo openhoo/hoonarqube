@@ -73,6 +73,7 @@ impl<'a> TbBuilder<'a, '_> {
             arity: None,
             global,
             array_like: false,
+            non_constructible: false,
         });
         self.model.scopes[target].bindings.push(id);
         id
@@ -442,9 +443,20 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
         self.declare_pattern(&declarator.id, self.pending_kind);
         if before < self.model.bindings.len()
             && matches!(declarator.id, BindingPattern::BindingIdentifier(_))
-            && matches!(declarator.init, Some(Expression::ArrayExpression(_)))
         {
-            self.model.bindings[before].array_like = true;
+            if matches!(declarator.init, Some(Expression::ArrayExpression(_))) {
+                self.model.bindings[before].array_like = true;
+            }
+            // `javascript:S2999` may only flag `new` on values that provably
+            // lack constructor semantics; unknown/require-shaped values stay
+            // silent.
+            if declarator
+                .init
+                .as_ref()
+                .is_some_and(is_non_constructible_initializer)
+            {
+                self.model.bindings[before].non_constructible = true;
+            }
         }
         walk_variable_declarator(self, declarator);
     }
@@ -459,7 +471,14 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => &specifier.local,
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => &specifier.local,
             };
-            self.declare(local.name.as_str(), TbKind::Import, local.span);
+            let id = self.declare(local.name.as_str(), TbKind::Import, local.span);
+            // `new` on a `import * as ns` namespace object can never work.
+            if matches!(
+                specifier,
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(_)
+            ) {
+                self.model.bindings[id].non_constructible = true;
+            }
         }
     }
 
@@ -613,6 +632,27 @@ pub(crate) fn build_tb_model<'a>(program: &'a oxc_ast::ast::Program<'a>) -> TbMo
     };
     builder.visit_program(program);
     finish_model(model)
+}
+
+/// Whether the initializer provably produces a value without constructor
+/// semantics (`javascript:S2999`): arrow or `async` functions (never
+/// constructible), object and primitive literals, and (for imports, set at
+/// the declaration site) namespace objects. Anything else — including plain
+/// function/class expressions and opaque require/import results — stays
+/// unknown and must not be flagged.
+fn is_non_constructible_initializer(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::FunctionExpression(function) => function.r#async,
+        Expression::ArrowFunctionExpression(_)
+        | Expression::ObjectExpression(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BigIntLiteral(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_) => true,
+        _ => false,
+    }
 }
 
 pub(crate) fn callee_member_name<'a>(call: &'a CallExpression<'a>) -> Option<&'a str> {

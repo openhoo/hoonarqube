@@ -13,7 +13,6 @@ use super::trivial_base_forwarding_overrides::check as check_trivial_base_forwar
 use super::uri_string_parameters::check as check_uri_string_parameters;
 use super::uri_string_properties::check as check_uri_string_properties;
 use super::uri_string_returns::check as check_uri_string_returns;
-use crate::CsLanguage;
 use crate::rules::api_contracts::{
     check_array_arguments_for_params_calls, check_assembly_versions,
     check_collection_property_setters, check_culture_less_comparisons,
@@ -34,11 +33,17 @@ use crate::rules::api_contracts::{
     comment_tag_issues,
 };
 use crate::rules::linq_api::check_linq_receivers;
+use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
 /// Gathers the Tier-A15 LINQ/format/API-heuristic slice.
-pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn linq_api_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_any_instead_of_count(root, source, language));
     issues.extend(check_format_argument_counts(root, source, language));
@@ -86,7 +91,7 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
     issues.extend(check_unchecked_sums(root, source, language));
     issues.extend(check_strings_matching_parameters(root, source, language));
     issues.extend(check_mergeable_try_statements(root, source, language));
-    issues.extend(check_redundant_modifiers(root, source, language));
+    issues.extend(check_redundant_modifiers(root, source, language, options));
     let (fixmes, todos) = comment_tag_issues(root, source, language);
     issues.extend(fixmes);
     issues.extend(todos);
@@ -115,7 +120,7 @@ pub(crate) fn linq_api_issues(root: Node<'_>, source: &str, language: CsLanguage
 mod tests {
     use super::linq_api_issues;
     use crate::rules::api_patterns::framework_api_issues;
-    use crate::{CsLanguage, parse};
+    use crate::{AnalyzerOptions, CsLanguage, parse};
 
     #[test]
     fn linq_receiver_rules_run_once_in_their_own_family() {
@@ -123,10 +128,15 @@ mod tests {
         let tree = parse(source);
         let root = tree.root_node();
 
-        let linq_findings = linq_api_issues(root, source, CsLanguage::CSharp)
-            .into_iter()
-            .filter(|issue| issue.rule_key == "csharpsquid:S6608")
-            .count();
+        let linq_findings = linq_api_issues(
+            root,
+            source,
+            CsLanguage::CSharp,
+            &AnalyzerOptions::default(),
+        )
+        .into_iter()
+        .filter(|issue| issue.rule_key == "csharpsquid:S6608")
+        .count();
         let framework_findings = framework_api_issues(root, source, CsLanguage::CSharp)
             .into_iter()
             .filter(|issue| issue.rule_key == "csharpsquid:S6608")

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::{AnalyzerOptions, analyze};
 use crate::test_support::{
-    findings, findings_of, pos, regex_finds, scan, scan_test_file, scan_with_options,
+    findings, findings_of, pos, regex_finds, scan, scan_at, scan_test_file, scan_with_options,
 };
 
 #[test]
@@ -2887,6 +2887,106 @@ fn s5713_flags_imported_and_aliased_stdlib_exception_pairs() {
     assert!(findings_of(unrelated, "python:S5713").is_empty());
 }
 #[test]
+fn s5713_flags_imported_library_exception_hierarchies() {
+    // #358: documented library exception ancestry resolves like the builtins
+    // table, including the multi-hop urllib3 chain and the aliased
+    // from-imports used by `requests.adapters`.
+    let direct = concat!(
+        "from urllib3.exceptions import SSLError, HTTPError\n",
+        "try:\n    work()\n",
+        "except (SSLError, HTTPError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(direct, "python:S5713").len(), 1);
+
+    let aliased = concat!(
+        "from urllib3.exceptions import SSLError as _SSLError\n",
+        "from urllib3.exceptions import HTTPError as _HTTPError\n",
+        "try:\n    work()\n",
+        "except (_SSLError, _HTTPError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(aliased, "python:S5713").len(), 1);
+
+    let attribute_chain = concat!(
+        "import urllib3\n",
+        "try:\n    work()\n",
+        "except (urllib3.exceptions.SSLError, urllib3.exceptions.HTTPError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(attribute_chain, "python:S5713").len(), 1);
+
+    // Redundancy crosses intermediate bases: NewConnectionError reaches
+    // TimeoutError through ConnectTimeoutError.
+    let multi_hop = concat!(
+        "from urllib3.exceptions import NewConnectionError, TimeoutError\n",
+        "try:\n    work()\n",
+        "except (NewConnectionError, TimeoutError):\n    recover()\n",
+    );
+    assert_eq!(findings_of(multi_hop, "python:S5713").len(), 1);
+
+    let requests_wrapper = concat!(
+        "from requests.exceptions import SSLError, RequestException\n",
+        "try:\n    work()\n",
+        "except (SSLError, RequestException):\n    recover()\n",
+    );
+    assert_eq!(findings_of(requests_wrapper, "python:S5713").len(), 1);
+
+    // Sibling library classes and unrelated pairs stay clean.
+    let siblings = concat!(
+        "from urllib3.exceptions import SSLError\n",
+        "from requests.exceptions import ConnectionError\n",
+        "try:\n    work()\n",
+        "except (SSLError, ConnectionError):\n    recover()\n",
+    );
+    assert!(findings_of(siblings, "python:S5713").is_empty());
+}
+#[test]
+fn main_scope_rules_stay_silent_on_python_test_files() {
+    // #357: Sonar rules with catalog scope MAIN never report on test
+    // sources; scope-ALL rules keep firing, and docs stay MAIN scope.
+    let source = concat!(
+        "BUFFER = \"payload\"\n",
+        "OTHER = \"payload\"\n",
+        "THIRD = \"payload\"\n",
+        "GATEWAY = \"192.168.1.1\"\n",
+        "ENDPOINT = \"http://unsafe.test/path\"\n",
+        "\n",
+        "def helper():\n",
+        "    stale = 1\n",
+        "    return BUFFER\n",
+    );
+    let main_keys = [
+        "python:S1192",
+        "python:S1313",
+        "python:S5332",
+        "python:S1720",
+    ];
+
+    let in_tests = scan_at(PathBuf::from("tests/test_gateway.py"), source);
+    for key in main_keys {
+        assert!(
+            findings(&in_tests, key).is_empty(),
+            "{key} is MAIN scope and must not report on test files"
+        );
+    }
+    assert!(
+        !findings(&in_tests, "python:S1481").is_empty(),
+        "python:S1481 is scope ALL and still reports on test files"
+    );
+
+    let in_sources = scan_at(PathBuf::from("src/gateway.py"), source);
+    for key in main_keys {
+        assert!(
+            !findings(&in_sources, key).is_empty(),
+            "{key} keeps reporting on production sources"
+        );
+    }
+
+    let in_docs = scan_at(PathBuf::from("docs/conf.py"), source);
+    assert!(
+        !findings(&in_docs, "python:S1313").is_empty(),
+        "documentation trees stay MAIN scope for the reference"
+    );
+}
+#[test]
 fn s100_and_s1542_partition_functions_by_class_nesting() {
     let report = scan("class C:\n    def BadName(self):\n        pass\n");
     let s100: Vec<_> = report
@@ -4409,17 +4509,21 @@ fn s9073_flags_composite_assertions() {
     // `assert e.value.args and "session is unavailable" in
     // e.value.args[0]` (statement columns 8-75) joins two facts in one
     // assert. `and` chains and De Morgan `not (a or b)` are reported;
-    // the statement anchors the finding.
-    let flagged = scan_test_file(concat!(
-        "def test_missing_session(app):\n",
-        "    def expect_exception(f, *args, **kwargs):\n",
-        "        e = pytest.raises(RuntimeError, f, *args, **kwargs)\n",
-        "        assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
-        "\n",
-        "def test_user(user):\n",
-        "    assert user.is_active and user.is_verified\n",
-        "    assert not (axis.visible or axis.label_visible)\n",
-    ));
+    // the statement anchors the finding. Catalog scope MAIN: the same
+    // content on a test-scoped path stays silent.
+    let flagged = scan_at(
+        PathBuf::from("src/flask_app.py"),
+        concat!(
+            "def test_missing_session(app):\n",
+            "    def expect_exception(f, *args, **kwargs):\n",
+            "        e = pytest.raises(RuntimeError, f, *args, **kwargs)\n",
+            "        assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
+            "\n",
+            "def test_user(user):\n",
+            "    assert user.is_active and user.is_verified\n",
+            "    assert not (axis.visible or axis.label_visible)\n",
+        ),
+    );
     let found = findings(&flagged, "python:S9073");
     assert_eq!(found.len(), 3);
     assert_eq!(
@@ -4432,27 +4536,33 @@ fn s9073_flags_composite_assertions() {
     assert_eq!(found[1].range.end, pos(7, 46));
     assert_eq!(found[2].range.start, pos(8, 4));
     assert_eq!(found[2].range.end, pos(8, 51));
+
+    let in_tests = scan_at(
+        PathBuf::from("tests/test_basic.py"),
+        concat!(
+            "def test_missing_session(app):\n",
+            "    assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
+        ),
+    );
+    assert!(findings(&in_tests, "python:S9073").is_empty());
 }
 
 #[test]
 fn s9073_accepts_single_condition_assertions() {
     // Controls: single conditions, plain `or` (splitting would change
-    // the meaning), negated single operands, top-level `or` with a nested
-    // `and`, and a non-pytest file (pinned click/src/click/core.py keeps
-    // its `and` asserts unreported) stay silent.
-    let clean = scan_test_file(concat!(
-        "def test_single(user, axis, cond):\n",
-        "    assert user.is_active\n",
-        "    assert cond.a or cond.b\n",
-        "    assert not axis.visible\n",
-        "    assert (user.is_active and user.is_verified) or cond.admin\n",
-    ));
+    // the meaning), negated single operands, and a top-level `or` with a
+    // nested `and` stay silent on a production path.
+    let clean = scan_at(
+        PathBuf::from("src/checks.py"),
+        concat!(
+            "def check_single(user, axis, cond):\n",
+            "    assert user.is_active\n",
+            "    assert cond.a or cond.b\n",
+            "    assert not axis.visible\n",
+            "    assert (user.is_active and user.is_verified) or cond.admin\n",
+        ),
+    );
     assert!(findings(&clean, "python:S9073").is_empty());
-    let non_pytest_file = scan(concat!(
-        "def helper(args, kwargs):\n",
-        "    assert len(args) == 1 and not kwargs, \"msg\"\n",
-    ));
-    assert!(findings(&non_pytest_file, "python:S9073").is_empty());
 }
 
 #[test]

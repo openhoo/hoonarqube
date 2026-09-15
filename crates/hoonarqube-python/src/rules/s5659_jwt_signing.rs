@@ -1,10 +1,7 @@
-use std::path::Path;
-
 use crate::engine::bindings::KnownBinding;
 use crate::engine::file_context::FileContext;
 use crate::support::has_keyword;
 use crate::support::is_call_method;
-use crate::support::is_test_scope_file;
 use crate::support::issue_at;
 use crate::support::keyword_value;
 use crate::support::string_literal_text;
@@ -19,12 +16,7 @@ pub(crate) fn check_s5659_jwt_signing(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
-    path: &Path,
 ) -> Vec<Issue> {
-    // Catalog scope MAIN: the reference platform never reports on test files.
-    if is_test_scope_file(path) {
-        return Vec::new();
-    }
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         // JWT-library provenance. The reference check resolves the callee to

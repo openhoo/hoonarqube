@@ -671,13 +671,12 @@ pub(crate) fn check_tier_c_security_battery(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
-    path: &Path,
     module_name: &str,
     project: &PythonProjectContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     tier_c_core_security_checks(parsed, index, source, file_ctx, &mut issues);
-    tier_c_web_crypto_checks(parsed, index, source, file_ctx, path, &mut issues);
+    tier_c_web_crypto_checks(parsed, index, source, file_ctx, &mut issues);
     tier_c_cloud_data_checks(
         parsed,
         index,
@@ -738,7 +737,6 @@ fn tier_c_web_crypto_checks(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
-    path: &Path,
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(check_s4502_csrf_disabled(index, source, file_ctx));
@@ -754,7 +752,7 @@ fn tier_c_web_crypto_checks(
     issues.extend(check_s3329_static_cbc_iv(index, source, file_ctx));
     issues.extend(check_s5542_weak_modes_and_paddings(parsed, index, source));
     issues.extend(check_s5547_weak_ciphers(index, source, file_ctx));
-    issues.extend(check_s5659_jwt_signing(index, source, file_ctx, path));
+    issues.extend(check_s5659_jwt_signing(index, source, file_ctx));
     issues.extend(check_s5344_plaintext_passwords(index, source, file_ctx));
     issues.extend(check_s2245_pseudorandom_calls(index, source, file_ctx));
     issues.extend(check_s5443_public_temp_files(index, source, file_ctx));
@@ -981,7 +979,7 @@ pub(crate) fn check_pytest_contract_battery(
         parsed, index, source, path,
     ));
     issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
-    issues.extend(check_s9073_composite_assertion(parsed, index, source, path));
+    issues.extend(check_s9073_composite_assertion(parsed, index, source));
     issues
 }
 
@@ -1022,7 +1020,6 @@ pub(crate) fn check_structural_battery(
     source: &str,
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
-    path: &Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_collapsible_ifs(parsed, index, source));
@@ -1031,7 +1028,7 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_similar_names_scope(parsed, index, source));
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
-    issues.extend(check_old_style_classes(index, source, file_ctx, path));
+    issues.extend(check_old_style_classes(index, source, file_ctx));
     issues.extend(check_keyword_parentheses(
         path, parsed, index, source, file_ctx,
     ));

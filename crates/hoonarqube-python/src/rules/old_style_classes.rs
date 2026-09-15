@@ -1,7 +1,4 @@
-use std::path::Path;
-
 use crate::engine::file_context::FileContext;
-use crate::support::is_test_scope_file;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::StmtClassDef;
@@ -14,13 +11,7 @@ pub(crate) fn check_old_style_classes(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
-    path: &Path,
 ) -> Vec<Issue> {
-    // Catalog scope MAIN: the reference platform never reports S1722 on
-    // test files, so bare classes there stay clean.
-    if is_test_scope_file(path) {
-        return Vec::new();
-    }
     let mut issues = Vec::new();
     for class in &file_ctx.classes {
         flag_empty_bases(class, &mut issues, index, source);
