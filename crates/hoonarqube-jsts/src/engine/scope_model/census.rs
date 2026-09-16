@@ -1,11 +1,11 @@
 use super::{
     ArrowFunctionBody, ArrowFunctionExpression, BTreeMap, BinaryExpression, BinaryOperator, Class,
     ClassElement, Declaration, Expression, Function, GetSpan, MethodDefinition,
-    MethodDefinitionKind, ReturnStatement, ScopeFlags, Span, Statement, SwitchStatement,
-    UnaryOperator, VariableDeclarator, Visit, binding_identifier_name, identifier_name,
-    property_key_name, unparenthesized, walk_binary_expression, walk_class, walk_declaration,
-    walk_function, walk_program, walk_return_statement, walk_switch_statement,
-    walk_variable_declarator,
+    MethodDefinitionKind, ReturnStatement, ScopeFlags, Span, Statement, SwitchStatement, TSType,
+    TSTypeAnnotation, TSTypeName, TSTypeReference, UnaryOperator, VariableDeclarator, Visit,
+    binding_identifier_name, identifier_name, property_key_name, unparenthesized,
+    walk_binary_expression, walk_class, walk_declaration, walk_function, walk_program,
+    walk_return_statement, walk_switch_statement, walk_variable_declarator,
 };
 // --- Tier C: operator/literal rules over a shared literal classifier ---
 
@@ -74,11 +74,27 @@ pub(crate) fn kind_is_composite(kind: LiteralKind) -> bool {
 
 /// Per-function facts recorded by [`FunctionCensus`].
 #[derive(Default)]
+#[allow(clippy::struct_excessive_bools)] // per-facet flags, not states
 pub(crate) struct FnFacts {
     pub(crate) r#async: bool,
     pub(crate) generator: bool,
     pub(crate) return_kinds: Vec<LiteralKind>,
     pub(crate) has_valued_return: bool,
+    /// A valued `return` whose expression is not a classified literal, so
+    /// the produced value is opaque to file-local analysis (`S4123`).
+    pub(crate) has_opaque_return: bool,
+    /// The function cannot return normally: declared `: never` or a body
+    /// that provably diverges (throws) without any `return`.
+    pub(crate) never_returns: bool,
+    /// A declared return type other than `void`/`never` means calls produce
+    /// a value even when the body is absent or has no valued `return`.
+    pub(crate) declared_value_return: bool,
+    /// A declared `any`/`unknown` return, or a union containing `undefined`,
+    /// already covers mixed literal return kinds (`S3800`).
+    pub(crate) return_covers_mixed: bool,
+    /// A declared return type that is or contains `Promise`/`PromiseLike`,
+    /// so awaiting the call is meaningful even without `async` (`S4123`).
+    pub(crate) declared_maybe_thenable: bool,
     /// Span of a parameter that only selects the function's behavior.
     pub(crate) selector_span: Option<Span>,
     pub(crate) span: Span,
@@ -87,10 +103,13 @@ pub(crate) struct FnFacts {
 impl FnFacts {
     /// Whether calls of this function provably produce no usable value.
     pub(crate) fn is_void(&self) -> bool {
-        !self.r#async && !self.generator && !self.has_valued_return
+        !self.r#async
+            && !self.generator
+            && !self.has_valued_return
+            && !self.never_returns
+            && !self.declared_value_return
     }
 }
-
 /// File-local function facts used by the Tier-C call checks: declaration and
 /// `const`-bound function/arrow names with their flags, spans, and the
 /// literal kinds of their valued `return`s.
@@ -141,20 +160,30 @@ const SELECTOR_PARAM_NAMES: [&str; 5] = ["type", "kind", "action", "mode", "comm
 /// and branch logic driven by named parameters, without descending into
 /// nested function-like nodes.
 #[derive(Default)]
+#[allow(clippy::struct_excessive_bools)] // per-facet flags, not states
 pub(crate) struct BodyScan {
     pub(crate) params: Vec<(String, Span)>,
     pub(crate) return_kinds: Vec<LiteralKind>,
     pub(crate) has_valued_return: bool,
+    /// Any `return` statement (valued or bare) in this body.
+    pub(crate) has_return: bool,
+    /// A valued `return` whose expression is not a classified literal.
+    pub(crate) has_opaque_return: bool,
+    /// The body's statements provably cannot complete normally.
+    pub(crate) never_returns: bool,
     pub(crate) selector_comparisons: u32,
     pub(crate) switches_on_param: bool,
 }
 
 impl<'a> Visit<'a> for BodyScan {
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        self.has_return = true;
         if let Some(argument) = &it.argument {
             self.has_valued_return = true;
             if let Some(kind) = literal_kind(argument) {
                 self.return_kinds.push(kind);
+            } else {
+                self.has_opaque_return = true;
             }
         }
         walk_return_statement(self, it);
@@ -217,7 +246,6 @@ impl BodyScan {
             .map(|(_, span)| *span)
     }
 }
-
 pub(crate) fn scan_body(statements: &[Statement<'_>], params: Vec<(String, Span)>) -> BodyScan {
     let mut scan = BodyScan {
         params,
@@ -226,7 +254,140 @@ pub(crate) fn scan_body(statements: &[Statement<'_>], params: Vec<(String, Span)
     for statement in statements {
         scan.visit_statement(statement);
     }
+    // A body that provably diverges (throws) and contains no `return` at
+    // all cannot produce a value, matching a declared `never` return.
+    scan.never_returns = !scan.has_return && statements_never_return(statements);
     scan
+}
+
+/// Whether one statement cannot complete normally: a `throw`, a block
+/// ending in such a statement, or an `if` whose both branches do.
+fn statement_never_returns(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::ThrowStatement(_) => true,
+        Statement::BlockStatement(block) => statements_never_return(&block.body),
+        Statement::IfStatement(branch) => {
+            statement_never_returns(&branch.consequent)
+                && branch
+                    .alternate
+                    .as_ref()
+                    .is_some_and(statement_never_returns)
+        }
+        _ => false,
+    }
+}
+
+fn statements_never_return(statements: &[Statement<'_>]) -> bool {
+    statements.iter().any(statement_never_returns)
+}
+
+/// Builds [`FnFacts`] from a body scan plus the function's flags and its
+/// declared return-type annotation, when present.
+fn fn_facts(
+    r#async: bool,
+    generator: bool,
+    annotation: Option<&TSTypeAnnotation<'_>>,
+    scan: BodyScan,
+    anchor: Span,
+) -> FnFacts {
+    let declared_never = annotation.is_some_and(annotation_is_never);
+    FnFacts {
+        r#async,
+        generator,
+        selector_span: scan.selector_span(),
+        return_kinds: scan.return_kinds,
+        has_valued_return: scan.has_valued_return,
+        has_opaque_return: scan.has_opaque_return,
+        never_returns: declared_never || scan.never_returns,
+        declared_value_return: annotation.is_some_and(annotation_declares_value),
+        return_covers_mixed: annotation.is_some_and(annotation_covers_mixed),
+        declared_maybe_thenable: annotation.is_some_and(annotation_maybe_thenable),
+        span: anchor,
+    }
+}
+
+/// Strips `TSParenthesizedType` wrappers from a type annotation.
+fn unparenthesized_type<'a>(ts_type: &'a TSType<'a>) -> &'a TSType<'a> {
+    match ts_type {
+        TSType::TSParenthesizedType(parenthesized) => {
+            unparenthesized_type(&parenthesized.type_annotation)
+        }
+        _ => ts_type,
+    }
+}
+
+/// Whether the annotation is exactly `never` (possibly parenthesized).
+fn annotation_is_never(annotation: &TSTypeAnnotation<'_>) -> bool {
+    matches!(
+        unparenthesized_type(&annotation.type_annotation),
+        TSType::TSNeverKeyword(_)
+    )
+}
+
+/// Whether the annotation declares a usable return value: anything but
+/// `void` or `never`.
+fn annotation_declares_value(annotation: &TSTypeAnnotation<'_>) -> bool {
+    !matches!(
+        unparenthesized_type(&annotation.type_annotation),
+        TSType::TSVoidKeyword(_) | TSType::TSNeverKeyword(_)
+    )
+}
+
+/// Whether the declared return type already covers mixed literal return
+/// kinds: `any`/`unknown`, or a union containing `undefined` — directly or
+/// as the single type argument of `Promise<...>`.
+fn annotation_covers_mixed(annotation: &TSTypeAnnotation<'_>) -> bool {
+    type_covers_mixed(&annotation.type_annotation)
+}
+
+fn type_covers_mixed(ts_type: &TSType<'_>) -> bool {
+    match unparenthesized_type(ts_type) {
+        TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) => true,
+        TSType::TSUnionType(union) => union.types.iter().any(|member| {
+            matches!(
+                unparenthesized_type(member),
+                TSType::TSUndefinedKeyword(_)
+                    | TSType::TSAnyKeyword(_)
+                    | TSType::TSUnknownKeyword(_)
+            )
+        }),
+        TSType::TSTypeReference(reference) => {
+            promise_type_argument(reference).is_some_and(type_covers_mixed)
+        }
+        _ => false,
+    }
+}
+
+/// Whether the declared return type is or contains `Promise`/`PromiseLike`,
+/// so awaiting the call result is meaningful.
+fn annotation_maybe_thenable(annotation: &TSTypeAnnotation<'_>) -> bool {
+    type_maybe_thenable(&annotation.type_annotation)
+}
+
+fn type_maybe_thenable(ts_type: &TSType<'_>) -> bool {
+    match unparenthesized_type(ts_type) {
+        TSType::TSTypeReference(reference) => {
+            matches!(&reference.type_name, TSTypeName::IdentifierReference(identifier)
+                if matches!(identifier.name.as_str(), "Promise" | "PromiseLike"))
+        }
+        TSType::TSUnionType(union) => union.types.iter().any(type_maybe_thenable),
+        _ => false,
+    }
+}
+
+/// The single type argument of a `Promise<...>`/`PromiseLike<...>` reference.
+fn promise_type_argument<'a>(reference: &'a TSTypeReference<'a>) -> Option<&'a TSType<'a>> {
+    let TSTypeName::IdentifierReference(identifier) = &reference.type_name else {
+        return None;
+    };
+    if !matches!(identifier.name.as_str(), "Promise" | "PromiseLike") {
+        return None;
+    }
+    let arguments = reference.type_arguments.as_deref()?;
+    if arguments.params.len() != 1 {
+        return None;
+    }
+    arguments.params.first()
 }
 
 pub(crate) fn parameter_spans(params: &oxc_ast::ast::FormalParameters<'_>) -> Vec<(String, Span)> {
@@ -255,14 +416,13 @@ impl<'a> Visit<'a> for FunctionCensus {
                 .as_ref()
                 .map(|body| scan_body(&body.statements, parameter_spans(&function.params)))
                 .unwrap_or_default();
-            let facts = FnFacts {
-                r#async: function.r#async,
-                generator: function.generator,
-                selector_span: scan.selector_span(),
-                return_kinds: scan.return_kinds,
-                has_valued_return: scan.has_valued_return,
-                span: id.span(),
-            };
+            let facts = fn_facts(
+                function.r#async,
+                function.generator,
+                function.return_type.as_deref(),
+                scan,
+                id.span(),
+            );
             self.insert(id.name.to_string(), facts);
         }
         walk_declaration(self, it);
@@ -291,22 +451,24 @@ impl<'a> Visit<'a> for FunctionCensus {
                     } else {
                         let mut scan = BodyScan::default();
                         if let Some(expression) = arrow.body.as_expression() {
+                            scan.has_return = true;
                             scan.has_valued_return = true;
                             if let Some(kind) = literal_kind(expression) {
                                 scan.return_kinds.push(kind);
+                            } else {
+                                scan.has_opaque_return = true;
                             }
                         }
                         scan
                     };
-                    let facts = FnFacts {
-                        r#async: arrow.r#async,
+                    let facts = fn_facts(
+                        arrow.r#async,
                         // Arrow functions cannot be generators.
-                        generator: false,
-                        selector_span: scan.selector_span(),
-                        return_kinds: scan.return_kinds,
-                        has_valued_return: scan.has_valued_return,
-                        span: arrow.span,
-                    };
+                        false,
+                        arrow.return_type.as_deref(),
+                        scan,
+                        arrow.span,
+                    );
                     self.insert(name.to_string(), facts);
                 }
                 Expression::FunctionExpression(function) => {
@@ -315,14 +477,13 @@ impl<'a> Visit<'a> for FunctionCensus {
                         .as_ref()
                         .map(|body| scan_body(&body.statements, parameter_spans(&function.params)))
                         .unwrap_or_default();
-                    let facts = FnFacts {
-                        r#async: function.r#async,
-                        generator: function.generator,
-                        selector_span: scan.selector_span(),
-                        return_kinds: scan.return_kinds,
-                        has_valued_return: scan.has_valued_return,
-                        span: function.span,
-                    };
+                    let facts = fn_facts(
+                        function.r#async,
+                        function.generator,
+                        function.return_type.as_deref(),
+                        scan,
+                        function.span,
+                    );
                     self.insert(name.to_string(), facts);
                 }
                 _ => {}
