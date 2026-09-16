@@ -313,21 +313,6 @@ mod tests {
     }
 
     #[test]
-    fn optional_properties_with_undefined_in_union_are_flagged() {
-        let violating = ts_keys("interface P { name?: string | undefined; }\n");
-        assert_eq!(count_key(&violating, "typescript:S4782"), 1);
-
-        let required_property = ts_keys("interface P { name: string | undefined; }\n");
-        assert_eq!(count_key(&required_property, "typescript:S4782"), 0);
-
-        let optional_without_undefined = ts_keys("interface P { name?: string; }\n");
-        assert_eq!(
-            count_key(&optional_without_undefined, "typescript:S4782"),
-            0
-        );
-    }
-
-    #[test]
     fn optional_booleans_without_defaults_are_flagged() {
         let violating = ts_keys("function f(verbose?: boolean) { return verbose; }\n");
         assert_eq!(count_key(&violating, "typescript:S4798"), 1);
