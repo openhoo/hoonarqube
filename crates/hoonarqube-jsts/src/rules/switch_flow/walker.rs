@@ -545,13 +545,14 @@ impl<'a> SwitchFlowCollector<'a, '_> {
                 };
                 match self.type_decls.get(id.name.as_str()) {
                     Some(TypeDecl::Alias(target)) => self.exhaustible_members(target, depth + 1),
-                    Some(TypeDecl::Enum(body)) => Some(
-                        body.members
-                            .iter()
-                            .filter_map(|member| enum_member_name(&member.id))
-                            .map(|name| CaseKey::EnumMember(id.name.as_str(), name))
-                            .collect(),
-                    ),
+                    Some(TypeDecl::Enum(body)) => body
+                        .members
+                        .iter()
+                        .map(|member| {
+                            enum_member_name(&member.id)
+                                .map(|name| CaseKey::EnumMember(id.name.as_str(), name))
+                        })
+                        .collect(),
                     _ => None,
                 }
             }
