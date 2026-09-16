@@ -10,16 +10,18 @@ use crate::support::span_text;
 use crate::support::unparenthesized;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::CallExpression;
+use oxc_ast::ast::ComputedMemberExpression;
 use oxc_ast::ast::ExportDefaultDeclarationKind;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::ExpressionStatement;
 use oxc_ast::ast::Statement;
-use oxc_ast::ast::ThisExpression;
+use oxc_ast::ast::StaticMemberExpression;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_catch_clause;
 use oxc_ast_visit::walk::{
-    walk_call_expression, walk_expression_statement, walk_function, walk_function_body,
-    walk_program, walk_this_expression,
+    walk_call_expression, walk_class, walk_computed_member_expression, walk_expression_statement,
+    walk_function, walk_function_body, walk_program, walk_static_member_expression,
+    walk_ts_module_block,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -33,10 +35,21 @@ pub(crate) struct MiscCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
     /// Number of enclosing function boundaries (`S2990`).
     pub(crate) function_depth: u32,
+    /// Number of enclosing class bodies (`S2990`): `this` inside a class is
+    /// receiver-bound (field initializers, computed keys, static blocks).
+    pub(crate) class_depth: u32,
+    /// Number of enclosing `namespace`/`module` blocks (`S2990`): those
+    /// compile to function wrappers, so `this` inside is not the global `this`.
+    pub(crate) ts_module_depth: u32,
+    /// Whether the file is a `CommonJS` module (`S2990`): top-level `this` is
+    /// `module.exports`, not the global object.
+    pub(crate) commonjs_module: bool,
 }
 
 impl<'a> Visit<'a> for MiscCollector<'_> {
     fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
+        self.commonjs_module =
+            self.commonjs_module || super::s3798_s3798_program::program_is_commonjs(it);
         self.check_s3798_program(it);
         walk_program(self, it);
     }
@@ -46,9 +59,30 @@ impl<'a> Visit<'a> for MiscCollector<'_> {
         walk_expression_statement(self, it);
     }
 
-    fn visit_this_expression(&mut self, it: &ThisExpression) {
-        self.check_s2990_this_expression(it);
-        walk_this_expression(self, it);
+    fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
+        if let Expression::ThisExpression(this_expression) = &it.object {
+            self.check_s2990_this_expression(this_expression);
+        }
+        walk_static_member_expression(self, it);
+    }
+
+    fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
+        if let Expression::ThisExpression(this_expression) = &it.object {
+            self.check_s2990_this_expression(this_expression);
+        }
+        walk_computed_member_expression(self, it);
+    }
+
+    fn visit_class(&mut self, it: &oxc_ast::ast::Class<'a>) {
+        self.class_depth += 1;
+        walk_class(self, it);
+        self.class_depth -= 1;
+    }
+
+    fn visit_ts_module_block(&mut self, it: &oxc_ast::ast::TSModuleBlock<'a>) {
+        self.ts_module_depth += 1;
+        walk_ts_module_block(self, it);
+        self.ts_module_depth -= 1;
     }
 
     fn visit_function(&mut self, it: &oxc_ast::ast::Function<'a>, flags: ScopeFlags) {
@@ -816,23 +850,22 @@ const upload = multer(options);
 
     #[test]
     fn global_this_expressions_are_flagged() {
-        let top_level: &str = "console.log(this);
-";
+        let top_level: &str = "console.log(this.value);\n";
         assert_eq!(count_key(&js_keys(top_level), "javascript:S2990"), 1);
 
-        let in_function: &str = "function f() { return this; }\n";
+        let in_function: &str = "function f() { return this.value; }\n";
         assert_eq!(count_key(&js_keys(in_function), "javascript:S2990"), 0);
 
         // Arrows do not bind `this`: a block-bodied top-level arrow's `this`
         // is still the global/module `this` and must be flagged.
-        let in_top_level_arrow: &str = "const f = () => { console.log(this); }\n";
+        let in_top_level_arrow: &str = "const f = () => { console.log(this.value); }\n";
         assert_eq!(
             count_key(&js_keys(in_top_level_arrow), "javascript:S2990"),
             1
         );
 
         let in_nested_regular_function_of_arrow: &str =
-            "const f = () => { (function () { return this; }); }\n";
+            "const f = () => { (function () { return this.value; }); }\n";
         assert_eq!(
             count_key(
                 &js_keys(in_nested_regular_function_of_arrow),

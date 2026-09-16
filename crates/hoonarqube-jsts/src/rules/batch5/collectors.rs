@@ -4,6 +4,7 @@ use crate::rules::shared::argument_expression;
 use crate::rules::shared::duplicated_key_name;
 use crate::support::{IssueSink, RuleScope, member_object, unparenthesized};
 use oxc_ast::AstKind;
+use oxc_ast::ast::AccessorProperty;
 use oxc_ast::ast::ArrowFunctionExpression;
 use oxc_ast::ast::AssignmentExpression;
 use oxc_ast::ast::AwaitExpression;
@@ -14,6 +15,8 @@ use oxc_ast::ast::Class;
 use oxc_ast::ast::Declaration;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::FormalParameter;
+use oxc_ast::ast::FormalParameterKind;
+use oxc_ast::ast::FormalParameters;
 use oxc_ast::ast::Function;
 use oxc_ast::ast::FunctionBody;
 use oxc_ast::ast::IfStatement;
@@ -45,6 +48,7 @@ use oxc_ast::ast::TSTypeAliasDeclaration;
 use oxc_ast::ast::TSTypeAssertion;
 use oxc_ast::ast::TSTypeLiteral;
 use oxc_ast::ast::TSTypeParameter;
+use oxc_ast::ast::TSTypeReference;
 use oxc_ast::ast::TSUnionType;
 use oxc_ast::ast::TemplateLiteral;
 use oxc_ast::ast::TryStatement;
@@ -53,16 +57,16 @@ use oxc_ast::ast::UpdateExpression;
 use oxc_ast::ast::VariableDeclarator;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_arrow_function_expression, walk_assignment_expression, walk_await_expression,
-    walk_call_expression, walk_class, walk_formal_parameter, walk_function, walk_if_statement,
-    walk_import_declaration, walk_logical_expression, walk_member_expression,
-    walk_method_definition, walk_new_expression, walk_object_property, walk_property_definition,
-    walk_return_statement, walk_statement, walk_string_literal, walk_template_literal,
-    walk_try_statement, walk_ts_any_keyword, walk_ts_enum_declaration,
-    walk_ts_interface_declaration, walk_ts_intersection_type, walk_ts_namespace_declaration,
-    walk_ts_non_null_expression, walk_ts_type_alias_declaration, walk_ts_type_assertion,
-    walk_ts_type_literal, walk_ts_type_parameter, walk_ts_union_type, walk_unary_expression,
-    walk_update_expression, walk_variable_declarator,
+    walk_accessor_property, walk_arrow_function_expression, walk_assignment_expression,
+    walk_await_expression, walk_call_expression, walk_class, walk_formal_parameter,
+    walk_formal_parameters, walk_function, walk_if_statement, walk_import_declaration,
+    walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
+    walk_object_property, walk_property_definition, walk_return_statement, walk_statement,
+    walk_string_literal, walk_template_literal, walk_try_statement, walk_ts_any_keyword,
+    walk_ts_enum_declaration, walk_ts_interface_declaration, walk_ts_intersection_type,
+    walk_ts_namespace_declaration, walk_ts_non_null_expression, walk_ts_type_alias_declaration,
+    walk_ts_type_assertion, walk_ts_type_literal, walk_ts_type_parameter, walk_ts_type_reference,
+    walk_ts_union_type, walk_unary_expression, walk_update_expression, walk_variable_declarator,
 };
 use oxc_semantic::{Semantic, SymbolId};
 use oxc_span::{GetSpan, Span};
@@ -1075,25 +1079,11 @@ fn factory_for(module: SecurityModule, member: Option<&str>) -> Option<SecurityF
     }
 }
 
-pub(crate) fn type_is_primitive_keyword(ts_type: &TSType<'_>) -> bool {
-    matches!(
-        ts_type,
-        TSType::TSStringKeyword(_)
-            | TSType::TSNumberKeyword(_)
-            | TSType::TSBooleanKeyword(_)
-            | TSType::TSBigIntKeyword(_)
-            | TSType::TSSymbolKeyword(_)
-            | TSType::TSUndefinedKeyword(_)
-            | TSType::TSNullKeyword(_)
-            | TSType::TSVoidKeyword(_)
-            | TSType::TSNeverKeyword(_)
-            | TSType::TSIntrinsicKeyword(_)
-    )
-}
-
 pub(crate) struct TsTypeCollector<'s, 'index> {
     pub(crate) source: &'s str,
     pub(crate) sink: IssueSink<'index>,
+    /// Semantic model for scope-sensitive checks (`S4327`, `S4324`, `S4335`).
+    pub(crate) semantic: Option<&'s Semantic<'s>>,
     /// Enclosing class names, innermost last (`S6565`).
     pub(crate) class_stack: Vec<String>,
     /// Per-file state for `S7059` constructor execution tracking.
@@ -1105,6 +1095,22 @@ pub(crate) struct TsTypeCollector<'s, 'index> {
     pub(crate) try_guard_depth: u32,
     /// Bounded in-file `type` alias expansions for `S6571` subsumption.
     pub(crate) type_aliases: super::s4621_s6571_constituent_redundancy::TypeAliasTable,
+    /// Enclosing `type` alias declarations (`S4323` never counts composite
+    /// types inside alias declarations).
+    pub(crate) type_alias_depth: u32,
+    /// Normalized composite types to their occurrences (`S4323`).
+    pub(crate) s4323_usages: HashMap<String, Vec<(Span, bool)>>,
+    /// First-seen order of `s4323_usages` keys for deterministic emission.
+    pub(crate) s4323_order: Vec<String>,
+    /// Union spans exempt from `S4622` (alias right-hand sides and utility
+    /// type arguments).
+    pub(crate) s4622_exempt_union_spans: HashSet<Span>,
+    /// Intersection spans that are direct members of a union type (`S4335`
+    /// literal-union pattern).
+    pub(crate) s4335_union_member_spans: HashSet<Span>,
+    /// Enclosing `Signature`-kind parameter lists (`S4798` only inspects
+    /// parameters of function implementations).
+    pub(crate) signature_params_depth: u32,
 }
 
 impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
@@ -1112,20 +1118,40 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
         self.check_enum_members(it);
         walk_ts_enum_declaration(self, it);
     }
-
     fn visit_ts_union_type(&mut self, it: &TSUnionType<'a>) {
         self.check_s4622_ts_union_type(it);
+        self.check_s4323_composite_type(&it.types, it.span(), true);
+        for member in &it.types {
+            let mut member = member;
+            while let TSType::TSParenthesizedType(inner) = member {
+                member = &inner.type_annotation;
+            }
+            if let TSType::TSIntersectionType(intersection) = member {
+                self.s4335_union_member_spans.insert(intersection.span);
+            }
+        }
         walk_ts_union_type(self, it);
     }
 
     fn visit_ts_intersection_type(&mut self, it: &TSIntersectionType<'a>) {
         self.check_s4335_ts_intersection_type(it);
+        self.check_s4323_composite_type(&it.types, it.span(), false);
         walk_ts_intersection_type(self, it);
     }
 
     fn visit_ts_type_alias_declaration(&mut self, it: &TSTypeAliasDeclaration<'a>) {
         self.check_s6564_ts_type_alias_declaration(it);
+        if let TSType::TSUnionType(union) = &it.type_annotation {
+            self.s4622_exempt_union_spans.insert(union.span);
+        }
+        self.type_alias_depth += 1;
         walk_ts_type_alias_declaration(self, it);
+        self.type_alias_depth -= 1;
+    }
+
+    fn visit_ts_type_reference(&mut self, it: &TSTypeReference<'a>) {
+        self.record_s4622_utility_unions(it);
+        walk_ts_type_reference(self, it);
     }
 
     fn visit_ts_type_parameter(&mut self, it: &TSTypeParameter<'a>) {
@@ -1161,13 +1187,24 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
         walk_ts_any_keyword(self, it);
     }
 
+    fn visit_formal_parameters(&mut self, it: &FormalParameters<'a>) {
+        if it.kind == FormalParameterKind::Signature {
+            self.signature_params_depth += 1;
+            walk_formal_parameters(self, it);
+            self.signature_params_depth -= 1;
+        } else {
+            walk_formal_parameters(self, it);
+        }
+    }
+
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
         self.check_s4798_formal_parameter(it);
+        self.check_s3257_formal_parameter(it);
         walk_formal_parameter(self, it);
     }
 
     fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
-        self.check_s4323_ts_interface_declaration(it);
+        self.check_ts_interface_declaration(it);
         walk_ts_interface_declaration(self, it);
     }
 
@@ -1192,8 +1229,25 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         let constructor = flags.contains(ScopeFlags::Constructor) && self.constructor_depth > 0;
         self.s7059_enter_function(constructor);
+        // Bodiless functions (`TSDeclareFunction` overloads, `declare
+        // function`, `TSEmptyBodyFunctionExpression`) cannot carry parameter
+        // defaults — `S4798` treats their parameter lists as signatures.
+        let bodiless = it.body.is_none();
+        if bodiless {
+            self.signature_params_depth += 1;
+        }
         walk_function(self, it, flags);
+        if bodiless {
+            self.signature_params_depth -= 1;
+        }
         self.s7059_leave_function(constructor);
+        self.check_return_type_annotations(
+            &it.params,
+            it.return_type.as_deref(),
+            it.this_param.as_deref(),
+            it.body.as_deref(),
+            it.id.as_ref(),
+        );
     }
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
@@ -1204,26 +1258,10 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
         } else {
             walk_method_definition(self, it);
         }
-        self.check_return_type_annotations(
-            &it.value.params,
-            it.value.return_type.as_deref(),
-            it.value.this_param.as_deref(),
-            it.value.body.as_deref(),
-            it.value.id.as_ref(),
-        );
     }
 
     fn visit_statement(&mut self, it: &Statement<'a>) {
         let previous = self.s7059_enter_statement(it.span());
-        if let Statement::FunctionDeclaration(function) = it {
-            self.check_return_type_annotations(
-                &function.params,
-                function.return_type.as_deref(),
-                function.this_param.as_deref(),
-                function.body.as_deref(),
-                function.id.as_ref(),
-            );
-        }
         walk_statement(self, it);
         self.s7059_leave_statement(previous);
     }
@@ -1251,7 +1289,13 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
 
     fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
         self.check_s1444_property_definition(it);
+        self.check_s3257_property_definition(it);
         walk_property_definition(self, it);
+    }
+
+    fn visit_accessor_property(&mut self, it: &AccessorProperty<'a>) {
+        self.check_s3257_accessor_property(it);
+        walk_accessor_property(self, it);
     }
 
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
