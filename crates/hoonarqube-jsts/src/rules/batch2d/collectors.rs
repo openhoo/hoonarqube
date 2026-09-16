@@ -523,7 +523,11 @@ impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
             if !self.suppress_else_if_chain && !matches!(alternate, Statement::IfStatement(_)) {
                 self.check_keyword_line(it.consequent.span(), alternate.span(), "else");
             }
-            self.check_unbraced_indent(it.span(), alternate);
+            // An `else if` link is a nested statement, not an unbraced
+            // body: the chain's own braces decide its layout (`S3973`).
+            if !matches!(alternate, Statement::IfStatement(_)) {
+                self.check_unbraced_indent(it.span(), alternate);
+            }
         }
         self.check_unbraced_indent(it.span(), &it.consequent);
         self.visit_expression(&it.test);
