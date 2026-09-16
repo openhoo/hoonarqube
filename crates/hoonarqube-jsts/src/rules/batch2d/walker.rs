@@ -239,6 +239,57 @@ mod tests {
     }
 
     #[test]
+    fn export_default_functions_are_measured() {
+        // #561: `export default function` reaches the metrics collector via
+        // the module-declaration path, not Declaration::FunctionDeclaration.
+        let source = "export default function getExePath() {\n  const a = x ? 1 : 2;\n  const b = y ? 3 : 4;\n  const c = z ? 5 : 6;\n  if (a) { f(); } else if (b) { g(); } else { h(); }\n  if (p && q) { i(); }\n  try { j(); } catch (e) { k(); }\n  if (r || s) { l(); }\n  if (t) { m(); }\n  return a;\n}\nfunction plain() {\n  const a = x ? 1 : 2;\n  const b = y ? 3 : 4;\n  const c = z ? 5 : 6;\n  if (a) { f(); } else if (b) { g(); } else { h(); }\n  if (p && q) { i(); }\n  try { j(); } catch (e) { k(); }\n  if (r || s) { l(); }\n  if (t) { m(); }\n  return a;\n}\n";
+        let report = js_keys(source);
+        assert_eq!(count_key(&report, "javascript:S1541"), 2);
+
+        // S3801 applies to export-default functions too.
+        let mixed = js_keys("export default function f(c) {\n  if (c) {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&mixed, "javascript:S3801"), 1);
+    }
+
+    #[test]
+    fn terminal_switch_and_try_do_not_fall_off_the_end() {
+        // #535/#547: every switch path returning or throwing, or a
+        // try/catch whose arms all return, is a consistent function.
+        let exhaustive = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      return 'warning';\n    case 1:\n      return 'error';\n    default:\n      throw new Error('unknown');\n  }\n}\n",
+        );
+        assert_eq!(count_key(&exhaustive, "javascript:S3801"), 0);
+
+        let try_catch = js_keys(
+            "const has = (() => {\n  try {\n    return check('x');\n  } catch {\n    return false;\n  }\n});\n",
+        );
+        assert_eq!(count_key(&try_catch, "javascript:S3801"), 0);
+
+        // A switch without default, or whose last case falls through, still
+        // falls off the end.
+        let no_default = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      return 'warning';\n    case 1:\n      return 'error';\n  }\n}\n",
+        );
+        assert_eq!(count_key(&no_default, "javascript:S3801"), 1);
+
+        let falls_through = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      return 'warning';\n    default:\n      g();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&falls_through, "javascript:S3801"), 1);
+
+        // A case that breaks out of the switch completes it normally.
+        let breaking = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      break;\n    default:\n      return 'error';\n  }\n}\n",
+        );
+        assert_eq!(count_key(&breaking, "javascript:S3801"), 1);
+
+        // try/catch where only one arm returns still falls off the end.
+        let partial_try =
+            js_keys("function f() {\n  try {\n    return 1;\n  } catch {\n    g();\n  }\n}\n");
+        assert_eq!(count_key(&partial_try, "javascript:S3801"), 1);
+    }
+
+    #[test]
     fn switch_complexity_counts_case_clauses_only() {
         let source = |cases: usize| {
             let mut text = String::from("function f(x) {\n  switch (x) {\n");
