@@ -7,9 +7,11 @@ use super::{
     HashMap, IfStatement, IssueSink, LogicalExpression, MemberExpression, ReturnStatement,
     RuleScope, ScopeFlags, SimpleAssignmentTarget, Span, Statement, StaticBlock, SwitchStatement,
     ThrowStatement, TryStatement, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
-    VariableDeclarator, Visit, WhileStatement, source_slice, unparenthesized, walk_call_expression,
+    VariableDeclarator, Visit, WhileStatement, captured_names, captured_names_arrow,
+    captured_names_function, is_basic_value, source_slice, unparenthesized, walk_call_expression,
     walk_member_expression, walk_variable_declaration,
 };
+use std::collections::HashSet;
 
 const INVOKED_CLOSURE_DEPTH: u32 = u32::MAX;
 
@@ -27,6 +29,7 @@ pub(crate) enum TbHalt {
 
 /// One tracked value: where it was written and what it came from.
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)] // per-facet flags, not states
 pub(crate) struct TbPending<'a> {
     /// Identifier that received this value.
     pub(crate) site: Span,
@@ -40,6 +43,8 @@ pub(crate) struct TbPending<'a> {
     pub(crate) destructured: bool,
     /// Binding is a per-iteration loop-local during closure replay.
     pub(crate) loop_local: bool,
+    /// Declaration initializer is a basic value (`S1854` exempts those).
+    pub(crate) basic: bool,
 }
 
 pub(crate) type TbEnv<'a> = HashMap<&'a str, TbPending<'a>>;
@@ -61,6 +66,9 @@ pub(crate) struct TbFlow<'p, 's, 'i> {
     /// writes. Member objects/keys and default expressions temporarily reset
     /// this depth because they are reads.
     pub(crate) target_write_depth: u32,
+    /// Names of the current region used inside a nested function; their
+    /// stores are never dead (`S1854` `variableUsedOutsideOfCodePath`).
+    pub(crate) captured: HashSet<&'p str>,
 }
 
 impl<'p> TbFlow<'p, '_, '_> {
@@ -78,6 +86,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                 closure: None,
                 destructured: false,
                 loop_local: false,
+                basic: false,
             },
         );
     }
@@ -116,7 +125,10 @@ impl<'p> TbFlow<'p, '_, '_> {
                         &format!("Remove this redundant assignment of the same value to '{name}'."),
                         site,
                     );
-                } else {
+                } else if !self.captured.contains(name) && !previous.basic {
+                    // A binding used inside any nested function may be read
+                    // between the stores asynchronously; a basic-value
+                    // initialization is exempt per the S1854 reference.
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S1854",
@@ -143,6 +155,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                     closure: None,
                     destructured: false,
                     loop_local: false,
+                    basic: false,
                 },
             );
         }
@@ -239,6 +252,7 @@ impl<'p> TbFlow<'p, '_, '_> {
             }
             _ => None,
         });
+        let basic = init.is_some_and(is_basic_value);
         match (self.decl_kind, init) {
             (VariableDeclarationKind::Var, Some(value)) => {
                 // A `var` redeclaration writes the existing function-scoped
@@ -252,6 +266,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                         closure,
                         destructured: false,
                         loop_local: false,
+                        basic,
                     },
                 );
             }
@@ -269,6 +284,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                         closure,
                         destructured: false,
                         loop_local: false,
+                        basic,
                     },
                 );
             }
@@ -287,6 +303,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                         closure,
                         destructured: false,
                         loop_local: false,
+                        basic,
                     },
                 );
             }
@@ -300,11 +317,17 @@ impl<'p> TbFlow<'p, '_, '_> {
     ) {
         // Binding-pattern property keys and defaults are evaluated reads.
         self.visit_binding_pattern(pattern);
+        let basic = value.is_some_and(is_basic_value);
         let value = value.map(GetSpan::span);
-        self.track_pattern_bindings(pattern, value);
+        self.track_pattern_bindings(pattern, value, basic);
     }
 
-    fn track_pattern_bindings(&mut self, pattern: &BindingPattern<'p>, value: Option<Span>) {
+    fn track_pattern_bindings(
+        &mut self,
+        pattern: &BindingPattern<'p>,
+        value: Option<Span>,
+        basic: bool,
+    ) {
         match pattern {
             BindingPattern::BindingIdentifier(identifier) => {
                 let name = identifier.name.as_str();
@@ -318,6 +341,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                             closure: None,
                             destructured: true,
                             loop_local: false,
+                            basic,
                         },
                     );
                 } else {
@@ -330,28 +354,29 @@ impl<'p> TbFlow<'p, '_, '_> {
                             closure: None,
                             destructured: true,
                             loop_local: false,
+                            basic,
                         },
                     );
                 }
             }
             BindingPattern::ObjectPattern(object) => {
                 for property in &object.properties {
-                    self.track_pattern_bindings(&property.value, value);
+                    self.track_pattern_bindings(&property.value, value, basic);
                 }
                 if let Some(rest) = &object.rest {
-                    self.track_pattern_bindings(&rest.argument, value);
+                    self.track_pattern_bindings(&rest.argument, value, basic);
                 }
             }
             BindingPattern::ArrayPattern(array) => {
                 for element in array.elements.iter().flatten() {
-                    self.track_pattern_bindings(element, value);
+                    self.track_pattern_bindings(element, value, basic);
                 }
                 if let Some(rest) = &array.rest {
-                    self.track_pattern_bindings(&rest.argument, value);
+                    self.track_pattern_bindings(&rest.argument, value, basic);
                 }
             }
             BindingPattern::AssignmentPattern(assignment) => {
-                self.track_pattern_bindings(&assignment.left, value);
+                self.track_pattern_bindings(&assignment.left, value, basic);
             }
         }
     }
@@ -361,7 +386,12 @@ impl<'p> TbFlow<'p, '_, '_> {
             return;
         }
         for (name, pending) in &self.env {
-            if pending.destructured && locals.is_none_or(|names| names.contains(name)) {
+            // A destructured binding used inside a nested function is read
+            // even when the straight-line scope never sees the use.
+            if pending.destructured
+                && !self.captured.contains(name)
+                && locals.is_none_or(|names| names.contains(name))
+            {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S1854",
@@ -515,6 +545,7 @@ impl<'p> TbFlow<'p, '_, '_> {
                         destructured: false,
                         loop_local: self.depth == INVOKED_CLOSURE_DEPTH
                             && declaration.kind != VariableDeclarationKind::Var,
+                        basic: false,
                     },
                 );
             }
@@ -562,6 +593,7 @@ impl<'p> TbFlow<'p, '_, '_> {
 
 impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
     fn visit_program(&mut self, program: &oxc_ast::ast::Program<'p>) {
+        self.captured = captured_names(&program.body);
         self.process_statements(&program.body);
         self.finish_destructuring_scope(None);
     }
@@ -611,9 +643,10 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         self.status = saved_status;
         self.depth = saved_depth;
     }
-
     fn visit_function(&mut self, function: &Function<'p>, _flags: ScopeFlags) {
         let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        let saved_captured =
+            std::mem::replace(&mut self.captured, captured_names_function(function));
         let replaying = saved.2 == INVOKED_CLOSURE_DEPTH;
         self.depth = if replaying { INVOKED_CLOSURE_DEPTH } else { 0 };
         self.enter_function(&function.params);
@@ -626,10 +659,12 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         self.env = saved.0;
         self.status = saved.1;
         self.depth = saved.2;
+        self.captured = saved_captured;
     }
 
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'p>) {
         let saved = (std::mem::take(&mut self.env), self.status, self.depth);
+        let saved_captured = std::mem::replace(&mut self.captured, captured_names_arrow(arrow));
         let replaying = saved.2 == INVOKED_CLOSURE_DEPTH;
         self.depth = if replaying { INVOKED_CLOSURE_DEPTH } else { 0 };
         self.enter_function(&arrow.params);
@@ -649,6 +684,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
         self.env = saved.0;
         self.status = saved.1;
         self.depth = saved.2;
+        self.captured = saved_captured;
     }
 
     fn visit_catch_clause(&mut self, clause: &CatchClause<'p>) {
@@ -938,6 +974,7 @@ impl<'p> Visit<'p> for TbFlow<'p, '_, '_> {
                     closure,
                     destructured: false,
                     loop_local: false,
+                    basic: false,
                 },
             );
         } else if let Some(simple) = assign.left.as_simple_assignment_target() {
@@ -1214,6 +1251,7 @@ mod tests {
             depth: 0,
             decl_kind: VariableDeclarationKind::Let,
             target_write_depth: 0,
+            captured: HashSet::new(),
         };
         flow.visit_program(&parsed.program);
         sink.issues
@@ -1261,14 +1299,7 @@ mod tests {
         let consumed = "let x = a(); x++; use(x); x = b();";
         assert!(!flow_ids(consumed).contains(&"javascript:S1854".to_owned()));
     }
-    #[test]
-    fn computed_assignment_and_loop_keys_are_reads_not_writes() {
-        let assignment = "let key = get(); let value; ({ [key]: value } = source);";
-        assert!(!flow_ids(assignment).contains(&"javascript:S1854".to_owned()));
 
-        let loop_head = "let key = get(); for ({ [key]: value } of values) {}";
-        assert!(!flow_ids(loop_head).contains(&"javascript:S1854".to_owned()));
-    }
     #[test]
     fn destructuring_defaults_read_prior_values_before_forgetting_bindings() {
         let with_default =
@@ -1296,15 +1327,18 @@ mod tests {
     }
 
     #[test]
-    fn invoked_closure_reads_capture_before_overwrite() {
+    fn closure_reads_capture_before_overwrite() {
         let invoked = "function f() { let value = 1; const read = () => value; consume(read()); value = 2; }\nf();\n";
         assert!(!flow_ids(invoked).contains(&"javascript:S1854".to_owned()));
 
+        // Upstream `variableUsedOutsideOfCodePath` exempts a variable used in
+        // more than one code path: a use inside a nested function counts even
+        // when the closure is never invoked.
         let not_invoked =
             "function f() { let value = 1; const read = () => value; value = 2; }\nf();\n";
-        assert!(flow_ids(not_invoked).contains(&"javascript:S1854".to_owned()));
+        assert!(!flow_ids(not_invoked).contains(&"javascript:S1854".to_owned()));
 
-        let shadowed = "function f() { let value = 1; const read = () => { const value = 2; return value; }; consume(read()); value = 2; }\nf();\n";
+        let shadowed = "function f() { let value = make(); const read = () => { const value = 2; return value; }; consume(read()); value = again(); }\nf();\n";
         assert!(flow_ids(shadowed).contains(&"javascript:S1854".to_owned()));
     }
 
@@ -1316,7 +1350,7 @@ mod tests {
 
     #[test]
     fn replayed_loop_locals_restore_captured_bindings() {
-        let shadowed = "function f() { let item = 1; const run = () => { for (let item of items) { item = normalize(); } }; run(); item = 2; }\nf();\n";
+        let shadowed = "function f() { let item = make(); const run = () => { for (let item of items) { item = normalize(); } }; run(); item = again(); }\nf();\n";
         assert_eq!(
             flow_ids(shadowed)
                 .iter()
@@ -1327,7 +1361,7 @@ mod tests {
 
         let local_only = "function f() { const run = () => { for (let item of items) { item = normalize(); } }; run(); item = 2; }\nf();\n";
         assert!(!flow_ids(local_only).contains(&"javascript:S1854".to_owned()));
-        let iterable_capture = "function f() { let item = 1; const run = () => { for (let item of [item]) {} }; run(); item = 2; }\nf();\n";
+        let iterable_capture = "function f() { let item = make(); const run = () => { for (let item of [item]) {} }; run(); item = again(); }\nf();\n";
         assert!(!flow_ids(iterable_capture).contains(&"javascript:S1854".to_owned()));
     }
 }

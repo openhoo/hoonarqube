@@ -28,7 +28,6 @@ use oxc_ast::ast::AssignmentOperator;
 use oxc_ast::ast::BindingPattern;
 use oxc_ast::ast::ConditionalExpression;
 use oxc_ast::ast::Declaration;
-use oxc_ast::ast::DoWhileStatement;
 use oxc_ast::ast::ExportDeclaration;
 use oxc_ast::ast::ForInStatement;
 use oxc_ast::ast::ForOfStatement;
@@ -43,23 +42,21 @@ use oxc_ast::ast::UpdateExpression;
 use oxc_ast::ast::VariableDeclaration;
 use oxc_ast::ast::VariableDeclarationKind;
 use oxc_ast::ast::VariableDeclarator;
-use oxc_ast::ast::WhileStatement;
 use oxc_ast::ast::{
-    Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionBody, AssignmentTarget,
-    BinaryOperator, CallExpression, Class, Expression, FormalParameters, MemberExpression,
-    MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectPropertyKind,
-    PropertyDefinition, PropertyKey, RegExpLiteral, Statement, TSAccessibility,
+    Argument, ArrayExpression, ArrowFunctionBody, AssignmentTarget, BinaryOperator, CallExpression,
+    Class, Expression, FormalParameters, MemberExpression, MethodDefinition, MethodDefinitionKind,
+    NewExpression, ObjectExpression, ObjectPropertyKind, PropertyDefinition, PropertyKey,
+    RegExpLiteral, Statement, TSAccessibility,
 };
 use oxc_ast::ast::{
-    ArrayPattern, ExportNamedDeclaration, ImportDeclaration, ObjectPattern,
-    TSTypeParameterDeclaration, TSTypeParameterInstantiation,
+    ArrayPattern, ExportNamedDeclaration, ImportDeclaration, ImportDeclarationSpecifier,
+    ObjectPattern, TSEnumDeclaration, TSTypeParameterDeclaration, TSTypeParameterInstantiation,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_array_pattern;
 use oxc_ast_visit::walk::walk_assignment_expression;
 use oxc_ast_visit::walk::walk_conditional_expression;
 use oxc_ast_visit::walk::walk_declaration;
-use oxc_ast_visit::walk::walk_do_while_statement;
 use oxc_ast_visit::walk::walk_export_named_declaration;
 use oxc_ast_visit::walk::walk_for_in_statement;
 use oxc_ast_visit::walk::walk_for_of_statement;
@@ -68,12 +65,12 @@ use oxc_ast_visit::walk::walk_import_declaration;
 use oxc_ast_visit::walk::walk_jsx_attribute;
 use oxc_ast_visit::walk::walk_object_pattern;
 use oxc_ast_visit::walk::walk_switch_statement;
+use oxc_ast_visit::walk::walk_ts_enum_declaration;
 use oxc_ast_visit::walk::walk_ts_type_parameter_declaration;
 use oxc_ast_visit::walk::walk_ts_type_parameter_instantiation;
 use oxc_ast_visit::walk::walk_update_expression;
 use oxc_ast_visit::walk::walk_variable_declaration;
 use oxc_ast_visit::walk::walk_variable_declarator;
-use oxc_ast_visit::walk::walk_while_statement;
 use oxc_ast_visit::walk::{
     walk_array_expression, walk_call_expression, walk_class, walk_formal_parameters,
     walk_member_expression, walk_method_definition, walk_new_expression, walk_object_expression,
@@ -303,15 +300,30 @@ fn flag_grants_exclusive(expression: &Expression<'_>) -> bool {
     }
 }
 
-/// `(property name, property span)` when an assignment targets `this.X`.
+/// `(property name, property span)` when an assignment targets `this.X` or
+/// `this.#x`.
 fn this_member_target<'d>(target: &AssignmentTarget<'d>) -> Option<(&'d str, Span)> {
-    let AssignmentTarget::StaticMemberExpression(member) = target else {
-        return None;
-    };
-    if !matches!(&member.object, Expression::ThisExpression(_)) {
-        return None;
+    match target {
+        AssignmentTarget::StaticMemberExpression(member)
+            if matches!(&member.object, Expression::ThisExpression(_)) =>
+        {
+            Some((member.property.name.as_str(), member.property.span()))
+        }
+        AssignmentTarget::PrivateFieldExpression(member)
+            if matches!(&member.object, Expression::ThisExpression(_)) =>
+        {
+            Some((member.field.name.as_str(), member.field.span))
+        }
+        _ => None,
     }
-    Some((member.property.name.as_str(), member.property.span()))
+}
+
+/// Field name for `S2933`: static keys plus `#`-private identifiers.
+fn readonly_field_name<'d>(key: &PropertyKey<'d>) -> Option<&'d str> {
+    match key {
+        PropertyKey::PrivateIdentifier(identifier) => Some(identifier.name.as_str()),
+        key => duplicated_key_name(key),
+    }
 }
 
 fn is_static_regex_source(expression: &Expression<'_>) -> bool {
@@ -388,17 +400,12 @@ pub(crate) struct TrailingCommaListCollector<'p> {
 
 impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     fn visit_array_expression(&mut self, array: &ArrayExpression<'p>) {
-        let spread_last = matches!(
-            array.elements.last(),
-            Some(ArrayExpressionElement::SpreadElement(_))
-        );
-        let last = (!spread_last)
-            .then(|| array.elements.last())
-            .flatten()
-            .map(GetSpan::span);
+        // A trailing comma after a spread-last element (`[...x,]`) is legal
+        // and flagged like any other trailing comma; only call arguments keep
+        // the spread-last skip because `f(...a,)` does not parse.
         self.lists.push(TrailingCommaList {
             container: array.span,
-            last_element: last,
+            last_element: array.elements.last().map(GetSpan::span),
         });
         walk_array_expression(self, array);
     }
@@ -453,9 +460,17 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     }
 
     fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'p>) {
-        if let Some(specifiers) = &declaration.specifiers
-            && let (Some(first), Some(last)) = (specifiers.first(), specifiers.last())
-            && let Some(closer_end) = self.closing_brace_end(last.span().end)
+        // Only `import { ... }` specifiers sit inside braces; default and
+        // namespace specifiers never do, so scanning for `}` on a brace-less
+        // import would fabricate a phantom list out of a later construct.
+        let named: Vec<&ImportDeclarationSpecifier<'p>> = declaration
+            .specifiers
+            .iter()
+            .flatten()
+            .filter(|specifier| matches!(specifier, ImportDeclarationSpecifier::ImportSpecifier(_)))
+            .collect();
+        if let (Some(first), Some(last)) = (named.first(), named.last())
+            && let Some(closer_end) = self.closing_brace_end(last.span().end, declaration.span.end)
         {
             self.lists.push(TrailingCommaList {
                 container: Span::new(first.span().start, closer_end),
@@ -469,7 +484,7 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
         if let (Some(first), Some(last)) = (
             declaration.specifiers.first(),
             declaration.specifiers.last(),
-        ) && let Some(closer_end) = self.closing_brace_end(last.span().end)
+        ) && let Some(closer_end) = self.closing_brace_end(last.span().end, declaration.span.end)
         {
             self.lists.push(TrailingCommaList {
                 container: Span::new(first.span().start, closer_end),
@@ -477,6 +492,14 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
             });
         }
         walk_export_named_declaration(self, declaration);
+    }
+
+    fn visit_ts_enum_declaration(&mut self, declaration: &TSEnumDeclaration<'p>) {
+        self.lists.push(TrailingCommaList {
+            container: declaration.body.span,
+            last_element: declaration.body.members.last().map(GetSpan::span),
+        });
+        walk_ts_enum_declaration(self, declaration);
     }
 
     fn visit_ts_type_parameter_declaration(
@@ -512,10 +535,11 @@ impl<'p> TrailingCommaListCollector<'p> {
         }
     }
 
-    /// Offset one past the first `}` at or after `from`. Nothing but
-    /// whitespace or comments can legally precede the list-closing brace.
-    fn closing_brace_end(&self, from: u32) -> Option<u32> {
-        let rest = self.source.get(from as usize..)?;
+    /// Offset one past the first `}` in `source[from..end]`. Nothing but
+    /// whitespace or comments can legally precede the list-closing brace, and
+    /// the bound keeps the scan inside the declaration's own span.
+    fn closing_brace_end(&self, from: u32, end: u32) -> Option<u32> {
+        let rest = self.source.get(from as usize..end as usize)?;
         let index = rest.iter().position(|byte| *byte == b'}')?;
         let offset = u32::try_from(index).ok()?;
         Some(from + offset + 1)
@@ -580,15 +604,9 @@ impl<'a> Visit<'a> for ConstantConditionCollector {
         walk_if_statement(self, node);
     }
 
-    fn visit_while_statement(&mut self, node: &WhileStatement<'a>) {
-        self.note_test(&node.test);
-        walk_while_statement(self, node);
-    }
-
-    fn visit_do_while_statement(&mut self, node: &DoWhileStatement<'a>) {
-        self.note_test(&node.test);
-        walk_do_while_statement(self, node);
-    }
+    // Literal loop conditions (`while (true)`, `do {} while (false)`) are the
+    // idiomatic infinite-loop shape; SonarJS S2589 only checks `if` tests and
+    // never flags loop heads, so no `visit_*_statement` hooks exist for them.
 
     fn visit_conditional_expression(&mut self, node: &ConditionalExpression<'a>) {
         self.note_test(&node.test);
@@ -858,14 +876,17 @@ impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
         walk_class(self, class);
         let fields = self.stack.pop().unwrap_or_default();
         let class_writes = &self.writes[write_start..];
-        for (field_name, field_span) in fields {
+        for (field_name, field_span, initialized) in fields {
             let field_writes: Vec<_> = class_writes
                 .iter()
                 .filter(|(name, _, _)| *name == field_name)
                 .collect();
-            let ctor_only =
-                !field_writes.is_empty() && field_writes.iter().all(|(_, _, in_ctor)| *in_ctor);
-            if ctor_only {
+            // `prefer-readonly`: every write must happen at the declaration
+            // initializer or inside the constructor. A field needs at least
+            // one such write site — a never-written field stays silent.
+            let readonly_candidate = (initialized || !field_writes.is_empty())
+                && field_writes.iter().all(|(_, _, in_ctor)| *in_ctor);
+            if readonly_candidate {
                 self.findings.push(field_span);
             }
         }
@@ -873,14 +894,19 @@ impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
     }
 
     fn visit_property_definition(&mut self, definition: &PropertyDefinition<'p>) {
-        if !definition.r#static
+        // `prefer-readonly` only ever considers private fields: the `private`
+        // modifier or a `#`-private name.
+        let private = definition.accessibility == Some(TSAccessibility::Private)
+            || matches!(&definition.key, PropertyKey::PrivateIdentifier(_));
+        if private
+            && !definition.r#static
             && !definition.readonly
             && !definition.computed
-            && definition.value.is_none()
-            && let Some(name) = duplicated_key_name(&definition.key)
+            && !definition.declare
+            && let Some(name) = readonly_field_name(&definition.key)
             && let Some(fields) = self.stack.last_mut()
         {
-            fields.push((name, definition.key.span()));
+            fields.push((name, definition.key.span(), definition.value.is_some()));
         }
         walk_property_definition(self, definition);
     }
@@ -900,12 +926,19 @@ impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
         }
         walk_assignment_expression(self, assign);
     }
-
     fn visit_update_expression(&mut self, update: &UpdateExpression<'p>) {
-        if let SimpleAssignmentTarget::StaticMemberExpression(member) = &update.argument
-            && matches!(&member.object, Expression::ThisExpression(_))
-        {
-            self.note_this_write(member.property.name.as_str(), member.property.span());
+        match &update.argument {
+            SimpleAssignmentTarget::StaticMemberExpression(member)
+                if matches!(&member.object, Expression::ThisExpression(_)) =>
+            {
+                self.note_this_write(member.property.name.as_str(), member.property.span());
+            }
+            SimpleAssignmentTarget::PrivateFieldExpression(member)
+                if matches!(&member.object, Expression::ThisExpression(_)) =>
+            {
+                self.note_this_write(member.field.name.as_str(), member.field.span);
+            }
+            _ => {}
         }
         walk_update_expression(self, update);
     }
