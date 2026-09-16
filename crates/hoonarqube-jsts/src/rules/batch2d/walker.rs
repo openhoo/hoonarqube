@@ -379,6 +379,20 @@ mod tests {
     }
 
     #[test]
+    fn braced_else_if_links_are_not_unbraced_bodies() {
+        // #515/#554: an `else if` link is a nested statement, not an
+        // unbraced body — braced chains never mislead by indentation.
+        let chain = js_keys(
+            "function f(v) {\n  if (v <= 1) {\n    return 1;\n  }\n  else if (v <= 2) {\n    return 2;\n  }\n  else if (v <= 3) {\n    return 3;\n  }\n  else {\n    return 4;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&chain, "javascript:S3973"), 0);
+
+        // A genuinely misleading unbraced `else` body still flags.
+        let misleading = js_keys("function f(v) {\n  if (v) {\n    a();\n  }\n  else\n  b();\n}\n");
+        assert_eq!(count_key(&misleading, "javascript:S3973"), 1);
+    }
+
+    #[test]
     fn unbraced_bodies_must_be_indented_deeper() {
         let flagged = js_keys("function f() {\n  while (a)\n  b();\n}\n");
         assert_eq!(count_key(&flagged, "javascript:S3973"), 1);
