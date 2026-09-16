@@ -173,4 +173,29 @@ mod tests {
         );
         assert_eq!(count_key(&default_arrow, "javascript:S6478"), 1);
     }
+
+    #[test]
+    fn s6478_ignores_null_returning_nested_functions() {
+        // #521/#549: `return null` is not JSX — a nested function returning
+        // null inside a null-returning function is not a component.
+        let findings = ts_keys(
+            "function outer(members: readonly string[]): string[] | null {\n  function resolveUnionKindChecks(ms: readonly string[]): string[] | null {\n    if (ms.length === 0) { return null; }\n    return ms.map(m => m);\n  }\n  if (members.length === 0) { return null; }\n  return resolveUnionKindChecks(members);\n}\nexport { outer };\n",
+        );
+        assert_eq!(count_key(&findings, "typescript:S6478"), 0);
+
+        let js = js_keys(
+            "function createConnection(reader, writer) {\n  function undefinedToNull(param) {\n    if (param === undefined) { return null; }\n    return param;\n  }\n  function isNamedParam(param) {\n    return param !== undefined && param !== null;\n  }\n  return { undefinedToNull, isNamedParam };\n}\n",
+        );
+        assert_eq!(count_key(&js, "javascript:S6478"), 0);
+    }
+
+    #[test]
+    fn s6478_null_returning_parent_still_flags_jsx_child() {
+        // A component may legitimately return null; a JSX-returning nested
+        // function inside it is still defined during render.
+        let findings = jsx_keys(
+            "function Outer() {\n  function Inner() {\n    return <span/>;\n  }\n  return null;\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S6478"), 1);
+    }
 }

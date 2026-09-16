@@ -1,5 +1,5 @@
 // Residual rule machinery for 'react_jsx' (extracted from lib.rs).
-use crate::rules::react_jsx::walker::{JsxOrNullScanner, body_returns_jsx};
+use crate::rules::react_jsx::walker::{JsxOrNullScanner, body_returns_jsx_mode};
 use oxc_ast::ast::{ArrowFunctionBody, Expression};
 use oxc_ast_visit::Visit;
 
@@ -376,22 +376,27 @@ pub(crate) const REACT_DOM_ATTRIBUTES: &[&str] = &[
     "zoomAndPan",
 ];
 
-/// Whether a function-like expression body returns JSX or null somewhere.
-pub(crate) fn expression_returns_jsx(expression: &Expression<'_>) -> Option<bool> {
+/// Whether a function-like expression body returns JSX (`strict`) or
+/// JSX-or-null somewhere.
+pub(crate) fn expression_returns_jsx(expression: &Expression<'_>, strict: bool) -> Option<bool> {
     match expression {
         Expression::ArrowFunctionExpression(arrow) => match &arrow.body {
-            ArrowFunctionBody::FunctionBody(body) => Some(body_returns_jsx(body)),
+            ArrowFunctionBody::FunctionBody(body) => Some(body_returns_jsx_mode(body, strict)),
             arrow_body => {
-                let mut scanner = JsxOrNullScanner::default();
+                let mut scanner = JsxOrNullScanner {
+                    strict,
+                    ..JsxOrNullScanner::default()
+                };
                 if let Some(expression) = arrow_body.as_expression() {
                     scanner.visit_expression(expression);
                 }
                 Some(scanner.found)
             }
         },
-        Expression::FunctionExpression(function) => {
-            function.body.as_ref().map(|body| body_returns_jsx(body))
-        }
+        Expression::FunctionExpression(function) => function
+            .body
+            .as_ref()
+            .map(|body| body_returns_jsx_mode(body, strict)),
         _ => None,
     }
 }
