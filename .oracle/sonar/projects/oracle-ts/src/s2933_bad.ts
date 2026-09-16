@@ -1,5 +1,5 @@
 class Profile {
-  name;
+  private name;
   constructor(value: string) {
     this.name = value;
   }
