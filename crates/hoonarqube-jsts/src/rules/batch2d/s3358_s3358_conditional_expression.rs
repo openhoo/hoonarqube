@@ -7,6 +7,7 @@ use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_expression;
 use oxc_span::GetSpan;
 use oxc_span::Span;
+use oxc_syntax::scope::ScopeFlags;
 
 /// Finds the first nested `ConditionalExpression` inside a ternary branch
 /// (`S3358`). The reference listener is `ConditionalExpression
@@ -39,6 +40,10 @@ impl<'a> Visit<'a> for NestedTernaryScanner {
     }
 
     fn visit_jsx_expression_container(&mut self, _it: &oxc_ast::ast::JSXExpressionContainer<'a>) {}
+
+    /// Function boundaries inside class expressions and similar wrappers
+    /// break the nesting just like function expressions do.
+    fn visit_function(&mut self, _it: &oxc_ast::ast::Function<'a>, _flags: ScopeFlags) {}
 }
 
 // Generated per-rule checks (moved out of traversal overrides).
