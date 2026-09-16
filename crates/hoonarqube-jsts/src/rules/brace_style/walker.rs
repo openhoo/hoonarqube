@@ -5,12 +5,19 @@ use crate::support::{
     IssueSink, LineIndex, RuleScope, next_non_trivia_offset, previous_non_trivia_offset, to_u32,
 };
 use hoonarqube_ir::Issue;
-use oxc_ast::ast::{BlockStatement, ClassBody, FunctionBody, SwitchStatement};
+use oxc_ast::ast::{
+    BlockStatement, ClassBody, DoWhileStatement, ForInStatement, ForOfStatement, ForStatement,
+    FunctionBody, IfStatement, Statement, SwitchStatement, TryStatement, WhileStatement,
+    WithStatement,
+};
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_block_statement, walk_class_body, walk_function_body, walk_switch_statement,
+    walk_block_statement, walk_class_body, walk_do_while_statement, walk_for_in_statement,
+    walk_for_of_statement, walk_for_statement, walk_function_body, walk_if_statement,
+    walk_switch_statement, walk_try_statement, walk_while_statement, walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
+use std::collections::HashSet;
 
 fn check_brace_style(
     program: &oxc_ast::ast::Program<'_>,
@@ -25,6 +32,7 @@ fn check_brace_style(
             issues: Vec::new(),
         },
         source,
+        controlled_blocks: HashSet::new(),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -35,6 +43,11 @@ fn check_brace_style(
 struct BraceStyleCollector<'a, 'index> {
     sink: IssueSink<'index>,
     source: &'a str,
+    /// Span starts of `BlockStatement`s that are the body of a controlling
+    /// statement (`if`/`for`/`while`/`do`/`try`/`catch`/`with`). Bare
+    /// scoping blocks have no controlling statement and are never checked,
+    /// matching the reference rule.
+    controlled_blocks: HashSet<u32>,
 }
 
 impl BraceStyleCollector<'_, '_> {
@@ -70,12 +83,70 @@ impl BraceStyleCollector<'_, '_> {
         let offset = next_non_trivia_offset(self.source, i)?;
         (bytes.get(offset) == Some(&b'{')).then_some(to_u32(offset))
     }
-}
 
+    /// Records `statement` when it is a block body so the shared
+    /// `visit_block_statement` hook can check its opening brace.
+    fn mark_controlled_block(&mut self, statement: &Statement<'_>) {
+        if let Statement::BlockStatement(block) = statement {
+            self.controlled_blocks.insert(block.span.start);
+        }
+    }
+}
 impl<'a> Visit<'a> for BraceStyleCollector<'a, '_> {
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
-        self.check_opening_brace(it.span.start);
+        if self.controlled_blocks.contains(&it.span.start) {
+            self.check_opening_brace(it.span.start);
+        }
         walk_block_statement(self, it);
+    }
+
+    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
+        self.mark_controlled_block(&it.consequent);
+        if let Some(alternate) = &it.alternate {
+            self.mark_controlled_block(alternate);
+        }
+        walk_if_statement(self, it);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.mark_controlled_block(&it.body);
+        walk_for_statement(self, it);
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.mark_controlled_block(&it.body);
+        walk_for_in_statement(self, it);
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.mark_controlled_block(&it.body);
+        walk_for_of_statement(self, it);
+    }
+
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.mark_controlled_block(&it.body);
+        walk_while_statement(self, it);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.mark_controlled_block(&it.body);
+        walk_do_while_statement(self, it);
+    }
+
+    fn visit_with_statement(&mut self, it: &WithStatement<'a>) {
+        self.mark_controlled_block(&it.body);
+        walk_with_statement(self, it);
+    }
+
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        self.controlled_blocks.insert(it.block.span.start);
+        if let Some(handler) = &it.handler {
+            self.controlled_blocks.insert(handler.body.span.start);
+        }
+        if let Some(finalizer) = &it.finalizer {
+            self.controlled_blocks.insert(finalizer.span.start);
+        }
+        walk_try_statement(self, it);
     }
 
     fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
@@ -179,5 +250,18 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn s1105_bare_scoping_blocks_have_no_controlling_statement() {
+        // Regression of #517: a standalone block used for lexical scoping
+        // has no controlling statement for the brace to share a line with,
+        // so the reference rule never flags it.
+        let bare = "function scan() {\n    let pos = 0;\n    {\n        const escapedValue = pos + 1;\n        pos = escapedValue;\n    }\n    return pos;\n}\n";
+        assert_eq!(count_key(&js_keys(bare), "javascript:S1105"), 0);
+
+        // Control-statement bodies still flag on a misplaced brace.
+        let flagged = js_keys("if (a)\n{\n  b();\n}\nwhile (a)\n{\n  c();\n}\n");
+        assert_eq!(count_key(&flagged, "javascript:S1105"), 2);
     }
 }
