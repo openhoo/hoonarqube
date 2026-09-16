@@ -532,6 +532,23 @@ mod tests {
     }
 
     #[test]
+    fn deeply_nested_ternaries_flag_unless_nesting_breaks() {
+        // #481: a ternary nested inside an operand of a branch is still
+        // nested — the reference listener matches any descendant.
+        let arithmetic = findings(
+            "function f(digitChar: number): number {\n  const digit = digitChar <= 57\n    ? digitChar - 48\n    : 10 + digitChar - (digitChar <= 70 ? 55 : 87);\n  return digit;\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&arithmetic, "typescript:S3358"), 1);
+
+        // Arrays, objects, functions, and arrows break the nesting.
+        let broken = js_keys(
+            "const a = cond ? [x ? 1 : 2] : 3;\nconst b = cond ? { v: y ? 1 : 2 } : 3;\nconst c = cond ? (() => z ? 1 : 2)() : 3;\nconst d = cond ? function () { return w ? 1 : 2; } : 3;\n",
+        );
+        assert_eq!(count_key(&broken, "javascript:S3358"), 0);
+    }
+
+    #[test]
     fn shorthand_property_rules_flag_order_and_redundancy() {
         // `{ a: a }` should be shorthand.
         let redundant = js_keys("const o = { a: a };\n");
