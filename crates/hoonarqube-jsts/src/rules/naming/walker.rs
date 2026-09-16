@@ -193,7 +193,14 @@ impl<'a> StringStyleCollector<'a, '_> {
             return;
         };
         let disallowed = if self.single_quotes { '"' } else { '\'' };
-        if delimiter != disallowed || escapes_delimiter(raw, delimiter) {
+        // `avoidEscape` (the reference default): a string containing the
+        // preferred quote character stays silent — switching delimiters
+        // would force escaping.
+        let preferred_char = if self.single_quotes { '\'' } else { '"' };
+        if delimiter != disallowed
+            || escapes_delimiter(raw, delimiter)
+            || raw.contains(preferred_char)
+        {
             return;
         }
         let preferred = if self.single_quotes {
@@ -645,22 +652,8 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
         walk_formal_parameter(self, it);
     }
 
-    fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
-        if !it.computed
-            && let Some(name) = property_key_name(&it.key)
-        {
-            Self::check_name(
-                &mut self.sink,
-                "S117",
-                "property",
-                name,
-                it.key.span(),
-                &self.rules.format_variables,
-                &self.parsed_formats.variables,
-            );
-        }
-        walk_object_property(self, it);
-    }
+    // Object-literal property keys are out of the reference rule's scope:
+    // `S117` covers local variables and parameters only.
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
         if let Some(name) = constructor_name(it)
@@ -1024,5 +1017,60 @@ log(item);
     fn s2430_uppercase_constructors_pass_explicitly() {
         let clean = js_keys("new Upper();\nnew lib.Bar();\n");
         assert_eq!(count_key(&clean, "javascript:S2430"), 0);
+    }
+
+    #[test]
+    fn s117_leaves_object_literal_property_keys_unchecked() {
+        // Regression of #508: the reference rule applies the variable-name
+        // format to local variables and parameters only; object-literal
+        // property keys are out of scope.
+        let source = "\
+const params = {
+    _vs_textDocument: 'doc',
+    _vs_position: 0,
+    _vs_ch: 'x',
+};
+";
+        assert_eq!(count_key(&ts_keys(source), "typescript:S117"), 0);
+
+        let flagged = ts_keys("const _vs_bad = 1;\nfunction f(_vs_param) {}\n");
+        assert_eq!(count_key(&flagged, "typescript:S117"), 2);
+    }
+
+    #[test]
+    fn s1441_avoid_escape_exempts_strings_containing_the_preferred_quote() {
+        // Regression of #502/#551: under single-quote mode a double-quoted
+        // string containing a single quote stays silent (the reference
+        // `avoidEscape` default); the same holds in double-quote mode.
+        let report =
+            js("const a = \"'\";\nconst b = \"Don't Show Again\";\nconst c = \"plain\";\n");
+        let quotes: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|found| found.rule_key == "javascript:S1441")
+            .collect();
+        assert_eq!(
+            quotes,
+            vec![&issue(
+                "javascript:S1441",
+                "Strings must use singlequote.",
+                (3, 10),
+                (3, 17),
+            )]
+        );
+
+        // A non-quote escape does not trigger the exemption.
+        let escaped = js_keys("const e = \"a\\nb\";\n");
+        assert_eq!(count_key(&escaped, "javascript:S1441"), 1);
+
+        let double = RuleOptions {
+            single_quotes: false,
+            ..RuleOptions::default()
+        };
+        let relaxed = keys_with_rules(
+            "const a = 'has \"double\" inside';\nconst b = 'plain';\n",
+            &double,
+        );
+        assert_eq!(count_key(&relaxed, "javascript:S1441"), 1);
     }
 }
