@@ -100,6 +100,7 @@ fn check_security_hotspot_rules(
         script_bindings: std::collections::HashMap::new(),
         function_depth: 0,
         signale_unprotected: std::collections::HashSet::new(),
+        argv_entrypoint_spans: std::collections::HashSet::new(),
     };
     collector.visit_program(program);
     collector.finish_security();

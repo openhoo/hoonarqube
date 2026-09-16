@@ -1468,6 +1468,9 @@ pub(crate) struct SecurityHotspotCollector<'s, 'index> {
     pub(crate) script_bindings: HashMap<SymbolId, ScriptBinding>,
     pub(crate) signale_unprotected: HashSet<SymbolId>,
     pub(crate) function_depth: usize,
+    /// Inner `process.argv` spans of `process.argv[0|1]` reads (`S4823`
+    /// entrypoint exemption).
+    pub(crate) argv_entrypoint_spans: HashSet<(u32, u32)>,
 }
 
 /// Modules whose imports `S4818` flags as raw socket surfaces.
@@ -1544,6 +1547,7 @@ impl<'a> Visit<'a> for SecurityHotspotCollector<'_, '_> {
     }
 
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
+        self.note_argv_entrypoint_read(it);
         self.check_sensitive_permission(it);
         self.check_command_line_arguments(it);
         self.check_standard_input_reads(it);
