@@ -11465,6 +11465,35 @@
       "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
     },
     {
+      "external_key": "javascript:S7763",
+      "language": "js",
+      "repository": "javascript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention",
+        "es2015",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "8d1e4ce0bf820d4be7793e6e9888cd57a9db9f694523ce17172a52723f0f2f71"
+    },
+    {
       "external_key": "javascript:S7764",
       "language": "js",
       "repository": "javascript",
@@ -11550,6 +11579,38 @@
       "education_principles": [],
       "classification": "community-base",
       "provenance_id": "283287ef4a7eb7060053092a9a3e01b84dbf8d6c71434d3a1dc3b34dd849ceda"
+    },
+    {
+      "external_key": "javascript:S7767",
+      "language": "js",
+      "repository": "javascript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        },
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "es2015",
+        "confusing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "8d1e4ce0bf820d4be7793e6e9888cd57a9db9f694523ce17172a52723f0f2f71"
     },
     {
       "external_key": "javascript:S7770",
@@ -12091,6 +12152,26 @@
       ],
       "selected_keys_sha256": "1b41e226117a86aa826e9f7b0c31bcf3e5d93c8f09fcbf8de28afefbc34e6efa",
       "selected_rows_sha256": "acd5100f515f0b49d0ba1e90f800ee878580f89a17cbde0093589358ca152940"
+    },
+    {
+      "capture_sha256": "8d1e4ce0bf820d4be7793e6e9888cd57a9db9f694523ce17172a52723f0f2f71",
+      "captured_at_utc": "2026-09-16T15:08:36.096587965Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 514,
+      "page_count": 2,
+      "query_sha256": "84e5065f7c57a49d4e86f3c9093938500febfb63a3261daec17a814b9c719252",
+      "pages_sha256": "fe5af6a5b6d3b80879696657c66d9bb121acbaa8335f69377a322b3dafca8d9f",
+      "keys_sha256": "13d0300dbf526da95b5a80963ba184a92f57f969214de4f6526c5aa58f140c30",
+      "shows_sha256": "b6890bc0863b7bf51384451f6921a39895bfd651eafb427449cb1928a90e5949",
+      "selected_keys": [
+        "javascript:S7763",
+        "javascript:S7767"
+      ],
+      "selected_keys_sha256": "91cc62cdb9ea4059979f1adfbb63f9138af6bbfdd521db5d34289138c6629ebd",
+      "selected_rows_sha256": "20144e7e0721c2b08e0e836f1b7a5839e3a2fab39717f7be154eea01150a7442"
     },
     {
       "capture_sha256": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a",

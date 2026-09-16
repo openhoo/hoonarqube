@@ -1,17 +1,20 @@
 // Family walker for 'embedded_effects' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, LineIndex, RuleScope, assignment_target_name, property_key_name};
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, assignment_target_name, property_key_name, unparenthesized,
+};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    Expression, ExpressionStatement, ForStatement, MethodDefinition, MethodDefinitionKind,
-    ObjectProperty, PropertyKind, UnaryOperator, UpdateOperator,
+    BinaryOperator, Expression, ExpressionStatement, ForStatement, MethodDefinition,
+    MethodDefinitionKind, ObjectProperty, PropertyKind, UnaryOperator, UpdateOperator,
 };
+use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_expression, walk_expression_statement, walk_method_definition, walk_object_property,
 };
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, Span};
 use std::collections::HashSet;
 
 fn check_embedded_effects(
@@ -28,7 +31,7 @@ fn check_embedded_effects(
             issues: Vec::new(),
         },
         source,
-        expr_depth: 0,
+        ancestors: Vec::new(),
         accessors,
     };
     collector.visit_program(program);
@@ -71,22 +74,128 @@ fn collect_accessor_names(program: &oxc_ast::ast::Program<'_>) -> HashSet<String
 /// `S881` (standalone `++`/`--`), `S1121` (standalone assignments), and
 /// `S905` (pointless expression statements) in one traversal.
 ///
-/// Updates and assignments are only tolerated as the direct root expression
-/// of an `ExpressionStatement` or in a `for` header init/update slot; the
-/// `expr_depth` counter distinguishes those roots from deeper embedding.
-struct EmbeddedEffectCollector<'source, 'index> {
+/// Updates and assignments are only tolerated in the positions upstream
+/// exempts: as an `ExpressionStatement` root, in `for` header init/update
+/// slots, or under the parent shapes `S1121` accepts (assignment chains,
+/// relational operands, sequence members, declarator initializers, arrow
+/// bodies, logical right sides, and `while`/`do-while` tests). The
+/// `ancestors` stack supplies each expression's parent node kind;
+/// `ParenthesizedExpression` links are transparent like upstream's AST.
+struct EmbeddedEffectCollector<'source, 'index, 'a> {
     sink: IssueSink<'index>,
     source: &'source str,
-    /// Distance of the current expression below its statement root: `1` for
-    /// the root itself, increasing per nesting level, `0` outside
-    /// statement-root contexts (initializers, conditions, arguments, ...).
-    expr_depth: u32,
+    /// Innermost-last stack of enclosing `AstKind` nodes, maintained by
+    /// `enter_node`/`leave_node`.
+    ancestors: Vec<AstKind<'a>>,
     /// Accessor names declared anywhere in this file (`get`/`set`); reads
     /// of these names may invoke user code.
     accessors: HashSet<String>,
 }
 
-impl<'a> Visit<'a> for EmbeddedEffectCollector<'_, '_> {
+impl EmbeddedEffectCollector<'_, '_, '_> {
+    /// The `back`-th enclosing `AstKind`, skipping `ParenthesizedExpression`
+    /// links (upstream's AST has no such node, so parentheses never shield
+    /// an expression from its real parent).
+    fn ancestor(&self, back: usize) -> Option<AstKind<'_>> {
+        self.ancestors
+            .iter()
+            .rev()
+            .filter(|kind| !matches!(kind, AstKind::ParenthesizedExpression(_)))
+            .nth(back)
+            .copied()
+    }
+
+    /// `S881`: whether this `++`/`--` sits in an exempt position — an
+    /// `ExpressionStatement` root, a `for` init/update slot, or a member of
+    /// the sequence expression forming the `for` update clause.
+    fn update_exempt(&self, span: Span) -> bool {
+        match self.ancestor(0) {
+            Some(AstKind::ExpressionStatement(_)) => true,
+            Some(AstKind::ForStatement(for_statement)) => for_header_slot(for_statement, span),
+            Some(AstKind::SequenceExpression(sequence)) => matches!(
+                self.ancestor(1),
+                Some(AstKind::ForStatement(for_statement))
+                    if for_statement
+                        .update
+                        .as_ref()
+                        .is_some_and(|update| unparenthesized(update).span() == sequence.span())
+            ),
+            _ => false,
+        }
+    }
+
+    /// `S1121`: whether this assignment's parent is one of the exempting
+    /// shapes upstream lists (statement root, chain, relation, sequence,
+    /// declarator, arrow body, conditional-assignment right side, loop
+    /// test, or `for` init/update).
+    fn assignment_exempt(&self, span: Span) -> bool {
+        match self.ancestor(0) {
+            Some(
+                AstKind::ExpressionStatement(_)
+                | AstKind::AssignmentExpression(_)
+                | AstKind::SequenceExpression(_),
+            ) => true,
+            Some(AstKind::BinaryExpression(binary)) => is_relational_operator(binary.operator),
+            Some(AstKind::VariableDeclarator(declarator)) => declarator
+                .init
+                .as_ref()
+                .is_some_and(|init| unparenthesized(init).span() == span),
+            Some(AstKind::ArrowFunctionExpression(arrow)) => arrow
+                .get_expression()
+                .is_some_and(|body| unparenthesized(body).span() == span),
+            Some(AstKind::LogicalExpression(logical)) => {
+                unparenthesized(&logical.right).span() == span
+            }
+            Some(AstKind::WhileStatement(while_statement)) => {
+                unparenthesized(&while_statement.test).span() == span
+            }
+            Some(AstKind::DoWhileStatement(do_while)) => {
+                unparenthesized(&do_while.test).span() == span
+            }
+            Some(AstKind::ForStatement(for_statement)) => for_header_slot(for_statement, span),
+            _ => false,
+        }
+    }
+}
+
+/// Whether `span` occupies the `for` statement's init or update slot
+/// (parentheses around the slot expression are transparent).
+fn for_header_slot(for_statement: &ForStatement<'_>, span: Span) -> bool {
+    let init = for_statement
+        .init
+        .as_ref()
+        .and_then(|init| init.as_expression());
+    [init, for_statement.update.as_ref()]
+        .into_iter()
+        .flatten()
+        .any(|slot| unparenthesized(slot).span() == span)
+}
+
+/// The comparison operators upstream treats as an exempting relation
+/// parent for `S1121`.
+fn is_relational_operator(operator: BinaryOperator) -> bool {
+    matches!(
+        operator,
+        BinaryOperator::Equality
+            | BinaryOperator::Inequality
+            | BinaryOperator::StrictEquality
+            | BinaryOperator::StrictInequality
+            | BinaryOperator::LessThan
+            | BinaryOperator::LessEqualThan
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::GreaterEqualThan
+    )
+}
+
+impl<'a> Visit<'a> for EmbeddedEffectCollector<'_, '_, 'a> {
+    fn enter_node(&mut self, kind: AstKind<'a>) {
+        self.ancestors.push(kind);
+    }
+
+    fn leave_node(&mut self, _kind: AstKind<'a>) {
+        self.ancestors.pop();
+    }
+
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
         if is_pointless_expression(&it.expression, &self.accessors) {
             self.sink.emit_span(
@@ -96,42 +205,13 @@ impl<'a> Visit<'a> for EmbeddedEffectCollector<'_, '_> {
                 it.span(),
             );
         }
-        let saved = self.expr_depth;
-        self.expr_depth = 1;
         walk_expression_statement(self, it);
-        self.expr_depth = saved;
-    }
-
-    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
-        if let Some(init) = &it.init {
-            // Only the expression form of the init slot is an embedded
-            // statement root; `for (let i = ...)` declarations walk with
-            // their own (non-root) initializer context.
-            if init.as_expression().is_some() {
-                let saved = self.expr_depth;
-                self.expr_depth = 1;
-                self.visit_for_statement_init(init);
-                self.expr_depth = saved;
-            } else {
-                self.visit_for_statement_init(init);
-            }
-        }
-        if let Some(test) = &it.test {
-            self.visit_expression(test);
-        }
-        if let Some(update) = &it.update {
-            let saved = self.expr_depth;
-            self.expr_depth = 1;
-            self.visit_expression(update);
-            self.expr_depth = saved;
-        }
-        self.visit_statement(&it.body);
     }
 
     fn visit_expression(&mut self, it: &Expression<'a>) {
         match it {
             Expression::UpdateExpression(update) => {
-                if self.expr_depth != 1 {
+                if !self.update_exempt(update.span()) {
                     let operation = match update.operator {
                         UpdateOperator::Increment => "increment",
                         UpdateOperator::Decrement => "decrement",
@@ -144,7 +224,7 @@ impl<'a> Visit<'a> for EmbeddedEffectCollector<'_, '_> {
                     );
                 }
             }
-            Expression::AssignmentExpression(assign) if self.expr_depth != 1 => {
+            Expression::AssignmentExpression(assign) if !self.assignment_exempt(assign.span()) => {
                 let target = assignment_target_name(&assign.left).unwrap_or("value");
                 let between_start = assign.left.span().end;
                 let between_end = assign.right.span().start;
@@ -170,13 +250,7 @@ impl<'a> Visit<'a> for EmbeddedEffectCollector<'_, '_> {
             }
             _ => {}
         }
-        if self.expr_depth > 0 {
-            self.expr_depth += 1;
-            walk_expression(self, it);
-            self.expr_depth -= 1;
-        } else {
-            walk_expression(self, it);
-        }
+        walk_expression(self, it);
     }
 }
 
@@ -278,9 +352,10 @@ m = n = 1;
                 )
             })
             .collect();
-        // Standalone `i++`, the assignment in the `for` header, and the
-        // statement-root assignment are clean; everything embedded deeper
-        // than a statement root is flagged once per construct.
+        // Standalone `i++`, the assignments in the `for` header, the
+        // statement-root assignment, and the chained `n = 1` (its parent is
+        // an assignment) are clean; everything embedded deeper is flagged
+        // once per construct.
         let hit = |rule: &str, line: u32, start: u32, end: u32| {
             (rule.to_string(), (line, start, line, end))
         };
@@ -291,7 +366,6 @@ m = n = 1;
                 hit("javascript:S881", 6, 8, 11),
                 hit("javascript:S1121", 7, 6, 7),
                 hit("javascript:S1121", 8, 6, 7),
-                hit("javascript:S1121", 9, 6, 7),
             ]
         );
     }
@@ -388,5 +462,39 @@ m = n = 1;
         // The sequence expression is the statement root; both updates sit
         // one level deeper and are embedded.
         assert_eq!(count_key(&js_keys("i++, j++;\n"), "javascript:S881"), 2);
+    }
+
+    #[test]
+    fn s881_and_s1121_exempt_for_update_clause_members() {
+        // #499/#500/#501: every member of the `for` update clause —
+        // including members of its comma sequence — is a dedicated
+        // statement upstream.
+        let keys = js_keys(
+            "function f(endIndex, startIndex, log2Base) {\n  for (let i = endIndex - 1, bitOffset = 0; i >= startIndex; i--, bitOffset += log2Base) {\n    const segment = bitOffset >>> 4;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&keys, "javascript:S881"), 0);
+        assert_eq!(count_key(&keys, "javascript:S1121"), 0);
+
+        // Updates and assignments nested inside the update clause stay
+        // flagged.
+        let nested = js_keys("for (let i = 0; i < n; f(i++)) {}\n");
+        assert_eq!(count_key(&nested, "javascript:S881"), 1);
+        let nested_assign = js_keys("for (let i = 0; i < n; f(j = 2)) {}\n");
+        assert_eq!(count_key(&nested_assign, "javascript:S1121"), 1);
+    }
+
+    #[test]
+    fn s1121_exempts_upstream_parent_shapes() {
+        // #501: sequence members, declarator initializers, assignment
+        // chains, relational operands, arrow bodies, logical right sides,
+        // while/do-while tests, and for init/update slots are all exempt.
+        let exempt = js_keys(
+            "function f(pos) {\n  return pos += 2, pos;\n}\nconst cache = (m ??= new Map());\nlet a = b = 1;\nif ((c = d) === e) {}\nconst g = () => (h = 1);\ncond && (x = 1);\nwhile ((y = next())) {}\ndo {} while ((z = next()));\nfor (p = 0; p < n; q = p) {}\n",
+        );
+        assert_eq!(count_key(&exempt, "javascript:S1121"), 0);
+
+        // Genuinely embedded assignments stay flagged.
+        let flagged = js_keys("if (x = f()) {}\nfoo(bar = 1);\nlet s = t + (u = 2);\n");
+        assert_eq!(count_key(&flagged, "javascript:S1121"), 3);
     }
 }

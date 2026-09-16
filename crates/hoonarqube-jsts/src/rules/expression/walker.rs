@@ -67,6 +67,7 @@ fn check_expression_rules(
         semantic,
         contexts: Vec::new(),
         ternary_spans: HashSet::new(),
+        sequence_exempt_spans: HashSet::new(),
         grammar_parenthesized_depth: 0,
         required_parenthesized_spans: HashSet::new(),
         template_depth: 0,
@@ -92,6 +93,9 @@ struct ExpressionCollector<'index, 'semantic> {
     semantic: Option<&'index Semantic<'semantic>>,
     contexts: Vec<ExpressionContext>,
     ternary_spans: HashSet<(u32, u32)>,
+    /// `S878`: spans of sequence expressions upstream tolerates — `for`
+    /// header init/update slots and explicitly parenthesized sequences.
+    sequence_exempt_spans: HashSet<(u32, u32)>,
     grammar_parenthesized_depth: usize,
     required_parenthesized_spans: HashSet<(u32, u32)>,
     /// Nesting depth of template literals for `S4624`.
@@ -267,12 +271,24 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
         if let Some(init) = &it.init {
+            // `S878`: upstream tolerates comma sequences in the `for` init
+            // and update slots.
+            if let Some(expression) = init.as_expression()
+                && let Expression::SequenceExpression(sequence) = unparenthesized(expression)
+            {
+                let span = sequence.span();
+                self.sequence_exempt_spans.insert((span.start, span.end));
+            }
             self.visit_for_statement_init(init);
         }
         if let Some(test) = &it.test {
             self.visit_condition(test);
         }
         if let Some(update) = &it.update {
+            if let Expression::SequenceExpression(sequence) = unparenthesized(update) {
+                let span = sequence.span();
+                self.sequence_exempt_spans.insert((span.start, span.end));
+            }
             self.visit_expression(update);
         }
         self.visit_statement(&it.body);
@@ -507,6 +523,12 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     }
 
     fn visit_parenthesized_expression(&mut self, it: &ParenthesizedExpression<'a>) {
+        // `S878`: upstream tolerates sequences explicitly wrapped in
+        // parentheses.
+        if let Expression::SequenceExpression(sequence) = unparenthesized(&it.expression) {
+            let span = sequence.span();
+            self.sequence_exempt_spans.insert((span.start, span.end));
+        }
         let span = it.span();
         let required = self
             .required_parenthesized_spans
@@ -529,24 +551,27 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     }
 
     fn visit_sequence_expression(&mut self, it: &SequenceExpression<'a>) {
-        let comma = it
-            .expressions
-            .first()
-            .zip(it.expressions.get(1))
-            .and_then(|(first, second)| {
-                let start = usize::try_from(first.span().end).ok()?;
-                let end = usize::try_from(second.span().start).ok()?;
-                let offset = self.source.get(start..end)?.find(',')?;
-                let comma = crate::support::to_u32(start + offset);
-                Some(oxc_span::Span::new(comma, comma.saturating_add(1)))
-            })
-            .unwrap_or_else(|| it.span());
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S878",
-            "Unexpected use of comma operator.",
-            comma,
-        );
+        let span = it.span();
+        if !self.sequence_exempt_spans.contains(&(span.start, span.end)) {
+            let comma = it
+                .expressions
+                .first()
+                .zip(it.expressions.get(1))
+                .and_then(|(first, second)| {
+                    let start = usize::try_from(first.span().end).ok()?;
+                    let end = usize::try_from(second.span().start).ok()?;
+                    let offset = self.source.get(start..end)?.find(',')?;
+                    let comma = crate::support::to_u32(start + offset);
+                    Some(oxc_span::Span::new(comma, comma.saturating_add(1)))
+                })
+                .unwrap_or(span);
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S878",
+                "Unexpected use of comma operator.",
+                comma,
+            );
+        }
         walk_sequence_expression(self, it);
     }
 
@@ -748,7 +773,7 @@ mod tests {
     #[test]
     fn expression_level_batch_rules_fire() {
         let source = "\
-if (a == b) { void c; (d, e); }
+if (a == b) { void c; d, e; }
 if (x === NaN) { if (list.length < 0) { } }
 const n = parseInt(s);
 console.log(n);
@@ -795,7 +820,7 @@ host = '10.0.0.1';
 
     #[test]
     fn comma_operator_span_uses_the_actual_token_after_unicode_trivia() {
-        let source = "(a\u{00a0}, b);\n";
+        let source = "a\u{00a0}, b;\n";
         let report = js(source);
         let finding = report
             .issues
@@ -808,6 +833,26 @@ host = '10.0.0.1';
             u32::try_from(source[..comma].chars().count()).expect("column")
         );
         assert_eq!(finding.range.end.column, finding.range.start.column + 1);
+    }
+
+    #[test]
+    fn s878_exempts_for_header_and_parenthesized_sequences() {
+        // #499: comma sequences in `for` init/update slots are tolerated
+        // upstream (ESLint `no-sequences`).
+        let for_header = js_keys(
+            "function f(endIndex, startIndex, log2Base) {\n  for (let i = endIndex - 1, bitOffset = 0; i >= startIndex; i--, bitOffset += log2Base) {\n    g(bitOffset);\n  }\n}\n",
+        );
+        assert_eq!(count_key(&for_header, "javascript:S878"), 0);
+
+        // Explicitly parenthesized sequences are tolerated too.
+        let parenthesized = js_keys("f((a, b));\n");
+        assert_eq!(count_key(&parenthesized, "javascript:S878"), 0);
+
+        // Sequences elsewhere still flag.
+        let returned = js_keys("function g(a, b) {\n  return a, b;\n}\n");
+        assert_eq!(count_key(&returned, "javascript:S878"), 1);
+        let statement = js_keys("a, b;\n");
+        assert_eq!(count_key(&statement, "javascript:S878"), 1);
     }
 
     #[test]
