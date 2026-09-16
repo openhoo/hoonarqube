@@ -441,6 +441,31 @@ mod tests {
     }
 
     #[test]
+    fn getters_must_return_a_value_on_every_path() {
+        // #466: a getter whose control flow can complete without a valued
+        // return is flagged, even without a same-named field.
+        let switch_fallthrough = findings(
+            "class Node {\n  kind = 0;\n  get keyword(): number | undefined {\n    switch (this.kind) {\n      case 1: return 100;\n    }\n  }\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&switch_fallthrough, "typescript:S4275"), 1);
+
+        let partial_if =
+            js_keys("class C {\n  get v() {\n    if (c) {\n      return 1;\n    }\n  }\n}\n");
+        assert_eq!(count_key(&partial_if, "javascript:S4275"), 1);
+
+        // A bare return exits without a value.
+        let bare = js_keys("class C {\n  get v() {\n    return;\n  }\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S4275"), 1);
+
+        // Every path returning or throwing stays silent, as do setters.
+        let clean = js_keys(
+            "class C {\n  get a() {\n    if (c) {\n      return 1;\n    }\n    return 2;\n  }\n  get b() {\n    if (c) {\n      return 1;\n    }\n    throw e;\n  }\n  set v(x) {\n    if (c) {\n      this.x = x;\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S4275"), 0);
+    }
+
+    #[test]
     fn adjacent_if_statements_must_not_share_a_line() {
         let same_line_siblings = js_keys("if (a) {\n  b();\n} if (b) {\n  c();\n}\n");
         assert_eq!(count_key(&same_line_siblings, "javascript:S3972"), 1);
@@ -458,6 +483,20 @@ mod tests {
 
         let ordinary_else_if = js_keys("if (a) {\n  b();\n} else if (b) {\n  c();\n}\n");
         assert_eq!(count_key(&ordinary_else_if, "javascript:S3972"), 0);
+    }
+
+    #[test]
+    fn braced_else_if_links_are_not_unbraced_bodies() {
+        // #515/#554: an `else if` link is a nested statement, not an
+        // unbraced body — braced chains never mislead by indentation.
+        let chain = js_keys(
+            "function f(v) {\n  if (v <= 1) {\n    return 1;\n  }\n  else if (v <= 2) {\n    return 2;\n  }\n  else if (v <= 3) {\n    return 3;\n  }\n  else {\n    return 4;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&chain, "javascript:S3973"), 0);
+
+        // A genuinely misleading unbraced `else` body still flags.
+        let misleading = js_keys("function f(v) {\n  if (v) {\n    a();\n  }\n  else\n  b();\n}\n");
+        assert_eq!(count_key(&misleading, "javascript:S3973"), 1);
     }
 
     #[test]
@@ -524,6 +563,27 @@ mod tests {
 
         let clean = js_keys("const o = { a: 1, b: 2 };\nclass D {\n  x() {}\n  y() {}\n}\n");
         assert_eq!(count_key(&clean, "javascript:S1534"), 0);
+    }
+
+    #[test]
+    fn class_member_namespaces_and_overloads_are_not_duplicates() {
+        // #552: static and instance members live in separate namespaces.
+        let namespaces = js_keys(
+            "class MessageBuffer {\n  static emptyBuffer = new Uint8Array(0);\n  emptyBuffer() {\n    return MessageBuffer.emptyBuffer;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&namespaces, "javascript:S1534"), 0);
+
+        // #512: TypeScript overload signatures declare one logical member.
+        let overloads = findings(
+            "class API {\n  getSymbolAtLocation(node: number): Promise<string | undefined>;\n  getSymbolAtLocation(nodes: readonly number[]): Promise<(string | undefined)[]>;\n  async getSymbolAtLocation(nodeOrNodes: number | readonly number[]): Promise<string | (string | undefined)[] | undefined> {\n    return \"\";\n  }\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&overloads, "typescript:S1534"), 0);
+
+        // Same-namespace duplicates still flag, static or instance.
+        let duplicates =
+            js_keys("class D {\n  foo() {}\n  foo() {}\n  static bar() {}\n  static bar() {}\n}\n");
+        assert_eq!(count_key(&duplicates, "javascript:S1534"), 2);
     }
 
     #[test]
@@ -599,6 +659,23 @@ mod tests {
     }
 
     #[test]
+    fn deeply_nested_ternaries_flag_unless_nesting_breaks() {
+        // #481: a ternary nested inside an operand of a branch is still
+        // nested — the reference listener matches any descendant.
+        let arithmetic = findings(
+            "function f(digitChar: number): number {\n  const digit = digitChar <= 57\n    ? digitChar - 48\n    : 10 + digitChar - (digitChar <= 70 ? 55 : 87);\n  return digit;\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&arithmetic, "typescript:S3358"), 1);
+
+        // Arrays, objects, functions, and arrows break the nesting.
+        let broken = js_keys(
+            "const a = cond ? [x ? 1 : 2] : 3;\nconst b = cond ? { v: y ? 1 : 2 } : 3;\nconst c = cond ? (() => z ? 1 : 2)() : 3;\nconst d = cond ? function () { return w ? 1 : 2; } : 3;\n",
+        );
+        assert_eq!(count_key(&broken, "javascript:S3358"), 0);
+    }
+
+    #[test]
     fn shorthand_property_rules_flag_order_and_redundancy() {
         // `{ a: a }` should be shorthand.
         let redundant = js_keys("const o = { a: a };\n");
@@ -621,6 +698,17 @@ mod tests {
         let clean = js_keys("const q = { b, a: 1 };\n");
         assert_eq!(count_key(&clean, "javascript:S3499"), 0);
         assert_eq!(count_key(&clean, "javascript:S3498"), 0);
+
+        // #482: shorthand grouped at the end is compliant; only a split
+        // across both sides reports.
+        let at_end = js_keys("const r = { a: 1, b: 2, c };\n");
+        assert_eq!(count_key(&at_end, "javascript:S3499"), 0);
+        let split = js_keys("const s = { a, b: 1, c };\n");
+        assert_eq!(count_key(&split, "javascript:S3499"), 1);
+
+        // #536: a method-shorthand property already is the target form.
+        let already = js_keys("const t = {\n  get() {\n    return 1;\n  },\n};\n");
+        assert_eq!(count_key(&already, "javascript:S3498"), 0);
     }
 
     #[test]
@@ -704,6 +792,28 @@ mod tests {
 
         let two_clause = js_keys("if (!a || !a.b) {\n  g();\n}\n");
         assert_eq!(count_key(&two_clause, "javascript:S6582"), 1);
+
+        // #492: a negated base guard OR-ed with a member comparison on the
+        // same chain rewrites to `x?.prop !== v`.
+        let member_guard = findings(
+            "function f(node: { type: string } | undefined): undefined {\n  if (!node || node.type !== \"directory\") {\n    return undefined;\n  }\n  return undefined;\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&member_guard, "typescript:S6582"), 1);
+
+        // A nullish-equality guard extends the same chain too.
+        let nullish_guard = js_keys("if (a == null || !a.b) {\n  g();\n}\n");
+        assert_eq!(count_key(&nullish_guard, "javascript:S6582"), 1);
+
+        // #493: sibling members of one root do not extend each other.
+        let siblings = js_keys(
+            "class C {\n  connected = false;\n  connection = {};\n  g() {\n    if (!this.connected || !this.connection) return false;\n    return true;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&siblings, "javascript:S6582"), 0);
+
+        // Strict chain extension still fires.
+        let extension = js_keys("if (!a.b || !a.b.c) {\n  g();\n}\n");
+        assert_eq!(count_key(&extension, "javascript:S6582"), 1);
 
         // Operands that are not negations, negations over a different
         // root, or double negations stay outside the supported family.

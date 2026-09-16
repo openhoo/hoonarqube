@@ -36,7 +36,6 @@ mod s4502_csrf_disabled;
 mod s4507_error_middleware;
 mod s4621_s6571_constituent_redundancy;
 mod s4622_s4622_ts_union_type;
-mod s4782_s4782_ts_property_signature;
 mod s4787_encrypt_api;
 mod s4798_s4798_formal_parameter;
 mod s4817_xpath_module_import;

@@ -571,7 +571,11 @@ impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
             if !self.suppress_else_if_chain && !matches!(alternate, Statement::IfStatement(_)) {
                 self.check_keyword_line(it.consequent.span(), alternate.span(), "else");
             }
-            self.check_unbraced_indent(it.span(), alternate);
+            // An `else if` link is a nested statement, not an unbraced
+            // body: the chain's own braces decide its layout (`S3973`).
+            if !matches!(alternate, Statement::IfStatement(_)) {
+                self.check_unbraced_indent(it.span(), alternate);
+            }
         }
         self.check_unbraced_indent(it.span(), &it.consequent);
         self.visit_expression(&it.test);
@@ -743,29 +747,36 @@ impl<'a> Visit<'a> for DuplicationCollector<'a> {
 
     fn visit_class(&mut self, it: &Class<'a>) {
         // `S1534`: duplicated class members; getters and setters pair up, so
-        // each accessor kind is tracked separately.
-        let mut plain: Vec<&str> = Vec::new();
-        let mut getters: Vec<&str> = Vec::new();
-        let mut setters: Vec<&str> = Vec::new();
+        // each accessor kind is tracked separately. Static and instance
+        // members live in different namespaces, and bodiless TypeScript
+        // overload signatures declare one logical member.
+        let mut plain: [Vec<&str>; 2] = [Vec::new(), Vec::new()];
+        let mut getters: [Vec<&str>; 2] = [Vec::new(), Vec::new()];
+        let mut setters: [Vec<&str>; 2] = [Vec::new(), Vec::new()];
         for element in &it.body.body {
             match element {
                 ClassElement::MethodDefinition(method) => {
+                    if method.value.body.is_none() {
+                        continue;
+                    }
                     let Some(name) = property_key_name(&method.key) else {
                         continue;
                     };
+                    let namespace = usize::from(method.r#static);
                     match method.kind {
                         MethodDefinitionKind::Get => {
-                            self.flag_duplicate(&mut getters, name, method.key.span());
+                            self.flag_duplicate(&mut getters[namespace], name, method.key.span());
                         }
                         MethodDefinitionKind::Set => {
-                            self.flag_duplicate(&mut setters, name, method.key.span());
+                            self.flag_duplicate(&mut setters[namespace], name, method.key.span());
                         }
-                        _ => self.flag_duplicate(&mut plain, name, method.key.span()),
+                        _ => self.flag_duplicate(&mut plain[namespace], name, method.key.span()),
                     }
                 }
                 ClassElement::PropertyDefinition(definition) => {
                     if let Some(name) = property_key_name(&definition.key) {
-                        self.flag_duplicate(&mut plain, name, definition.key.span());
+                        let namespace = usize::from(definition.r#static);
+                        self.flag_duplicate(&mut plain[namespace], name, definition.key.span());
                     }
                 }
                 _ => {}

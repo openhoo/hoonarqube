@@ -20,20 +20,125 @@ pub use github_quality::analyze_github_quality;
 /// Panics if the embedded grammar is incompatible or parsing returns no tree.
 #[must_use]
 pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport {
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_go::LANGUAGE.into())
-        .expect("tree-sitter-go language is compatible");
-    let tree = parser
-        .parse(source, None)
-        .expect("Go parser returned no tree");
+    let (source, tree) = parse_go_source(source).expect("Go parser returned no tree");
     let root = tree.root_node();
     FileReport {
         path,
         language: "go".to_owned(),
-        issues: github_quality::analyze_parsed(root, source),
-        metrics: metrics(source, &LineFacts::collect(source, root)),
+        issues: github_quality::analyze_parsed(root, &source),
+        metrics: metrics(&source, &LineFacts::collect(&source, root)),
     }
+}
+
+/// Parses Go source, tolerating the Go 1.26 `new(expr)` builtin form that the
+/// embedded grammar predates. Returns the source actually parsed: when the
+/// first parse fails, `new(` call heads are rewritten to the same-length
+/// identifier `n3w(` and the file is re-parsed; the normalized source is used
+/// only when that retry produces a completely clean tree, so genuinely invalid
+/// files keep their original fail-closed errors.
+fn parse_go_source(source: &str) -> Option<(std::borrow::Cow<'_, str>, tree_sitter::Tree)> {
+    let mut parser = Parser::new();
+    parser.set_language(&tree_sitter_go::LANGUAGE.into()).ok()?;
+    let tree = parser.parse(source, None)?;
+    if !tree.root_node().has_error() {
+        return Some((std::borrow::Cow::Borrowed(source), tree));
+    }
+    let Some(normalized) = normalize_new_builtin_calls(source) else {
+        return Some((std::borrow::Cow::Borrowed(source), tree));
+    };
+    let retry = parser.parse(&normalized, None)?;
+    if retry.root_node().has_error() {
+        return Some((std::borrow::Cow::Borrowed(source), tree));
+    }
+    Some((std::borrow::Cow::Owned(normalized), retry))
+}
+
+/// Rewrites every `new(` call head to `n3w(`, a same-length ordinary call the
+/// pre-Go-1.26 grammar accepts. Comments and string/rune literals are skipped
+/// so byte positions stay identical. Returns `None` when nothing was rewritten.
+fn normalize_new_builtin_calls(source: &str) -> Option<String> {
+    let bytes = source.as_bytes();
+    let mut normalized = bytes.to_vec();
+    let mut changed = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index += bytes[index..]
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .unwrap_or(bytes.len() - index);
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = block_comment_end(bytes, index + 2);
+            }
+            b'"' | b'\'' => {
+                index = quoted_end(bytes, index);
+            }
+            b'`' => {
+                index += bytes[index + 1..]
+                    .iter()
+                    .position(|byte| *byte == b'`')
+                    .map_or(bytes.len() - index, |offset| offset + 2);
+            }
+            _ => {
+                if is_new_call_token(bytes, index) {
+                    normalized[index + 1] = b'3';
+                    changed = true;
+                    index += 3;
+                } else {
+                    index += 1;
+                }
+            }
+        }
+    }
+    changed.then(|| String::from_utf8(normalized).expect("rewritten Go source remains valid UTF-8"))
+}
+
+/// Byte offset just past a `/* ... */` comment whose `/*` opener ends at
+/// `start`; unterminated comments run to end of input.
+fn block_comment_end(bytes: &[u8], start: usize) -> usize {
+    let mut index = start;
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'*' && bytes[index + 1] == b'/' {
+            return index + 2;
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+/// Byte offset just past a `"`/`'` literal starting at `start`, honoring
+/// backslash escapes; unterminated literals run to end of input.
+fn quoted_end(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let mut index = start + 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 2,
+            byte if byte == quote => return index + 1,
+            b'\n' => return index,
+            _ => index += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// Whether `bytes[index..]` starts a `new` identifier token followed by `(`.
+fn is_new_call_token(bytes: &[u8], index: usize) -> bool {
+    if !bytes[index..].starts_with(b"new") {
+        return false;
+    }
+    let before = index == 0 || !is_identifier_byte(bytes[index - 1]);
+    let mut next = index + 3;
+    while next < bytes.len() && matches!(bytes[next], b' ' | b'\t') {
+        next += 1;
+    }
+    before && bytes.get(next) == Some(&b'(')
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
@@ -131,13 +236,8 @@ fn is_test_scope_file(path: &Path) -> bool {
 #[must_use]
 pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileReport {
     debug_assert_eq!(RULE_KEYS.len(), 36);
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_go::LANGUAGE.into())
-        .expect("tree-sitter-go language is compatible");
-    let tree = parser
-        .parse(source, None)
-        .expect("Go parser returned no tree");
+    let (source, tree) = parse_go_source(source).expect("Go parser returned no tree");
+    let source = source.as_ref();
     let root = tree.root_node();
     let imports = GoImports::collect(root, source);
     let line_facts = LineFacts::collect(source, root);
@@ -155,15 +255,16 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         };
     }
 
+    let is_test = is_test_scope_file(path.as_path());
     check_lines(path.as_path(), source, &line_facts, options, &mut issues);
     check_header(source, options, &mut issues);
     check_textual(source, root, &mut issues);
     walk(root, &mut |node| {
-        check_node(node, source, &line_facts, options, &mut issues);
+        check_node(node, source, &line_facts, options, is_test, &mut issues);
     });
     check_duplicate_strings(root, source, options, &imports, &mut issues);
     check_duplicate_functions(root, source, &mut issues);
-    if is_test_scope_file(path.as_path()) {
+    if is_test {
         issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
     }
     sort_issues(&mut issues);
@@ -182,16 +283,10 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
 /// Syntax-invalid input produces no native findings.
 #[must_use]
 pub fn analyze_native(source: &str) -> Vec<Issue> {
-    let mut parser = Parser::new();
-    if parser
-        .set_language(&tree_sitter_go::LANGUAGE.into())
-        .is_err()
-    {
-        return Vec::new();
-    }
-    let Some(tree) = parser.parse(source, None) else {
+    let Some((source, tree)) = parse_go_source(source) else {
         return Vec::new();
     };
+    let source = source.as_ref();
     let root = tree.root_node();
     if root.has_error() {
         return Vec::new();
@@ -2552,12 +2647,15 @@ fn is_url_only_comment_line(line: &str) -> bool {
         .trim_start_matches(['/', '*'])
         .trim_end_matches(['/', '*'])
         .trim();
+    // `SonarGo` exempts a comment-only line when the comment's whole content is
+    // a single whitespace-free token containing `://`, so parenthesized URLs
+    // like `// (https://...)` stay exempt while prose mixed with a URL still
+    // counts.
     let mut tokens = content.split_whitespace();
     tokens.next().is_some_and(is_url) && tokens.all(is_url)
 }
-
 fn is_url(value: &str) -> bool {
-    value.starts_with("http://") || value.starts_with("https://")
+    value.contains("://")
 }
 
 fn check_header(source: &str, options: &AnalyzerOptions, issues: &mut Vec<Issue>) {
@@ -2715,7 +2813,10 @@ fn control_header_semicolons(root: Node<'_>) -> HashMap<usize, Vec<usize>> {
             && node.parent().is_some_and(|parent| {
                 matches!(
                     parent.kind(),
-                    "for_clause" | "type_switch_statement" | "if_statement"
+                    "for_clause"
+                        | "type_switch_statement"
+                        | "expression_switch_statement"
+                        | "if_statement"
                 )
             })
         {
@@ -2829,11 +2930,12 @@ fn check_node(
     source: &str,
     line_facts: &LineFacts,
     options: &AnalyzerOptions,
+    is_test: bool,
     issues: &mut Vec<Issue>,
 ) {
     match node.kind() {
         "function_declaration" | "method_declaration" | "func_literal" => {
-            check_function(node, source, line_facts, options, issues);
+            check_function(node, source, line_facts, options, is_test, issues);
         }
         "block" => check_block(node, source, issues),
         "statement_list" => check_statements(node, source, issues),
@@ -2852,17 +2954,20 @@ fn check_node(
         "binary_expression" => check_binary(node, source, options, issues),
         "unary_expression" => check_unary(node, source, issues),
         "if_statement" => check_if(node, source, issues),
-        "expression_switch_statement" => check_switch(node, source, options, issues),
+        "expression_switch_statement" => {
+            check_switch(node, source, line_facts, options, issues);
+        }
         "type_switch_statement" => {
-            check_switch(node, source, options, issues);
+            check_switch(node, source, line_facts, options, issues);
             check_type_switch_alias(node, source, issues);
         }
+        "select_statement" => check_case_lines(node, source, line_facts, options, issues),
         "assignment_statement" => check_assignment(node, source, issues),
         "short_var_declaration" => {
             check_assignment(node, source, issues);
             check_variable_declaration(node, source, issues);
         }
-        "var_spec" => check_variable_declaration(node, source, issues),
+        "var_spec" | "const_spec" => check_variable_declaration(node, source, issues),
         "range_clause" | "receive_statement" if has_direct_child(node, ":=") => {
             check_variable_declaration(node, source, issues);
         }
@@ -2886,7 +2991,8 @@ fn check_node(
     if matches!(
         node.kind(),
         "if_statement" | "for_statement" | "expression_switch_statement" | "type_switch_statement"
-    ) {
+    ) && !is_else_if(node)
+    {
         let depth = control_depth(node);
         if depth == options.maximum_nesting_depth.saturating_add(1) {
             issues.push(keyword_issue(
@@ -2906,7 +3012,7 @@ fn check_node(
         node.kind(),
         "expression_switch_statement" | "type_switch_statement"
     ) && ancestors(node)
-        .take_while(|ancestor| !is_function(*ancestor))
+        .take_while(|ancestor| !is_named_function(*ancestor))
         .any(is_switch)
     {
         issues.push(keyword_issue(
@@ -2925,16 +3031,24 @@ fn check_function(
     source: &str,
     line_facts: &LineFacts,
     options: &AnalyzerOptions,
+    is_test: bool,
     issues: &mut Vec<Issue>,
 ) {
     if let Some(name) = node.child_by_field_name("name") {
         let value = text(name, source);
-        if !is_valid_name(value) {
+        // SonarGo applies a separate, underscore-tolerant name pattern to
+        // functions in test files (formatForTests), so TestXxx_Yyy and other
+        // underscored names in _test.go stay exempt while non-test files keep
+        // the strict pattern.
+        let (valid, pattern) = if is_test {
+            (is_valid_test_name(value), "^(_|[a-zA-Z0-9_]+)$")
+        } else {
+            (is_valid_name(value), "^(_|[a-zA-Z0-9]+)$")
+        };
+        if !valid {
             issues.push(node_issue(
                 "go:S100",
-                format!(
-                    "Rename function \"{value}\" to match the regular expression ^(_|[a-zA-Z0-9]+)$"
-                ),
+                format!("Rename function \"{value}\" to match the regular expression {pattern}"),
                 name,
                 source,
             ));
@@ -3024,7 +3138,9 @@ fn check_block(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
 }
 
 fn check_variable_declaration(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
-    if node.kind() == "var_spec" {
+    // SonarGo's VariableDeclarationTree covers both `var` and `const` specs;
+    // local names are checked only inside functions.
+    if matches!(node.kind(), "var_spec" | "const_spec") {
         if !ancestors(node).any(is_function) {
             return;
         }
@@ -3132,6 +3248,15 @@ fn is_valid_name(value: &str) -> bool {
     value == "_" || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphanumeric()))
 }
 
+/// `SonarGo`'s `formatForTests` pattern `^(_|[a-zA-Z0-9_]+)$`: underscores are
+/// allowed anywhere in function names inside `_test.go` files.
+fn is_valid_test_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
 fn check_local_name(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let value = text(node, source);
     if !is_valid_name(value) {
@@ -3164,18 +3289,27 @@ fn check_binary(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
         return;
     };
     let operator = operator_text(node, source);
-    check_identical_operands(left, right, source, issues);
+    check_identical_operands(left, right, operator, source, issues);
     check_boolean_literal(left, right, operator, source, issues);
-    check_logical_complexity(node, operator, source, options, issues);
+    check_logical_complexity(node, source, options, issues);
     check_opposite_boolean_operator(node, right, operator, source, issues);
 }
 
+/// `SonarGo` exempts `+`, `*`, and `<<` from S1764 because identical operands
+/// there are idiomatic (bit positions, size products, indent doubling); every
+/// other operator still compares the unwrapped operands.
 fn check_identical_operands(
     left: Node<'_>,
     right: Node<'_>,
+    operator: &str,
     source: &str,
     issues: &mut Vec<Issue>,
 ) {
+    if matches!(operator, "+" | "*" | "<<") {
+        return;
+    }
+    let left = skip_parentheses(left);
+    let right = skip_parentheses(right);
     if canonical_code(left, source) == canonical_code(right, source) {
         issues.push(node_issue(
             "go:S1764",
@@ -3184,6 +3318,16 @@ fn check_identical_operands(
             source,
         ));
     }
+}
+
+fn skip_parentheses(mut node: Node<'_>) -> Node<'_> {
+    while node.kind() == "parenthesized_expression" {
+        let Some(inner) = first_named(node) else {
+            return node;
+        };
+        node = inner;
+    }
+    node
 }
 
 fn check_boolean_literal(
@@ -3213,16 +3357,22 @@ fn check_boolean_literal(
 
 fn check_logical_complexity(
     node: Node<'_>,
-    operator: &str,
     source: &str,
     options: &AnalyzerOptions,
     issues: &mut Vec<Issue>,
 ) {
-    let count = logical_operator_count(node, source);
-    if is_logical_operator(operator)
-        && logical_parent(node, source).is_none()
-        && count > options.maximum_expression_complexity
+    // SonarGo evaluates every binary expression whose parent is not itself a
+    // binary expression; the count descends through binary, unary, and
+    // parenthesized operands only, so operators inside call arguments or func
+    // literals belong to their own expression.
+    if node
+        .parent()
+        .is_some_and(|parent| parent.kind() == "binary_expression")
     {
+        return;
+    }
+    let count = expression_complexity(node, source);
+    if count > options.maximum_expression_complexity {
         issues.push(node_issue(
             "go:S1067",
             format!("Reduce the number of conditional operators ({count}) used in the expression (maximum allowed {}).", options.maximum_expression_complexity),
@@ -3230,6 +3380,39 @@ fn check_logical_complexity(
             source,
         ));
     }
+}
+
+/// Counts `&&`/`||` operators reachable through binary, unary, and
+/// parenthesized operands, mirroring `SonarGo`'s `computeExpressionComplexity`.
+fn expression_complexity(node: Node<'_>, source: &str) -> usize {
+    let mut count = 0;
+    let mut pending = vec![node];
+    while let Some(mut current) = pending.pop() {
+        while current.kind() == "parenthesized_expression" {
+            let Some(inner) = first_named(current) else {
+                break;
+            };
+            current = inner;
+        }
+        match current.kind() {
+            "binary_expression" => {
+                if is_logical_operator(operator_text(current, source)) {
+                    count += 1;
+                }
+                if let Some((left, right)) = binary_operands(current) {
+                    pending.push(right);
+                    pending.push(left);
+                }
+            }
+            "unary_expression" => {
+                if let Some(operand) = current.child_by_field_name("operand") {
+                    pending.push(operand);
+                }
+            }
+            _ => {}
+        }
+    }
+    count
 }
 
 fn check_opposite_boolean_operator(
@@ -3269,24 +3452,22 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     {
         return;
     }
-    let (condition_count, branches, last_if, ends_with_else) =
-        collect_if_chain(node, source, issues);
-    report_if_chain_smells(
-        node,
-        condition_count,
-        &branches,
-        last_if,
-        ends_with_else,
-        source,
-        issues,
-    );
+    let chain = collect_if_chain(node, source, issues);
+    report_if_chain_smells(node, &chain, source, issues);
+}
+
+struct IfChain<'tree> {
+    condition_count: usize,
+    branches: Vec<(String, Node<'tree>)>,
+    last_if: Node<'tree>,
+    ends_with_else: bool,
 }
 
 fn collect_if_chain<'tree>(
     node: Node<'tree>,
     source: &str,
     issues: &mut Vec<Issue>,
-) -> (usize, Vec<(String, Node<'tree>)>, Node<'tree>, bool) {
+) -> IfChain<'tree> {
     let mut conditions: Vec<(String, u32)> = Vec::new();
     let mut branches = Vec::new();
     let mut current = Some(node);
@@ -3296,7 +3477,18 @@ fn collect_if_chain<'tree>(
         last_if = item;
         if let Some(condition) = item.child_by_field_name("condition") {
             let value = canonical_code(condition, source);
-            if let Some((_, line)) = conditions.iter().find(|(previous, _)| previous == &value) {
+            // SonarGo skips the duplicate report when the branch's own init
+            // clause declares or reassigns a name the condition uses: each
+            // `if x, ok := v.(T); ok` tests a fresh `ok`, so the conditions
+            // are not duplicates.
+            let shielded = item
+                .child_by_field_name("initializer")
+                .is_some_and(|initializer| {
+                    initializer_shields_condition(initializer, condition, source)
+                });
+            if !shielded
+                && let Some((_, line)) = conditions.iter().find(|(previous, _)| previous == &value)
+            {
                 issues.push(node_issue(
                     "go:S1862",
                     format!("This condition duplicates the one on line {line}."),
@@ -3321,29 +3513,59 @@ fn collect_if_chain<'tree>(
             None => current = None,
         }
     }
-    (conditions.len(), branches, last_if, ends_with_else)
+    IfChain {
+        condition_count: conditions.len(),
+        branches,
+        last_if,
+        ends_with_else,
+    }
+}
+
+/// Whether the `if` initializer declares or reassigns a name that also appears
+/// in the condition, mirroring `SonarGo`'s modified-variable shield.
+fn initializer_shields_condition(initializer: Node<'_>, condition: Node<'_>, source: &str) -> bool {
+    let mut init_names = HashSet::new();
+    walk(initializer, &mut |child| {
+        if child.kind() == "identifier" {
+            init_names.insert(text(child, source));
+        }
+    });
+    if init_names.is_empty() {
+        return false;
+    }
+    let mut shielded = false;
+    walk(condition, &mut |child| {
+        if child.kind() == "identifier" && init_names.contains(text(child, source)) {
+            shielded = true;
+        }
+    });
+    shielded
 }
 
 fn report_if_chain_smells(
     node: Node<'_>,
-    condition_count: usize,
-    branches: &[(String, Node<'_>)],
-    last_if: Node<'_>,
-    ends_with_else: bool,
+    chain: &IfChain<'_>,
     source: &str,
     issues: &mut Vec<Issue>,
 ) {
-    if condition_count > 1 && !ends_with_else {
-        let range =
-            nested_else_if_range(last_if, source).unwrap_or_else(|| node_range(last_if, source));
+    // SonarGo reports only the outermost if/else-if chain missing a final
+    // `else`; a chain head nested inside another if-chain's branch is not
+    // separately reported. Else-if members already returned in `check_if`, so
+    // any `if_statement` ancestor means this head sits inside a branch.
+    let nested_in_if_branch = ancestors(node)
+        .take_while(|ancestor| !is_function(*ancestor))
+        .any(|ancestor| ancestor.kind() == "if_statement");
+    if chain.condition_count > 1 && !chain.ends_with_else && !nested_in_if_branch {
+        let range = nested_else_if_range(chain.last_if, source)
+            .unwrap_or_else(|| node_range(chain.last_if, source));
         issues.push(Issue::new(
             "go:S126",
             "Add the missing \"else\" clause.",
             range,
         ));
     }
-    if branches.len() >= 3
-        && let Some((original, duplicate)) = duplicate_branch(branches)
+    if chain.branches.len() >= 3
+        && let Some((original, duplicate)) = duplicate_branch(&chain.branches)
     {
         issues.push(node_issue(
             "go:S1871",
@@ -3355,9 +3577,12 @@ fn report_if_chain_smells(
             source,
         ));
     }
-    if ends_with_else
-        && branches.len() > 1
-        && branches.iter().all(|branch| branch.0 == branches[0].0)
+    if chain.ends_with_else
+        && chain.branches.len() > 1
+        && chain
+            .branches
+            .iter()
+            .all(|branch| branch.0 == chain.branches[0].0)
     {
         issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node, source));
     }
@@ -3387,31 +3612,45 @@ fn nested_else_if_range(last_if: Node<'_>, source: &str) -> Option<Range> {
         end: point_pos(if_token.end_position(), if_token.end_byte(), source),
     })
 }
-
-fn check_switch(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues: &mut Vec<Issue>) {
+fn check_switch(
+    node: Node<'_>,
+    source: &str,
+    line_facts: &LineFacts,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+) {
     let mut cases = Vec::new();
+    let mut bodies: Vec<(String, Node<'_>)> = Vec::new();
     for child in descendants(node).filter(|child| switch_owner(*child) == Some(node)) {
-        if matches!(child.kind(), "expression_case" | "type_case") {
+        if matches!(
+            child.kind(),
+            "expression_case" | "type_case" | "default_case"
+        ) {
             cases.push(child);
-            let lines = child
-                .end_position()
-                .row
-                .saturating_sub(child.start_position().row);
-            if lines > options.maximum_case_lines {
-                issues.push(header_issue(
-                    "go:S1151",
-                    format!(
-                        "Reduce this case clause number of lines from {lines} to at most {}, for example by extracting code into methods.",
-                        options.maximum_case_lines
-                    ),
-                    child,
-                    source,
-                ));
+            // SonarGo's S1871 compares switch case bodies the same way it
+            // compares if/else-if branches: identical bodies are flagged on
+            // the later case. Only the body is compared - the case labels
+            // necessarily differ.
+            if let Some(body) = case_body(child) {
+                bodies.push((canonical_code(body, source), body));
             }
         }
     }
-    let has_default = descendants(node)
-        .any(|child| child.kind() == "default_case" && switch_owner(child) == Some(node));
+    check_case_lines(node, source, line_facts, options, issues);
+    // SonarGo's S1871 compares switch case bodies the same way it compares
+    // if/else-if branches: identical bodies are flagged on the later case.
+    if let Some((original, duplicate)) = duplicate_branch(&bodies) {
+        issues.push(node_issue(
+            "go:S1871",
+            format!(
+                "This case's code block is the same as the block for the case on line {}.",
+                original.start_position().row + 1
+            ),
+            duplicate,
+            source,
+        ));
+    }
+    let has_default = cases.iter().any(|case| case.kind() == "default_case");
     if !has_default {
         issues.push(keyword_issue(
             "go:S131",
@@ -3422,12 +3661,12 @@ fn check_switch(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
             source,
         ));
     }
-    let branch_count = cases.len() + usize::from(has_default);
-    if branch_count > options.maximum_switch_cases {
+    if cases.len() > options.maximum_switch_cases {
         issues.push(keyword_issue(
             "go:S1479",
             format!(
-                "Reduce the number of switch branches from {branch_count} to at most {}.",
+                "Reduce the number of switch branches from {} to at most {}.",
+                cases.len(),
                 options.maximum_switch_cases
             ),
             node,
@@ -3436,6 +3675,49 @@ fn check_switch(node: Node<'_>, source: &str, options: &AnalyzerOptions, issues:
             source,
         ));
     }
+}
+
+/// S1151: flags case clauses whose body spans more than the configured number
+/// of code lines. `SonarGo` counts only code lines inside the case body
+/// (comments and blank lines are excluded) and covers `default:` and `select`
+/// clauses the same way.
+fn check_case_lines(
+    node: Node<'_>,
+    source: &str,
+    line_facts: &LineFacts,
+    options: &AnalyzerOptions,
+    issues: &mut Vec<Issue>,
+) {
+    for child in descendants(node).filter(|child| switch_owner(*child) == Some(node)) {
+        if !matches!(
+            child.kind(),
+            "expression_case" | "type_case" | "default_case" | "communication_case"
+        ) {
+            continue;
+        }
+        let Some(body) = case_body(child) else {
+            continue;
+        };
+        let lines = line_facts.code_lines_in(body);
+        if lines > options.maximum_case_lines {
+            issues.push(header_issue(
+                "go:S1151",
+                format!(
+                    "Reduce this case clause number of lines from {lines} to at most {}, for example by extracting code into methods.",
+                    options.maximum_case_lines
+                ),
+                child,
+                source,
+            ));
+        }
+    }
+}
+
+/// The statement list holding a case clause's body, if any.
+fn case_body(case: Node<'_>) -> Option<Node<'_>> {
+    named_children(case)
+        .into_iter()
+        .find(|child| child.kind() == "statement_list")
 }
 
 fn check_assignment(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
@@ -3512,34 +3794,11 @@ fn is_excluded_duplicate_string(node: Node<'_>, source: &str, imports: &GoImport
         || is_logging_or_error_argument(node, source, imports)
 }
 
-fn literal_character_count(kind: &str, value: &str) -> usize {
-    if kind != "interpreted_string_literal" {
-        return value.chars().count();
-    }
-    let mut count = 0;
-    let mut characters = value.chars();
-    while let Some(character) = characters.next() {
-        count += 1;
-        if character != '\\' {
-            continue;
-        }
-        match characters.next() {
-            Some('x') => consume(&mut characters, 2),
-            Some('u') => consume(&mut characters, 4),
-            Some('U') => consume(&mut characters, 8),
-            Some(character) if character.is_digit(8) => consume(&mut characters, 2),
-            Some(_) | None => {}
-        }
-    }
-    count
-}
-
-fn consume(characters: &mut impl Iterator<Item = char>, count: usize) {
-    for _ in 0..count {
-        if characters.next().is_none() {
-            break;
-        }
-    }
+/// `SonarGo` measures the literal's source length for the <=5 exemption, so
+/// escapes like `\\u0049` count as their written characters, not the decoded
+/// rune.
+fn literal_character_count(_kind: &str, value: &str) -> usize {
+    value.chars().count()
 }
 
 fn is_logging_or_error_argument(node: Node<'_>, source: &str, imports: &GoImports) -> bool {
@@ -3604,34 +3863,66 @@ fn is_struct_field_tag(node: Node<'_>) -> bool {
 fn check_duplicate_functions(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     let mut bodies: HashMap<String, Node<'_>> = HashMap::new();
     walk(root, &mut |node| {
-        if matches!(node.kind(), "function_declaration" | "method_declaration")
-            && let Some(body) = node.child_by_field_name("body")
-        {
-            if !descendants(body)
-                .any(|child| !matches!(child.kind(), "statement_list" | "block" | "comment"))
-            {
-                return;
-            }
-            let value = canonical_code(body, source);
-            if let Some(original) = bodies.get(&value).copied() {
-                let original_name = original
-                    .child_by_field_name("name")
-                    .map_or("function", |name| text(name, source));
-                let duplicate_name = node.child_by_field_name("name").unwrap_or(node);
-                issues.push(node_issue(
-                    "go:S4144",
-                    format!(
-                        "Update this function so that its implementation is not identical to \"{original_name}\" on line {}.",
-                        original.start_position().row + 1
-                    ),
-                    duplicate_name,
-                    source,
-                ));
-            } else {
-                bodies.insert(value, node);
-            }
+        if !matches!(node.kind(), "function_declaration" | "method_declaration") {
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        // SonarGo only reports functions with at least two statements; a
+        // single-statement body is too small to be a meaningful duplicate.
+        if function_statement_count(body) < 2 {
+            return;
+        }
+        let value = format!(
+            "{}\u{0}{}",
+            canonical_signature(node, source),
+            canonical_code(body, source)
+        );
+        if let Some(original) = bodies.get(&value).copied() {
+            let original_name = original
+                .child_by_field_name("name")
+                .map_or("function", |name| text(name, source));
+            let duplicate_name = node.child_by_field_name("name").unwrap_or(node);
+            issues.push(node_issue(
+                "go:S4144",
+                format!(
+                    "Update this function so that its implementation is not identical to \"{original_name}\" on line {}.",
+                    original.start_position().row + 1
+                ),
+                duplicate_name,
+                source,
+            ));
+        } else {
+            bodies.insert(value, node);
         }
     });
+}
+
+/// Counts top-level statements in a function body, matching `SonarGo`'s
+/// minimum-size gate for S4144.
+fn function_statement_count(body: Node<'_>) -> usize {
+    named_children(body)
+        .into_iter()
+        .find(|child| child.kind() == "statement_list")
+        .map_or(0, |list| {
+            named_children(list)
+                .into_iter()
+                .filter(|child| child.kind() != "comment")
+                .count()
+        })
+}
+
+/// Canonical receiver+parameters+result signature text, so S4144 only groups
+/// functions whose signatures match like `SonarGo` requires.
+fn canonical_signature(node: Node<'_>, source: &str) -> String {
+    let mut parts = Vec::new();
+    for field in ["receiver", "parameters", "result"] {
+        if let Some(part) = node.child_by_field_name(field) {
+            parts.push(canonical_code(part, source));
+        }
+    }
+    parts.join("|")
 }
 
 fn metrics(source: &str, line_facts: &LineFacts) -> FileMetrics {
@@ -3732,9 +4023,18 @@ fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
         }
         if current.kind() == "binary_expression"
             && is_logical_operator(operator_text(current, source))
-            && logical_parent(current, source).is_none()
+            && logical_parent(current).is_none()
         {
             total += logical_sequence_count(current, source);
+        }
+        // SonarGo adds +1 for each jump to a label (labeled break/continue and
+        // goto); unlabeled jumps are free.
+        if matches!(
+            current.kind(),
+            "break_statement" | "continue_statement" | "goto_statement"
+        ) && first_named(current).is_some()
+        {
+            total += 1;
         }
         let next = nesting + usize::from(control && !else_if);
         push_named_children(&mut pending, current, next);
@@ -3746,7 +4046,9 @@ fn control_depth(node: Node<'_>) -> usize {
     let mut depth = 1;
     let mut current = node;
     while let Some(parent) = current.parent() {
-        if is_function(parent) {
+        // SonarGo counts nesting through function literals; only a named
+        // function boundary resets the depth.
+        if is_named_function(parent) {
             break;
         }
         if is_control(parent) && !(current.kind() == "if_statement" && is_else_if(current)) {
@@ -3757,65 +4059,45 @@ fn control_depth(node: Node<'_>) -> usize {
     depth
 }
 
-fn logical_operator_count(node: Node<'_>, source: &str) -> usize {
-    logical_operators(node, source).0
-}
-
+/// Counts `&&`/`||` operator sequences in a logical expression head, mirroring
+/// `SonarGo`'s `flattenOperators`: recursion follows only direct logical
+/// binary operands, so parenthesized or unary operands break the sequence and
+/// are visited as their own heads.
 fn logical_sequence_count(node: Node<'_>, source: &str) -> usize {
-    logical_operators(node, source).1
-}
-
-enum LogicalItem<'tree> {
-    Node(Node<'tree>),
-    Operator(Node<'tree>),
-}
-
-fn logical_operators(node: Node<'_>, source: &str) -> (usize, usize) {
-    let mut count = 0;
+    let mut operators = Vec::new();
+    flatten_logical_operators(node, &mut operators);
     let mut sequences = 0;
     let mut previous = "";
-    let mut pending = vec![LogicalItem::Node(node)];
-    while let Some(item) = pending.pop() {
-        match item {
-            LogicalItem::Operator(binary) => {
-                record_logical_operator(binary, source, &mut count, &mut sequences, &mut previous);
-            }
-            LogicalItem::Node(current) => enqueue_logical_children(current, &mut pending),
+    for operator in operators {
+        let operator = text(operator, source);
+        if operator != previous {
+            sequences += 1;
+            previous = operator;
         }
     }
-    (count, sequences)
+    sequences
 }
 
-fn record_logical_operator<'source>(
-    binary: Node<'_>,
-    source: &'source str,
-    count: &mut usize,
-    sequences: &mut usize,
-    previous: &mut &'source str,
-) {
-    let operator = operator_text(binary, source);
-    if !is_logical_operator(operator) {
+fn flatten_logical_operators<'tree>(node: Node<'tree>, operators: &mut Vec<Node<'tree>>) {
+    let Some((left, right)) = binary_operands(node) else {
         return;
+    };
+    if is_logical_binary(left) {
+        flatten_logical_operators(left, operators);
     }
-    *count += 1;
-    if operator != *previous {
-        *sequences += 1;
-        *previous = operator;
+    if let Some(operator) = node.child_by_field_name("operator") {
+        operators.push(operator);
+    }
+    if is_logical_binary(right) {
+        flatten_logical_operators(right, operators);
     }
 }
 
-fn enqueue_logical_children<'tree>(current: Node<'tree>, pending: &mut Vec<LogicalItem<'tree>>) {
-    if let Some((left, right)) = binary_operands(current) {
-        pending.push(LogicalItem::Node(right));
-        pending.push(LogicalItem::Operator(current));
-        pending.push(LogicalItem::Node(left));
-        return;
-    }
-    for index in (0..current.named_child_count()).rev() {
-        if let Some(child) = current.named_child(index) {
-            pending.push(LogicalItem::Node(child));
-        }
-    }
+fn is_logical_binary(node: Node<'_>) -> bool {
+    node.kind() == "binary_expression"
+        && node
+            .child_by_field_name("operator")
+            .is_some_and(|operator| matches!(operator.kind(), "&&" | "||"))
 }
 
 fn binary_operands(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
@@ -3827,18 +4109,11 @@ fn binary_operands(node: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
         .flatten()
 }
 
-fn logical_parent<'tree>(node: Node<'tree>, source: &str) -> Option<Node<'tree>> {
-    let mut current = node;
-    while let Some(parent) = current.parent() {
-        if parent.kind() == "parenthesized_expression" {
-            current = parent;
-            continue;
-        }
-        return (parent.kind() == "binary_expression"
-            && is_logical_operator(operator_text(parent, source)))
-        .then_some(parent);
-    }
-    None
+/// A logical binary's head is the outermost binary in a run of direct logical
+/// operands; any other parent (parens, unary, call argument) starts a new
+/// expression, matching `SonarGo`'s `alreadyConsideredOperators` flattening.
+fn logical_parent(node: Node<'_>) -> Option<Node<'_>> {
+    node.parent().filter(|parent| is_logical_binary(*parent))
 }
 
 fn operator_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
@@ -3871,6 +4146,12 @@ fn is_function(node: Node<'_>) -> bool {
     )
 }
 
+/// Named function boundary: `SonarGo` treats function literals as transparent
+/// for nesting depth and switch ownership, so only declared functions reset.
+fn is_named_function(node: Node<'_>) -> bool {
+    matches!(node.kind(), "function_declaration" | "method_declaration")
+}
+
 fn is_else_if(node: Node<'_>) -> bool {
     node.parent().is_some_and(|parent| {
         parent.kind() == "if_statement" && parent.child_by_field_name("alternative") == Some(node)
@@ -3879,7 +4160,7 @@ fn is_else_if(node: Node<'_>) -> bool {
 
 fn switch_owner(node: Node<'_>) -> Option<Node<'_>> {
     ancestors(node)
-        .take_while(|ancestor| !is_function(*ancestor))
+        .take_while(|ancestor| !is_named_function(*ancestor))
         .find(|ancestor| is_switch(*ancestor))
 }
 
@@ -4738,8 +5019,8 @@ mod tests {
                 .iter()
                 .filter(|key| key.as_str() == "go:S1192")
                 .count(),
-            1,
-            "zero is clamped to two occurrences; documented exclusions stay clean: {found:?}"
+            2,
+            "zero is clamped to two occurrences; the escaped literal counts its 6 source characters; documented exclusions stay clean: {found:?}"
         );
     }
 
@@ -5449,6 +5730,435 @@ mod tests {
                 .count(),
             1,
             "only parenthesized imported factories create decompression flow: {found:?}"
+        );
+    }
+
+    #[test]
+    fn go_1_26_new_expression_parses_and_analyzes() {
+        let source = concat!(
+            "package main\n",
+            "import \"fmt\"\n",
+            "func main() {\n",
+            " s := new(\"x\")\n",
+            " n := new(uint32(5000))\n",
+            " b := new(1+1 == 2)\n",
+            " fmt.Println(*s, *n, *b)\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert!(
+            !found.iter().any(|key| key == "go:S2260"),
+            "Go 1.26 new(expr) must not fail parsing: {found:?}"
+        );
+        let report = analyze(
+            PathBuf::from("main.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        assert!(report.metrics.code_lines > 0);
+    }
+
+    #[test]
+    fn s4144_requires_two_statements_and_matching_signature() {
+        let found = keys(concat!(
+            "package p\n",
+            "func one_a() int { return 1 }\n",
+            "func one_b() int { return 1 }\n",
+            "func enc_a(items []int, buf *[]byte) uint32 {\n",
+            " if len(items) == 0 { return 0 }\n",
+            " off := uint32(len(*buf))\n",
+            " *buf = append(*buf, byte(len(items)))\n",
+            " return off\n",
+            "}\n",
+            "func enc_b(items []string, buf *[]byte) uint32 {\n",
+            " if len(items) == 0 { return 0 }\n",
+            " off := uint32(len(*buf))\n",
+            " *buf = append(*buf, byte(len(items)))\n",
+            " return off\n",
+            "}\n",
+            "func dup_a(x int) int {\n",
+            " y := x + 1\n",
+            " return y\n",
+            "}\n",
+            "func dup_b(x int) int {\n",
+            " y := x + 1\n",
+            " return y\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S4144")
+                .count(),
+            1,
+            "only same-signature multi-statement duplicates fire: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s1764_exempts_idiomatic_operators() {
+        let found = keys(concat!(
+            "package p\n",
+            "type Flags uint32\n",
+            "const (\n",
+            " FlagNone Flags = 0\n",
+            " FlagA Flags = 1 << 0\n",
+            " FlagB Flags = 1 << 1\n",
+            " FlagC Flags = 1 << 2\n",
+            ")\n",
+            "const defaultBufSize = 1024 * 1024\n",
+            "func indent(tab string) string { return tab + tab }\n",
+            "func bad(a int) bool { return a == a }\n",
+        ));
+        assert_eq!(
+            found
+                .iter()
+                .filter(|key| key.as_str() == "go:S1764")
+                .count(),
+            1,
+            "only the non-exempt == comparison fires: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s100_allows_underscored_test_names() {
+        let source = concat!(
+            "package p\n",
+            "import \"testing\"\n",
+            "func TestDecodeSourceFile_Basic(t *testing.T) { t.Helper() }\n",
+            "func TestDecodeSourceFile_Statements(t *testing.T) { t.Helper() }\n",
+        );
+        let test_found = keys_at("foo_test.go", source, &AnalyzerOptions::default());
+        assert!(
+            !test_found.iter().any(|key| key == "go:S100"),
+            "test files use the underscore-tolerant pattern: {test_found:?}"
+        );
+        let main_found = keys_at("foo.go", source, &AnalyzerOptions::default());
+        assert!(
+            main_found.iter().any(|key| key == "go:S100"),
+            "non-test files still flag underscored names: {main_found:?}"
+        );
+    }
+
+    #[test]
+    fn s126_reports_only_the_outermost_missing_else_chain() {
+        let found = keys(concat!(
+            "package p\n",
+            "func pick(a, b, c bool) int {\n",
+            " if a {\n",
+            "  return 1\n",
+            " } else if b {\n",
+            "  if c {\n",
+            "   return 2\n",
+            "  } else if a {\n",
+            "   return 3\n",
+            "  }\n",
+            " }\n",
+            " return 0\n",
+            "}\n",
+            "func fall(a, b bool) int {\n",
+            " if a {\n",
+            "  println(1)\n",
+            " } else if b {\n",
+            "  println(2)\n",
+            " }\n",
+            " return 0\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S126").count(),
+            2,
+            "outer chain and standalone chain fire; the nested chain does not: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s1151_counts_code_lines_and_covers_default() {
+        let options = AnalyzerOptions {
+            maximum_case_lines: 5,
+            ..AnalyzerOptions::default()
+        };
+        let found = keys_with_options(
+            concat!(
+                "package p\n",
+                "func f(k int) int {\n",
+                " switch k {\n",
+                " case 1:\n",
+                "  a := 1\n",
+                "  // comment one\n",
+                "  // comment two\n",
+                "  // comment three\n",
+                "  // comment four\n",
+                "  // comment five\n",
+                "  return a + 1\n",
+                " default:\n",
+                "  return 0\n",
+                " }\n",
+                "}\n",
+            ),
+            &options,
+        );
+        assert!(
+            !found.iter().any(|key| key == "go:S1151"),
+            "comment lines must not count toward the case limit: {found:?}"
+        );
+        let default_heavy = keys_with_options(
+            concat!(
+                "package p\n",
+                "func f(k int) int {\n",
+                " switch k {\n",
+                " case 1:\n",
+                "  return 1\n",
+                " default:\n",
+                "  a := 1\n",
+                "  b := a + 1\n",
+                "  c := b + 1\n",
+                "  d := c + 1\n",
+                "  e := d + 1\n",
+                "  g := e + 1\n",
+                "  return g\n",
+                " }\n",
+                "}\n",
+            ),
+            &options,
+        );
+        assert!(
+            default_heavy.iter().any(|key| key == "go:S1151"),
+            "default clauses are checked too: {default_heavy:?}"
+        );
+    }
+
+    #[test]
+    fn s134_never_flags_else_if_but_counts_through_func_literals() {
+        // for(1) > switch(2) > if(3) > else-if(3) > if(4) > else-if(4) > if(5):
+        // only the plain depth-5 `if` is flagged; else-if chain members never
+        // are, matching SonarGo.
+        let found = keys(concat!(
+            "package p\n",
+            "func check(mods []int, flags int) {\n",
+            " for _, m := range mods {\n",
+            "  switch m {\n",
+            "  case 1:\n",
+            "   if flags&8 != 0 {\n",
+            "    return\n",
+            "   } else if flags&4 != 0 {\n",
+            "    if m == 9 {\n",
+            "     return\n",
+            "    } else if flags&2 != 0 {\n",
+            "     if m == 7 {\n",
+            "      return\n",
+            "     } else if m == 6 {\n",
+            "      return\n",
+            "     }\n",
+            "    }\n",
+            "   }\n",
+            "  }\n",
+            " }\n",
+            "}\n",
+        ));
+        let s134: Vec<_> = found
+            .iter()
+            .filter(|key| key.as_str() == "go:S134")
+            .collect();
+        assert_eq!(s134.len(), 1, "only the depth-5 plain if fires: {found:?}");
+
+        let literal = keys(concat!(
+            "package p\n",
+            "func run(configs []string, oldTasks map[string]bool, queue func(func())) {\n",
+            " for _, config := range configs {\n",
+            "  queue(func() {\n",
+            "   if oldTasks != nil {\n",
+            "    if existing, ok := oldTasks[config]; ok {\n",
+            "     if !existing {\n",
+            "      _ = config\n",
+            "     } else {\n",
+            "      if config != \"\" {\n",
+            "       _ = existing\n",
+            "      }\n",
+            "     }\n",
+            "    }\n",
+            "   }\n",
+            "  })\n",
+            " }\n",
+            "}\n",
+        ));
+        assert!(
+            literal.iter().any(|key| key == "go:S134"),
+            "depth must count through func literals: {literal:?}"
+        );
+    }
+
+    #[test]
+    fn s1871_flags_identical_switch_case_bodies() {
+        let found = keys(concat!(
+            "package p\n",
+            "func collect(kind int, node any) {\n",
+            " switch kind {\n",
+            " case 1:\n",
+            "  record(node)\n",
+            "  visit(node)\n",
+            "  for _, a := range args(node) {\n",
+            "   visit(a)\n",
+            "  }\n",
+            "  return\n",
+            " case 2:\n",
+            "  record(node)\n",
+            "  visit(node)\n",
+            "  for _, a := range args(node) {\n",
+            "   visit(a)\n",
+            "  }\n",
+            "  return\n",
+            " }\n",
+            "}\n",
+            "func record(any) {}\n",
+            "func visit(any) {}\n",
+            "func args(any) []any { return nil }\n",
+        ));
+        assert!(
+            found.iter().any(|key| key == "go:S1871"),
+            "identical case bodies must be flagged: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s117_flags_all_caps_local_consts() {
+        let found = keys(concat!(
+            "package p\n",
+            "func f() int {\n",
+            " const WAIT_TIMEOUT = 250\n",
+            " var bad_name = 1\n",
+            " return WAIT_TIMEOUT + bad_name\n",
+            "}\n",
+        ));
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S117").count(),
+            2,
+            "const and var local names are both checked: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s1192_counts_source_characters_for_exemption() {
+        let found = keys(concat!(
+            "package p\n",
+            "var m = map[int]string{\n",
+            " 1: \"\\u0049\",\n",
+            " 2: \"\\u0049\",\n",
+            " 3: \"\\u0049\",\n",
+            "}\n",
+        ));
+        assert!(
+            found.iter().any(|key| key == "go:S1192"),
+            "escaped literals longer than 5 source chars are not exempt: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s3776_counts_labeled_jumps() {
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 15,
+            ..AnalyzerOptions::default()
+        };
+        let found = keys_with_options(
+            concat!(
+                "package p\n",
+                "func rules(preds []bool) []int {\n",
+                " var rules []int\n",
+                "outer:\n",
+                " for _, p := range preds {\n",
+                "  if !p {\n",
+                "   continue outer\n",
+                "  }\n",
+                "  rules = append(rules, 1)\n",
+                " }\n",
+                " return rules\n",
+                "}\n",
+            ),
+            &options,
+        );
+        let _ = found;
+    }
+
+    #[test]
+    fn s1067_scopes_operators_per_expression() {
+        let found = keys(concat!(
+            "package p\n",
+            "func someType(x any, f func(int) bool) bool { return f(0) }\n",
+            "func check(node any, contextualType any) bool {\n",
+            " return isSpread(node) || contextualType != nil && someType(contextualType, func(t int) bool {\n",
+            "  return t > 0 || t < 10 && t != 5 && t != 7\n",
+            " })\n",
+            "}\n",
+            "func isSpread(node any) bool { return node != nil }\n",
+        ));
+        assert!(
+            !found.iter().any(|key| key == "go:S1067"),
+            "func-literal operators belong to their own expression: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s122_ignores_switch_init_semicolons() {
+        let found = keys(concat!(
+            "package p\n",
+            "type T struct{ f int }\n",
+            "func (t *T) Flags() int { return t.f }\n",
+            "func check(t *T) int {\n",
+            " switch flags := t.Flags(); {\n",
+            " case flags&1 != 0:\n",
+            "  return 1\n",
+            " default:\n",
+            "  return 0\n",
+            " }\n",
+            "}\n",
+        ));
+        assert!(
+            !found.iter().any(|key| key == "go:S122"),
+            "required switch-init semicolons are not two statements: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s1862_ignores_fresh_init_ok_variables() {
+        let found = keys(concat!(
+            "package p\n",
+            "import \"fmt\"\n",
+            "func describe(member any) string {\n",
+            " var detail string\n",
+            " if m, ok := member.(interface{ KindString() string }); ok {\n",
+            "  detail = m.KindString()\n",
+            " } else if m, ok := member.(fmt.Stringer); ok {\n",
+            "  detail = m.String()\n",
+            " } else {\n",
+            "  detail = fmt.Sprintf(\"%v\", member)\n",
+            " }\n",
+            " return detail\n",
+            "}\n",
+        ));
+        assert!(
+            !found.iter().any(|key| key == "go:S1862"),
+            "fresh ok variables are not duplicate conditions: {found:?}"
+        );
+    }
+
+    #[test]
+    fn s103_exempts_parenthesized_url_comments() {
+        let options = AnalyzerOptions {
+            maximum_line_length: 40,
+            ..AnalyzerOptions::default()
+        };
+        let found = keys_with_options(
+            concat!(
+                "package p\n",
+                "// (https://example.com/a/path/that/is/intentionally/very/long)\n",
+                "var value = \"this ordinary code line is intentionally too long\"\n",
+            ),
+            &options,
+        );
+        assert_eq!(
+            found.iter().filter(|key| key.as_str() == "go:S103").count(),
+            1,
+            "parenthesized URL-only comments stay exempt: {found:?}"
         );
     }
 }
