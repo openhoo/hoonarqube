@@ -1,9 +1,9 @@
 // Helpers shared across rule families (hoisted from rule-specific modules).
 use crate::support::static_property_name;
 use oxc_ast::ast::{
-    BinaryOperator, CallExpression, Class, Expression, JSXAttribute, JSXAttributeItem,
-    JSXAttributeName, JSXElementName, JSXOpeningElement, MemberExpression, PropertyKey,
-    RegExpLiteral, Statement,
+    BinaryOperator, BlockStatement, CallExpression, Class, Expression, JSXAttribute,
+    JSXAttributeItem, JSXAttributeName, JSXElementName, JSXOpeningElement, MemberExpression,
+    PropertyKey, RegExpLiteral, Statement, SwitchStatement, TryStatement,
 };
 
 /// `console` members flagged by `S106`.
@@ -95,22 +95,94 @@ pub(crate) fn expression_through_this_link(expression: &Expression<'_>, link: &s
     }
 }
 
-/// Whether a statement terminates unconditionally for `S128`: a direct
-/// jump, a block whose last statement jumps, or an `if/else` where both
-/// branches jump.
+/// Whether a statement never completes normally for `S128`/`S1763`/`S3801`:
+/// a direct jump, a block containing a jump, an `if/else` where both
+/// branches jump, a `switch` with a `default` whose every case jumps, or a
+/// `try` whose `try`/`catch`/`finally` arms all jump.
 pub(crate) fn statement_ends_with_jump(stmt: &Statement<'_>) -> bool {
     match stmt {
         Statement::BreakStatement(_)
         | Statement::ContinueStatement(_)
         | Statement::ReturnStatement(_)
         | Statement::ThrowStatement(_) => true,
-        Statement::BlockStatement(block) => block.body.last().is_some_and(statement_ends_with_jump),
+        Statement::BlockStatement(block) => block.body.iter().any(statement_ends_with_jump),
         Statement::IfStatement(if_statement) => {
             statement_ends_with_jump(&if_statement.consequent)
                 && if_statement
                     .alternate
                     .as_ref()
                     .is_some_and(statement_ends_with_jump)
+        }
+        Statement::SwitchStatement(switch) => switch_never_completes(switch),
+        Statement::TryStatement(try_statement) => try_never_completes(try_statement),
+        _ => false,
+    }
+}
+
+/// Whether a `switch` can never complete normally: some `default` case
+/// covers the no-match path, no case body breaks out of the switch, and
+/// the last case (the fall-through sink) ends in a jump.
+fn switch_never_completes(switch: &SwitchStatement<'_>) -> bool {
+    let has_default = switch.cases.iter().any(|case| case.test.is_none());
+    let last_jumps = switch
+        .cases
+        .last()
+        .is_some_and(|case| case.consequent.iter().any(statement_ends_with_jump));
+    let may_break = switch
+        .cases
+        .iter()
+        .any(|case| case.consequent.iter().any(statement_may_break_switch));
+    has_default && last_jumps && !may_break
+}
+
+/// Whether a `try` can never complete normally: a `finally` that never
+/// completes dominates; otherwise both the `try` block and the `catch`
+/// handler (when present) must never complete.
+fn try_never_completes(try_statement: &TryStatement<'_>) -> bool {
+    let block_never = |block: &BlockStatement<'_>| block.body.iter().any(statement_ends_with_jump);
+    if try_statement
+        .finalizer
+        .as_ref()
+        .is_some_and(|finalizer| block_never(finalizer))
+    {
+        return true;
+    }
+    block_never(&try_statement.block)
+        && try_statement
+            .handler
+            .as_ref()
+            .is_none_or(|handler| block_never(&handler.body))
+}
+
+/// Whether a statement inside a `switch` case may break out of that switch:
+/// any `break`/`continue` not shielded by a nested loop, switch, or
+/// function boundary. Labeled jumps count conservatively — without label
+/// resolution they may target the switch itself.
+fn statement_may_break_switch(stmt: &Statement<'_>) -> bool {
+    match stmt {
+        Statement::BreakStatement(_) | Statement::ContinueStatement(_) => true,
+        Statement::BlockStatement(block) => block.body.iter().any(statement_may_break_switch),
+        Statement::IfStatement(if_statement) => {
+            statement_may_break_switch(&if_statement.consequent)
+                || if_statement
+                    .alternate
+                    .as_ref()
+                    .is_some_and(statement_may_break_switch)
+        }
+        Statement::TryStatement(try_statement) => {
+            try_statement
+                .block
+                .body
+                .iter()
+                .any(statement_may_break_switch)
+                || try_statement
+                    .handler
+                    .as_ref()
+                    .is_some_and(|handler| handler.body.body.iter().any(statement_may_break_switch))
+                || try_statement
+                    .finalizer
+                    .as_ref()
+                    .is_some_and(|finalizer| finalizer.body.iter().any(statement_may_break_switch))
         }
         _ => false,
     }
