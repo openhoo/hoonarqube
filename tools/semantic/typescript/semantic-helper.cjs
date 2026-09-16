@@ -519,10 +519,12 @@ function typeInfo(ts, checker, type) {
     has_null: false,
     has_undefined: false,
     has_object: false,
+    has_object_type: false,
     has_primitive: false,
     has_falsy_primitive: false,
     has_any: false,
     has_unknown: false,
+    has_void: false,
     has_never: false,
     has_type_parameter: false,
     is_union: Boolean(type?.isUnion?.()),
@@ -539,7 +541,9 @@ function typeInfo(ts, checker, type) {
     if (f & ts.TypeFlags.Unknown) info.has_unknown = true;
     if (f & ts.TypeFlags.Never) info.has_never = true;
     if (f & ts.TypeFlags.TypeParameter) info.has_type_parameter = true;
+    if (f & ts.TypeFlags.Object) info.has_object_type = true;
     if (f & (ts.TypeFlags.Object | ts.TypeFlags.NonPrimitive)) info.has_object = true;
+    if (f & ts.TypeFlags.Void) info.has_void = true;
     if (f & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.ESSymbolLike)) {
       info.has_primitive = true;
     }
@@ -1543,42 +1547,49 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     deprecatedSeen.add(key);
     deprecated.push({ span: itemSpan, message, symbol: symbol.id, declaration_path: symbol.declaration ? canonicalPath(symbol.declaration.getSourceFile().fileName) : undefined });
   }
-  const isConditionalTest = (container, expression) => {
-    if (!container) return false;
-    return Boolean(
-      (ts.isIfStatement(container) && container.expression === expression)
-        || (ts.isWhileStatement(container) && container.expression === expression)
-        || (ts.isDoStatement(container) && container.expression === expression)
-        || (ts.isForStatement(container) && container.condition === expression)
-        || (ts.isConditionalExpression(container) && container.condition === expression),
-    );
-  };
-  const logicalOperator = node => {
-    if (!node || !ts.isBinaryExpression(node)) return undefined;
-    if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return 'and';
-    if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken) return 'or';
-    return undefined;
-  };
-  const mixedLogicalExpression = (node, parent) => {
-    const rootOperator = logicalOperator(node);
-    if (!rootOperator) return false;
-    let hasAnd = rootOperator === 'and';
-    let hasOr = rootOperator === 'or';
-    let ancestor = parent;
-    while (ancestor && logicalOperator(ancestor)) {
-      if (logicalOperator(ancestor) === 'and') hasAnd = true;
-      if (logicalOperator(ancestor) === 'or') hasOr = true;
-      ancestor = ancestor.parent;
+  // Mirrors typescript-eslint's isConditionalTest: a `||` inside a condition
+  // position (possibly through logical/`!`/sequence/ternary-branch ancestors)
+  // is ignored by prefer-nullish-coalescing's default ignoreConditionalTests.
+  const conditionalTest = node => {
+    let current = node;
+    let parent = current.parent;
+    while (parent) {
+      if (ts.isBinaryExpression(parent)
+        && (parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+          || parent.operatorToken.kind === ts.SyntaxKind.BarBarToken
+          || parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
+        current = parent;
+        parent = parent.parent;
+        continue;
+      }
+      if (ts.isConditionalExpression(parent)
+        && (parent.whenTrue === current || parent.whenFalse === current)) {
+        current = parent;
+        parent = parent.parent;
+        continue;
+      }
+      if (ts.isBinaryExpression(parent)
+        && parent.operatorToken.kind === ts.SyntaxKind.CommaToken
+        && parent.right === current) {
+        current = parent;
+        parent = parent.parent;
+        continue;
+      }
+      if (ts.isPrefixUnaryExpression(parent)
+        && parent.operator === ts.SyntaxKind.ExclamationToken) {
+        current = parent;
+        parent = parent.parent;
+        continue;
+      }
+      return Boolean(
+        (ts.isIfStatement(parent) && parent.expression === current)
+          || (ts.isWhileStatement(parent) && parent.expression === current)
+          || (ts.isDoStatement(parent) && parent.expression === current)
+          || (ts.isForStatement(parent) && parent.condition === current)
+          || (ts.isConditionalExpression(parent) && parent.condition === current),
+      );
     }
-    function visitLogicalChild(child) {
-      const operator = logicalOperator(child);
-      if (!operator) return;
-      if (operator === 'and') hasAnd = true;
-      if (operator === 'or') hasOr = true;
-      ts.forEachChild(child, visitLogicalChild);
-    }
-    ts.forEachChild(node, visitLogicalChild);
-    return hasAnd && hasOr;
+    return false;
   };
   const unwrapReference = node => {
     let current = node;
@@ -1627,7 +1638,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     return { info, ok: objectOrNullishTypeInfo(info, checker, type) };
   };
 
-  function visit(node, parent, inConditionalTest = false, inMixedLogical = false) {
+  function visit(node, parent) {
     if (ts.isIdentifier(node) || ts.isPrivateIdentifier?.(node)) {
       let symbol;
       try { symbol = checker.getSymbolAtLocation(node); } catch { symbol = undefined; }
@@ -1696,19 +1707,19 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.BarBarToken || node.operatorToken.kind === ts.SyntaxKind.BarBarEqualsToken)) {
       const leftType = checker.getTypeAtLocation(node.left);
       const info = typeInfo(ts, checker, leftType);
-      const hasNullish = info.has_null || info.has_undefined;
-      const objectAndNullish = hasNullish && info.has_object;
-      const mixedLogical = inMixedLogical || mixedLogicalExpression(node, parent);
-      const currentTest = inConditionalTest || isConditionalTest(parent, node);
-      const onlyNullish = hasNullish
-        && !info.has_object
-        && !info.has_primitive
-        && !info.has_any
-        && !info.has_unknown;
+      // Mirrors typescript-eslint prefer-nullish-coalescing defaults plus the
+      // SonarJS S6606 interceptor: `a || b` reports when the left type is
+      // nullable (null/undefined/void) unless it is any/unknown or a union
+      // that also contains an object type.  `||=` stays excluded and
+      // conditional-test positions are ignored.
+      const hasNullish = info.has_null || info.has_undefined || info.has_void;
+      const objectAndNullish = hasNullish && info.has_object_type;
       const report = node.operatorToken.kind === ts.SyntaxKind.BarBarToken
-        && onlyNullish
-        && !currentTest
-        && !mixedLogical;
+        && hasNullish
+        && !info.has_any
+        && !info.has_unknown
+        && !objectAndNullish
+        && !conditionalTest(node);
       nullish.push({
         kind: node.operatorToken.kind === ts.SyntaxKind.BarBarEqualsToken ? 'logical-or-assignment' : 'logical-or',
         span: span(source, node),
@@ -1798,12 +1809,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
       }
     }
 
-    ts.forEachChild(node, child => visit(
-      child,
-      node,
-      inConditionalTest || isConditionalTest(node, child),
-      inMixedLogical || Boolean(logicalOperator(node) && logicalOperator(child) && logicalOperator(node) !== logicalOperator(child)),
-    ));
+    ts.forEachChild(node, child => visit(child, node));
   }
   visit(sourceFile, undefined);
 

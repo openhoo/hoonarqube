@@ -17,12 +17,13 @@ use sha2::{Digest as _, Sha256};
 
 use crate::analyze::{AnalyzerOptionsBundle, MAX_RETAINED_SOURCE_BYTES};
 use crate::cache::CacheFingerprints;
-use crate::project_features::{AnalyzedSource, SemanticOptions};
+use crate::project_features::{AnalyzedSource, AutoTypeScriptProject, SemanticOptions};
 
 /// Contexts loaded for one complete project source inventory.
 #[derive(Debug)]
 pub(crate) struct ProjectSemanticContext {
     jsts: Option<hoonarqube_jsts::project_context::ProjectSemanticContext>,
+    jsts_auto: Vec<hoonarqube_jsts::project_context::ProjectSemanticContext>,
     csharp: Option<hoonarqube_csharp::semantic::ProjectSemanticContext>,
     python: Option<hoonarqube_python::PythonProjectContext>,
     complete: bool,
@@ -41,6 +42,7 @@ impl ProjectSemanticContext {
         sources: &[AnalyzedSource],
         semantic: &SemanticOptions,
         options: &AnalyzerOptionsBundle,
+        auto_projects: &[AutoTypeScriptProject],
     ) -> Result<Self, String> {
         let context_sources = load_csharp_context_sources(semantic);
         Self::load_with_context_sources(
@@ -49,6 +51,7 @@ impl ProjectSemanticContext {
             &context_sources.diagnostics,
             semantic,
             options,
+            auto_projects,
         )
     }
 
@@ -61,10 +64,12 @@ impl ProjectSemanticContext {
         context_diagnostics: &[String],
         semantic: &SemanticOptions,
         options: &AnalyzerOptionsBundle,
+        auto_projects: &[AutoTypeScriptProject],
     ) -> Result<Self, String> {
-        if !semantic.requested() {
+        if !semantic.requested() && auto_projects.is_empty() {
             return Ok(Self {
                 jsts: None,
+                jsts_auto: Vec::new(),
                 csharp: None,
                 python: None,
                 complete: true,
@@ -82,6 +87,7 @@ impl ProjectSemanticContext {
         let mut diagnostics = context_diagnostics.to_vec();
         let mut fingerprints = SemanticFingerprintParts::default();
         let jsts = load_jsts_context(sources, semantic, &mut diagnostics, &mut fingerprints);
+        let jsts_auto = load_jsts_auto_contexts(sources, auto_projects, &mut fingerprints);
         let csharp = load_csharp_context(
             sources,
             context_sources,
@@ -99,6 +105,7 @@ impl ProjectSemanticContext {
         );
         Ok(Self {
             jsts,
+            jsts_auto,
             csharp,
             python,
             complete,
@@ -146,31 +153,53 @@ impl ProjectSemanticContext {
         let language = hoonarqube_core::language_for_path(path);
         match language {
             Some(Language::JavaScript | Language::TypeScript) => {
-                let Some(context) = self.jsts.as_ref() else {
-                    return Ok(None);
-                };
-                if !context.is_complete() {
-                    return Ok(None);
-                }
                 let language = if language == Some(Language::JavaScript) {
                     hoonarqube_jsts::JstsLanguage::JavaScript
                 } else {
                     hoonarqube_jsts::JstsLanguage::TypeScript
                 };
-                let result = context.analyze_with_context(
-                    path.to_path_buf(),
-                    source,
-                    language,
-                    &options.jsts,
-                );
-                if let Some(diagnostic) = result
-                    .diagnostics
-                    .iter()
-                    .find(|diagnostic| diagnostic.category == "error")
-                {
-                    return Err(format!("{}: {}", diagnostic.code, diagnostic.message));
+                if let Some(context) = self.jsts.as_ref() {
+                    if !context.is_complete() {
+                        return Ok(None);
+                    }
+                    let result = context.analyze_with_context(
+                        path.to_path_buf(),
+                        source,
+                        language,
+                        &options.jsts,
+                    );
+                    if let Some(diagnostic) = result
+                        .diagnostics
+                        .iter()
+                        .find(|diagnostic| diagnostic.category == "error")
+                    {
+                        return Err(format!("{}: {}", diagnostic.code, diagnostic.message));
+                    }
+                    return Ok(Some(result.report));
                 }
-                Ok(Some(result.report))
+                // Auto-discovered contexts are best-effort: a file outside
+                // every loaded context, or a context that cannot prove the
+                // source, falls back to the native report without diagnostics.
+                for context in &self.jsts_auto {
+                    if !context.is_complete() || context.file_facts(path).is_none() {
+                        continue;
+                    }
+                    let result = context.analyze_with_context(
+                        path.to_path_buf(),
+                        source,
+                        language,
+                        &options.jsts,
+                    );
+                    if result
+                        .diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.category == "error")
+                    {
+                        return Ok(None);
+                    }
+                    return Ok(Some(result.report));
+                }
+                Ok(None)
             }
             Some(Language::CSharp) => {
                 let Some(context) = self.csharp.as_ref() else {
@@ -366,6 +395,58 @@ fn record_jsts_context(
             "typescript semantic context is incomplete; compiler facts are unavailable".to_owned(),
         );
     }
+    record_jsts_fingerprints(config, context, fingerprints);
+}
+
+/// Loads each auto-discovered TypeScript project context.  Auto contexts are
+/// opportunistic: configuration errors, missing compilers, and incomplete
+/// loads are skipped silently (never diagnostics), and only complete contexts
+/// contribute cache fingerprints.
+fn load_jsts_auto_contexts(
+    sources: &[AnalyzedSource],
+    auto_projects: &[AutoTypeScriptProject],
+    fingerprints: &mut SemanticFingerprintParts,
+) -> Vec<hoonarqube_jsts::project_context::ProjectSemanticContext> {
+    let mut contexts = Vec::with_capacity(auto_projects.len());
+    for project in auto_projects {
+        let Some(root) = project.tsconfig.parent() else {
+            continue;
+        };
+        let Ok(config) = typescript_config(root, None, &[]) else {
+            continue;
+        };
+        let pairs = project
+            .files
+            .iter()
+            .filter_map(|path| {
+                sources
+                    .iter()
+                    .find(|source| same_path(&source.path, path))
+                    .map(|source| (source.path.clone(), source.source.clone()))
+            })
+            .collect::<Vec<_>>();
+        if pairs.is_empty() {
+            continue;
+        }
+        let semantic_sources =
+            hoonarqube_jsts::project_context::ProjectSemanticSources::from_pairs(pairs);
+        if let Ok(context) = hoonarqube_jsts::project_context::ProjectSemanticContext::load(
+            &config,
+            &semantic_sources,
+        ) && context.is_complete()
+        {
+            record_jsts_fingerprints(&config, &context, fingerprints);
+            contexts.push(context);
+        }
+    }
+    contexts
+}
+
+fn record_jsts_fingerprints(
+    config: &hoonarqube_jsts::project_context::TypeScriptProjectConfig,
+    context: &hoonarqube_jsts::project_context::ProjectSemanticContext,
+    fingerprints: &mut SemanticFingerprintParts,
+) {
     fingerprints.context.push(context.fingerprint().to_owned());
     fingerprints.helper.push(digest_values(
         "typescript-helper-v1",
@@ -765,7 +846,7 @@ impl FixAnalysisContext {
                 semantic: semantic.clone(),
                 sources: Vec::new(),
                 context_sources: Vec::new(),
-                base: ProjectSemanticContext::load(&[], semantic, options)?,
+                base: ProjectSemanticContext::load(&[], semantic, options, &[])?,
             });
         }
         let mut warnings = Vec::new();
@@ -806,6 +887,7 @@ impl FixAnalysisContext {
             &[],
             semantic,
             options,
+            &[],
         )?;
         if !base.is_complete() {
             return Err(format_diagnostics(base.diagnostics()));
@@ -867,6 +949,7 @@ impl FixAnalysisContext {
             &[],
             &self.semantic,
             &self.options,
+            &[],
         )?;
         if !context.is_complete() {
             return Err(format_diagnostics(context.diagnostics()));
@@ -916,7 +999,13 @@ fn typescript_config(
             tsconfig.display()
         ));
     }
-    if let Some(module) = module
+    // `--typescript-module` wins; otherwise `HOONARQUBE_TYPESCRIPT_PACKAGE`
+    // supplies an explicit compiler location (the same knob the test suite
+    // uses).  Without either, the helper resolves a project-local package.
+    let module = module
+        .map(Path::to_path_buf)
+        .or_else(|| std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE").map(PathBuf::from));
+    if let Some(module) = module.as_deref()
         && !module.exists()
     {
         return Err(format!(
@@ -1109,7 +1198,7 @@ mod tests {
             ..SemanticOptions::default()
         };
         let context =
-            ProjectSemanticContext::load(&[], &semantic, &AnalyzerOptionsBundle::default())
+            ProjectSemanticContext::load(&[], &semantic, &AnalyzerOptionsBundle::default(), &[])
                 .expect("unsupported profiles are the only hard load error");
         assert!(!context.is_complete());
         assert!(
