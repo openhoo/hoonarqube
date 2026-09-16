@@ -446,42 +446,22 @@ impl<'a> Visit<'a> for FunctionCensus {
         {
             match unparenthesized(init) {
                 Expression::ArrowFunctionExpression(arrow) => {
-                    let scan = if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
-                        scan_body(&body.statements, parameter_spans(&arrow.params))
-                    } else {
-                        let mut scan = BodyScan::default();
-                        if let Some(expression) = arrow.body.as_expression() {
-                            scan.has_return = true;
-                            scan.has_valued_return = true;
-                            if let Some(kind) = literal_kind(expression) {
-                                scan.return_kinds.push(kind);
-                            } else {
-                                scan.has_opaque_return = true;
-                            }
-                        }
-                        scan
-                    };
                     let facts = fn_facts(
                         arrow.r#async,
                         // Arrow functions cannot be generators.
                         false,
                         arrow.return_type.as_deref(),
-                        scan,
+                        arrow_body_scan(arrow),
                         arrow.span,
                     );
                     self.insert(name.to_string(), facts);
                 }
                 Expression::FunctionExpression(function) => {
-                    let scan = function
-                        .body
-                        .as_ref()
-                        .map(|body| scan_body(&body.statements, parameter_spans(&function.params)))
-                        .unwrap_or_default();
                     let facts = fn_facts(
                         function.r#async,
                         function.generator,
                         function.return_type.as_deref(),
-                        scan,
+                        function_body_scan(function),
                         function.span,
                     );
                     self.insert(name.to_string(), facts);
@@ -491,6 +471,35 @@ impl<'a> Visit<'a> for FunctionCensus {
         }
         walk_variable_declarator(self, it);
     }
+}
+
+/// Body scan for a function's optional body; bodiless declarations scan
+/// empty.
+fn function_body_scan(function: &Function<'_>) -> BodyScan {
+    function
+        .body
+        .as_ref()
+        .map(|body| scan_body(&body.statements, parameter_spans(&function.params)))
+        .unwrap_or_default()
+}
+
+/// Body scan for an arrow: statement bodies scan normally; expression
+/// bodies produce a single implicit valued return.
+fn arrow_body_scan(arrow: &ArrowFunctionExpression<'_>) -> BodyScan {
+    if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+        return scan_body(&body.statements, parameter_spans(&arrow.params));
+    }
+    let mut scan = BodyScan::default();
+    if let Some(expression) = arrow.body.as_expression() {
+        scan.has_return = true;
+        scan.has_valued_return = true;
+        if let Some(kind) = literal_kind(expression) {
+            scan.return_kinds.push(kind);
+        } else {
+            scan.has_opaque_return = true;
+        }
+    }
+    scan
 }
 
 impl FunctionCensus {
