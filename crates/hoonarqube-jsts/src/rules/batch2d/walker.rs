@@ -666,6 +666,28 @@ mod tests {
         let two_clause = js_keys("if (!a || !a.b) {\n  g();\n}\n");
         assert_eq!(count_key(&two_clause, "javascript:S6582"), 1);
 
+        // #492: a negated base guard OR-ed with a member comparison on the
+        // same chain rewrites to `x?.prop !== v`.
+        let member_guard = findings(
+            "function f(node: { type: string } | undefined): undefined {\n  if (!node || node.type !== \"directory\") {\n    return undefined;\n  }\n  return undefined;\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&member_guard, "typescript:S6582"), 1);
+
+        // A nullish-equality guard extends the same chain too.
+        let nullish_guard = js_keys("if (a == null || !a.b) {\n  g();\n}\n");
+        assert_eq!(count_key(&nullish_guard, "javascript:S6582"), 1);
+
+        // #493: sibling members of one root do not extend each other.
+        let siblings = js_keys(
+            "class C {\n  connected = false;\n  connection = {};\n  g() {\n    if (!this.connected || !this.connection) return false;\n    return true;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&siblings, "javascript:S6582"), 0);
+
+        // Strict chain extension still fires.
+        let extension = js_keys("if (!a.b || !a.b.c) {\n  g();\n}\n");
+        assert_eq!(count_key(&extension, "javascript:S6582"), 1);
+
         // Operands that are not negations, negations over a different
         // root, or double negations stay outside the supported family.
         let mixed_roots = js_keys("if (!a || !b.c) {\n  g();\n}\n");
