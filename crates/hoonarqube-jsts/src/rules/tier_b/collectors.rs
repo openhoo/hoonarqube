@@ -45,14 +45,14 @@ use oxc_ast::ast::VariableDeclarationKind;
 use oxc_ast::ast::VariableDeclarator;
 use oxc_ast::ast::WhileStatement;
 use oxc_ast::ast::{
-    Argument, ArrayExpression, ArrayExpressionElement, ArrowFunctionBody, AssignmentTarget,
-    BinaryOperator, CallExpression, Class, Expression, FormalParameters, MemberExpression,
-    MethodDefinition, MethodDefinitionKind, NewExpression, ObjectExpression, ObjectPropertyKind,
-    PropertyDefinition, PropertyKey, RegExpLiteral, Statement, TSAccessibility,
+    Argument, ArrayExpression, ArrowFunctionBody, AssignmentTarget, BinaryOperator, CallExpression,
+    Class, Expression, FormalParameters, MemberExpression, MethodDefinition, MethodDefinitionKind,
+    NewExpression, ObjectExpression, ObjectPropertyKind, PropertyDefinition, PropertyKey,
+    RegExpLiteral, Statement, TSAccessibility,
 };
 use oxc_ast::ast::{
-    ArrayPattern, ExportNamedDeclaration, ImportDeclaration, ObjectPattern,
-    TSTypeParameterDeclaration, TSTypeParameterInstantiation,
+    ArrayPattern, ExportNamedDeclaration, ImportDeclaration, ImportDeclarationSpecifier,
+    ObjectPattern, TSEnumDeclaration, TSTypeParameterDeclaration, TSTypeParameterInstantiation,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_array_pattern;
@@ -68,6 +68,7 @@ use oxc_ast_visit::walk::walk_import_declaration;
 use oxc_ast_visit::walk::walk_jsx_attribute;
 use oxc_ast_visit::walk::walk_object_pattern;
 use oxc_ast_visit::walk::walk_switch_statement;
+use oxc_ast_visit::walk::walk_ts_enum_declaration;
 use oxc_ast_visit::walk::walk_ts_type_parameter_declaration;
 use oxc_ast_visit::walk::walk_ts_type_parameter_instantiation;
 use oxc_ast_visit::walk::walk_update_expression;
@@ -388,17 +389,12 @@ pub(crate) struct TrailingCommaListCollector<'p> {
 
 impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     fn visit_array_expression(&mut self, array: &ArrayExpression<'p>) {
-        let spread_last = matches!(
-            array.elements.last(),
-            Some(ArrayExpressionElement::SpreadElement(_))
-        );
-        let last = (!spread_last)
-            .then(|| array.elements.last())
-            .flatten()
-            .map(GetSpan::span);
+        // A trailing comma after a spread-last element (`[...x,]`) is legal
+        // and flagged like any other trailing comma; only call arguments keep
+        // the spread-last skip because `f(...a,)` does not parse.
         self.lists.push(TrailingCommaList {
             container: array.span,
-            last_element: last,
+            last_element: array.elements.last().map(GetSpan::span),
         });
         walk_array_expression(self, array);
     }
@@ -453,9 +449,17 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
     }
 
     fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'p>) {
-        if let Some(specifiers) = &declaration.specifiers
-            && let (Some(first), Some(last)) = (specifiers.first(), specifiers.last())
-            && let Some(closer_end) = self.closing_brace_end(last.span().end)
+        // Only `import { ... }` specifiers sit inside braces; default and
+        // namespace specifiers never do, so scanning for `}` on a brace-less
+        // import would fabricate a phantom list out of a later construct.
+        let named: Vec<&ImportDeclarationSpecifier<'p>> = declaration
+            .specifiers
+            .iter()
+            .flatten()
+            .filter(|specifier| matches!(specifier, ImportDeclarationSpecifier::ImportSpecifier(_)))
+            .collect();
+        if let (Some(first), Some(last)) = (named.first(), named.last())
+            && let Some(closer_end) = self.closing_brace_end(last.span().end, declaration.span.end)
         {
             self.lists.push(TrailingCommaList {
                 container: Span::new(first.span().start, closer_end),
@@ -469,7 +473,7 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
         if let (Some(first), Some(last)) = (
             declaration.specifiers.first(),
             declaration.specifiers.last(),
-        ) && let Some(closer_end) = self.closing_brace_end(last.span().end)
+        ) && let Some(closer_end) = self.closing_brace_end(last.span().end, declaration.span.end)
         {
             self.lists.push(TrailingCommaList {
                 container: Span::new(first.span().start, closer_end),
@@ -477,6 +481,14 @@ impl<'p> Visit<'p> for TrailingCommaListCollector<'p> {
             });
         }
         walk_export_named_declaration(self, declaration);
+    }
+
+    fn visit_ts_enum_declaration(&mut self, declaration: &TSEnumDeclaration<'p>) {
+        self.lists.push(TrailingCommaList {
+            container: declaration.body.span,
+            last_element: declaration.body.members.last().map(GetSpan::span),
+        });
+        walk_ts_enum_declaration(self, declaration);
     }
 
     fn visit_ts_type_parameter_declaration(
@@ -512,10 +524,11 @@ impl<'p> TrailingCommaListCollector<'p> {
         }
     }
 
-    /// Offset one past the first `}` at or after `from`. Nothing but
-    /// whitespace or comments can legally precede the list-closing brace.
-    fn closing_brace_end(&self, from: u32) -> Option<u32> {
-        let rest = self.source.get(from as usize..)?;
+    /// Offset one past the first `}` in `source[from..end]`. Nothing but
+    /// whitespace or comments can legally precede the list-closing brace, and
+    /// the bound keeps the scan inside the declaration's own span.
+    fn closing_brace_end(&self, from: u32, end: u32) -> Option<u32> {
+        let rest = self.source.get(from as usize..end as usize)?;
         let index = rest.iter().position(|byte| *byte == b'}')?;
         let offset = u32::try_from(index).ok()?;
         Some(from + offset + 1)

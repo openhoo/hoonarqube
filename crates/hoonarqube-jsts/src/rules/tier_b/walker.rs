@@ -293,6 +293,36 @@ mod tests {
     }
 
     #[test]
+    fn enum_members_and_spread_last_elements_follow_the_comma_contract() {
+        // #474/#560: enum member lists and spread-last array elements are
+        // ordinary comma-separated lists.
+        let flagged = ts("enum E {\n  A = 0,\n  B = 1,\n}\n");
+        assert_eq!(filtered(&flagged, "S1537").len(), 1);
+        let missing = ts("enum E {\n  A = 0,\n  B = 1\n}\n");
+        assert_eq!(filtered(&missing, "S3723").len(), 1);
+        let single_line = ts("enum E { A = 0, B = 1 }\n");
+        assert_eq!(filtered(&single_line, "S1537").len(), 0);
+        assert_eq!(filtered(&single_line, "S3723").len(), 0);
+        let spread = js("const tags = [\n  ...extra,\n];\n");
+        assert_eq!(filtered(&spread, "S1537").len(), 1);
+    }
+
+    #[test]
+    fn braceless_imports_never_fabricate_specifier_lists() {
+        // #484: default and namespace imports have no `{ }` braces; scanning
+        // for a closing brace must stay inside the declaration.
+        let clean = ts(
+            "import getExePath from \"#getExePath\";\nimport { dirname } from \"node:path\";\nimport ts from \"typescript\";\n",
+        );
+        assert_eq!(filtered(&clean, "S3723").len(), 0);
+        assert_eq!(filtered(&clean, "S1537").len(), 0);
+        let mixed = ts("import ts, {\n  Compiler,\n} from \"typescript\";\n");
+        assert_eq!(filtered(&mixed, "S1537").len(), 1);
+        let namespace = js("import * as path from \"node:path\";\n");
+        assert_eq!(filtered(&namespace, "S3723").len(), 0);
+    }
+
+    #[test]
     fn multiline_lists_require_trailing_commas() {
         let flagged =
             js("const sizes = [\n  'small',\n  'medium'\n];\nfunction tune(\n  a,\n  b\n) {}\n");
