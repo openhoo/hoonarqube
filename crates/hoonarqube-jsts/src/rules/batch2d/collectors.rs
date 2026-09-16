@@ -101,23 +101,29 @@ impl<'a> Visit<'a> for ReturnMixScanner {
 
 /// Computes the cognitive (`S3776`) and cyclomatic (`S1541`) complexity of
 /// one function unit. Nesting weights follow the Sonar model: control-flow
-/// structures add `1 + nesting`, `else if` chains stay flat, and nested
-/// function units are excluded entirely. Logical operators are counted once
-/// per consecutive sequence of the same operator for cognitive complexity,
-/// while every occurrence adds a cyclomatic decision point.
+/// structures add `1 + nesting`, while `else if` links and plain `else`
+/// branches add a flat `+1`. Nested function units are excluded entirely.
+/// For cognitive complexity only `&&` operators count — `||` and `??` are
+/// short-circuit/default-value idioms the reference scorer ignores — and a
+/// run of `&&` counts once per operator change in the flattened chain.
+/// Cyclomatic complexity instead counts every `&&`/`||`/`??` occurrence,
+/// each tested `case`, ternaries, loops, and `if`s — but not `catch`
+/// clauses, which the reference cyclomatic scorer does not count.
 #[derive(Default)]
 pub(crate) struct ComplexityWalker {
     pub(crate) cognitive: u32,
     pub(crate) cyclomatic: u32,
     nesting: u32,
-    /// Operator of the logical chain currently walked; entering a chain (or
-    /// switching operators mid-chain) adds one cognitive increment only.
-    logic_chain: Option<LogicalOperator>,
+    /// Operator preceding the current logical expression in the flattened
+    /// in-order chain; `None` at a chain head. Chain members arrive through
+    /// `visit_operand`, so every logical expression seen by
+    /// `visit_expression` starts a fresh chain.
+    logic_prev: Option<LogicalOperator>,
 }
 
 impl<'a> Visit<'a> for ComplexityWalker {
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        self.process_if(it);
+        self.process_if(it, false);
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
@@ -158,8 +164,9 @@ impl<'a> Visit<'a> for ComplexityWalker {
             self.visit_statement(statement);
         }
         if let Some(handler) = &it.handler {
+            // `catch` is a structural cognitive increment; the reference
+            // cyclomatic scorer does not count it as a decision point.
             self.cognitive += 1 + self.nesting;
-            self.cyclomatic += 1;
             let saved = self.nesting;
             self.nesting += 1;
             self.visit_catch_clause(handler);
@@ -185,13 +192,17 @@ impl<'a> Visit<'a> for ComplexityWalker {
 
     fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
         self.cyclomatic += 1;
-        if self.logic_chain != Some(it.operator) {
+        // Cognitive: only `&&` counts, once per operator change in the
+        // flattened chain (SonarJS JS-272: `||`/`??` are short-circuit and
+        // default-value idioms that add no cognitive weight).
+        if it.operator == LogicalOperator::And && self.logic_prev != Some(LogicalOperator::And) {
             self.cognitive += 1;
         }
-        let saved_chain = self.logic_chain;
-        self.logic_chain = Some(it.operator);
-        walk_logical_expression(self, it);
-        self.logic_chain = saved_chain;
+        let saved_prev = self.logic_prev;
+        self.visit_operand(&it.left);
+        self.logic_prev = Some(it.operator);
+        self.visit_operand(&it.right);
+        self.logic_prev = saved_prev;
     }
 
     fn visit_break_statement(&mut self, it: &BreakStatement<'a>) {
@@ -209,11 +220,15 @@ impl<'a> Visit<'a> for ComplexityWalker {
     }
 
     fn visit_expression(&mut self, it: &Expression<'a>) {
-        if !matches!(
-            it,
-            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
-        ) {
-            walk_expression(self, it);
+        match it {
+            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_) => {}
+            // A logical expression reached here is always a chain head:
+            // nested logicals arrive through `visit_operand` instead.
+            Expression::LogicalExpression(inner) => {
+                self.logic_prev = None;
+                self.visit_logical_expression(inner);
+            }
+            _ => walk_expression(self, it),
         }
     }
 
@@ -229,10 +244,15 @@ impl<'a> Visit<'a> for ComplexityWalker {
 }
 
 impl ComplexityWalker {
-    /// One `if` increment; `else if` links are processed flat so a chained
-    /// conditional adds no extra nesting weight.
-    fn process_if(&mut self, it: &IfStatement<'_>) {
-        self.cognitive += 1 + self.nesting;
+    /// One `if` increment; `else if` links and plain `else` branches are
+    /// flat `+1` increments without extra nesting weight, matching the
+    /// reference scorer's `addComplexity` on `else if`/`else` tokens.
+    fn process_if(&mut self, it: &IfStatement<'_>, else_if: bool) {
+        if else_if {
+            self.cognitive += 1;
+        } else {
+            self.cognitive += 1 + self.nesting;
+        }
         self.cyclomatic += 1;
         self.visit_expression(&it.test);
         let saved = self.nesting;
@@ -240,13 +260,27 @@ impl ComplexityWalker {
         self.visit_statement(&it.consequent);
         self.nesting = saved;
         match &it.alternate {
-            Some(Statement::IfStatement(inner)) => self.process_if(inner),
+            Some(Statement::IfStatement(inner)) => self.process_if(inner, true),
             Some(alternate) => {
+                self.cognitive += 1;
                 self.nesting += 1;
                 self.visit_statement(alternate);
                 self.nesting = saved;
             }
             None => {}
+        }
+    }
+
+    /// Walks one operand of a logical chain: nested logical expressions
+    /// extend the chain in-order, anything else is walked with the chain
+    /// state suspended so contained logicals start their own chains.
+    fn visit_operand(&mut self, expression: &Expression<'_>) {
+        if let Expression::LogicalExpression(inner) = expression {
+            self.visit_logical_expression(inner);
+        } else {
+            let saved = self.logic_prev;
+            self.visit_expression(expression);
+            self.logic_prev = saved;
         }
     }
 

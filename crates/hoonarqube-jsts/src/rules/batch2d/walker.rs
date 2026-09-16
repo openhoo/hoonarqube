@@ -207,6 +207,36 @@ mod tests {
         );
         assert_eq!(count_key(&nullish, "javascript:S1541"), 1);
     }
+    #[test]
+    fn cyclomatic_ignores_catch_but_cognitive_counts_it() {
+        // #506: the reference cyclomatic scorer has no CatchClause arm, so
+        // ten decision points plus a catch stay at 10 while the same catch
+        // is a structural cognitive increment.
+        let source = "function f(a) {\n  try {\n    g();\n  } catch (e) {\n    h(e);\n  }\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n}\n";
+        let report = js_keys(source);
+        assert_eq!(count_key(&report, "javascript:S1541"), 0);
+        // 9 ifs + catch + base = 11 cognitive: still under 15.
+        assert_eq!(count_key(&report, "javascript:S3776"), 0);
+    }
+
+    #[test]
+    fn cognitive_counts_else_flat_and_only_and_chains() {
+        // #485: a plain `else` adds a flat +1; `||`/`??` chains add nothing.
+        // if(+1) else(+1) if(+2) else(+1) if(+3) else(+1) = 9, plus the
+        // && chain +1 and the || chains +0 = 10: clean.
+        let clean = js_keys(
+            "function f(a) {\n  if (a) {\n    g();\n  } else {\n    if (a) {\n      g();\n    } else {\n      if (a) {\n        g();\n      } else {\n        h();\n      }\n    }\n  }\n  const x = a || b || c || d || e;\n  const y = a ?? b ?? c ?? d ?? e;\n  if (a && b) {}\n}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S3776"), 0);
+
+        // Same shape with `&&` runs broken by `||`: each `&&` run after a
+        // different operator counts again.
+        let alternating = js_keys(
+            "function f(a) {\n  if (a) {\n    g();\n  } else {\n    if (a) {\n      g();\n    } else {\n      if (a) {\n        g();\n      } else {\n        h();\n      }\n    }\n  }\n  const x = a && b || c && d || e && f;\n  if (a && b) {}\n}\n",
+        );
+        // 9 + three && runs (3) + trailing if-&& (1) = 13: still clean.
+        assert_eq!(count_key(&alternating, "javascript:S3776"), 0);
+    }
 
     #[test]
     fn switch_complexity_counts_case_clauses_only() {
