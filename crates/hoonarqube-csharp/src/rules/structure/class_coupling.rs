@@ -212,58 +212,88 @@ fn collect_dependencies(
     declared: &HashSet<String>,
     dependencies: &mut HashSet<String>,
 ) {
-    let kind = node.kind();
-    if TYPE_DECLARATION_KINDS.contains(&kind) {
+    if TYPE_DECLARATION_KINDS.contains(&node.kind()) {
         // Nested type declarations own their own dependency sets.
         return;
     }
-    if matches!(
+    if collect_type_spelling(node, source, excluded, declared, dependencies) {
+        return;
+    }
+    collect_static_access(node, source, excluded, declared, dependencies);
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_dependencies(child, source, excluded, declared, dependencies);
+    }
+}
+
+/// Records a type-spelling node's dependency and walks any generic tail
+/// that still hides argument types. Returns `true` when the node was a
+/// type spelling (handled, no further descent needed).
+fn collect_type_spelling(
+    node: Node<'_>,
+    source: &str,
+    excluded: &HashSet<String>,
+    declared: &HashSet<String>,
+    dependencies: &mut HashSet<String>,
+) -> bool {
+    let kind = node.kind();
+    let spelling = matches!(
         kind,
         "identifier"
             | "generic_name"
             | "qualified_name"
             | "alias_qualified_name"
             | "predefined_type"
-    ) && in_type_position(node)
-    {
-        if let Some(name) = type_spelling_name(node, source)
-            && !excluded.contains(name)
-        {
-            dependencies.insert(name.to_string());
-        }
-        // `generic_name` arguments are separate dependencies; a qualified
-        // name collapses to its last segment, so only a generic tail keeps
-        // walking into its argument list.
-        if kind == "generic_name" {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                collect_dependencies(child, source, excluded, declared, dependencies);
-            }
-        } else if matches!(kind, "qualified_name" | "alias_qualified_name") {
-            let mut cursor = node.walk();
-            if let Some(tail) = node
-                .children(&mut cursor)
-                .filter(tree_sitter::Node::is_named)
-                .last()
-                .filter(|tail| tail.kind() == "generic_name")
-            {
-                collect_dependencies(tail, source, excluded, declared, dependencies);
-            }
-        }
-        return;
+    ) && in_type_position(node);
+    if !spelling {
+        return false;
     }
-    if kind == "member_access_expression"
-        && node
-            .parent()
-            .is_none_or(|parent| parent.kind() != "member_access_expression")
-        && let Some(name) = static_accessed_type(node, source, declared)
+    if let Some(name) = type_spelling_name(node, source)
         && !excluded.contains(name)
     {
         dependencies.insert(name.to_string());
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_dependencies(child, source, excluded, declared, dependencies);
+    // `generic_name` arguments are separate dependencies; a qualified name
+    // collapses to its last segment, so only a generic tail keeps walking.
+    if kind == "generic_name" {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            collect_dependencies(child, source, excluded, declared, dependencies);
+        }
+    } else if matches!(kind, "qualified_name" | "alias_qualified_name") {
+        let mut cursor = node.walk();
+        if let Some(tail) = node
+            .children(&mut cursor)
+            .filter(tree_sitter::Node::is_named)
+            .last()
+            .filter(|tail| tail.kind() == "generic_name")
+        {
+            collect_dependencies(tail, source, excluded, declared, dependencies);
+        }
+    }
+    true
+}
+
+/// Records the accessed type of a top-level `member_access_expression`
+/// that reads a static member (`OpCodes.Ldloc` → `OpCodes`).
+fn collect_static_access(
+    node: Node<'_>,
+    source: &str,
+    excluded: &HashSet<String>,
+    declared: &HashSet<String>,
+    dependencies: &mut HashSet<String>,
+) {
+    if node.kind() != "member_access_expression"
+        || node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "member_access_expression")
+    {
+        return;
+    }
+    if let Some(name) = static_accessed_type(node, source, declared)
+        && !excluded.contains(name)
+    {
+        dependencies.insert(name.to_string());
     }
 }
 

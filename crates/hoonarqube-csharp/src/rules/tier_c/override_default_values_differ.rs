@@ -100,47 +100,52 @@ fn cross_file_override_issues(
         if types.contains_key(base_name) {
             continue;
         }
-        let own = (
-            full_type_identity(declaration, source),
-            type_parameter_list_of(declaration).map_or(0, |(_, count)| count),
-        );
         for method in member_declarations_of_kind(declaration, "method_declaration") {
-            if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "override")
-            {
-                continue;
-            }
-            let Some(name) = method.child_by_field_name("name") else {
-                continue;
-            };
-            let derived = indexed_parameters(method, source);
-            let units = parameter_units(method, source);
-            for (base_type, base_method) in
-                project.same_name_methods(base_name, node_text(name, source))
-            {
-                if base_type.is_interface
-                    || (Some(base_type.identity.as_str()) == own.0.as_deref()
-                        && base_type.arity == own.1)
-                {
-                    continue;
-                }
-                if !same_signature(&derived, &base_method.parameters) {
-                    continue;
-                }
-                if let Some(difference) =
-                    indexed_default_difference(&units, &derived, &base_method.parameters, source)
-                {
-                    issues.push(issue(
-                        language,
-                        "S1006",
-                        difference.message(),
-                        difference.range,
-                    ));
-                    break;
-                }
-            }
+            issues.extend(indexed_override_issue(
+                declaration,
+                method,
+                base_name,
+                source,
+                language,
+                project,
+            ));
         }
     }
     issues
+}
+
+/// The S1006 issue one override earns against the indexed bases of
+/// `base_name`, skipping the querying type's own partial declarations and
+/// interface bases.
+fn indexed_override_issue(
+    declaration: Node<'_>,
+    method: Node<'_>,
+    base_name: &str,
+    source: &str,
+    language: CsLanguage,
+    project: &ProjectTypeIndex,
+) -> Option<Issue> {
+    if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "override") {
+        return None;
+    }
+    let name = method.child_by_field_name("name")?;
+    let own_identity = full_type_identity(declaration, source);
+    let own_arity = type_parameter_list_of(declaration).map_or(0, |(_, count)| count);
+    let derived = indexed_parameters(method, source);
+    let units = parameter_units(method, source);
+    project
+        .same_name_methods(base_name, node_text(name, source))
+        .into_iter()
+        .filter(|(base_type, _)| {
+            !base_type.is_interface
+                && (Some(base_type.identity.as_str()) != own_identity.as_deref()
+                    || base_type.arity != own_arity)
+        })
+        .filter(|(_, base_method)| same_signature(&derived, &base_method.parameters))
+        .find_map(|(_, base_method)| {
+            indexed_default_difference(&units, &derived, &base_method.parameters, source)
+        })
+        .map(|difference| issue(language, "S1006", difference.message(), difference.range))
 }
 
 /// Whether an override's normalized signature equals the indexed base
