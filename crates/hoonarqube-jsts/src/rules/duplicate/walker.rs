@@ -174,7 +174,10 @@ fn is_one_onto_one_shifting(expression: &oxc_ast::ast::BinaryExpression<'_>) -> 
 /// `===`, `!=`, `!==` count only when the operands are not both plain
 /// identifiers (identifier self-comparisons are a deliberate idiom).
 fn has_relevant_operator(expression: &oxc_ast::ast::BinaryExpression<'_>) -> bool {
-    use BinaryOperator::*;
+    use BinaryOperator::{
+        Division, Equality, GreaterEqualThan, GreaterThan, Inequality, LessEqualThan, LessThan,
+        ShiftLeft, ShiftRight, StrictEquality, StrictInequality, Subtraction,
+    };
     match expression.operator {
         Division | Subtraction | ShiftLeft | ShiftRight | LessThan | LessEqualThan
         | GreaterThan | GreaterEqualThan => true,
