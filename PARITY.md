@@ -2,11 +2,11 @@
 
 ## Claim boundary
 
-Hoonarqube ships the frozen 2,570-rule catalog:
+Hoonarqube ships the frozen 2,617-rule catalog:
 
-- C#: 467.
-- JavaScript: 422.
-- TypeScript: 432.
+- C#: 468.
+- JavaScript: 445.
+- TypeScript: 455.
 - Python: 353.
 - Go: 36.
 - Rust: 85.
@@ -105,11 +105,15 @@ intentionally omitted, and blocked or pending drafts are not final evidence.
 
 ### Opt-in semantic context boundary
 
-The ordinary `analyze` route is native and syntax-oriented; it does not retain
-source snapshots or load compiler contexts. Current project-context options
-are `--typescript-project` (optionally `--typescript-module`),
-`--csharp-project` (optionally repeated `--csharp-context-source` inputs),
-`--allow-project-build`, and `--python-project`.
+The ordinary `analyze` route is native and syntax-oriented for most languages;
+for JavaScript/TypeScript sources it auto-discovers each file's nearest
+ancestor `tsconfig.json` and loads a best-effort compiler context so
+compiler-backed rules fire without an explicit flag. The isolated
+`github-code-quality` profile and `fix` stay context-free. Explicit
+project-context options are `--typescript-project` (optionally
+`--typescript-module`), `--csharp-project` (optionally repeated
+`--csharp-context-source` inputs), `--allow-project-build`, and
+`--python-project`.
 Semantic options opt into the bounded source-snapshot path. Assessment,
 coverage, baseline, and quality-gate options use that same retained-source
 path for their artifacts but do not themselves establish semantic parity.
@@ -343,10 +347,10 @@ JavaScript/TypeScript, Python, and Ruby analyzers. Missing definitions are not
 approximated, and this subset is not full behavioral parity with CodeQL or
 GitHub Code Quality.
 
-The executable registry currently covers 54/382 definitions: C# 13/69, Go
-5/22, Java 15/89, JavaScript/TypeScript 13/98, Python 5/101, and Ruby 3/3.
+The executable registry currently covers 56/382 definitions: C# 13/69, Go
+5/22, Java 15/89, JavaScript/TypeScript 15/98, Python 5/101, and Ruby 3/3.
 `cargo run --locked -q -p xtask -- catalog github-coverage` verifies registry
-coherence and prints all 328 missing IDs. `--require-full` is the release gate
+coherence and prints all 326 missing IDs. `--require-full` is the release gate
 for any future complete-parity claim and currently fails closed.
 
 Rust is intentionally outside this profile: the core route returns no GitHub
@@ -360,8 +364,9 @@ It emits SARIF 2.1.0 with a `Hoonarqube` driver. `Maintainability` and
 `Reliability` are the catalog categories; `Error` maps to SARIF `error`,
 `Warning` to `warning`, and `Recommendation`/`Info` to `note`. Internal
 0-based columns become SARIF 1-based columns, and flow locations become
-`relatedLocations`. Coordinate-dependent partial fingerprints are omitted
-unless a stable content fingerprint is available.
+`relatedLocations`. `partialFingerprints` carry a stable
+`primaryLocationLineHash` content fingerprint; coordinate-dependent
+fingerprints are omitted.
 `actions/code-quality` validates this report and uploads it only when explicitly
 enabled, through the pinned
 `github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938`

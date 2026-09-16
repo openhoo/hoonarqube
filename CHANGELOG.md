@@ -79,48 +79,6 @@
 - **hoonarqube:** align GitHub CodeQL parity (68058d3)
 - **release:** repair version synchronization (4b01d0a)
 
-## Unreleased
-
-### Performance
-
-- Add opt-in `analyze --cache-dir` content-addressed caching of successful
-  per-file findings and source facts while rebuilding complete project metrics
-  and cross-file duplication on every run.
-- Add optional cache-directory inputs to both GitHub Actions integrations and
-  document trusted pipeline cache restore/save.
-
-### Features
-
-- **analysis:** add versioned project reports with consistent source size,
-  explicit source/test/generated/vendor/excluded scope, and incomplete-scan
-  diagnostics.
-- **duplication:** detect repeated code within and across files in all eight
-  supported language families; report exact byte/line locations, unique
-  duplicated lines and blocks, affected files, and weighted density.
-- **cli:** expose classification/exclusion globs and duplication thresholds;
-  keep Sonar/SARIF issue schemas unchanged and exit 2 for incomplete analysis.
-
-### Bug Fixes
-
-- **github-quality:** align conservative CodeQL detectors, scope and dataflow
-  semantics, registry coverage, Sonar/SARIF locations, path handling, and
-  action gating; add adversarial regression coverage across every analyzer
-- **release:** synchronize `xtask` path dependencies during version bumps while
-  keeping CI dogfood pinned to an already-published binary
-
-### Performance
-
-- **analyzers:** parallelize file analysis across available CPUs with
-  deterministic output and serial fallback; remove redundant parsing, semantic
-  indexing, and tree walks across every language while reducing each
-  JavaScript/TypeScript analyzer stack from 128 MiB to 16 MiB
-
-- **ci:** shard quality tests, pin dogfood analysis to the released binary,
-  replace the 2.2 GB mixed target cache with dependency-aware Rust caching,
-  and remove a duplicate full-repository analysis pass
-- **rust:** keep the deep macro-token regression without making the normal
-  suite an extreme third-party parser stress benchmark
-
 ## 0.3.1 (2026-09-03)
 
 ### Bug Fixes

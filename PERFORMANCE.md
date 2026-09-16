@@ -5,7 +5,12 @@ The current review compares a locally rebuilt, immutable v0.8.2 baseline
 The older `d305104` (0.4.2) versus `f032103` comparison is retained in explicitly
 historical sections below; those numbers are not current-release claims.
 
-## Current qualification — 2026-09-11
+## Qualification — 2026-09-11 (superseded baseline)
+
+These numbers compare v0.8.2 with performance PR #25 (`3b3c642`, merged
+2026-09-11). `main` has since advanced by more than a hundred commits,
+including the 116-issue campaign; treat the table as the recorded PR #25
+qualification, not a description of current `main`.
 
 Both binaries were built locally with Rust 1.96.0, without `RUSTFLAGS` or
 release-profile environment overrides. Measurements used Python 3.14.7 on
@@ -189,7 +194,7 @@ metrics and duplication stay within their bounded completeness budget; no
 `--duplication-exclude` or other analysis gate is used:
 
 ```bash
-PROOF=/tmp/hoonarqube-perf-review-proof-_hehqz01
+PROOF="$(mktemp -d /tmp/hoonarqube-perf-proof.XXXXXX)"
 FIXTURE_PARENT="$(mktemp -d /tmp/hoonarqube-perf-fixtures.XXXXXX)"
 FIXTURES="$FIXTURE_PARENT/fixtures"
 python3 scripts/benchmark_fixtures.py "$FIXTURES"
