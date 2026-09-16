@@ -80,3 +80,20 @@ pub(crate) fn function_parameters<'a>(
         _ => None,
     }
 }
+
+/// Whether an initializer is a "basic value" per the `SonarJS` `S1854`
+/// reference: `''`, `0`, `1`, `null`, `true`, `false`, `undefined`, `[]`,
+/// `{}`, or a unary expression over a basic value. Only declaration
+/// initializers qualify — plain assignments never do.
+pub(crate) fn is_basic_value(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::StringLiteral(literal) => literal.value.is_empty(),
+        Expression::NumericLiteral(literal) => matches!(literal.value, 0.0 | 1.0),
+        Expression::NullLiteral(_) | Expression::BooleanLiteral(_) => true,
+        Expression::Identifier(identifier) => identifier.name == "undefined",
+        Expression::UnaryExpression(unary) => is_basic_value(&unary.argument),
+        Expression::ObjectExpression(object) => object.properties.is_empty(),
+        Expression::ArrayExpression(array) => array.elements.is_empty(),
+        _ => false,
+    }
+}

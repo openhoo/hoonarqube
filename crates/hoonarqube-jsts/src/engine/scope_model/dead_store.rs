@@ -24,7 +24,7 @@ use super::{
     CallExpression, CatchClause, Expression, ForInStatement, ForOfStatement, ForStatement,
     FormalParameters, Function, IfStatement, MethodDefinition, SimpleAssignmentTarget, Span,
     Statement, StaticBlock, SwitchStatement, TryStatement, UpdateExpression, VariableDeclaration,
-    VariableDeclarationKind, VariableDeclarator, Visit, bound_names, source_slice,
+    VariableDeclarationKind, VariableDeclarator, Visit, bound_names, is_basic_value, source_slice,
     walk_arrow_function_expression, walk_block_statement, walk_catch_clause, walk_expression,
     walk_for_statement, walk_function, walk_method_definition, walk_program, walk_static_block,
 };
@@ -279,8 +279,9 @@ struct Analyzer<'p, 's> {
     out: Vec<DeadStore>,
     /// Finding contract this pass reports under.
     mode: StoreMode,
-    /// GitHub only: names read inside any nested closure of the current
-    /// region — such bindings are not purely local.
+    /// Names used inside a nested closure of the current region — such
+    /// bindings are not purely local. GitHub fills it with the generous
+    /// collector; Native uses the shadow-aware [`captured_names`].
     captured: HashSet<&'p str>,
     /// GitHub only: per-name read counts across the current region, used to
     /// leave completely unused declarators to the unused-variable rules.
@@ -314,20 +315,25 @@ impl<'p, 's> Analyzer<'p, 's> {
         }
     }
 
-    /// GitHub-only per-region facts: closure reads (capture), read counts,
-    /// and dead-code statement tails.
-    fn collect_github_region_facts(&mut self, statements: &[Statement<'p>]) {
-        self.captured = closure_captured_names(statements);
-        self.region_reads.clear();
-        count_region_reads(statements, &mut self.region_reads);
-        self.region_stores.clear();
-        count_region_stores(statements, &mut self.region_stores);
-        self.dead_ranges.clear();
-        collect_dead_tails(statements, &mut self.dead_ranges);
+    /// Per-region facts: closure reads (capture), read counts, and dead-code
+    /// statement tails. The Native contract needs only the capture set.
+    fn collect_region_facts(&mut self, statements: &[Statement<'p>]) {
+        self.captured = match self.mode {
+            StoreMode::Native => captured_names(statements),
+            StoreMode::GitHub => closure_captured_names(statements),
+        };
+        if self.mode == StoreMode::GitHub {
+            self.region_reads.clear();
+            count_region_reads(statements, &mut self.region_reads);
+            self.region_stores.clear();
+            count_region_stores(statements, &mut self.region_stores);
+            self.dead_ranges.clear();
+            collect_dead_tails(statements, &mut self.dead_ranges);
+        }
     }
 }
 
-/// Names read inside any closure nested in the region: such bindings are not
+/// Names used inside any closure nested in the region: such bindings are not
 /// purely local, so the GitHub contract never reports their stores.
 fn closure_captured_names<'p>(statements: &[Statement<'p>]) -> HashSet<&'p str> {
     struct Collector<'p> {
@@ -368,6 +374,169 @@ fn closure_captured_names<'p>(statements: &[Statement<'p>]) -> HashSet<&'p str> 
     };
     for statement in statements {
         collector.visit_statement(statement);
+    }
+    collector.names
+}
+
+/// Names *of the current region* used inside a nested function, with
+/// shadowing resolved like [`ReadCollector`]: a closure that only touches
+/// its own like-named locals does not capture the region binding. Reads and
+/// writes both count — upstream `S1854` exempts a variable used in more than
+/// one code path, whatever the use.
+struct CaptureCollector<'p> {
+    names: HashSet<&'p str>,
+    function_depth: u32,
+    shadows: Vec<HashSet<&'p str>>,
+}
+
+impl<'p> CaptureCollector<'p> {
+    fn shadowed(&self, name: &str) -> bool {
+        self.shadows.iter().any(|set| set.contains(name))
+    }
+
+    fn push_shadow(&mut self, set: HashSet<&'p str>) {
+        self.shadows.push(set);
+    }
+}
+
+impl<'p> Visit<'p> for CaptureCollector<'p> {
+    fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'p>) {
+        if self.function_depth > 0 && !self.shadowed(identifier.name.as_str()) {
+            self.names.insert(identifier.name.as_str());
+        }
+    }
+
+    fn visit_function(&mut self, function: &Function<'p>, flags: ScopeFlags) {
+        let mut set = HashSet::default();
+        set.extend(parameter_names(&function.params));
+        if let Some(body) = &function.body {
+            collect_block_scoped_names(&body.statements, &mut set);
+            collect_region_names(&body.statements, &mut set);
+        }
+        self.function_depth += 1;
+        self.push_shadow(set);
+        walk_function(self, function, flags);
+        self.shadows.pop();
+        self.function_depth -= 1;
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'p>) {
+        let mut set = HashSet::default();
+        set.extend(parameter_names(&arrow.params));
+        if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+            collect_block_scoped_names(&body.statements, &mut set);
+            collect_region_names(&body.statements, &mut set);
+        }
+        self.function_depth += 1;
+        self.push_shadow(set);
+        walk_arrow_function_expression(self, arrow);
+        self.shadows.pop();
+        self.function_depth -= 1;
+    }
+
+    fn visit_block_statement(&mut self, block: &BlockStatement<'p>) {
+        let mut set = HashSet::default();
+        collect_block_scoped_names(&block.body, &mut set);
+        self.push_shadow(set);
+        walk_block_statement(self, block);
+        self.shadows.pop();
+    }
+
+    fn visit_catch_clause(&mut self, clause: &CatchClause<'p>) {
+        let mut set = HashSet::default();
+        if let Some(parameter) = &clause.param {
+            set.extend(bound_names(&parameter.pattern));
+        }
+        self.push_shadow(set);
+        walk_catch_clause(self, clause);
+        self.shadows.pop();
+    }
+
+    fn visit_for_statement(&mut self, for_: &ForStatement<'p>) {
+        let mut set = HashSet::default();
+        if let Some(ForStatementInit::VariableDeclaration(declaration)) = &for_.init {
+            collect_declaration_names(declaration, &mut set);
+        }
+        self.push_shadow(set);
+        walk_for_statement(self, for_);
+        self.shadows.pop();
+    }
+
+    fn visit_for_in_statement(&mut self, for_: &ForInStatement<'p>) {
+        // The iterable resolves outside the loop-head scope (TDZ), so it is
+        // visited before the head bindings shadow.
+        self.visit_expression(&for_.right);
+        let mut set = HashSet::default();
+        if let ForStatementLeft::VariableDeclaration(declaration) = &for_.left {
+            collect_declaration_names(declaration, &mut set);
+        }
+        self.push_shadow(set);
+        self.visit_for_statement_left(&for_.left);
+        self.visit_statement(&for_.body);
+        self.shadows.pop();
+    }
+
+    fn visit_for_of_statement(&mut self, for_: &ForOfStatement<'p>) {
+        self.visit_expression(&for_.right);
+        let mut set = HashSet::default();
+        if let ForStatementLeft::VariableDeclaration(declaration) = &for_.left {
+            collect_declaration_names(declaration, &mut set);
+        }
+        self.push_shadow(set);
+        self.visit_for_statement_left(&for_.left);
+        self.visit_statement(&for_.body);
+        self.shadows.pop();
+    }
+}
+
+/// Region bindings captured by a nested function, shadowing-aware.
+pub(crate) fn captured_names<'p>(statements: &[Statement<'p>]) -> HashSet<&'p str> {
+    let mut collector = CaptureCollector {
+        names: HashSet::default(),
+        function_depth: 0,
+        shadows: Vec::new(),
+    };
+    for statement in statements {
+        collector.visit_statement(statement);
+    }
+    collector.names
+}
+
+/// Captured names of a function region: parameter defaults plus body.
+pub(crate) fn captured_names_function<'p>(function: &Function<'p>) -> HashSet<&'p str> {
+    let mut collector = CaptureCollector {
+        names: HashSet::default(),
+        function_depth: 0,
+        shadows: Vec::new(),
+    };
+    collector.visit_formal_parameters(&function.params);
+    if let Some(body) = &function.body {
+        for statement in &body.statements {
+            collector.visit_statement(statement);
+        }
+    }
+    collector.names
+}
+
+/// Captured names of an arrow region: parameter defaults plus body.
+pub(crate) fn captured_names_arrow<'p>(arrow: &ArrowFunctionExpression<'p>) -> HashSet<&'p str> {
+    let mut collector = CaptureCollector {
+        names: HashSet::default(),
+        function_depth: 0,
+        shadows: Vec::new(),
+    };
+    collector.visit_formal_parameters(&arrow.params);
+    match &arrow.body {
+        ArrowFunctionBody::FunctionBody(body) => {
+            for statement in &body.statements {
+                collector.visit_statement(statement);
+            }
+        }
+        body => {
+            if let Some(expression) = body.as_expression() {
+                collector.visit_expression(expression);
+            }
+        }
     }
     collector.names
 }
@@ -507,7 +676,7 @@ fn covers(range: Span, whole: Span) -> bool {
 #[derive(Clone, Copy)]
 enum StoreOrigin {
     Assignment,
-    Declarator { is_var: bool },
+    Declarator { is_var: bool, basic: bool },
     SideEffect,
 }
 
@@ -585,9 +754,7 @@ impl<'p> Analyzer<'p, '_> {
         collect_region_names(statements, &mut names);
         let saved_visible = std::mem::take(&mut self.visible);
         self.visible = names.into_iter().collect();
-        if self.mode == StoreMode::GitHub {
-            self.collect_github_region_facts(statements);
-        }
+        self.collect_region_facts(statements);
         self.statements_backward(statements, Flow::default());
         self.visible = saved_visible;
     }
@@ -979,6 +1146,7 @@ impl<'p> Analyzer<'p, '_> {
                     whole,
                     StoreOrigin::Declarator {
                         is_var: kind == VariableDeclarationKind::Var,
+                        basic: is_basic_value(init),
                     },
                     after,
                 )
@@ -1332,7 +1500,7 @@ impl<'p> Analyzer<'p, '_> {
                 site,
                 whole,
                 is_declarator: matches!(origin, StoreOrigin::Declarator { .. }),
-                decl_is_var: matches!(origin, StoreOrigin::Declarator { is_var: true }),
+                decl_is_var: matches!(origin, StoreOrigin::Declarator { is_var: true, .. }),
             });
         }
         after.live.remove(name);
@@ -1353,6 +1521,14 @@ impl<'p> Analyzer<'p, '_> {
         after: &Flow<'p>,
     ) -> bool {
         if self.mode == StoreMode::Native {
+            // A binding used inside any nested closure may be read between
+            // the two stores asynchronously, so neither store is provably
+            // dead; basic-value initializations are exempt per the reference.
+            if self.captured.contains(name)
+                || matches!(origin, StoreOrigin::Declarator { basic: true, .. })
+            {
+                return false;
+            }
             if !after.rewritten.contains(name) || after.live.contains(name) {
                 return false;
             }

@@ -113,6 +113,7 @@ fn check_tb_flow_rules<'p>(
         depth: 0,
         decl_kind: oxc_ast::ast::VariableDeclarationKind::Let,
         target_write_depth: 0,
+        captured: HashSet::new(),
     };
     flow.visit_program(program);
 
@@ -372,6 +373,31 @@ mod tests {
         assert_eq!(filtered(&shadowed, "S1854").len(), 0);
         let param_shadow = js("function f(p) {\n  {\n    let p = 2;\n  }\n  return p;\n}\nf(1);\n");
         assert_eq!(filtered(&param_shadow, "S1226").len(), 0);
+    }
+
+    #[test]
+    fn closure_and_callback_reads_keep_stores_live() {
+        // #475/#558: a binding used inside any nested function may be read
+        // asynchronously, so its stores are never dead — whether the closure
+        // is a hoisted declaration, an event callback, or a Promise executor.
+        let declared = js(
+            "function encode() {\n  let parentIndex = 0;\n  function visitChildren() {\n    out.push(parentIndex);\n  }\n  parentIndex = currentIndex;\n  visitChildren();\n  parentIndex = saveParentIndex;\n}\n",
+        );
+        assert_eq!(filtered(&declared, "S1854").len(), 0);
+        let registered = js(
+            "async function watch(run, watcher) {\n  let running = true;\n  function beginRun() {\n    if (running) { log(); }\n  }\n  watcher.on('all', beginRun);\n  while (watching) {\n    running = true;\n    await run();\n    running = false;\n    watching = false;\n  }\n}\n",
+        );
+        assert_eq!(filtered(&registered, "S1854").len(), 0);
+        let destructured = ts(
+            "async function connect() {\n  const { spawn } = await import(\"node:child_process\");\n  return new Promise((resolve, reject) => {\n    const child = spawn(\"cmd\", []);\n    child.on(\"exit\", resolve);\n    child.on(\"error\", reject);\n  });\n}\n",
+        );
+        assert_eq!(filtered(&destructured, "S1854").len(), 0);
+        // Basic-value initializations are exempt per the S1854 reference.
+        let basic = js("function f() {\n  let i = 0;\n  i = 1;\n  return i;\n}\nf();\n");
+        assert_eq!(filtered(&basic, "S1854").len(), 0);
+        // A store overwritten before any read with no capture still flags.
+        let dead = js("function f() {\n  let x = compute();\n  x = 2;\n  return x;\n}\nf();\n");
+        assert_eq!(filtered(&dead, "S1854").len(), 1);
     }
 
     #[test]
