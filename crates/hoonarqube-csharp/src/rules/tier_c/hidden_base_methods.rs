@@ -1,6 +1,5 @@
 use crate::cst::{
-    base_simple_names, is_error_tainted, issue, modifiers_of, node_text, parameter_signature_texts,
-    range_of, simple_name,
+    base_simple_names, is_error_tainted, issue, modifiers_of, node_text, range_of, simple_name,
 };
 use crate::project_index::{IndexedParameter, IndexedType, ProjectTypeIndex};
 use crate::rules::modifiers::{has_modifier, type_parameter_list_of};
@@ -100,14 +99,7 @@ fn hiding_method<'a>(
         return None;
     }
     let name_node = method.child_by_field_name("name")?;
-    let parameters = parameter_signature_texts(method, source)
-        .into_iter()
-        .map(|(ref_kind, type_key, display)| IndexedParameter {
-            ref_kind,
-            type_key,
-            display,
-        })
-        .collect();
+    let parameters = crate::project_index::indexed_parameters(method, source);
     Some((name_node, node_text(name_node, source), parameters))
 }
 /// Collects same-name methods of the named base type, from the project index
@@ -153,14 +145,7 @@ fn hidden_sites<'a>(
             (node_text(name, source) == method_name).then_some(member)
         })
         .map(|member| {
-            let parameters: Vec<IndexedParameter> = parameter_signature_texts(member, source)
-                .into_iter()
-                .map(|(ref_kind, type_key, display)| IndexedParameter {
-                    ref_kind,
-                    type_key,
-                    display,
-                })
-                .collect();
+            let parameters = crate::project_index::indexed_parameters(member, source);
             let display = parameters_display(&parameters);
             HiddenSite {
                 owner_name: base_name.to_string(),

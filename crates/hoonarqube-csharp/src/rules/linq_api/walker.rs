@@ -109,7 +109,7 @@ pub(crate) fn linq_api_issues(
     issues.extend(check_array_arguments_for_params_calls(
         root, source, language,
     ));
-    issues.extend(check_linq_receivers(root, source, language));
+    issues.extend(check_linq_receivers(root, source, language, options));
     issues.extend(check_readonly_primitive_fields(root, source, language));
     issues.extend(check_assembly_versions(root, source, language));
     issues.extend(check_public_list_signatures(root, source, language));

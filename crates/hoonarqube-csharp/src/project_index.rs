@@ -40,12 +40,18 @@ pub(crate) struct IndexedParameter {
     pub(crate) type_key: String,
     /// Written parameter type text, used verbatim in messages.
     pub(crate) display: String,
+    /// Written default-value expression with whitespace removed, when the
+    /// parameter declares one (`= default` → `default`).
+    pub(crate) default_value: Option<String>,
 }
 
 /// One same-name method declaration of an indexed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IndexedMethod {
     pub(crate) parameters: Vec<IndexedParameter>,
+    /// Written return-type text (`List<T>`), empty for constructors and
+    /// declarations without a spelled return type.
+    pub(crate) return_type: String,
 }
 
 /// One member (field, property, event) of an indexed type: the shadow
@@ -327,23 +333,45 @@ fn indexed_methods(declaration: Node<'_>, source: &str) -> BTreeMap<String, Vec<
         let Some(name_node) = member.child_by_field_name("name") else {
             continue;
         };
-        let parameters = parameter_signature_texts(member, source)
-            .into_iter()
-            .map(|(ref_kind, type_key, display)| IndexedParameter {
-                ref_kind,
-                type_key,
-                display,
-            })
-            .collect();
+        let return_type = member
+            .child_by_field_name("returns")
+            .map(|node| node_text(node, source).trim().to_string())
+            .unwrap_or_default();
         methods
             .entry(node_text(name_node, source).to_string())
             .or_default()
-            .push(IndexedMethod { parameters });
+            .push(IndexedMethod {
+                parameters: indexed_parameters(member, source),
+                return_type,
+            });
     }
     methods
 }
+
+/// Signature parameters of one callable declaration with their written
+/// default values, shared by the index and per-file signature consumers.
+pub(crate) fn indexed_parameters(declaration: Node<'_>, source: &str) -> Vec<IndexedParameter> {
+    parameter_signature_texts(declaration, source)
+        .into_iter()
+        .zip(crate::rules::tier_c::support::parameter_units(
+            declaration,
+            source,
+        ))
+        .map(|((ref_kind, type_key, display), unit)| IndexedParameter {
+            ref_kind,
+            type_key,
+            display,
+            default_value: unit.default_value.map(|value| {
+                node_text(value, source)
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect()
+            }),
+        })
+        .collect()
+}
 fn index_digest(types: &BTreeMap<String, Vec<IndexedType>>) -> String {
-    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v4\0");
+    let mut canonical = String::from("hoonarqube-csharp-project-type-index-v5\0");
     for (name, declarations) in types {
         for declaration in declarations {
             push_indexed_declaration(&mut canonical, name, declaration);
@@ -379,11 +407,14 @@ fn push_indexed_declaration(canonical: &mut String, name: &str, declaration: &In
 fn push_indexed_method(canonical: &mut String, method_name: &str, entries: &[IndexedMethod]) {
     canonical.push_str(method_name);
     for entry in entries {
+        canonical.push_str(&entry.return_type);
         for parameter in &entry.parameters {
             canonical.push('\u{2}');
             canonical.push_str(&parameter.ref_kind);
             canonical.push('\u{3}');
             canonical.push_str(&parameter.type_key);
+            canonical.push('\u{3}');
+            canonical.push_str(parameter.default_value.as_deref().unwrap_or(""));
         }
         canonical.push('\u{4}');
     }

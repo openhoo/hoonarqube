@@ -1,25 +1,36 @@
 use super::support::{
     ParameterUnit, local_type_declarations, local_type_table, override_base_pairs, parameter_units,
 };
-use crate::CsLanguage;
 use crate::cst::{
-    base_simple_names, collect_kinds, issue, node_text, range_from_byte_offsets, range_of,
+    base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text,
+    range_from_byte_offsets, range_of,
 };
+use crate::project_index::{ProjectTypeIndex, indexed_parameters};
 use crate::rules::expressions::member_declarations_of_kind;
+use crate::rules::modifiers::{has_modifier, type_parameter_list_of};
+use crate::rules::naming::support::full_type_identity;
+use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S1006 — overrides changing a base method's default value.
-/// Compiler-compatible local subset: class overrides and file-local interface
-/// implementations. Missing defaults and explicit-interface defaults use the
-/// same bound parameter identity as the compiler helper.
+/// csharpsquid:S1006 — overrides changing or dropping a base method's
+/// default value. Compiler-compatible local subset: class overrides and
+/// file-local interface implementations, plus cross-file base classes when
+/// a [`ProjectTypeIndex`] is supplied. Missing defaults and
+/// explicit-interface defaults use the same bound parameter identity as
+/// the compiler helper.
 #[derive(Clone, Copy)]
 enum PairKind {
     Override,
     ImplicitInterface,
     ExplicitInterface,
 }
-pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<Issue> {
+pub(crate) fn check(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    options: &AnalyzerOptions,
+) -> Vec<Issue> {
     let mut issues = Vec::new();
     let mut pairs = override_base_pairs(root, source)
         .into_iter()
@@ -27,25 +38,171 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         .collect::<Vec<_>>();
     pairs.extend(interface_pairs(root, source));
     for (overriding, base, pair_kind) in pairs {
-        let Some(range) = first_default_difference_range(pair_kind, overriding, base, source)
+        let Some(difference) = first_default_difference_range(pair_kind, overriding, base, source)
         else {
             continue;
         };
         issues.push(issue(
             language,
             "S1006",
-            "Use the default parameter value defined in the overridden method.",
-            range,
+            difference.message(),
+            difference.range,
         ));
     }
+    issues.extend(cross_file_override_issues(
+        root,
+        source,
+        language,
+        options.project_type_index.as_deref(),
+    ));
     issues
+}
+
+/// One default-value divergence: the anchor range plus the message the
+/// reference platform emits for that divergence shape.
+struct DefaultDifference {
+    range: hoonarqube_ir::Range,
+    added: bool,
+}
+
+impl DefaultDifference {
+    fn message(&self) -> &'static str {
+        if self.added {
+            "Add the default parameter value defined in the overridden method."
+        } else {
+            "Use the default parameter value defined in the overridden method."
+        }
+    }
+}
+
+/// Overrides whose base class lives in another indexed file: the project
+/// index supplies the base signatures (including written defaults) that a
+/// per-file pass cannot see. File-local bases stay on the CST path above,
+/// and the querying type's own partial declarations never count as bases.
+fn cross_file_override_issues(
+    root: Node<'_>,
+    source: &str,
+    language: CsLanguage,
+    project: Option<&ProjectTypeIndex>,
+) -> Vec<Issue> {
+    let Some(project) = project else {
+        return Vec::new();
+    };
+    let types = local_type_table(root, source);
+    let mut issues = Vec::new();
+    for declaration in local_type_declarations(root) {
+        if declaration.kind() != "class_declaration" || is_error_tainted(declaration) {
+            continue;
+        }
+        let Some(base_name) = base_simple_names(declaration, source).first().copied() else {
+            continue;
+        };
+        if types.contains_key(base_name) {
+            continue;
+        }
+        for method in member_declarations_of_kind(declaration, "method_declaration") {
+            issues.extend(indexed_override_issue(
+                declaration,
+                method,
+                base_name,
+                source,
+                language,
+                project,
+            ));
+        }
+    }
+    issues
+}
+
+/// The S1006 issue one override earns against the indexed bases of
+/// `base_name`, skipping the querying type's own partial declarations and
+/// interface bases.
+fn indexed_override_issue(
+    declaration: Node<'_>,
+    method: Node<'_>,
+    base_name: &str,
+    source: &str,
+    language: CsLanguage,
+    project: &ProjectTypeIndex,
+) -> Option<Issue> {
+    if is_error_tainted(method) || !has_modifier(&modifiers_of(method, source), "override") {
+        return None;
+    }
+    let name = method.child_by_field_name("name")?;
+    let own_identity = full_type_identity(declaration, source);
+    let own_arity = type_parameter_list_of(declaration).map_or(0, |(_, count)| count);
+    let derived = indexed_parameters(method, source);
+    let units = parameter_units(method, source);
+    project
+        .same_name_methods(base_name, node_text(name, source))
+        .into_iter()
+        .filter(|(base_type, _)| {
+            !base_type.is_interface
+                && (Some(base_type.identity.as_str()) != own_identity.as_deref()
+                    || base_type.arity != own_arity)
+        })
+        .filter(|(_, base_method)| same_signature(&derived, &base_method.parameters))
+        .find_map(|(_, base_method)| {
+            indexed_default_difference(&units, &derived, &base_method.parameters, source)
+        })
+        .map(|difference| issue(language, "S1006", difference.message(), difference.range))
+}
+
+/// Whether an override's normalized signature equals the indexed base
+/// signature exactly (`ref`-kind and type key per position).
+fn same_signature(
+    derived: &[crate::project_index::IndexedParameter],
+    base: &[crate::project_index::IndexedParameter],
+) -> bool {
+    derived.len() == base.len()
+        && derived
+            .iter()
+            .zip(base.iter())
+            .all(|(left, right)| left.ref_kind == right.ref_kind && left.type_key == right.type_key)
+}
+
+/// The first default-value divergence between an override's CST
+/// parameters and its indexed base parameters: a dropped default anchors
+/// the parameter name, a changed default anchors the written value.
+fn indexed_default_difference(
+    units: &[ParameterUnit<'_>],
+    derived: &[crate::project_index::IndexedParameter],
+    base: &[crate::project_index::IndexedParameter],
+    source: &str,
+) -> Option<DefaultDifference> {
+    units.iter().zip(derived.iter().zip(base.iter())).find_map(
+        |(unit, (derived_parameter, base_parameter))| {
+            let derived_default = unit
+                .default_value
+                .map(|value| node_text(value, source))
+                .map(|text| {
+                    text.chars()
+                        .filter(|c| !c.is_whitespace())
+                        .collect::<String>()
+                })
+                .or_else(|| derived_parameter.default_value.clone());
+            match (unit.default_value, &base_parameter.default_value) {
+                (None, Some(_)) => unit.name.map(|name| DefaultDifference {
+                    range: range_of(name, source),
+                    added: true,
+                }),
+                (Some(value), Some(base_value)) if Some(base_value) != derived_default.as_ref() => {
+                    Some(DefaultDifference {
+                        range: range_of(value, source),
+                        added: false,
+                    })
+                }
+                _ => None,
+            }
+        },
+    )
 }
 fn first_default_difference_range(
     pair_kind: PairKind,
     overriding: Node<'_>,
     base: Node<'_>,
     source: &str,
-) -> Option<hoonarqube_ir::Range> {
+) -> Option<DefaultDifference> {
     let overriding_parameters = parameter_units(overriding, source);
     let base_parameters = parameter_units(base, source);
     overriding_parameters
@@ -59,11 +216,12 @@ fn default_difference_range(
     unit: &ParameterUnit<'_>,
     base_unit: &ParameterUnit<'_>,
     source: &str,
-) -> Option<hoonarqube_ir::Range> {
+) -> Option<DefaultDifference> {
     match pair_kind {
-        PairKind::ExplicitInterface => unit
-            .default_value
-            .map(|value| default_clause_range(value, source)),
+        PairKind::ExplicitInterface => unit.default_value.map(|value| DefaultDifference {
+            range: default_clause_range(value, source),
+            added: false,
+        }),
         PairKind::ImplicitInterface => interface_default_difference(unit, base_unit, source),
         PairKind::Override => override_default_difference(unit, base_unit, source),
     }
@@ -73,14 +231,23 @@ fn interface_default_difference(
     unit: &ParameterUnit<'_>,
     base_unit: &ParameterUnit<'_>,
     source: &str,
-) -> Option<hoonarqube_ir::Range> {
+) -> Option<DefaultDifference> {
     match (unit.default_value, base_unit.default_value) {
-        (Some(value), None) => Some(default_clause_range(value, source)),
-        (None, Some(_)) => unit.name.map(|name| range_of(name, source)),
+        (Some(value), None) => Some(DefaultDifference {
+            range: default_clause_range(value, source),
+            added: false,
+        }),
+        (None, Some(_)) => unit.name.map(|name| DefaultDifference {
+            range: range_of(name, source),
+            added: true,
+        }),
         (Some(value), Some(base_value))
             if node_text(value, source) != node_text(base_value, source) =>
         {
-            Some(range_of(value, source))
+            Some(DefaultDifference {
+                range: range_of(value, source),
+                added: false,
+            })
         }
         _ => None,
     }
@@ -90,12 +257,19 @@ fn override_default_difference(
     unit: &ParameterUnit<'_>,
     base_unit: &ParameterUnit<'_>,
     source: &str,
-) -> Option<hoonarqube_ir::Range> {
+) -> Option<DefaultDifference> {
     match (unit.default_value, base_unit.default_value) {
+        (None, Some(_)) => unit.name.map(|name| DefaultDifference {
+            range: range_of(name, source),
+            added: true,
+        }),
         (Some(value), Some(base_value))
             if node_text(value, source) != node_text(base_value, source) =>
         {
-            Some(range_of(value, source))
+            Some(DefaultDifference {
+                range: range_of(value, source),
+                added: false,
+            })
         }
         _ => None,
     }
@@ -280,6 +454,69 @@ mod tests {
         assert_eq!(found[0].range.start.line, 2);
         assert_eq!(found[0].range.start.column, 42);
         assert_eq!(found[0].range.end.column, 44);
+    }
+
+    #[test]
+    fn s1006_dropped_default_flags_the_parameter_name() {
+        let report = analyze_default(
+            "class B {\n    public virtual void M(int x = 1) {\n    }\n}\nclass D : B {\n    public override void M(int x) {\n    }\n}\n",
+        );
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 6);
+        assert_eq!(
+            found[0].message,
+            "Add the default parameter value defined in the overridden method."
+        );
+    }
+
+    #[test]
+    fn s1006_cross_file_base_defaults_resolve_through_the_project_index() {
+        let base = "public abstract class BulkCopy\n{\n    public abstract System.Threading.Tasks.Task WriteToServerAsync(System.Data.Common.DbDataReader source, System.Threading.CancellationToken cancellationToken = default);\n    public abstract System.Threading.Tasks.Task WriteToServerAsync(System.Data.DataTable source, System.Threading.CancellationToken cancellationToken = default);\n}\n";
+        let derived = "class DynamicBulkCopy : BulkCopy\n{\n    public override System.Threading.Tasks.Task WriteToServerAsync(System.Data.Common.DbDataReader source, System.Threading.CancellationToken cancellationToken)\n        => null;\n    public override System.Threading.Tasks.Task WriteToServerAsync(System.Data.DataTable source, System.Threading.CancellationToken cancellationToken)\n        => null;\n}\n";
+        let snapshots = [
+            crate::semantic::SourceSnapshot::new(std::path::PathBuf::from("BulkCopy.cs"), base),
+            crate::semantic::SourceSnapshot::new(
+                std::path::PathBuf::from("DynamicBulkCopy.cs"),
+                derived,
+            ),
+        ];
+        let options = crate::AnalyzerOptions {
+            project_type_index: Some(std::sync::Arc::new(crate::ProjectTypeIndex::build(
+                &snapshots,
+            ))),
+            ..crate::AnalyzerOptions::default()
+        };
+        let report = crate::tests::analyze_options(derived, &options);
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].range.start.line, 3);
+        assert_eq!(found[1].range.start.line, 5);
+        assert_eq!(
+            found[0].message,
+            "Add the default parameter value defined in the overridden method."
+        );
+    }
+
+    #[test]
+    fn s1006_cross_file_matching_defaults_stay_clean() {
+        let base = "public abstract class BulkCopy\n{\n    public abstract System.Threading.Tasks.Task WriteToServerAsync(System.Data.Common.DbDataReader source, System.Threading.CancellationToken cancellationToken = default);\n}\n";
+        let derived = "class DynamicBulkCopy : BulkCopy\n{\n    public override System.Threading.Tasks.Task WriteToServerAsync(System.Data.Common.DbDataReader source, System.Threading.CancellationToken cancellationToken = default)\n        => null;\n}\n";
+        let snapshots = [
+            crate::semantic::SourceSnapshot::new(std::path::PathBuf::from("BulkCopy.cs"), base),
+            crate::semantic::SourceSnapshot::new(
+                std::path::PathBuf::from("DynamicBulkCopy.cs"),
+                derived,
+            ),
+        ];
+        let options = crate::AnalyzerOptions {
+            project_type_index: Some(std::sync::Arc::new(crate::ProjectTypeIndex::build(
+                &snapshots,
+            ))),
+            ..crate::AnalyzerOptions::default()
+        };
+        let report = crate::tests::analyze_options(derived, &options);
+        assert!(with_key(&report, KEY).is_empty());
     }
 
     #[test]
