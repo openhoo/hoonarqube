@@ -41,4 +41,16 @@ mod tests {
         let unused_outer = js("let x = 1;\nfunction g() {\n  let x = 2;\n}\ng();\n");
         assert_eq!(filtered(&unused_outer, "S1117").len(), 1);
     }
+
+    #[test]
+    fn overload_signatures_do_not_shadow_the_implementation() {
+        // #507: a TS overload group is one declaration; the bodiless
+        // signatures must not shadow the implementation.
+        let overloads = ts(
+            "export function clone<T>(node: T, deep?: boolean): T;\nexport function clone<T>(node: T | undefined, deep?: boolean): T | undefined;\nexport function clone<T>(node: T | undefined, deep = true): T | undefined {\n    return node;\n}\n",
+        );
+        assert_eq!(filtered(&overloads, "S1117").len(), 0);
+        let real = ts("let x = 1;\nfunction g() {\n  let x = 2;\n  return x;\n}\n");
+        assert_eq!(filtered(&real, "S1117").len(), 1);
+    }
 }

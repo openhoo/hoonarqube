@@ -1,29 +1,36 @@
 // Family walker for 'statement' (generated).
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
-use crate::support::{IssueSink, LineIndex, RuleScope, source_slice, static_property_name};
+use crate::support::{
+    IssueSink, LineIndex, RuleScope, ScannedComment, source_slice, static_property_name,
+};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    BlockStatement, CallExpression, ContinueStatement, DebuggerStatement, EmptyStatement,
-    Expression, ExpressionStatement, Function, FunctionBody, FunctionType, IfStatement,
-    ImportDeclaration, ImportDeclarationSpecifier, LabeledStatement, NewExpression,
-    ReturnStatement, Statement, StaticBlock, SwitchCase, ThrowStatement, VariableDeclaration,
-    VariableDeclarationKind, WithStatement,
+    BlockStatement, CallExpression, ContinueStatement, DebuggerStatement, DoWhileStatement,
+    EmptyStatement, ExportAllDeclaration, Expression, ExpressionStatement, ForInStatement,
+    ForOfStatement, ForStatement, Function, FunctionBody, FunctionType, IfStatement,
+    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, LabeledStatement,
+    NewExpression, ReturnStatement, Statement, StaticBlock, SwitchCase, ThrowStatement,
+    VariableDeclaration, VariableDeclarationKind, WhileStatement, WithStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_block_statement, walk_expression_statement, walk_function, walk_function_body,
-    walk_if_statement, walk_import_declaration, walk_labeled_statement, walk_program,
-    walk_return_statement, walk_statement, walk_static_block, walk_switch_case,
-    walk_throw_statement, walk_variable_declaration, walk_with_statement,
+    walk_block_statement, walk_do_while_statement, walk_export_all_declaration,
+    walk_expression_statement, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
+    walk_function, walk_function_body, walk_if_statement, walk_import_declaration,
+    walk_labeled_statement, walk_program, walk_return_statement, walk_statement, walk_static_block,
+    walk_switch_case, walk_throw_statement, walk_variable_declaration, walk_while_statement,
+    walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
+use std::collections::HashMap;
 
 fn check_statement_rules(
     program: &oxc_ast::ast::Program<'_>,
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    comments: &[ScannedComment],
 ) -> Vec<Issue> {
     let mut collector = StatementCollector {
         sink: IssueSink {
@@ -32,7 +39,8 @@ fn check_statement_rules(
             issues: Vec::new(),
         },
         source,
-        last_import: None,
+        import_facts: Vec::new(),
+        no_var_suppression: NoVarSuppression::from_comments(comments, source, index),
         statement_scopes: Vec::new(),
         s1199_list_kinds: Vec::new(),
         s1199_candidates: Vec::new(),
@@ -63,7 +71,10 @@ enum S1199ListKind {
 struct StatementCollector<'a, 'index> {
     sink: IssueSink<'index>,
     source: &'a str,
-    last_import: Option<(String, u32)>,
+    /// Every `import` declaration seen, grouped at end of walk for `S3863`.
+    import_facts: Vec<ImportFact>,
+    /// `eslint-disable` regions/lines that suppress `no-var` (`S3504`).
+    no_var_suppression: NoVarSuppression,
     /// Active statement lists used to find the return immediately following
     /// an if statement without reparsing source text.
     statement_scopes: Vec<&'a [Statement<'a>]>,
@@ -76,9 +87,118 @@ struct StatementCollector<'a, 'index> {
     /// Strictness inherited through all OXC scopes, for strict function
     /// declarations (which also create a lexical scope).
     strict_scopes: Vec<bool>,
-    /// Tracks whether the current statement is a direct child of an if.
+    /// Tracks whether the current `statement` is a direct child of an if.
     current_statement_is_if: bool,
     if_parent_is_if: bool,
+}
+
+/// One `import` declaration's `S3863` grouping key plus its report span.
+struct ImportFact {
+    module: String,
+    is_type: bool,
+    span: Span,
+}
+
+/// `eslint-disable`/`eslint-enable` regions and single-line directives that
+/// cover `no-var`, resolved once per file for `S3504`.
+struct NoVarSuppression {
+    /// Half-open byte ranges where `no-var` reports are suppressed.
+    regions: Vec<(u32, u32)>,
+    /// Individual lines suppressed by `eslint-disable-line`/`next-line`.
+    lines: Vec<u32>,
+}
+
+impl NoVarSuppression {
+    fn from_comments(comments: &[ScannedComment], source: &str, index: &LineIndex) -> Self {
+        let mut regions = Vec::new();
+        let mut lines = Vec::new();
+        // Position where `no-var` became disabled, while disabled.
+        let mut disabled_start: Option<u32> = None;
+        for comment in comments {
+            let body = source_slice(source, comment.body).trim();
+            let Some((directive, rule_list)) = eslint_directive(body) else {
+                continue;
+            };
+            let applies =
+                rule_list.is_empty() || rule_list.split(',').any(|rule| rule.trim() == "no-var");
+            match directive {
+                EslintDirective::Disable if applies && disabled_start.is_none() => {
+                    disabled_start = Some(comment.token.start);
+                }
+                EslintDirective::Enable if applies => {
+                    if let Some(start) = disabled_start.take() {
+                        regions.push((start, comment.token.start));
+                    }
+                }
+                EslintDirective::DisableLine if applies => {
+                    lines.push(index.pos(comment.token.start).line);
+                }
+                EslintDirective::DisableNextLine if applies => {
+                    lines.push(index.pos(comment.token.end).line + 1);
+                }
+                _ => {}
+            }
+        }
+        if let Some(start) = disabled_start {
+            regions.push((start, u32::MAX));
+        }
+        Self { regions, lines }
+    }
+
+    /// Whether a `var` declaration starting at `start` is suppressed.
+    fn suppressed(&self, index: &LineIndex, start: u32) -> bool {
+        self.regions
+            .iter()
+            .any(|&(from, to)| from <= start && start < to)
+            || self.lines.iter().any(|&line| line == index.pos(start).line)
+    }
+}
+
+/// The `eslint-*` directives that can suppress `no-var` reports.
+enum EslintDirective {
+    Disable,
+    Enable,
+    DisableLine,
+    DisableNextLine,
+}
+
+/// Parses an `eslint-disable`/`eslint-enable`/`eslint-disable-line`/
+/// `eslint-disable-next-line` comment body into its directive and trimmed
+/// comma-separated rule list, after splitting off a ` -- justification`.
+fn eslint_directive(body: &str) -> Option<(EslintDirective, &str)> {
+    let part = strip_justification(body);
+    for (label, directive) in [
+        ("eslint-disable-next-line", EslintDirective::DisableNextLine),
+        ("eslint-disable-line", EslintDirective::DisableLine),
+        ("eslint-disable", EslintDirective::Disable),
+        ("eslint-enable", EslintDirective::Enable),
+    ] {
+        if let Some(rest) = part.strip_prefix(label)
+            && (rest.is_empty() || rest.starts_with(char::is_whitespace))
+        {
+            return Some((directive, rest.trim()));
+        }
+    }
+    None
+}
+
+/// The part of `trimmed` before the first whitespace-surrounded run of two
+/// or more hyphens (`ESLint`'s justification separator `\s-{2,}\s`).
+fn strip_justification(trimmed: &str) -> &str {
+    for (index, character) in trimmed.char_indices() {
+        if !character.is_whitespace() {
+            continue;
+        }
+        let after_character = &trimmed[index + character.len_utf8()..];
+        let hyphen_run = after_character.chars().take_while(|c| *c == '-').count();
+        if hyphen_run < 2 {
+            continue;
+        }
+        if after_character[hyphen_run..].starts_with(char::is_whitespace) {
+            return trimmed[..index].trim_end();
+        }
+    }
+    trimmed
 }
 
 impl<'a> Visit<'a> for StatementCollector<'a, '_> {
@@ -99,6 +219,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.statement_scopes.push(self.alloc(&it.body).as_slice());
         self.s1199_list_kinds.push(S1199ListKind::Program);
         walk_program(self, it);
+        self.check_duplicate_imports();
         self.s1199_list_kinds.pop();
         self.statement_scopes.pop();
     }
@@ -263,19 +384,44 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
         self.check_s1126_if(it);
-        self.check_control_structure_body(&it.consequent);
+        self.check_control_structure_body(&it.consequent, "Expected { after 'if' condition.");
         if let Some(alternate) = &it.alternate
             && !matches!(alternate, Statement::IfStatement(_))
         {
-            self.check_control_structure_body(alternate);
+            self.check_control_structure_body(alternate, "Expected { after 'if' condition.");
         }
         self.check_collapsible_if(it);
         walk_if_statement(self, it);
     }
 
+    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
+        self.check_control_structure_body(&it.body, "Expected { after 'while' condition.");
+        walk_while_statement(self, it);
+    }
+
+    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
+        self.check_control_structure_body(&it.body, "Expected { after 'do'.");
+        walk_do_while_statement(self, it);
+    }
+
+    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
+        self.check_control_structure_body(&it.body, "Expected { after 'for' condition.");
+        walk_for_statement(self, it);
+    }
+
+    fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
+        self.check_control_structure_body(&it.body, "Expected { after 'for' condition.");
+        walk_for_in_statement(self, it);
+    }
+
+    fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
+        self.check_control_structure_body(&it.body, "Expected { after 'for' condition.");
+        walk_for_of_statement(self, it);
+    }
+
     fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
-        if let Some(first) = it.consequent.first() {
-            self.check_case_leading_declaration(first);
+        for statement in &it.consequent {
+            self.check_case_lexical_declaration(statement);
         }
         self.statement_scopes
             .push(self.alloc(&it.consequent).as_slice());
@@ -335,15 +481,20 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
         if it.kind == VariableDeclarationKind::Var {
-            let span = it.declarations.first().map_or(it.span(), |declaration| {
-                Span::new(it.span.start, declaration.id.span().end)
-            });
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3504",
-                "Unexpected var, use let or const instead.",
-                span,
-            );
+            if !self
+                .no_var_suppression
+                .suppressed(self.sink.index, it.span().start)
+            {
+                let span = it.declarations.first().map_or(it.span(), |declaration| {
+                    Span::new(it.span.start, declaration.id.span().end)
+                });
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3504",
+                    "Unexpected var, use let or const instead.",
+                    span,
+                );
+            }
         } else {
             self.mark_lone_block();
         }
@@ -353,8 +504,22 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
         self.check_namespace_import(it);
         self.check_absolute_import_path(it);
-        self.check_duplicate_import(it);
+        self.import_facts.push(ImportFact {
+            module: it.source.value.to_string(),
+            is_type: it.import_kind == ImportOrExportKind::Type,
+            span: it.span(),
+        });
         walk_import_declaration(self, it);
+    }
+
+    fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'a>) {
+        self.sink.emit_span(
+            RuleScope::Both,
+            "S2208",
+            "Explicitly export the specific member needed.",
+            it.span(),
+        );
+        walk_export_all_declaration(self, it);
     }
 }
 
@@ -473,16 +638,12 @@ impl StatementCollector<'_, '_> {
 
     /// `S121` (unbraced control-structure bodies) and `S2681` (the same
     /// bodies spanning several lines).
-    fn check_control_structure_body(&mut self, body: &Statement<'_>) {
+    fn check_control_structure_body(&mut self, body: &Statement<'_>, message: &str) {
         if matches!(body, Statement::BlockStatement(_)) {
             return;
         }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S121",
-            "Expected { after 'if' condition.",
-            body.span(),
-        );
+        self.sink
+            .emit_span(RuleScope::Both, "S121", message, body.span());
         if self.sink.index.covered_lines(body.span()).count() > 1 {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -493,12 +654,14 @@ impl StatementCollector<'_, '_> {
         }
     }
 
-    /// `S1066`: an `if` whose consequent block holds exactly one `if`.
+    /// `S1066`: an `if` whose consequent block holds exactly one `if`
+    /// without an `else` (an inner `else` would be dropped by merging).
     /// `S6660`: an `else` block holding exactly one `if`.
     fn check_collapsible_if(&mut self, it: &IfStatement<'_>) {
         if let Statement::BlockStatement(block) = &it.consequent
             && block.body.len() == 1
-            && matches!(&block.body[0], Statement::IfStatement(_))
+            && let Statement::IfStatement(inner) = &block.body[0]
+            && inner.alternate.is_none()
         {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -521,9 +684,10 @@ impl StatementCollector<'_, '_> {
         }
     }
 
-    /// `S6836`: lexical declarations leading a switch case.
-    fn check_case_leading_declaration(&mut self, first: &Statement<'_>) {
-        let lexical = match first {
+    /// `S6836`: lexical declarations directly inside an unbraced switch
+    /// case consequent.
+    fn check_case_lexical_declaration(&mut self, statement: &Statement<'_>) {
+        let lexical = match statement {
             Statement::VariableDeclaration(declaration) => {
                 declaration.kind != VariableDeclarationKind::Var
             }
@@ -535,7 +699,7 @@ impl StatementCollector<'_, '_> {
                 RuleScope::Both,
                 "S6836",
                 "Wrap this declaration in a block.",
-                first.span(),
+                statement.span(),
             );
         }
     }
@@ -615,23 +779,25 @@ impl StatementCollector<'_, '_> {
         }
     }
 
-    /// `S3863`: adjacent imports of the same module (adjacency approximated
-    /// by line distance of at most one line).
-    fn check_duplicate_import(&mut self, it: &ImportDeclaration<'_>) {
-        let module = it.source.value.to_string();
-        let start_line = self.sink.index.pos(it.span().start).line;
-        if let Some((last_module, last_end_line)) = &self.last_import
-            && *last_module == module
-            && start_line <= last_end_line + 1
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3863",
-                &format!("'{}' import is duplicated.", it.source.value),
-                it.span(),
-            );
+    /// `S3863`: imports of the same module and import kind anywhere in the
+    /// file; every member of a duplicate group is flagged.
+    fn check_duplicate_imports(&mut self) {
+        let mut counts: HashMap<(&str, bool), usize> = HashMap::new();
+        for fact in &self.import_facts {
+            *counts
+                .entry((fact.module.as_str(), fact.is_type))
+                .or_insert(0) += 1;
         }
-        self.last_import = Some((module, self.sink.index.pos(it.span().end).line));
+        for fact in &self.import_facts {
+            if counts[&(fact.module.as_str(), fact.is_type)] > 1 {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3863",
+                    &format!("'{}' import is duplicated.", fact.module),
+                    fact.span,
+                );
+            }
+        }
     }
 }
 
@@ -680,7 +846,13 @@ const PURE_STRING_METHODS: [&str; 15] = [
 ];
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_statement_rules(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_statement_rules(
+        ctx.program,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+        &ctx.comments,
+    )
 }
 
 #[cfg(test)]
@@ -957,16 +1129,29 @@ function clean() {
     }
 
     #[test]
-    fn s3863_flags_adjacent_duplicate_imports_gapped_pair_passes() {
+    fn s3863_flags_every_member_of_same_kind_duplicate_groups() {
+        // Same module + same import kind anywhere in the file: every member
+        // of the group is flagged, regardless of adjacency.
         let adjacent = js_keys("import { a } from 'm';\nimport { b } from 'm';\n");
-        assert_eq!(count_key(&adjacent, "javascript:S3863"), 1);
+        assert_eq!(count_key(&adjacent, "javascript:S3863"), 2);
 
         let gapped = js_keys("import { a } from 'm';\n\nimport { b } from 'm';\n");
-        assert_eq!(count_key(&gapped, "javascript:S3863"), 0);
+        assert_eq!(count_key(&gapped, "javascript:S3863"), 2);
 
         let separated =
             js_keys("import { a } from 'm';\nimport { x } from 'o';\nimport { b } from 'm';\n");
-        assert_eq!(count_key(&separated, "javascript:S3863"), 0);
+        assert_eq!(count_key(&separated, "javascript:S3863"), 2);
+
+        // A type-only import and a value import from the same module are
+        // distinct groups and stay silent.
+        let mixed = ts_keys("import type { D } from './a2';\nimport { v } from './a2';\n");
+        assert_eq!(count_key(&mixed, "typescript:S3863"), 0);
+
+        // Non-adjacent same-kind duplicates flag both members.
+        let nonadjacent = ts_keys(
+            "import type { A } from './a';\nimport type { B } from './b';\nimport type { C } from './a';\n",
+        );
+        assert_eq!(count_key(&nonadjacent, "typescript:S3863"), 2);
     }
 
     #[test]
@@ -1039,5 +1224,112 @@ export { accumulate };
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn s121_flags_unbraced_loop_bodies() {
+        let flagged = ts_keys(
+            "function g(node: any, source: string): void {\n    while (isAs(node)) node = node.expression;\n    for (const d of decls) replaced.add(d);\n    let end = 0;\n    while (end < source.length && source[end] === \" \") end++;\n}\nfunction isAs(n: any): boolean { return false; }\nconst decls: any[] = []; const replaced = new Set();\n",
+        );
+        let lines: Vec<u32> = flagged
+            .iter()
+            .filter(|(key, _)| key == "typescript:S121")
+            .map(|(_, line)| *line)
+            .collect();
+        assert_eq!(lines, vec![2, 3, 5]);
+
+        // do-while, for, and for-in bodies are covered by the same rule.
+        let loops = js_keys(
+            "do x++; while (x < 3);\nfor (let i = 0; i < 3; i++) y(i);\nfor (const k in obj) use(k);\n",
+        );
+        assert_eq!(count_key(&loops, "javascript:S121"), 3);
+
+        // Braced loop bodies stay silent.
+        let braced = js_keys("while (x) {\n  y();\n}\nfor (;;) {\n  break;\n}\n");
+        assert_eq!(count_key(&braced, "javascript:S121"), 0);
+    }
+
+    #[test]
+    fn s2208_flags_export_star_reexports() {
+        let flagged = ts_keys(
+            "export { SyntaxKind } from \"#enums/syntaxKind\";\nexport * from \"./ast\";\nexport * from \"./astnav\";\n",
+        );
+        let lines: Vec<u32> = flagged
+            .iter()
+            .filter(|(key, _)| key == "typescript:S2208")
+            .map(|(_, line)| *line)
+            .collect();
+        assert_eq!(lines, vec![2, 3]);
+
+        // `export * as ns` is an export-all too; named re-exports stay silent.
+        let named_ns = ts_keys("export * as ns from \"./ast\";\n");
+        assert_eq!(count_key(&named_ns, "typescript:S2208"), 1);
+
+        // Existing `import * as` behavior is unchanged.
+        let import_ns = js_keys("import * as ns from 'm';\n");
+        assert_eq!(count_key(&import_ns, "javascript:S2208"), 1);
+    }
+
+    #[test]
+    fn s3504_honors_eslint_disable_no_var() {
+        let suppressed = ts_keys(
+            "function scan(textInitial: string): number {\n    // Why var? It avoids TDZ checks in the runtime which can be costly.\n    /* eslint-disable no-var */\n    var text = textInitial;\n    var pos: number;\n    var end: number;\n    return text.length;\n}\n",
+        );
+        assert_eq!(count_key(&suppressed, "typescript:S3504"), 0);
+
+        // A var outside the disabled region still flags.
+        let outside = js_keys(
+            "/* eslint-disable no-var */\nvar a = 1;\n/* eslint-enable no-var */\nvar b = 2;\n",
+        );
+        assert_eq!(count_key(&outside, "javascript:S3504"), 1);
+
+        // Line directives suppress only the annotated line.
+        let next_line = js_keys("// eslint-disable-next-line no-var\nvar c = 3;\nvar d = 4;\n");
+        assert_eq!(count_key(&next_line, "javascript:S3504"), 1);
+
+        let disable_line = js_keys("var e = 5; // eslint-disable-line no-var\nvar f = 6;\n");
+        assert_eq!(count_key(&disable_line, "javascript:S3504"), 1);
+
+        // A disable naming a different rule does not suppress no-var.
+        let other_rule = js_keys("/* eslint-disable no-alert */\nvar g = 7;\n");
+        assert_eq!(count_key(&other_rule, "javascript:S3504"), 1);
+    }
+
+    #[test]
+    fn s6836_flags_mid_case_lexical_declarations() {
+        let flagged = ts_keys(
+            "function f(x: number): number {\n    switch (x) {\n        case 1:\n            doThing();\n            const nextChar = x + 1;\n            let hasTrailingNewLine = false;\n            return nextChar;\n        default:\n            return 0;\n    }\n}\ndeclare function doThing(): void;\n",
+        );
+        let lines: Vec<u32> = flagged
+            .iter()
+            .filter(|(key, _)| key == "typescript:S6836")
+            .map(|(_, line)| *line)
+            .collect();
+        assert_eq!(lines, vec![5, 6]);
+
+        // Braced case blocks and `var` stay silent.
+        let braced = js_keys("switch (x) {\n  case 1: {\n    const y = 1;\n    break;\n  }\n}\n");
+        assert_eq!(count_key(&braced, "javascript:S6836"), 0);
+
+        let var_decl =
+            js_keys("switch (x) {\n  case 1:\n    f();\n    var y = 1;\n    break;\n}\n");
+        assert_eq!(count_key(&var_decl, "javascript:S6836"), 0);
+    }
+
+    #[test]
+    fn s1066_inner_if_with_else_is_not_mergeable() {
+        let flagged = ts_keys(
+            "function f(a: boolean, b: boolean): number {\n    if (!a) {\n        if (b) {\n            return 1;\n        }\n        else {\n            return 2;\n        }\n    }\n    return 3;\n}\n",
+        );
+        assert_eq!(count_key(&flagged, "typescript:S1066"), 0);
+
+        let js_flagged = js_keys(
+            "function f(options, releaseVscodeTypescript) {\n    let version = \"0.0.0\";\n    if (options.forRelease) {\n        if (releaseVscodeTypescript) {\n            version = getVersion();\n        }\n        else {\n            version = \"0.1.0\";\n        }\n    }\n    if (options.a) {\n        if (options.b) {\n            version = \"x\";\n        }\n    }\n    return version;\n}\n",
+        );
+        assert_eq!(count_key(&js_flagged, "javascript:S1066"), 1);
+
+        // An inner if without else still merges.
+        let mergeable = js_keys("if (a) {\n  if (b) {\n    f();\n  }\n}\n");
+        assert_eq!(count_key(&mergeable, "javascript:S1066"), 1);
     }
 }

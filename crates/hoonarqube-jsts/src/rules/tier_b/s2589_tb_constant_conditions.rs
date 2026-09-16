@@ -35,8 +35,12 @@ mod tests {
 
     #[test]
     fn constant_boolean_conditions_flagged() {
-        let flagged = js("if (true) {\n  work();\n}\nwhile (false) {\n  skip();\n}\n");
+        // #510/#546: literal loop conditions are the idiomatic infinite-loop
+        // shape and exempt; `if` tests still flag.
+        let flagged = js("if (true) {\n  work();\n}\nwhile (true) {\n  step();\n}\n");
         assert_eq!(filtered(&flagged, "S2589").len(), 1);
+        let do_while = js("do {\n  step();\n} while (true);\n");
+        assert_eq!(filtered(&do_while, "S2589").len(), 0);
         let clean = js("if (cond) {\n  work();\n}\nwhile (running) {\n  skip();\n}\n");
         assert_eq!(filtered(&clean, "S2589").len(), 0);
     }
