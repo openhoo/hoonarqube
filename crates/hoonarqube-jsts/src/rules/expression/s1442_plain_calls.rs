@@ -1,6 +1,6 @@
 // Rule module s1442_plain_calls (generated).
-use crate::rules::shared::call_property;
-use crate::support::{IssueSink, RuleScope, callee_name, member_object, member_rooted_at};
+use crate::rules::shared::{argument_expression, call_property};
+use crate::support::{IssueSink, RuleScope, callee_name, member_object, unparenthesized};
 use oxc_ast::ast::{CallExpression, Expression};
 use oxc_semantic::Semantic;
 use oxc_span::GetSpan;
@@ -11,6 +11,7 @@ pub(crate) fn check_plain_calls(
     sink: &mut IssueSink,
     it: &CallExpression<'_>,
     semantic: Option<&Semantic<'_>>,
+    commonjs: bool,
 ) {
     let plain_name = callee_name(it);
     if let Some(name) = plain_name {
@@ -25,7 +26,7 @@ pub(crate) fn check_plain_calls(
                 it.span(),
             );
         }
-        if name == "require" {
+        if name == "require" && !commonjs {
             sink.emit_span(
                 RuleScope::Both,
                 "S3533",
@@ -43,17 +44,13 @@ pub(crate) fn check_plain_calls(
         );
     }
     if plain_name.is_none()
-        && let Some((property, member)) = call_property(it)
-        && matches!(property, "defineProperty" | "defineProperties")
-        && BUILTIN_GLOBALS
-            .iter()
-            .any(|builtin| member_rooted_at(member, builtin))
+        && let Some(target) = builtin_prototype_define_target(it)
     {
         sink.emit_span(
             RuleScope::Both,
             "S6643",
             "Do not extend built-in prototypes.",
-            it.callee.span(),
+            target.span(),
         );
     }
     if matches!(
@@ -98,6 +95,37 @@ pub(crate) const BUILTIN_GLOBALS: [&str; 16] = [
     "Promise", "Date", "RegExp", "Error", "Math", "JSON",
 ];
 
+/// `S6643` call side: `Object.defineProperty(Builtin.prototype, …)` and
+/// `Object.defineProperties(Builtin.prototype, …)` extend a built-in
+/// prototype. The callee must be `Object.defineProperty`/`defineProperties`
+/// and the first argument must be a `Builtin.prototype` member access;
+/// defining properties on plain objects or instances is legal.
+fn builtin_prototype_define_target<'a>(call: &'a CallExpression<'a>) -> Option<&'a Expression<'a>> {
+    let (property, member) = call_property(call)?;
+    if !matches!(property, "defineProperty" | "defineProperties") {
+        return None;
+    }
+    if !matches!(
+        unparenthesized(member_object(member)),
+        Expression::Identifier(root) if root.name == "Object"
+    ) {
+        return None;
+    }
+    let target = unparenthesized(argument_expression(call.arguments.first()?)?);
+    let Expression::StaticMemberExpression(target_member) = target else {
+        return None;
+    };
+    if target_member.property.name != "prototype" {
+        return None;
+    }
+    let Expression::Identifier(root) = unparenthesized(&target_member.object) else {
+        return None;
+    };
+    BUILTIN_GLOBALS
+        .contains(&root.name.as_str())
+        .then_some(target)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -130,6 +158,36 @@ mod tests {
 
         let literal_call = js_keys("\"foo\"();\n");
         assert_eq!(count_key(&literal_call, "javascript:S6958"), 1);
+    }
+
+    #[test]
+    fn s3533_spares_commonjs_files_and_compiled_commonjs_output() {
+        // #548: `import` is not legal inside `.cjs` files, and compiled
+        // CommonJS output (detected via `exports.`/`module.exports` usage)
+        // legitimately uses `require`.
+        let cjs = analyze(
+            PathBuf::from("test.cjs"),
+            "const fs = require(\"fs\");\nmodule.exports = fs;\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+        );
+
+        assert_eq!(
+            cjs.issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S3533")
+                .count(),
+            0
+        );
+
+        let compiled = js_keys(
+            "\"use strict\";\nObject.defineProperty(exports, \"__esModule\", { value: true });\nconst fs = require(\"fs\");\nexports.fs = fs;\n",
+        );
+        assert_eq!(count_key(&compiled, "javascript:S3533"), 0);
+
+        // A plain `.js` file with `require` still flags.
+        let plain = js_keys("const fs = require(\"fs\");\n");
+        assert_eq!(count_key(&plain, "javascript:S3533"), 1);
     }
     #[test]
     fn s2817_matches_unbound_bare_and_global_browser_members_in_js_and_ts() {

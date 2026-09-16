@@ -18,7 +18,7 @@ mod s2970_incomplete_chai_chain;
 mod s2990_s2990_this_expression;
 mod s3257_s3257_variable_declarator;
 mod s3415_s5863_s6092_expect_call;
-mod s3798_s3798_program;
+pub(crate) mod s3798_s3798_program;
 mod s4036_s4721_shell_exec;
 mod s4136_overload_grouping;
 mod s4137_s4137_ts_type_assertion;

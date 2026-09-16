@@ -139,6 +139,11 @@ fn flag_mixed_return_kinds(
         .flatten()
         .map(|scoped| &scoped.facts)
     {
+        // A declared `any`/union-with-`undefined` return already covers
+        // mixed literal kinds, so the returns are consistent by contract.
+        if facts.return_covers_mixed {
+            continue;
+        }
         let mut kinds = facts.return_kinds.clone();
         kinds.sort();
         kinds.dedup();
@@ -444,13 +449,37 @@ mod tests {
         assert_eq!(count_key(&js_keys(SYNC_BUILTIN), "javascript:S4123"), 1);
 
         assert_eq!(count_key(&js_keys(LOCAL_SYNC), "javascript:S4123"), 1);
-
         assert_eq!(
             count_key(&js_keys(CLEAN_ASYNC_LOCAL), "javascript:S4123"),
             0
         );
 
         assert_eq!(count_key(&js_keys(CLEAN_UNKNOWN), "javascript:S4123"), 0);
+
+        // #541: a non-async local returning a call result is not provably
+        // synchronous — `run` forwards the Promise from `x`.
+        let promise_forwarding = "function run(command) {\n  return x(command);\n}\nfunction x(command) { return Promise.resolve(command); }\nasync function main() {\n  await run(\"go\");\n  await \"literal\";\n}\nmain();\n";
+        assert_eq!(
+            count_key(&js_keys(promise_forwarding), "javascript:S4123"),
+            1
+        );
+
+        // A local whose every valued return is a literal stays flagged.
+        let literal_returning =
+            "function pick() {\n  return 'a';\n}\nasync function main() {\n  await pick();\n}\n";
+        assert_eq!(
+            count_key(&js_keys(literal_returning), "javascript:S4123"),
+            1
+        );
+
+        // A local that never returns normally produces no awaited value.
+        let throwing = "function fail() {\n  throw new Error('x');\n}\nasync function main() {\n  await fail();\n}\n";
+        assert_eq!(count_key(&js_keys(throwing), "javascript:S4123"), 0);
+
+        // An ambient declaration typed `Promise<...>` is awaitable even
+        // without the `async` keyword.
+        let ambient_promise = "declare function load(): Promise<void>;\nasync function main() {\n  await load();\n}\n";
+        assert_eq!(count_key(&ts_keys(ambient_promise), "typescript:S4123"), 0);
     }
 
     #[test]
@@ -492,8 +521,23 @@ mod tests {
         assert_eq!(count_key(&js_keys(mixed), "javascript:S3800"), 1);
 
         assert_eq!(count_key(&js_keys(CONSISTENT), "javascript:S3800"), 0);
-
         assert_eq!(count_key(&js_keys(VOID_FN), "javascript:S3800"), 0);
+
+        // #534: a declared `T | undefined` return covers both the `T` and
+        // the `undefined` returns, so the kinds are consistent.
+        let union_return = "interface Entries { files: string[] }\ndeclare function getNode(name: string): { type: string } | undefined;\nfunction getAccessibleEntries(directoryName: string): Entries | undefined {\n  const node = getNode(directoryName);\n  if (!node || node.type !== \"directory\") {\n    return undefined;\n  }\n  return { files: [] };\n}\nexport { getAccessibleEntries };\n";
+        assert_eq!(count_key(&ts_keys(union_return), "typescript:S3800"), 0);
+
+        // A declared `any` return also covers mixed literal kinds.
+        let any_return = "function pick(flag: boolean): any {\n  if (flag) {\n    return 'yes';\n  }\n  return 0;\n}\n";
+        assert_eq!(count_key(&ts_keys(any_return), "typescript:S3800"), 0);
+
+        // `Promise<T | undefined>` covers the awaited mixed kinds too.
+        let promise_union = "async function pick(flag: boolean): Promise<string | undefined> {\n  if (flag) {\n    return 'yes';\n  }\n  return undefined;\n}\n";
+        assert_eq!(count_key(&ts_keys(promise_union), "typescript:S3800"), 0);
+
+        // Mixed kinds without a covering annotation still flag in TS.
+        assert_eq!(count_key(&ts_keys(mixed), "typescript:S3800"), 1);
     }
 
     #[test]
@@ -509,6 +553,20 @@ mod tests {
 
         assert_eq!(count_key(&js_keys(BARE), "javascript:S3699"), 0);
 
+        // #524: `return fail()` where `fail` is declared `: never` is the
+        // idiomatic never-returning pattern, not a void-result use.
+        let never_declared = "declare function fail(message: string): never;\nfunction assertNever(member: never): never {\n  return fail(`Illegal value: ${member}`);\n}\nexport { assertNever };\n";
+        assert_eq!(count_key(&ts_keys(never_declared), "typescript:S3699"), 0);
+
+        // A function whose body unconditionally throws never produces a
+        // value either, so `return fail()` stays silent in JS too.
+        let throwing = "function fail() {\n  throw new Error('x');\n}\nfunction main() {\n  return fail();\n}\n";
+        assert_eq!(count_key(&js_keys(throwing), "javascript:S3699"), 0);
+
+        // An ambient declaration with a non-void return type produces a
+        // value even though it has no body.
+        let ambient_valued = "declare function getNode(name: string): { type: string } | undefined;\nconst node = getNode('x');\n";
+        assert_eq!(count_key(&ts_keys(ambient_valued), "typescript:S3699"), 0);
         assert_eq!(count_key(&js_keys(ASYNC_FN), "javascript:S3699"), 0);
     }
 

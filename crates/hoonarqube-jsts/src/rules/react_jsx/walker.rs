@@ -231,11 +231,11 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         self.record_context_binding(it);
         let context_bindings_after_declaration = self.context_bindings.len();
         let frame = declarator_component_frame(it);
-        if let Some((returns_jsx, name_span)) = frame {
+        if let Some((returns_jsx, returns_jsx_or_null, name_span)) = frame {
             self.check_nested_component(returns_jsx, Some(name_span), it.span());
-            self.component_stack.push(returns_jsx);
+            self.component_stack.push(returns_jsx_or_null);
             self.component_names.push(
-                returns_jsx
+                returns_jsx_or_null
                     .then(|| binding_identifier_name(&it.id).map(str::to_string))
                     .flatten(),
             );
@@ -270,7 +270,7 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
                     continue;
                 }
                 let value = unparenthesized(&property.value);
-                if expression_returns_jsx(value) == Some(true) {
+                if expression_returns_jsx(value, true) == Some(true) {
                     self.check_nested_component(true, None, value.span());
                 }
             }
@@ -354,15 +354,20 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         let returns_jsx = function
             .body
             .as_ref()
-            .is_some_and(|body| body_returns_jsx(body));
+            .is_some_and(|body| body_returns_jsx_mode(body, true));
+        let returns_jsx_or_null = returns_jsx
+            || function
+                .body
+                .as_ref()
+                .is_some_and(|body| body_returns_jsx(body));
         self.check_nested_component(
             returns_jsx,
             function.id.as_ref().map(GetSpan::span),
             function.span(),
         );
-        self.component_stack.push(returns_jsx);
+        self.component_stack.push(returns_jsx_or_null);
         self.component_names.push(
-            returns_jsx
+            returns_jsx_or_null
                 .then(|| function.id.as_ref().map(|id| id.name.to_string()))
                 .flatten(),
         );
@@ -374,13 +379,19 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
     }
 
     fn visit_export_default_declaration_kind(&mut self, it: &ExportDefaultDeclarationKind<'_>) {
-        let (returns_jsx, name_span, name) =
+        let (returns_jsx, returns_jsx_or_null, name_span, name) =
             if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
+                let strict = function
+                    .body
+                    .as_ref()
+                    .is_some_and(|body| body_returns_jsx_mode(body, true));
                 (
-                    function
-                        .body
-                        .as_ref()
-                        .is_some_and(|body| body_returns_jsx(body)),
+                    strict,
+                    strict
+                        || function
+                            .body
+                            .as_ref()
+                            .is_some_and(|body| body_returns_jsx(body)),
                     function.id.as_ref().map(GetSpan::span),
                     function.id.as_ref().map(|id| id.name.as_str()),
                 )
@@ -389,16 +400,18 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
                     walk_export_default_declaration_kind(self, it);
                     return;
                 };
-                let Some(returns_jsx) = expression_returns_jsx(expression) else {
+                let Some(returns_jsx) = expression_returns_jsx(expression, true) else {
                     walk_export_default_declaration_kind(self, it);
                     return;
                 };
-                (returns_jsx, None, None)
+                let or_null =
+                    returns_jsx || expression_returns_jsx(expression, false).unwrap_or(false);
+                (returns_jsx, or_null, None, None)
             };
         self.check_nested_component(returns_jsx, name_span, it.span());
-        self.component_stack.push(returns_jsx);
+        self.component_stack.push(returns_jsx_or_null);
         self.component_names
-            .push(name.map(str::to_string).filter(|_| returns_jsx));
+            .push(name.map(str::to_string).filter(|_| returns_jsx_or_null));
         walk_export_default_declaration_kind(self, it);
         self.component_stack.pop();
         self.component_names.pop();
@@ -596,30 +609,37 @@ impl Visit<'_> for ThisStateReferenceScanner {
 #[derive(Default)]
 pub(crate) struct RenderReturnScanner {
     pub(crate) satisfied: bool,
+    /// `S6478` needs strict JSX (`isReturningJSX`): a `return null` alone
+    /// does not make a function a component. `S6435` accepts null.
+    pub(crate) strict: bool,
 }
 
 impl Visit<'_> for RenderReturnScanner {
     fn visit_return_statement(&mut self, it: &ReturnStatement<'_>) {
         if let Some(argument) = &it.argument {
-            let mut probe = JsxOrNullScanner::default();
+            let mut probe = JsxOrNullScanner {
+                strict: self.strict,
+                ..JsxOrNullScanner::default()
+            };
             probe.visit_expression(argument);
             self.satisfied |= probe.found;
         }
     }
 }
 
-/// Subtree probe for JSX elements, fragments, and null literals.
+/// Subtree probe for JSX elements, fragments, and (unless `strict`) null
+/// literals.
 #[derive(Default)]
 pub(crate) struct JsxOrNullScanner {
     pub(crate) found: bool,
+    pub(crate) strict: bool,
 }
 
 impl Visit<'_> for JsxOrNullScanner {
     fn visit_expression(&mut self, it: &Expression<'_>) {
-        if matches!(
-            it,
-            Expression::JSXElement(_) | Expression::JSXFragment(_) | Expression::NullLiteral(_)
-        ) {
+        if matches!(it, Expression::JSXElement(_) | Expression::JSXFragment(_))
+            || (!self.strict && matches!(it, Expression::NullLiteral(_)))
+        {
             self.found = true;
             return;
         }
@@ -680,8 +700,10 @@ fn call_argument_function_count(call: &CallExpression<'_>) -> usize {
 }
 
 /// Component frame for a declarator-initialized function or arrow:
-/// whether it returns JSX plus its binding span (`S6478`).
-fn declarator_component_frame(declarator: &VariableDeclarator<'_>) -> Option<(bool, Span)> {
+/// `(returns JSX strictly, returns JSX-or-null, binding span)` (`S6478`).
+/// The strict flag decides the nested-component report; the or-null flag
+/// decides whether the function counts as a parent component.
+fn declarator_component_frame(declarator: &VariableDeclarator<'_>) -> Option<(bool, bool, Span)> {
     let init = unparenthesized(declarator.init.as_ref()?);
     if !matches!(
         init,
@@ -689,12 +711,13 @@ fn declarator_component_frame(declarator: &VariableDeclarator<'_>) -> Option<(bo
     ) {
         return None;
     }
-    let returns_jsx = expression_returns_jsx(init)?;
+    let returns_jsx = expression_returns_jsx(init, true)?;
+    let returns_jsx_or_null = returns_jsx || expression_returns_jsx(init, false)?;
     let name_span = match &declarator.id {
         BindingPattern::BindingIdentifier(identifier) => identifier.span(),
         _ => declarator.span(),
     };
-    Some((returns_jsx, name_span))
+    Some((returns_jsx, returns_jsx_or_null, name_span))
 }
 
 /// Whether a class renders (a `render` method returning JSX or null).
@@ -713,11 +736,22 @@ fn class_returns_jsx(class: &Class<'_>) -> bool {
     })
 }
 
-/// Whether a function-like body contains a return of JSX or null.
-pub(crate) fn body_returns_jsx(body: &FunctionBody<'_>) -> bool {
-    let mut scanner = RenderReturnScanner::default();
+/// Whether a function-like body contains a return of JSX (strict) or of
+/// JSX-or-null. `S6478` component detection uses the strict probe; the
+/// parent-component stack keeps the or-null probe so a null-returning
+/// component still counts as a parent.
+pub(crate) fn body_returns_jsx_mode(body: &FunctionBody<'_>, strict: bool) -> bool {
+    let mut scanner = RenderReturnScanner {
+        strict,
+        ..RenderReturnScanner::default()
+    };
     scanner.visit_function_body(body);
     scanner.satisfied
+}
+
+/// Whether a function-like body contains a return of JSX or null.
+pub(crate) fn body_returns_jsx(body: &FunctionBody<'_>) -> bool {
+    body_returns_jsx_mode(body, false)
 }
 
 /// `setFoo` shape: a `set` prefix followed by an uppercase letter.

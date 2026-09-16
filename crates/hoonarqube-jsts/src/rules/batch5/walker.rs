@@ -27,7 +27,9 @@ fn check_batch5_rules<'a>(
     semantic: Option<&Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    issues.extend(check_ts_type_rules(program, source, index, language));
+    issues.extend(check_ts_type_rules(
+        program, source, index, language, semantic,
+    ));
     issues.extend(check_security_hotspot_rules(
         program, source, index, language, semantic,
     ));
@@ -39,11 +41,12 @@ fn check_batch5_rules<'a>(
 }
 
 /// All Batch5 TypeScript-only type-system rules in one traversal.
-fn check_ts_type_rules(
-    program: &oxc_ast::ast::Program<'_>,
-    source: &str,
+fn check_ts_type_rules<'a>(
+    program: &'a oxc_ast::ast::Program<'a>,
+    source: &'a str,
     index: &LineIndex,
     language: JstsLanguage,
+    semantic: Option<&'a Semantic<'a>>,
 ) -> Vec<Issue> {
     let mut collector = TsTypeCollector {
         source,
@@ -52,13 +55,21 @@ fn check_ts_type_rules(
             language,
             issues: Vec::new(),
         },
+        semantic,
         class_stack: Vec::new(),
         s7059: S7059State::default(),
         constructor_depth: 0,
         try_guard_depth: 0,
         type_aliases: TypeAliasTable::collect(program),
+        type_alias_depth: 0,
+        s4323_usages: std::collections::HashMap::new(),
+        s4323_order: Vec::new(),
+        s4622_exempt_union_spans: std::collections::HashSet::new(),
+        s4335_union_member_spans: std::collections::HashSet::new(),
+        signature_params_depth: 0,
     };
     collector.visit_program(program);
+    collector.finish_s4323_type_alias_usage();
     check_s6759(program, &mut collector.sink);
     collector.sink.issues
 }
@@ -89,6 +100,7 @@ fn check_security_hotspot_rules(
         script_bindings: std::collections::HashMap::new(),
         function_depth: 0,
         signale_unprotected: std::collections::HashSet::new(),
+        argv_entrypoint_spans: std::collections::HashSet::new(),
     };
     collector.visit_program(program);
     collector.finish_security();
@@ -109,6 +121,11 @@ fn check_misc_rules(
             issues: Vec::new(),
         },
         function_depth: 0,
+        class_depth: 0,
+        ts_module_depth: 0,
+        commonjs_module: path
+            .extension()
+            .is_some_and(|ext| ext == "cjs" || ext == "cts"),
     };
     collector.visit_program(program);
     let mut issues = collector.sink.issues;
@@ -205,16 +222,16 @@ mod tests {
 
     #[test]
     fn oversized_unions_are_flagged() {
-        let oversized = ts_keys("type T = 'a' | 'b' | 'c' | 'd';\n");
+        let oversized = ts_keys("function f(p: 'a' | 'b' | 'c' | 'd'): void {}\n");
         assert_eq!(count_key(&oversized, "typescript:S4622"), 1);
 
-        let compact = ts_keys("type T = 'a' | 'b' | 'c';\n");
+        let compact = ts_keys("function f(p: 'a' | 'b' | 'c'): void {}\n");
         assert_eq!(count_key(&compact, "typescript:S4622"), 0);
     }
 
     #[test]
     fn meaningless_intersections_are_flagged() {
-        let meaningless = ts_keys("type T = string & { a: number };\n");
+        let meaningless = ts_keys("type T = { a: number } & null;\n");
         assert_eq!(count_key(&meaningless, "typescript:S4335"), 1);
 
         let branded =
@@ -359,7 +376,9 @@ mod tests {
 
     #[test]
     fn boolean_returns_suggest_type_predicates() {
-        let violating = ts_keys("function isFoo(x: Foo): boolean { return true; }\n");
+        let violating = ts_keys(
+            "type Foo = { kind?: string };\nfunction isFoo(x: Foo): boolean { return (x as Foo).kind !== undefined; }\n",
+        );
         assert_eq!(count_key(&violating, "typescript:S4322"), 1);
 
         let clean = ts_keys("function score(x: number): boolean { return x > 0; }\n");

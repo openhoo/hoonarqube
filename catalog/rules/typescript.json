@@ -11794,6 +11794,35 @@
       "provenance_id": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a"
     },
     {
+      "external_key": "typescript:S7763",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CONVENTIONAL",
+      "clean_code_attribute_category": "CONSISTENT",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "LOW"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "convention",
+        "es2015",
+        "editable-source"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "8d1e4ce0bf820d4be7793e6e9888cd57a9db9f694523ce17172a52723f0f2f71"
+    },
+    {
       "external_key": "typescript:S7764",
       "language": "ts",
       "repository": "typescript",
@@ -11879,6 +11908,38 @@
       "education_principles": [],
       "classification": "community-base",
       "provenance_id": "283287ef4a7eb7060053092a9a3e01b84dbf8d6c71434d3a1dc3b34dd849ceda"
+    },
+    {
+      "external_key": "typescript:S7767",
+      "language": "ts",
+      "repository": "typescript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "RELIABILITY",
+          "severity": "HIGH"
+        },
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "es2015",
+        "confusing"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "8d1e4ce0bf820d4be7793e6e9888cd57a9db9f694523ce17172a52723f0f2f71"
     },
     {
       "external_key": "typescript:S7770",
@@ -12393,6 +12454,26 @@
       ],
       "selected_keys_sha256": "4a9e4c0cb5b85eb756bb551d96ccc67a2c39ee264b410f6637d3426e663028c5",
       "selected_rows_sha256": "9b4052d35164cf9a080006b2cb2f5c292cd3a5e0b417824a824df5decb72565c"
+    },
+    {
+      "capture_sha256": "8d1e4ce0bf820d4be7793e6e9888cd57a9db9f694523ce17172a52723f0f2f71",
+      "captured_at_utc": "2026-09-16T15:08:36.096587965Z",
+      "server_version": "26.8.0.126808",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 532,
+      "page_count": 2,
+      "query_sha256": "57ef43cd6a3b81b1e6a925d34e3b896876cabe180ca2f6e02cb01fb0d018ca13",
+      "pages_sha256": "72ab1948ac4043a938665df02adad9d9c74125f2b2374c0db6de08ce7e44ef07",
+      "keys_sha256": "031e4ee15c67edce9cb74e1213b1e4ca9d84501fd07948104eb446d9493189f0",
+      "shows_sha256": "fb8d1fb1aeb4e1df9f3e4f801c0983db9b86cb1fae20f299d28b97e639f23d37",
+      "selected_keys": [
+        "typescript:S7763",
+        "typescript:S7767"
+      ],
+      "selected_keys_sha256": "8cd702ce1977cb7395cbdfd0d42bf6cd9863ff02d420097e85c9b14d360bf67a",
+      "selected_rows_sha256": "1fabd4676365d29e1e765544607a839481565e99707419b18929a40df74b2093"
     },
     {
       "capture_sha256": "9917e76d1bf817b5e43cb550a32e8dfc02244c2fb6fe7fc6b4f906e42444986a",

@@ -11,7 +11,7 @@ use oxc_ast::ast::{
     AssignmentExpression, BindingPattern, CallExpression, Class, ExportSpecifier, Expression,
     FormalParameter, Function, FunctionBody, ImportSpecifier, MethodDefinition,
     MethodDefinitionKind, ObjectProperty, Statement, TSInterfaceDeclaration, TSSignature,
-    UnaryOperator, VariableDeclarator,
+    VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -282,15 +282,11 @@ impl BindingCollector<'_, '_> {
         }
     }
 
-    /// `S2138`: `undefined` must not be stored in variables, properties,
-    /// or fields; `null` expresses the absent value.
+    /// `S2138`: the `undefined` literal must not be stored in variables,
+    /// properties, or fields; `null` expresses the absent value. `void 0`
+    /// is a deliberate compiled-code idiom covered by `S3735`, not this rule.
     fn check_undefined_value(&mut self, value: &Expression<'_>) {
-        let initializes_to_undefined = match value {
-            Expression::Identifier(identifier) => identifier.name == "undefined",
-            Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::Void,
-            _ => false,
-        };
-        if initializes_to_undefined {
+        if matches!(value, Expression::Identifier(identifier) if identifier.name == "undefined") {
             self.sink
                 .emit_span(RuleScope::Both, "S2138", "Use null instead.", value.span());
         }
@@ -544,8 +540,10 @@ export { Model };
 
     #[test]
     fn s2138_and_s6645_void_zero_and_typescript_scope_edges() {
-        let void_init = js_keys("let x = void 0;\n");
-        assert_eq!(count_key(&void_init, "javascript:S2138"), 1);
+        // #557: `void 0` is a compiled-code idiom, not the `undefined`
+        // literal; S3735 covers the operator itself.
+        let void_init = js_keys("let x = void 0;\nexports.Foo = exports.Bar = void 0;\n");
+        assert_eq!(count_key(&void_init, "javascript:S2138"), 0);
         assert_eq!(count_key(&void_init, "javascript:S6645"), 0);
 
         let explicit = js_keys("let y = undefined;\n");

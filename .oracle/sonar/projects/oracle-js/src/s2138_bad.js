@@ -1,1 +1,1 @@
-let x = void 0;
+let x = undefined;
