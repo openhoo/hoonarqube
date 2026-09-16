@@ -1,5 +1,5 @@
 class Profile {
-  name;
+  private name;
   rename(value: string) {
     this.name = value;
   }
