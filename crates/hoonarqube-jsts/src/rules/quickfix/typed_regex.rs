@@ -9,13 +9,13 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    Argument, BinaryOperator, CallExpression, Expression, NewExpression, PropertyDefinition,
-    RegExpFlags, TSIntersectionType, TSPropertySignature, TSType, TSUnionType,
+    Argument, BinaryOperator, CallExpression, Expression, NewExpression, RegExpFlags,
+    TSIntersectionType, TSType, TSUnionType,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_call_expression, walk_expression, walk_new_expression, walk_property_definition,
-    walk_ts_intersection_type, walk_ts_property_signature, walk_ts_union_type,
+    walk_call_expression, walk_expression, walk_new_expression, walk_ts_intersection_type,
+    walk_ts_union_type,
 };
 use oxc_parser::{Kind, Token};
 use oxc_semantic::Semantic;
@@ -26,7 +26,6 @@ enum Rule {
     S4621,
     S4623,
     S4634,
-    S4782,
     S5868,
     S6326,
     S6426,
@@ -62,7 +61,6 @@ pub(super) fn collect<'a>(
                 "S4621" => Rule::S4621,
                 "S4623" => Rule::S4623,
                 "S4634" => Rule::S4634,
-                "S4782" => Rule::S4782,
                 "S5868" => Rule::S5868,
                 "S6326" => Rule::S6326,
                 "S6426" => Rule::S6426,
@@ -290,126 +288,6 @@ impl Collector<'_, '_> {
                 )],
             ),
         );
-    }
-
-    fn check_optional_property(
-        &mut self,
-        optional: bool,
-        annotation: Option<&TSType>,
-        key_end: usize,
-        property_end: usize,
-    ) {
-        if !optional {
-            return;
-        }
-        let Some(annotation) = annotation else {
-            return;
-        };
-        let Some(slot) = self.find_issue(Rule::S4782, key_end, property_end, true) else {
-            return;
-        };
-        let issue = self.take_issue(slot);
-        let union = unwrap_type(annotation);
-        let TSType::TSUnionType(union) = union else {
-            return;
-        };
-        let Some(undefined_index) = union
-            .types
-            .iter()
-            .position(|member| matches!(unwrap_type(member), TSType::TSUndefinedKeyword(_)))
-        else {
-            return;
-        };
-        let optional_candidate = candidate(
-            "s4782-remove-optional-marker",
-            "Remove \"?\" operator",
-            [(issue.start, issue.end, String::new())],
-        );
-        self.emit(issue, optional_candidate);
-        self.emit_undefined_type_candidates(issue, union, undefined_index, property_end);
-    }
-
-    fn emit_undefined_type_candidates(
-        &mut self,
-        issue: IssueRef,
-        union: &TSUnionType<'_>,
-        undefined_index: usize,
-        property_end: usize,
-    ) {
-        let Some(undefined) = union.types.get(undefined_index) else {
-            return;
-        };
-        if union.types.len() == 2 {
-            let other = if undefined_index == 0 {
-                &union.types[1]
-            } else {
-                &union.types[0]
-            };
-            let Some(other_text) = self
-                .source()
-                .get(other.span().start as usize..other.span().end as usize)
-            else {
-                return;
-            };
-            let mut edits = vec![(
-                union.span.start as usize,
-                union.span.end as usize,
-                other_text.to_owned(),
-            )];
-            let before = self.token_before(union.span.start as usize);
-            let after = self.token_after(union.span.end as usize, property_end);
-            if before.is_some_and(|token| token.kind() == Kind::LParen)
-                && after.is_some_and(|token| token.kind() == Kind::RParen)
-            {
-                edits.push((
-                    before.unwrap().start() as usize,
-                    before.unwrap().end() as usize,
-                    String::new(),
-                ));
-                edits.push((
-                    after.unwrap().start() as usize,
-                    after.unwrap().end() as usize,
-                    String::new(),
-                ));
-            }
-            self.out.push((
-                issue.index,
-                candidate(
-                    "s4782-remove-undefined-type",
-                    "Remove \"undefined\" type annotation",
-                    edits,
-                ),
-            ));
-        } else if undefined_index == 0 {
-            if let Some(next) = union.types.get(1) {
-                self.out.push((
-                    issue.index,
-                    candidate(
-                        "s4782-remove-undefined-type",
-                        "Remove \"undefined\" type annotation",
-                        [(
-                            undefined.span().start as usize,
-                            next.span().start as usize,
-                            String::new(),
-                        )],
-                    ),
-                ));
-            }
-        } else {
-            let previous = &union.types[undefined_index - 1];
-            self.out.push((
-                issue.index,
-                candidate(
-                    "s4782-remove-undefined-type",
-                    "Remove \"undefined\" type annotation",
-                    [(
-                        previous.span().end as usize,
-                        undefined.span().end as usize,
-                        String::new(),
-                    )],
-                ),
-            ));
-        }
     }
 
     fn check_focused_test(&mut self, call: &CallExpression<'_>) {
@@ -723,34 +601,6 @@ impl<'a> Visit<'a> for Collector<'_, 'a> {
         walk_ts_intersection_type(self, it);
     }
 
-    fn visit_ts_property_signature(&mut self, it: &TSPropertySignature<'a>) {
-        let annotation = it
-            .type_annotation
-            .as_ref()
-            .map(|value| &value.type_annotation);
-        self.check_optional_property(
-            it.optional,
-            annotation,
-            it.key.span().end as usize,
-            it.span.end as usize,
-        );
-        walk_ts_property_signature(self, it);
-    }
-
-    fn visit_property_definition(&mut self, it: &PropertyDefinition<'a>) {
-        let annotation = it
-            .type_annotation
-            .as_ref()
-            .map(|value| &value.type_annotation);
-        self.check_optional_property(
-            it.optional,
-            annotation,
-            it.key.span().end as usize,
-            it.span.end as usize,
-        );
-        walk_property_definition(self, it);
-    }
-
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.check_undefined_argument(it);
         self.check_focused_test(it);
@@ -1025,13 +875,6 @@ fn finish_space_run(runs: &mut Vec<SpaceRun>, start: &mut Option<usize>, end: us
     {
         runs.push(SpaceRun { start: begin, end });
     }
-}
-
-fn unwrap_type<'a>(mut ty: &'a TSType<'a>) -> &'a TSType<'a> {
-    while let TSType::TSParenthesizedType(parenthesized) = ty {
-        ty = &parenthesized.type_annotation;
-    }
-    ty
 }
 
 fn executor_parts<'a>(

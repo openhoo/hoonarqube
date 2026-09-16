@@ -27,7 +27,7 @@ use hoonarqube_core::duplication::DuplicationOptions;
 use hoonarqube_core::project::{ProjectFile, analyze_project_file, build_project_report};
 
 use crate::cache::{Cache, CacheFingerprints};
-use crate::project_features::{AnalyzedSource, ProjectFeatureOptions};
+use crate::project_features::{AnalyzedSource, AutoTypeScriptProject, ProjectFeatureOptions};
 use crate::semantic_cli::ProjectSemanticContext;
 /// Per-language analyzer knobs shared by analyze and fix orchestration.
 pub(crate) use hoonarqube_core::AnalyzerOptions as AnalyzerOptionsBundle;
@@ -351,13 +351,14 @@ pub(crate) fn analyze_project_paths(
     project_options: &ProjectAnalysisOptions,
     warnings: &mut Vec<String>,
 ) -> Result<hoonarqube_ir::AnalysisReport, String> {
-    let mut collected = collect_project_inputs(paths, project_options, warnings);
+    let mut collected = collect_project_inputs(paths, project_options, options.profile, warnings);
     let options = &with_csharp_project_index(options, &collected);
     let semantic = load_project_semantic_context(
         project_options,
         options,
         &collected.source_inventory,
         collected.semantic_input_complete,
+        &collected.auto_projects,
         warnings,
     );
     let cache = project_cache(
@@ -490,6 +491,7 @@ struct CollectedProjectInputs {
     unsupported_inventory: Vec<(PathBuf, FileClassification)>,
     retained_bytes: usize,
     semantic_input_complete: bool,
+    auto_projects: Vec<AutoTypeScriptProject>,
 }
 pub(crate) type ProjectInputCollection = (
     Vec<PathBuf>,
@@ -509,6 +511,7 @@ struct ProjectInputCollector<'a> {
 fn collect_project_inputs(
     paths: &[PathBuf],
     project_options: &ProjectAnalysisOptions,
+    profile: hoonarqube_catalog::RuleProfile,
     warnings: &mut Vec<String>,
 ) -> CollectedProjectInputs {
     let retain_sources = project_options.features.assessment_requested()
@@ -528,6 +531,18 @@ fn collect_project_inputs(
         unsupported_inventory,
         retained_bytes: unsupported_inventory_bytes,
         semantic_input_complete: true,
+        auto_projects: Vec::new(),
+    };
+    // Without an explicit semantic request, plain scans still request
+    // compiler-backed TypeScript contexts opportunistically: each analyzed
+    // JS/TS source joins the context of its nearest ancestor tsconfig.json.
+    // The isolated github-code-quality profile never loads compiler contexts.
+    let auto_typescript = !project_options.features.semantics_requested()
+        && profile != hoonarqube_catalog::RuleProfile::GithubCodeQuality;
+    let auto_tsconfigs = if auto_typescript {
+        discover_typescript_projects(&files)
+    } else {
+        std::collections::BTreeMap::new()
     };
     let semantics_requested = project_options.features.semantics_requested();
     for (path, reason) in collection_failures {
@@ -540,13 +555,16 @@ fn collect_project_inputs(
         );
     }
     for path in files {
+        let auto_retain = auto_tsconfigs.contains_key(&normalized_input_path(&path));
         collect_project_input(
             path,
             &project_options.patterns,
-            retain_sources,
+            retain_sources || auto_retain,
+            !retain_sources,
             &mut collected,
         );
     }
+    collected.auto_projects = auto_projects_from(&auto_tsconfigs);
     collected
 }
 
@@ -578,6 +596,7 @@ fn collect_project_input(
     path: PathBuf,
     patterns: &ProjectPatterns,
     retain_sources: bool,
+    opportunistic: bool,
     collected: &mut CollectedProjectInputs,
 ) {
     let classification = classify_collected_path(patterns, &path);
@@ -608,7 +627,13 @@ fn collect_project_input(
         return;
     }
     if retain_sources {
-        collect_retained_project_input(path, classification, duplication_excluded, collected);
+        collect_retained_project_input(
+            path,
+            classification,
+            duplication_excluded,
+            opportunistic,
+            collected,
+        );
     } else {
         collected.pending.push(ProjectInput {
             path,
@@ -623,6 +648,7 @@ fn collect_retained_project_input(
     path: PathBuf,
     classification: FileClassification,
     duplication_excluded: bool,
+    opportunistic: bool,
     collected: &mut CollectedProjectInputs,
 ) {
     match read_project_source(&path, classification) {
@@ -647,6 +673,17 @@ fn collect_retained_project_input(
             });
         }
         ProjectSourceRead::Oversize(facts) => {
+            if opportunistic {
+                // Auto-discovered semantic retention is best-effort: an
+                // oversize source simply stays on the native path.
+                collected.pending.push(ProjectInput {
+                    path,
+                    classification,
+                    duplication_excluded,
+                    source_index: None,
+                });
+                return;
+            }
             // A refused source cannot enter the compiler-backed inventory,
             // so the semantic context degrades exactly like a failed read.
             collected.semantic_input_complete = false;
@@ -658,6 +695,16 @@ fn collect_retained_project_input(
             ));
         }
         ProjectSourceRead::Source(source) => {
+            if opportunistic {
+                collected.pending.push(ProjectInput {
+                    path,
+                    classification,
+                    duplication_excluded,
+                    source_index: None,
+                });
+                drop(source);
+                return;
+            }
             collected.semantic_input_complete = false;
             collected.project_files.push(ProjectFile {
                 path,
@@ -672,6 +719,15 @@ fn collect_retained_project_input(
             drop(source);
         }
         ProjectSourceRead::Failure(error) => {
+            if opportunistic {
+                collected.pending.push(ProjectInput {
+                    path,
+                    classification,
+                    duplication_excluded,
+                    source_index: None,
+                });
+                return;
+            }
             collected.semantic_input_complete = false;
             collected.project_files.push(read_failure(
                 path,
@@ -688,12 +744,13 @@ fn load_project_semantic_context(
     options: &AnalyzerOptionsBundle,
     source_inventory: &[AnalyzedSource],
     semantic_input_complete: bool,
+    auto_projects: &[AutoTypeScriptProject],
     warnings: &mut Vec<String>,
 ) -> Option<ProjectSemanticContext> {
-    if !project_options.features.semantics_requested() {
+    if !project_options.features.semantics_requested() && auto_projects.is_empty() {
         return None;
     }
-    if !semantic_input_complete {
+    if project_options.features.semantics_requested() && !semantic_input_complete {
         warnings.push(
             "semantic context: analyzed source inventory is incomplete; compiler facts are unavailable"
                 .to_owned(),
@@ -704,6 +761,7 @@ fn load_project_semantic_context(
         source_inventory,
         &project_options.features.semantics,
         options,
+        auto_projects,
     ) {
         Ok(context) => {
             for diagnostic in context.diagnostics() {
@@ -719,6 +777,69 @@ fn load_project_semantic_context(
             None
         }
     }
+}
+
+/// Maps each analyzed JS/TS source to its nearest ancestor `tsconfig.json`.
+/// Keys are normalized input paths; values are the discovered config paths.
+/// Discovery never crosses the filesystem root and ignores non-source inputs.
+fn discover_typescript_projects(files: &[PathBuf]) -> std::collections::BTreeMap<PathBuf, PathBuf> {
+    let mut discovered = std::collections::BTreeMap::new();
+    let mut dir_cache: std::collections::HashMap<PathBuf, Option<PathBuf>> =
+        std::collections::HashMap::new();
+    for path in files {
+        if !matches!(
+            hoonarqube_core::language_for_path(path),
+            Some(Language::JavaScript | Language::TypeScript)
+        ) {
+            continue;
+        }
+        let Some(directory) = path.parent() else {
+            continue;
+        };
+        let tsconfig = dir_cache
+            .entry(directory.to_path_buf())
+            .or_insert_with(|| nearest_tsconfig(directory))
+            .clone();
+        if let Some(tsconfig) = tsconfig {
+            discovered.insert(normalized_input_path(path), tsconfig);
+        }
+    }
+    discovered
+}
+
+/// Walks ancestor directories for the nearest `tsconfig.json`.
+fn nearest_tsconfig(directory: &Path) -> Option<PathBuf> {
+    let mut current = Some(directory);
+    while let Some(dir) = current {
+        let candidate = dir.join("tsconfig.json");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+/// Groups discovered sources by tsconfig, capped so a monorepo cannot spawn
+/// an unbounded number of compiler helper invocations.  Sources beyond the
+/// cap stay on the native path.
+fn auto_projects_from(
+    discovered: &std::collections::BTreeMap<PathBuf, PathBuf>,
+) -> Vec<AutoTypeScriptProject> {
+    const MAX_AUTO_CONTEXTS: usize = 32;
+    let mut grouped: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> =
+        std::collections::BTreeMap::new();
+    for (file, tsconfig) in discovered {
+        grouped
+            .entry(tsconfig.clone())
+            .or_default()
+            .push(file.clone());
+    }
+    grouped
+        .into_iter()
+        .take(MAX_AUTO_CONTEXTS)
+        .map(|(tsconfig, files)| AutoTypeScriptProject { tsconfig, files })
+        .collect()
 }
 
 fn project_cache(
@@ -2510,10 +2631,12 @@ mod tests {
             unsupported_inventory: Vec::new(),
             retained_bytes: 0,
             semantic_input_complete: true,
+            auto_projects: Vec::new(),
         };
         collect_retained_project_input(
             oversized,
             FileClassification::Source,
+            false,
             false,
             &mut collected,
         );

@@ -40,7 +40,6 @@ use oxc_ast::ast::TSIntersectionType;
 use oxc_ast::ast::TSModuleReference;
 use oxc_ast::ast::TSNamespaceDeclaration;
 use oxc_ast::ast::TSNonNullExpression;
-use oxc_ast::ast::TSPropertySignature;
 use oxc_ast::ast::TSType;
 use oxc_ast::ast::TSTypeAliasDeclaration;
 use oxc_ast::ast::TSTypeAssertion;
@@ -61,9 +60,9 @@ use oxc_ast_visit::walk::{
     walk_return_statement, walk_statement, walk_string_literal, walk_template_literal,
     walk_try_statement, walk_ts_any_keyword, walk_ts_enum_declaration,
     walk_ts_interface_declaration, walk_ts_intersection_type, walk_ts_namespace_declaration,
-    walk_ts_non_null_expression, walk_ts_property_signature, walk_ts_type_alias_declaration,
-    walk_ts_type_assertion, walk_ts_type_literal, walk_ts_type_parameter, walk_ts_union_type,
-    walk_unary_expression, walk_update_expression, walk_variable_declarator,
+    walk_ts_non_null_expression, walk_ts_type_alias_declaration, walk_ts_type_assertion,
+    walk_ts_type_literal, walk_ts_type_parameter, walk_ts_union_type, walk_unary_expression,
+    walk_update_expression, walk_variable_declarator,
 };
 use oxc_semantic::{Semantic, SymbolId};
 use oxc_span::{GetSpan, Span};
@@ -1160,11 +1159,6 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     fn visit_ts_any_keyword(&mut self, it: &TSAnyKeyword) {
         self.check_s4204_ts_any_keyword(it);
         walk_ts_any_keyword(self, it);
-    }
-
-    fn visit_ts_property_signature(&mut self, it: &TSPropertySignature<'a>) {
-        self.check_s4782_ts_property_signature(it);
-        walk_ts_property_signature(self, it);
     }
 
     fn visit_formal_parameter(&mut self, it: &FormalParameter<'a>) {
