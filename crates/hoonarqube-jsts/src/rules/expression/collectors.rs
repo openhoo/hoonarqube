@@ -8,9 +8,10 @@ use crate::support::{
 };
 use oxc_ast::AstKind;
 use oxc_ast::ast::{
-    AssignmentTarget, BindingIdentifier, CallExpression, Expression, Function, FunctionType,
-    IdentifierReference, MemberExpression, NewExpression, ObjectExpression, ObjectPropertyKind,
-    PropertyKey, PropertyKind, Statement, ThisExpression, UnaryOperator, VariableDeclaration,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingIdentifier, CallExpression,
+    Expression, Function, FunctionType, IdentifierReference, MemberExpression, NewExpression,
+    ObjectExpression, ObjectPropertyKind, PropertyKey, PropertyKind, Statement, TSLiteral, TSType,
+    TSTypeName, TSTypeOperatorOperator, ThisExpression, UnaryOperator, VariableDeclaration,
     VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
@@ -123,18 +124,7 @@ pub(crate) fn check_collection_and_object_calls(
             it.callee.span(),
         );
     }
-    if matches!(property, "sort" | "toSorted") && it.arguments.is_empty() {
-        let span = match member {
-            MemberExpression::StaticMemberExpression(member) => member.property.span(),
-            _ => it.callee.span(),
-        };
-        sink.emit_span(
-            RuleScope::Both,
-            "S2871",
-            "Provide a compare function to avoid sorting elements alphabetically.",
-            span,
-        );
-    }
+    check_sort_call(sink, it, property, member, semantic);
     if property == "hasOwnProperty" {
         sink.emit_span(
             RuleScope::Both,
@@ -166,6 +156,34 @@ pub(crate) fn check_collection_and_object_calls(
             it.arguments[0].span(),
         );
     }
+}
+
+/// `S2871`: a comparator-less `sort`/`toSorted` on a receiver that is not
+/// provably a string collection. Alphabetical ordering of strings is the
+/// documented compliant case, so string-iterable receivers stay silent.
+fn check_sort_call(
+    sink: &mut IssueSink,
+    it: &CallExpression<'_>,
+    property: &str,
+    member: &MemberExpression<'_>,
+    semantic: Option<&Semantic<'_>>,
+) {
+    if !matches!(property, "sort" | "toSorted")
+        || !it.arguments.is_empty()
+        || sort_receiver_is_string_iterable(member_object(member), semantic)
+    {
+        return;
+    }
+    let span = match member {
+        MemberExpression::StaticMemberExpression(member) => member.property.span(),
+        _ => it.callee.span(),
+    };
+    sink.emit_span(
+        RuleScope::Both,
+        "S2871",
+        "Provide a compare function to avoid sorting elements alphabetically.",
+        span,
+    );
 }
 
 /// Whether the `apply` receiver is one a spread rewrite preserves: only
@@ -343,12 +361,235 @@ fn array_like_slice_source(expression: &Expression<'_>, semantic: &Semantic<'_>)
         || established_array_argument(expression, semantic)
 }
 
-/// Initializer of the local binding an identifier resolves to, when that
-/// binding is a variable that is never reassigned.
 fn binding_declaration_init<'a>(
     identifier: &IdentifierReference<'_>,
     semantic: &Semantic<'a>,
 ) -> Option<&'a Expression<'a>> {
+    binding_declarator(identifier, semantic).and_then(|declarator| declarator.init.as_ref())
+}
+
+/// Whether the comparator-less `sort`/`toSorted` receiver is conservatively
+/// a string iterable, where alphabetical ordering is the documented
+/// compliant case for `S2871`: a string-literal array, a binding declared
+/// or initialized as a string collection, or a call/constructor whose
+/// result is provably `string[]`/`Set<string>`.
+fn sort_receiver_is_string_iterable(
+    expression: &Expression<'_>,
+    semantic: Option<&Semantic<'_>>,
+) -> bool {
+    match unparenthesized(expression) {
+        Expression::ArrayExpression(array) => array_elements_all_strings(array, semantic),
+        Expression::Identifier(identifier) => semantic
+            .and_then(|semantic| binding_declarator(identifier, semantic))
+            .is_some_and(|declarator| {
+                declarator
+                    .type_annotation
+                    .as_ref()
+                    .is_some_and(|annotation| type_is_string_iterable(&annotation.type_annotation))
+                    || declarator
+                        .init
+                        .as_ref()
+                        .is_some_and(|init| sort_receiver_is_string_iterable(init, semantic))
+            }),
+        Expression::CallExpression(call) => string_iterable_call(call, semantic),
+        Expression::NewExpression(new_expression) => string_iterable_new(new_expression, semantic),
+        Expression::TSAsExpression(as_expression) => {
+            type_is_string_iterable(&as_expression.type_annotation)
+        }
+        Expression::TSSatisfiesExpression(satisfies) => {
+            type_is_string_iterable(&satisfies.type_annotation)
+                || sort_receiver_is_string_iterable(&satisfies.expression, semantic)
+        }
+        Expression::TSNonNullExpression(non_null) => {
+            sort_receiver_is_string_iterable(&non_null.expression, semantic)
+        }
+        _ => false,
+    }
+}
+
+/// Whether every element of an array literal is statically a string
+/// (string literals, static templates, or spreads of string iterables).
+/// An empty literal proves nothing and stays reported.
+fn array_elements_all_strings(
+    array: &oxc_ast::ast::ArrayExpression<'_>,
+    semantic: Option<&Semantic<'_>>,
+) -> bool {
+    !array.elements.is_empty()
+        && array.elements.iter().all(|element| match element {
+            ArrayExpressionElement::SpreadElement(spread) => {
+                sort_receiver_is_string_iterable(&spread.argument, semantic)
+            }
+            _ => element
+                .as_expression()
+                .is_some_and(is_static_string_expression),
+        })
+}
+
+/// Whether the expression is statically a string value: a string literal
+/// or a template literal without substitutions, behind TypeScript-only
+/// wrappers.
+fn is_static_string_expression(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::StringLiteral(_) => true,
+        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        Expression::TSAsExpression(as_expression) => {
+            is_static_string_expression(&as_expression.expression)
+        }
+        Expression::TSSatisfiesExpression(satisfies) => {
+            is_static_string_expression(&satisfies.expression)
+        }
+        Expression::TSNonNullExpression(non_null) => {
+            is_static_string_expression(&non_null.expression)
+        }
+        _ => false,
+    }
+}
+
+/// Whether a `new` expression provably produces a string collection:
+/// `new Array<string>`/`new Set<string>` by type argument, or
+/// `new Array`/`new Set`/`Array.from` shapes whose arguments are all
+/// statically strings.
+fn string_iterable_new(
+    new_expression: &NewExpression<'_>,
+    semantic: Option<&Semantic<'_>>,
+) -> bool {
+    let Some(name) = constructor_name(new_expression) else {
+        return false;
+    };
+    if !matches!(name, "Array" | "Set") {
+        return false;
+    }
+    if let Some(type_arguments) = &new_expression.type_arguments {
+        return type_arguments.params.first().is_some_and(type_is_string);
+    }
+    !new_expression.arguments.is_empty()
+        && new_expression
+            .arguments
+            .iter()
+            .all(|argument| match argument {
+                Argument::SpreadElement(spread) => {
+                    sort_receiver_is_string_iterable(&spread.argument, semantic)
+                }
+                _ => argument.as_expression().is_some_and(|expression| {
+                    is_static_string_expression(unparenthesized(expression))
+                }),
+            })
+}
+
+/// Whether a call provably produces a string array: `Object.keys`,
+/// `Object.getOwnPropertyNames`, `String` mapping, `split`/`match` on a
+/// string receiver, `Array.from`/`Array.of` over strings, or an
+/// element-preserving array method on a string-iterable receiver.
+fn string_iterable_call(call: &CallExpression<'_>, semantic: Option<&Semantic<'_>>) -> bool {
+    let Some((property, member)) = call_property(call) else {
+        return false;
+    };
+    if member_rooted_at(member, "Object") {
+        return matches!(property, "keys" | "getOwnPropertyNames");
+    }
+    if member_rooted_at(member, "Array") {
+        return match property {
+            "from" => call
+                .arguments
+                .first()
+                .and_then(argument_expression)
+                .is_some_and(|argument| sort_receiver_is_string_iterable(argument, semantic)),
+            "of" => {
+                !call.arguments.is_empty()
+                    && call.arguments.iter().all(|argument| {
+                        argument.as_expression().is_some_and(|expression| {
+                            is_static_string_expression(unparenthesized(expression))
+                        })
+                    })
+            }
+            _ => false,
+        };
+    }
+    match property {
+        "split" | "match" => true,
+        "map" => call
+            .arguments
+            .first()
+            .and_then(argument_expression)
+            .is_some_and(|argument| identifier_name(unparenthesized(argument)) == Some("String")),
+        "concat" => {
+            sort_receiver_is_string_iterable(member_object(member), semantic)
+                && !call.arguments.is_empty()
+                && call.arguments.iter().all(|argument| {
+                    argument.as_expression().is_some_and(|expression| {
+                        is_static_string_expression(unparenthesized(expression))
+                            || sort_receiver_is_string_iterable(expression, semantic)
+                    })
+                })
+        }
+        "slice" | "splice" | "filter" | "flat" | "reverse" | "sort" | "toSorted" | "toReversed"
+        | "toSpliced" | "with" => sort_receiver_is_string_iterable(member_object(member), semantic),
+        _ => false,
+    }
+}
+
+/// Whether the type annotation describes a string-element collection:
+/// `string[]`, `readonly string[]`, `Array<string>`,
+/// `ReadonlyArray<string>`, `Set<string>`, `ReadonlySet<string>`, or
+/// `Iterable<string>`.
+fn type_is_string_iterable(ty: &TSType<'_>) -> bool {
+    match ty {
+        TSType::TSArrayType(array) => type_is_string(&array.element_type),
+        TSType::TSTypeReference(reference) => {
+            let Some(name) = type_reference_name(&reference.type_name) else {
+                return false;
+            };
+            matches!(
+                name,
+                "Array" | "ReadonlyArray" | "Set" | "ReadonlySet" | "Iterable"
+            ) && reference
+                .type_arguments
+                .as_ref()
+                .and_then(|arguments| arguments.params.first())
+                .is_some_and(type_is_string)
+        }
+        TSType::TSParenthesizedType(parenthesized) => {
+            type_is_string_iterable(&parenthesized.type_annotation)
+        }
+        TSType::TSTypeOperatorType(operator) => {
+            operator.operator == TSTypeOperatorOperator::Readonly
+                && type_is_string_iterable(&operator.type_annotation)
+        }
+        _ => false,
+    }
+}
+
+/// Whether the type is statically `string`: the `string` keyword or a
+/// union/literal composed only of string types.
+fn type_is_string(ty: &TSType<'_>) -> bool {
+    match ty {
+        TSType::TSStringKeyword(_) => true,
+        TSType::TSLiteralType(literal) => matches!(
+            &literal.literal,
+            TSLiteral::StringLiteral(_) | TSLiteral::TemplateLiteral(_)
+        ),
+        TSType::TSUnionType(union) => union.types.iter().all(type_is_string),
+        TSType::TSParenthesizedType(parenthesized) => {
+            type_is_string(&parenthesized.type_annotation)
+        }
+        _ => false,
+    }
+}
+
+/// Plain identifier name of a type reference (`Array` in `Array<string>`).
+fn type_reference_name<'a>(name: &'a TSTypeName<'a>) -> Option<&'a str> {
+    match name {
+        TSTypeName::IdentifierReference(identifier) => Some(identifier.name.as_str()),
+        _ => None,
+    }
+}
+
+/// The variable declarator an identifier resolves to, when that binding is
+/// a variable that is never reassigned.
+fn binding_declarator<'a>(
+    identifier: &IdentifierReference<'_>,
+    semantic: &Semantic<'a>,
+) -> Option<&'a VariableDeclarator<'a>> {
     let reference_id = identifier.reference_id.get()?;
     let symbol_id = semantic.scoping().get_reference(reference_id).symbol_id()?;
     if semantic.nodes().is_empty() || semantic.scoping().symbol_is_mutated(symbol_id) {
@@ -358,7 +599,7 @@ fn binding_declaration_init<'a>(
     else {
         return None;
     };
-    declarator.init.as_ref()
+    Some(declarator)
 }
 
 /// Whether the identifier resolves to the unmutated parameter of a returned
@@ -583,6 +824,51 @@ mod tests {
              h(...args);\n",
         );
         assert_eq!(count_key(&findings, "javascript:S6666"), 0);
+    }
+
+    #[test]
+    fn s2871_allows_string_collection_sorts() {
+        // Alphabetical ordering of provably string collections is the
+        // documented compliant case.
+        let findings = ts_keys(
+            "const typeImports = new Set<string>([\"B\", \"A\"]);\n\
+             const sorted = [...typeImports].sort();\n\
+             const problems: string[] = [];\n\
+             problems.sort();\n\
+             const names = [\"b\", \"a\"];\n\
+             names.sort();\n\
+             Object.keys(record).sort();\n\
+             \"a,b\".split(\",\").sort();\n\
+             const frozen: readonly string[] = [];\n\
+             frozen.toSorted();\n",
+        );
+        assert_eq!(count_key(&findings, "typescript:S2871"), 0);
+    }
+
+    #[test]
+    fn s2871_still_flags_non_string_and_unknown_sorts() {
+        let findings = ts_keys(
+            "const numbers: number[] = [2, 1];\n\
+             numbers.sort();\n\
+             const mixed = [1, \"a\"];\n\
+             mixed.sort();\n\
+             const untyped = build();\n\
+             untyped.sort();\n",
+        );
+        assert_eq!(count_key(&findings, "typescript:S2871"), 3);
+    }
+
+    #[test]
+    fn s2871_allows_string_sorts_without_semantic() {
+        // Syntactic string proofs work even where semantic resolution is
+        // unavailable (plain JS has no type annotations).
+        let findings = js_keys(
+            "const names = [\"b\", \"a\"];\n\
+             names.sort();\n\
+             Object.keys(record).sort();\n\
+             items.map(String).sort();\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S2871"), 0);
     }
 }
 
