@@ -571,6 +571,17 @@ mod tests {
         let clean = js_keys("const q = { b, a: 1 };\n");
         assert_eq!(count_key(&clean, "javascript:S3499"), 0);
         assert_eq!(count_key(&clean, "javascript:S3498"), 0);
+
+        // #482: shorthand grouped at the end is compliant; only a split
+        // across both sides reports.
+        let at_end = js_keys("const r = { a: 1, b: 2, c };\n");
+        assert_eq!(count_key(&at_end, "javascript:S3499"), 0);
+        let split = js_keys("const s = { a, b: 1, c };\n");
+        assert_eq!(count_key(&split, "javascript:S3499"), 1);
+
+        // #536: a method-shorthand property already is the target form.
+        let already = js_keys("const t = {\n  get() {\n    return 1;\n  },\n};\n");
+        assert_eq!(count_key(&already, "javascript:S3498"), 0);
     }
 
     #[test]
