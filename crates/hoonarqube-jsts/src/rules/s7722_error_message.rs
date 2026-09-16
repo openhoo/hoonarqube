@@ -146,9 +146,16 @@ fn static_message_report(expression: &Expression<'_>) -> Option<&'static str> {
             .is_empty()
             .then_some("Error message should not be an empty string."),
         Expression::TemplateLiteral(template) => {
-            let cooked = template.quasis.first()?.value.cooked.as_deref()?;
-            cooked
-                .is_empty()
+            // A template is empty only when it has no expressions and every
+            // quasi cooks to the empty string; a `${...}`-leading template
+            // has an empty first quasi but a non-empty message.
+            if !template.expressions.is_empty() {
+                return None;
+            }
+            template
+                .quasis
+                .iter()
+                .all(|quasi| quasi.value.cooked.as_deref().is_some_and(str::is_empty))
                 .then_some("Error message should not be an empty string.")
         }
         Expression::ArrayExpression(_)
@@ -433,6 +440,21 @@ const spread = new Error(...parts);
 const aggregated = new AggregateError(...list);
 ";
         assert_eq!(count_key(&ts_keys(silent), "typescript:S7722"), 0);
+    }
+
+    #[test]
+    fn s7722_template_with_expressions_or_nonempty_quasis_stays_silent() {
+        // Regression of #511: a template whose first quasi is empty still
+        // carries a non-empty message when it contains expressions.
+        let silent = "\
+throw new Error(`${method} returned null symbol for ${source.id}`);
+throw new Error(`prefix ${method}`);
+throw new Error(`${method}`);
+";
+        assert_eq!(count_key(&ts_keys(silent), "typescript:S7722"), 0);
+
+        let flagged = "throw new Error(``);\nthrow new Error('');\n";
+        assert_eq!(count_key(&ts_keys(flagged), "typescript:S7722"), 2);
     }
 
     #[test]

@@ -6,31 +6,29 @@ use crate::support::{LineIndex, to_u32};
 use hoonarqube_ir::Issue;
 
 fn check_tab_characters(index: &LineIndex, language: JstsLanguage) -> Vec<Issue> {
-    let rule_key = format!("{}:S105", language.prefix());
-    let mut issues = Vec::new();
-    for (line_number, line) in index.lines() {
-        if line.contains('\t') {
-            issues.push(Issue {
-                rule_key: rule_key.clone(),
-                message: "Replace all tab characters in this file by sequences of white-spaces."
-                    .to_string(),
-                range: hoonarqube_ir::Range {
-                    start: hoonarqube_ir::Pos {
-                        line: line_number,
-                        column: 0,
-                    },
-                    end: hoonarqube_ir::Pos {
-                        line: line_number,
-                        column: to_u32(line.chars().count()),
-                    },
-                },
-                fix: None,
-                flows: Vec::new(),
-                alternatives: Vec::new(),
-            });
-        }
-    }
-    issues
+    // The reference rule is file-scoped: one finding per file containing a
+    // tab, anchored at the first tabbed line.
+    let Some((line_number, line)) = index.lines().find(|(_, line)| line.contains('\t')) else {
+        return Vec::new();
+    };
+    vec![Issue {
+        rule_key: format!("{}:S105", language.prefix()),
+        message: "Replace all tab characters in this file by sequences of white-spaces."
+            .to_string(),
+        range: hoonarqube_ir::Range {
+            start: hoonarqube_ir::Pos {
+                line: line_number,
+                column: 0,
+            },
+            end: hoonarqube_ir::Pos {
+                line: line_number,
+                column: to_u32(line.chars().count()),
+            },
+        },
+        fix: None,
+        flows: Vec::new(),
+        alternatives: Vec::new(),
+    }]
 }
 
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
@@ -41,18 +39,16 @@ mod tests {
     use crate::test_support::*;
 
     #[test]
-    fn tab_characters_flag_each_tabbed_line_at_first_tab_column() {
+    fn tab_characters_flag_once_per_file_at_first_tabbed_line() {
         let report = js("\tlet a = 1;\nlet b = 2;\n\t\tlet c = 3;\n");
         let tabs: Vec<_> = report
             .issues
             .iter()
             .filter(|found| found.rule_key == "javascript:S105")
             .collect();
-        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs.len(), 1);
         assert_eq!(tabs[0].range.start.line, 1);
         assert_eq!(tabs[0].range.start.column, 0);
-        assert_eq!(tabs[1].range.start.line, 3);
-        assert_eq!(tabs[1].range.start.column, 0);
 
         let spaced = js_keys("let a = 1;\nlet b = 2;\n");
         assert_eq!(count_key(&spaced, "javascript:S105"), 0);
@@ -82,7 +78,7 @@ mod tests {
             .filter(|issue| issue.rule_key == "javascript:S105")
             .map(|issue| issue.range.start.line)
             .collect();
-        assert_eq!(lines, vec![2, 4]);
+        assert_eq!(lines, vec![2]);
 
         let clean =
             js_keys("let a = 1;\rlet b = 2;\r\nlet c = 3;\u{2028}let d = 4;\u{2029}let e = 5;");

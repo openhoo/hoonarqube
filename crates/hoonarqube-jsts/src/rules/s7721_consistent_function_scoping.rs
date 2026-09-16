@@ -111,6 +111,9 @@ struct ScopeAnalyzer<'a, 'ctx> {
     candidates: Vec<Candidate>,
     by_scope: FxHashMap<ScopeId, usize>,
     captured: FxHashSet<usize>,
+    /// Origin scopes of every resolved reference, keyed by symbol — the
+    /// reference's `variable.references` `from` set.
+    reference_scopes: FxHashMap<SymbolId, Vec<ScopeId>>,
 }
 
 impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
@@ -128,6 +131,7 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
             candidates: Vec::new(),
             by_scope: FxHashMap::default(),
             captured: FxHashSet::default(),
+            reference_scopes: FxHashMap::default(),
         }
     }
 
@@ -285,11 +289,23 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
     /// The reference capture check (`checkReferences`): for every variable
     /// referenced inside the candidate's scope subtree, a reference from
     /// the parent scope blocks the report, and so does a declaration in
-    /// exactly the parent scope — except the candidate's own function name
-    /// (the recursive-name skip).
+    /// exactly the parent scope.
     fn resolve_captures(&mut self) {
         let scoping = self.semantic.scoping();
         let nodes = self.semantic.nodes();
+        // First pass: record every resolved reference's origin scope so the
+        // `hitReference` "also referenced from the parent scope" check sees
+        // the complete set regardless of reference iteration order.
+        for symbol_id in scoping.symbol_ids() {
+            for reference_id in scoping.get_resolved_reference_ids(symbol_id) {
+                let reference = scoping.get_reference(*reference_id);
+                let from_scope = nodes.get_node(reference.node_id()).scope_id();
+                self.reference_scopes
+                    .entry(symbol_id)
+                    .or_default()
+                    .push(from_scope);
+            }
+        }
         for symbol_id in scoping.symbol_ids() {
             let declaration_span = nodes.kind(scoping.symbol_declaration(symbol_id)).span();
             for reference_id in scoping.get_resolved_reference_ids(symbol_id) {
@@ -300,15 +316,13 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
     }
 
     /// One resolved reference: walk the scope chain from the reference's
-    /// scope and mark every enclosing candidate scope whose parent scope is
-    /// hit by the reference or by the symbol's declaration.
+    /// scope and mark every enclosing candidate scope whose parent scope
+    /// the symbol escapes into.
     fn check_reference(&mut self, symbol_id: SymbolId, declaration_span: Span, node_id: NodeId) {
         let scoping = self.semantic.scoping();
         let mut scope = self.semantic.nodes().get_node(node_id).scope_id();
-        let mut first = true;
         loop {
-            self.check_scope(scope, symbol_id, declaration_span, first);
-            first = false;
+            self.check_scope(scope, symbol_id, declaration_span);
             match scoping.scope_parent_id(scope) {
                 Some(parent) => scope = parent,
                 None => break,
@@ -316,26 +330,38 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
         }
     }
 
-    /// `hitReference`/`hitIdentifier` for one scope on the walk: the
-    /// variable is also referenced from the parent scope itself, or it is
-    /// declared in exactly the parent scope — unless it is the candidate's
-    /// own function name (the recursive-name skip).
-    fn check_scope(
-        &mut self,
-        scope: ScopeId,
-        symbol_id: SymbolId,
-        declaration_span: Span,
-        first: bool,
-    ) {
+    /// The reference's `isSameScope`: identical scopes, or scopes owned by
+    /// the same AST node (`scope1.block === scope2.block`).
+    fn same_scope(&self, left: ScopeId, right: ScopeId) -> bool {
+        left == right
+            || self.semantic.scoping().get_node_id(left)
+                == self.semantic.scoping().get_node_id(right)
+    }
+
+    /// `hitReference` for one scope on the walk: the symbol is also
+    /// referenced from the parent scope itself, or it is declared in
+    /// exactly the parent scope — unless it is the candidate's own
+    /// function name (the recursive-name skip).
+    fn check_scope(&mut self, scope: ScopeId, symbol_id: SymbolId, declaration_span: Span) {
         let Some(&candidate_index) = self.by_scope.get(&scope) else {
             return;
         };
         let candidate = &self.candidates[candidate_index];
-        if first && scope == candidate.parent_scope {
+        if self
+            .reference_scopes
+            .get(&symbol_id)
+            .is_some_and(|from_scopes| {
+                from_scopes
+                    .iter()
+                    .any(|&from| self.same_scope(from, candidate.parent_scope))
+            })
+        {
             self.captured.insert(candidate_index);
         }
-        if self.semantic.scoping().symbol_scope_id(symbol_id) == candidate.parent_scope
-            && candidate.name_span != Some(declaration_span)
+        if self.same_scope(
+            self.semantic.scoping().symbol_scope_id(symbol_id),
+            candidate.parent_scope,
+        ) && candidate.name_span != Some(declaration_span)
         {
             self.captured.insert(candidate_index);
         }
