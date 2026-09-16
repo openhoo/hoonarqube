@@ -5,7 +5,8 @@ use crate::rules::shared::is_literal_expression;
 use crate::support::{IssueSink, LineIndex, RuleScope};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    Expression, FunctionBody, IfStatement, ReturnStatement, Statement, SwitchStatement,
+    BinaryOperator, Expression, FunctionBody, IfStatement, ReturnStatement, Statement,
+    SwitchStatement,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::Visit;
@@ -67,7 +68,10 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
         match kind {
             AstKind::IfStatement(statement) => self.if_statements.push(statement),
             AstKind::BinaryExpression(expression) => {
-                if expression.left.content_eq(&expression.right) {
+                if expression.left.content_eq(&expression.right)
+                    && has_relevant_operator(expression)
+                    && !is_one_onto_one_shifting(expression)
+                {
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S1764",
@@ -147,6 +151,45 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
             self.s4144_parents.pop();
         }
     }
+}
+
+/// The reference `isOneOntoOneShifting` exemption: `1 << 1`-style bit-flag
+/// definitions (a `<<` whose left operand is the literal `1`/`1n`) are an
+/// idiom, not a defect.
+fn is_one_onto_one_shifting(expression: &oxc_ast::ast::BinaryExpression<'_>) -> bool {
+    use oxc_ast::ast::BinaryOperator;
+    if expression.operator != BinaryOperator::ShiftLeft {
+        return false;
+    }
+    match &expression.left {
+        // `1.0` is exactly representable; the reference compares `value === 1`.
+        Expression::NumericLiteral(literal) => literal.value.to_bits() == 1.0f64.to_bits(),
+        Expression::BigIntLiteral(literal) => literal.value.as_str() == "1",
+        _ => false,
+    }
+}
+
+/// The reference `hasRelevantOperator` gate: `&&`, `||`, `/`, `-`, `<<`,
+/// `>>`, `<`, `<=`, `>`, `>=` always count; the equality operators `==`,
+/// `===`, `!=`, `!==` count only when the operands are not both plain
+/// identifiers (identifier self-comparisons are a deliberate idiom).
+fn has_relevant_operator(expression: &oxc_ast::ast::BinaryExpression<'_>) -> bool {
+    use BinaryOperator::*;
+    match expression.operator {
+        Division | Subtraction | ShiftLeft | ShiftRight | LessThan | LessEqualThan
+        | GreaterThan | GreaterEqualThan => true,
+        Equality | StrictEquality | Inequality | StrictInequality => {
+            !has_identifier_operands(expression)
+        }
+        _ => false,
+    }
+}
+
+/// Both operands are plain identifiers — the reference's
+/// `hasIdentifierOperands` exemption for equality self-checks.
+fn has_identifier_operands(expression: &oxc_ast::ast::BinaryExpression<'_>) -> bool {
+    matches!(expression.left, Expression::Identifier(_))
+        && matches!(expression.right, Expression::Identifier(_))
 }
 
 impl<'a> DuplicateCollector<'a, '_> {
@@ -433,9 +476,12 @@ mod tests {
 
     #[test]
     fn identical_binary_operands_flagged() {
+        // `a === a` is an identifier self-check (silent per the reference's
+        // `hasIdentifierOperands`); `b + c === b + c` flags because the
+        // operands are not plain identifiers.
         let report =
             js("if (a === a) {}\nif (b + c === b + c) {}\nif (x == y) {}\nlet t = p && p;\n");
-        assert_eq!(count_key(&report_keys(&report), "javascript:S1764"), 2);
+        assert_eq!(count_key(&report_keys(&report), "javascript:S1764"), 1);
         let first: Vec<_> = report
             .issues
             .iter()
@@ -444,8 +490,8 @@ mod tests {
         assert_eq!(
             first[0].range,
             hoonarqube_ir::Range {
-                start: pos(1, 4),
-                end: pos(1, 11),
+                start: pos(2, 4),
+                end: pos(2, 19),
             }
         );
     }
@@ -571,8 +617,32 @@ function gamma() {
         let distinct = js_keys("if (a === b) {}\nlet sum = c + d;\n");
         assert_eq!(count_key(&distinct, "javascript:S1764"), 0);
 
-        let nested = js_keys("function g() {\n  if (p === p) {\n    mark();\n  }\n}\n");
+        // Identifier-vs-identifier equality self-checks are a deliberate
+        // idiom in the reference (`hasIdentifierOperands`) and stay silent;
+        // member-expression self-checks still flag.
+        let nested = js_keys("function g() {\n  if (p.text === p.text) {\n    mark();\n  }\n}\n");
         assert_eq!(count_key(&nested, "javascript:S1764"), 1);
+    }
+
+    #[test]
+    fn s1764_exempts_one_onto_one_shift_bit_flag_idiom() {
+        // Regression of #539: the reference `isOneOntoOneShifting` exempts
+        // `1 << 1`-style bit-flag definitions; member-expression
+        // self-inequality checks like `field.type !== field.type` stay
+        // flagged (the reference reports them).
+        let idioms = js_keys(
+            "const Flags = {\n  None: 0,\n  Instantiated: 1 << 0,\n  SyntheticProperty: 1 << 1,\n  SyntheticMethod: 1 << 2,\n};\nconst big = 1n << 1n;\n",
+        );
+        assert_eq!(count_key(&idioms, "javascript:S1764"), 0);
+
+        let flagged = js_keys(
+            "if (field.type !== field.type) { throw new Error('cache mismatch'); }\nif (a - a) {}\n",
+        );
+        assert_eq!(count_key(&flagged, "javascript:S1764"), 2);
+
+        // Identifier self-comparisons and non-relevant operators stay silent.
+        let silent = js_keys("if (a === a) {}\nif (a !== a) {}\nif (a + a) {}\n");
+        assert_eq!(count_key(&silent, "javascript:S1764"), 0);
     }
 
     #[test]
