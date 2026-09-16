@@ -1395,7 +1395,7 @@ const TRACKED_TYPESCRIPT_ORACLE_CASES: &[(&str, &str, &str, usize)] = &[
     ("typescript:S2681", "s2681_bad.ts", "s2681_good.ts", 1),
     ("typescript:S3504", "s3504_bad.ts", "s3504_good.ts", 1),
     ("typescript:S3696", "s3696_bad.ts", "s3696_good.ts", 1),
-    ("typescript:S3863", "s3863_bad.ts", "s3863_good.ts", 1),
+    ("typescript:S3863", "s3863_bad.ts", "s3863_good.ts", 2),
     ("typescript:S3984", "s3984_bad.ts", "s3984_good.ts", 1),
     ("typescript:S6660", "s6660_bad.ts", "s6660_good.ts", 1),
     ("typescript:S6836", "s6836_bad.ts", "s6836_good.ts", 1),
