@@ -1968,6 +1968,41 @@ export { numericOr, booleanOr, emptyOr };
     );
 }
 
+fn add_s6606_logical_or_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
+    add_semantic_source(
+        files,
+        root,
+        "src/s6606-logical-or.ts",
+        r"function pickA(a: string | null, b: string): string {
+    return a || b;
+}
+function pickB(a: string | undefined, b: string): string {
+    return a || b;
+}
+function pickC(a: string | null | undefined, b: string): string {
+    return a || b;
+}
+function keepNonNullable(a: string, b: string): string {
+    return a || b;
+}
+function keepOrAssign(a: string | undefined): string {
+    let current = a;
+    current ||= 'fallback';
+    return current;
+}
+function keepConditionalTest(a: string | undefined, b: string): string {
+    if (a || b) return b;
+    return b;
+}
+declare const boxed: object | undefined;
+const boxedOr = boxed || {};
+export {
+    pickA, pickB, pickC, keepNonNullable, keepOrAssign, keepConditionalTest, boxedOr,
+};
+",
+    );
+}
+
 fn add_s6606_union_sources(root: &Path, files: &mut Vec<(PathBuf, String)>) {
     add_semantic_source(
         files,
@@ -2161,6 +2196,7 @@ fn semantic_rule_sources(root: &Path) -> Vec<(PathBuf, String)> {
     add_s6606_falsy_object_sources(root, &mut files);
     add_s6606_ternary_sources(root, &mut files);
     add_s6606_union_sources(root, &mut files);
+    add_s6606_logical_or_sources(root, &mut files);
     add_s6606_effect_sources(root, &mut files);
     add_s6606_special_sources(root, &mut files);
     add_s6594_sources(root, &mut files);
@@ -2202,6 +2238,7 @@ fn write_semantic_rules_config(root: &Path) {
     "src/s6606-ternary.ts",
     "src/s6606-falsy-primitives.ts",
     "src/s6606-mixed-union.ts",
+    "src/s6606-logical-or.ts",
     "src/s6606-nullable-union.ts",
     "src/s6606-side-effects.ts",
     "src/s6606-special-types.ts",
@@ -2477,13 +2514,39 @@ fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positive
             ),
         ]
     );
+}
 
+#[test]
+fn semantic_s6606_flags_nullish_logical_or_operands() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
+    // `a || b` reports on every nullish-typed left operand, including falsy
+    // primitives and mixed unions: `||` is not nullish-safe there.
+    let (or_path, or_source) = fixture.file("src/s6606-logical-or.ts");
+    let logical_or = context.analyze_with_context(
+        or_path.clone(),
+        or_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    let or_texts: Vec<_> = logical_or
+        .report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6606")
+        .map(|issue| semantic_issue_source_text(or_source, issue))
+        .collect();
+    assert_eq!(
+        or_texts,
+        vec!["a || b", "a || b", "a || b", "boxed || {}"],
+        "nullish `a || b` must report; non-nullable, `||=`, and conditional-test forms must not"
+    );
     for name in [
         "src/s6606-falsy-primitives.ts",
         "src/s6606-mixed-union.ts",
         "src/s6606-nullable-union.ts",
         "src/s6606-side-effects.ts",
-        "src/s6606-special-types.ts",
     ] {
         let (path, source) = fixture.file(name);
         let analysis = context.analyze_with_context(
@@ -2497,10 +2560,33 @@ fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positive
                 .report
                 .issues
                 .iter()
-                .all(|issue| issue.rule_key != "typescript:S6606"),
-            "falsy, mixed, side-effect, and special types must not be rewritten as nullish in {name}"
+                .any(|issue| issue.rule_key == "typescript:S6606"),
+            "nullish-typed `||` must report in {name}"
         );
     }
+    let (special_path, special_source) = fixture.file("src/s6606-special-types.ts");
+    let special = context.analyze_with_context(
+        special_path.clone(),
+        special_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    assert!(
+        special
+            .report
+            .issues
+            .iter()
+            .all(|issue| issue.rule_key != "typescript:S6606"),
+        "special types must not be rewritten as nullish"
+    );
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6606_flags_zod_shaped_ternaries() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
     let (zod_path, zod_source) = fixture.file("src/s6606-zod.ts");
     let zod = context.analyze_with_context(
         zod_path.clone(),
@@ -3149,5 +3235,59 @@ fn s1940_quickfix_keeps_bare_comparison_in_loose_contexts() {
             "{label} context action must remove its finding"
         );
         assert_no_new_findings(&rule_counts(&report), &rule_counts(&after));
+    }
+}
+
+#[test]
+fn semantic_s4782_requires_exact_optional_property_types() {
+    // `prop?: T | undefined` is redundant only when `?` already admits an
+    // explicit `undefined` write.  Under `exactOptionalPropertyTypes` the
+    // marker and the union member carry different semantics, so the rule
+    // must stay silent; the compiler option is the deciding context.
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping semantic S4782 regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let source = "interface TranspileOutput {\n    outputText: string;\n    diagnostics?: readonly number[] | undefined;\n}\nexport type { TranspileOutput };\n";
+    for (exact, expected) in [(true, 0usize), (false, 1usize)] {
+        let root = issue36_temp_dir("semantic-s4782");
+        write_issue36_file(&root.join("input.ts"), source);
+        write_issue36_file(
+            &root.join("tsconfig.json"),
+            &format!(
+                "{{\"compilerOptions\":{{\"strict\":true,\"exactOptionalPropertyTypes\":{exact},\"noEmit\":true}},\"files\":[\"input.ts\"]}}"
+            ),
+        );
+        let config = TypeScriptProjectConfig::new(root.clone())
+            .with_typescript_package(typescript_package.clone());
+        let sources =
+            ProjectSemanticSources::from_pairs(vec![(root.join("input.ts"), source.to_owned())]);
+        let context =
+            ProjectSemanticContext::load(&config, &sources).expect("semantic helper should load");
+        assert!(
+            context.is_complete(),
+            "S4782 fixture diagnostics: {:?}",
+            context.diagnostics()
+        );
+        let analysis = context.analyze_with_context(
+            root.join("input.ts"),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        let count = analysis
+            .report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S4782")
+            .count();
+        assert_eq!(
+            count, expected,
+            "S4782 with exactOptionalPropertyTypes={exact} must report {expected} findings"
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }

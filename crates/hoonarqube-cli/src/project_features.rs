@@ -101,6 +101,22 @@ impl SemanticOptions {
     }
 }
 
+/// One auto-discovered TypeScript project context: the nearest ancestor
+/// `tsconfig.json` for each covered analyzed source.
+///
+/// Plain `analyze` requests these contexts opportunistically so
+/// compiler-backed TypeScript rules (S6606, S4328, S4325, S1874, S4782, ...)
+/// fire on ordinary project scans, matching the reference scanner.  Discovery
+/// is best-effort: a context that cannot load leaves its files on the native
+/// path without diagnostics, and never makes the report incomplete.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AutoTypeScriptProject {
+    /// The discovered `tsconfig.json` whose directory scopes the context.
+    pub(crate) tsconfig: PathBuf,
+    /// Analyzed JS/TS sources whose nearest ancestor tsconfig is `tsconfig`.
+    pub(crate) files: Vec<PathBuf>,
+}
+
 /// Optional coverage, baseline, gate, and compiler-backed project features.
 #[derive(Args, Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ProjectFeatureOptions {
