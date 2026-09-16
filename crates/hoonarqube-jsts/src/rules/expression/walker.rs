@@ -54,6 +54,7 @@ fn check_expression_rules(
     index: &LineIndex,
     language: JstsLanguage,
     semantic: Option<&Semantic<'_>>,
+    commonjs: bool,
 ) -> Vec<Issue> {
     let own_proto_bindings = collect_own_proto_bindings(program);
     let mut collector = ExpressionCollector {
@@ -72,6 +73,7 @@ fn check_expression_rules(
         own_proto_bindings,
         delete_depth: 0,
         set_prototype_of_guard_depth: 0,
+        commonjs,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -105,6 +107,9 @@ struct ExpressionCollector<'index, 'semantic> {
     /// availability; the guarded `__proto__` fallback inside is deliberate
     /// compatibility code (`S6654`).
     set_prototype_of_guard_depth: u32,
+    /// Whether the file is a `CommonJS` module (`S3533`): `require` is the
+    /// legal import mechanism there and must not be flagged.
+    commonjs: bool,
 }
 impl ExpressionCollector<'_, '_> {
     fn visit_condition(&mut self, expression: &Expression<'_>) {
@@ -548,7 +553,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         self.mark_required_parentheses(&it.callee, Precedence::Call, false);
         check_member_calls(&mut self.sink, it, self.semantic);
-        check_plain_calls(&mut self.sink, it, self.semantic);
+        check_plain_calls(&mut self.sink, it, self.semantic, self.commonjs);
         if callee_name(it).is_some_and(|name| name == "Boolean")
             && it.arguments.len() == 1
             && self
@@ -706,7 +711,25 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
         ctx.index,
         ctx.language,
         ctx.semantic,
+        file_is_commonjs(ctx),
     )
+}
+
+/// `S3533` module gate: `require` is legal in `CommonJS` files — `.cjs`
+/// sources (where `import` is a syntax error) and `.js` sources that use
+/// the CJS output markers (`module`/`exports`) without `import`/`export`
+/// syntax. A lone `require(...)` call does not mark the file `CommonJS`:
+/// plain `.js` sources still flag. `.mjs` is always an ES module;
+/// TypeScript keeps flagging.
+fn file_is_commonjs(ctx: &AnalysisContext) -> bool {
+    if ctx.language != JstsLanguage::JavaScript {
+        return false;
+    }
+    match ctx.path.extension().and_then(|ext| ext.to_str()) {
+        Some("cjs") => true,
+        Some("mjs") => false,
+        _ => crate::rules::batch5::s3798_s3798_program::program_has_commonjs_markers(ctx.program),
+    }
 }
 
 #[cfg(test)]
