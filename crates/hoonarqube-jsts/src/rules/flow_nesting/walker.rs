@@ -7,14 +7,14 @@ use oxc_ast::ast::{
     ArrowFunctionExpression, BreakStatement, CatchClause, ContinueStatement, Declaration,
     DoWhileStatement, ExportDefaultDeclarationKind, Expression, ForInStatement, ForOfStatement,
     ForStatement, FormalParameters, Function, IfStatement, MethodDefinition, ReturnStatement,
-    StaticBlock, SwitchStatement, ThrowStatement, TryStatement, WhileStatement,
+    Statement, StaticBlock, SwitchStatement, ThrowStatement, TryStatement, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_catch_clause, walk_declaration, walk_do_while_statement,
     walk_export_default_declaration_kind, walk_expression, walk_for_in_statement,
-    walk_for_of_statement, walk_if_statement, walk_method_definition, walk_return_statement,
-    walk_static_block, walk_switch_statement, walk_throw_statement, walk_while_statement,
+    walk_for_of_statement, walk_method_definition, walk_return_statement, walk_static_block,
+    walk_switch_statement, walk_throw_statement, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -39,7 +39,9 @@ fn check_flow_nesting_rules(
 }
 
 /// `S107`, `S134`, and `S1143` in one traversal. Tracks control-flow nesting
-/// depth and `finally` membership, both reset at every function boundary.
+/// depth and `finally` membership; `finally` membership resets at every
+/// function boundary while nesting depth carries across it (Sonar counts
+/// `if`/`for`/... levels through callbacks).
 struct ControlFlowNestingCollector<'source, 'index> {
     sink: IssueSink<'index>,
     source: &'source str,
@@ -64,11 +66,11 @@ impl ControlFlowNestingCollector<'_, '_> {
         }
     }
 
-    /// Zeroes the per-function state; returns the saved values for
-    /// [`Self::leave_function`].
+    /// Saves the per-function `finally` state; returns the saved values for
+    /// [`Self::leave_function`]. `flow_depth` deliberately carries across the
+    /// boundary: `S134` counts control-flow nesting through nested functions.
     fn enter_function(&mut self) -> (u32, u32) {
         let saved = (self.flow_depth, self.finally_depth);
-        self.flow_depth = 0;
         self.finally_depth = 0;
         saved
     }
@@ -114,8 +116,8 @@ impl ControlFlowNestingCollector<'_, '_> {
         }
     }
 
-    /// Counts parameters and resets nesting around one whole function-like
-    /// subtree.
+    /// Counts parameters and resets `finally` membership around one whole
+    /// function-like subtree.
     fn function_scope(
         &mut self,
         function: Option<(&FormalParameters<'_>, &str, Span)>,
@@ -205,7 +207,23 @@ impl<'a> Visit<'a> for ControlFlowNestingCollector<'_, '_> {
     }
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        self.nested_flow(it.span(), |collector| walk_if_statement(collector, it));
+        self.nested_flow(it.span(), |collector| {
+            collector.visit_expression(&it.test);
+            collector.visit_statement(&it.consequent);
+            if let Some(alternate) = &it.alternate {
+                if let Statement::IfStatement(else_if) = alternate {
+                    // `S134` treats `else if` chains as flat: the alternate
+                    // occupies the enclosing `if`'s level instead of adding
+                    // one, so it is checked at the outer depth and its own
+                    // children see the same depth as the `if`'s children.
+                    collector.flow_depth -= 1;
+                    collector.visit_if_statement(else_if);
+                    collector.flow_depth += 1;
+                } else {
+                    collector.visit_statement(alternate);
+                }
+            }
+        });
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
@@ -358,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn control_flow_nesting_flags_fourth_level_and_resets_per_function() {
+    fn control_flow_nesting_flags_fourth_level_and_carries_across_functions() {
         let deep = js("if (a) { for (;;) { while (b) { if (c) { d(); } } } }\n");
         let s134: Vec<_> = deep
             .issues
@@ -377,8 +395,20 @@ mod tests {
             0
         );
 
-        // Function boundaries reset the depth: without the reset, `if (c)`
-        // would sit at depth four.
+        // #472: nesting depth carries across function boundaries — the
+        // innermost `if` sits at depth four through `inner`.
+        assert_eq!(
+            count_key(
+                &js_keys(
+                    "function outer() {\n  if (a) {\n    function inner() {\n      if (b) {\n        if (c) {\n          if (d) {\n            e();\n          }\n        }\n      }\n    }\n  }\n}\n"
+                ),
+                "javascript:S134"
+            ),
+            1
+        );
+
+        // Depth three across a function boundary still stays under the
+        // maximum.
         assert_eq!(
             count_key(
                 &js_keys(
@@ -388,6 +418,29 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn s134_else_if_chains_stay_flat() {
+        // #473: an `else if` occupies the enclosing `if`'s level, so a
+        // four-branch chain inside two enclosing constructs never exceeds
+        // the maximum.
+        let chain = js_keys(
+            "if (a) {\n  f();\n}\nelse if (b) {\n  f();\n}\nelse if (c) {\n  f();\n}\nelse if (d) {\n  f();\n}\nelse {\n  g();\n}\n",
+        );
+        assert_eq!(count_key(&chain, "javascript:S134"), 0);
+
+        // The same chain nested two levels deep still stays flat.
+        let nested_chain = js_keys(
+            "if (a) {\n  while (b) {\n    if (c) {\n      f();\n    } else if (d) {\n      f();\n    } else if (e) {\n      f();\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&nested_chain, "javascript:S134"), 0);
+
+        // A genuinely nested `if` inside an `else if` body still adds depth.
+        let nested_body = js_keys(
+            "if (a) {\n  while (b) {\n    if (c) {\n      f();\n    } else if (d) {\n      if (e) {\n        f();\n      }\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&nested_body, "javascript:S134"), 1);
     }
 
     #[test]
@@ -483,9 +536,10 @@ function loopJump() {
     }
 
     #[test]
-    fn s134_static_block_resets_depth_like_functions() {
-        // Without the static-block reset, `if (c)` would already sit at
-        // depth four; with it, only the fourth inner `if` is flagged.
+    fn s134_static_block_carries_depth_like_functions() {
+        // #472: static blocks carry the enclosing depth like functions —
+        // `if (c)` already sits at depth three, so the three inner `if`s
+        // beyond it are all flagged.
         assert_eq!(
             count_key(
                 &js_keys(
@@ -493,7 +547,7 @@ function loopJump() {
                 ),
                 "javascript:S134"
             ),
-            1
+            3
         );
     }
 

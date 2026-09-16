@@ -4,7 +4,8 @@ use crate::context::AnalysisContext;
 use crate::rules::shared::call_property;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, assignment_target_name, binding_identifier_name, callee_name,
-    identifier_name, is_identifier_byte, source_slice, unparenthesized, update_target_name,
+    identifier_name, is_identifier_byte, member_object, member_root_name, source_slice,
+    static_property_name, unparenthesized, update_target_name,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
@@ -570,8 +571,13 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
         self.note_jump(true);
     }
 
-    fn visit_continue_statement(&mut self, _it: &ContinueStatement) {
-        self.note_jump(false);
+    fn visit_continue_statement(&mut self, it: &ContinueStatement) {
+        // An unlabeled `continue` inside a switch case is absorbed by the
+        // switch's jump scope upstream, so it never reaches the enclosing
+        // loop's `S135` budget; labeled continues still count.
+        if it.label.is_some() || self.break_targets.last() != Some(&BreakTarget::Case) {
+            self.note_jump(false);
+        }
     }
 
     fn visit_switch_case(&mut self, it: &SwitchCase<'a>) {
@@ -595,9 +601,9 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        let guard = callee_name(it).is_some_and(|name| name == "hasOwnProperty")
-            || call_property(it).is_some_and(|(property, _)| property == "hasOwnProperty");
-        if guard && let Some(frame) = self.frames.last_mut() {
+        if is_own_property_guard(it)
+            && let Some(frame) = self.frames.last_mut()
+        {
             frame.has_own_guard = true;
         }
         walk_call_expression(self, it);
@@ -835,6 +841,29 @@ fn loop_equality_operator_text(operator: BinaryOperator) -> Option<&'static str>
         BinaryOperator::StrictEquality => Some("==="),
         BinaryOperator::StrictInequality => Some("!=="),
         _ => None,
+    }
+}
+
+/// `S1535`: whether a call is one of the own-property guard forms the rule
+/// prescribes — `obj.hasOwnProperty(k)`, `hasOwnProperty(k)`,
+/// `*.hasOwnProperty.call(obj, k)`, or `Object.hasOwn(obj, k)`.
+fn is_own_property_guard(call: &CallExpression<'_>) -> bool {
+    if callee_name(call).is_some_and(|name| name == "hasOwnProperty") {
+        return true;
+    }
+    let Some((property, member)) = call_property(call) else {
+        return false;
+    };
+    match property {
+        "hasOwnProperty" => true,
+        // `X.hasOwnProperty.call(obj, key)`: the called property is `call`,
+        // so the guard hides one member link deeper.
+        "call" => member_object(member)
+            .as_member_expression()
+            .and_then(|inner| static_property_name(inner))
+            .is_some_and(|inner_property| inner_property == "hasOwnProperty"),
+        "hasOwn" => member_root_name(member) == Some("Object"),
+        _ => false,
     }
 }
 
@@ -1113,6 +1142,50 @@ mod tests {
     fn s4138_string_iterable_passes() {
         let chars = js_keys("for (const ch of 'ab') {\n  f(ch);\n}\n");
         assert_eq!(count_key(&chars, "javascript:S4138"), 0);
+    }
+
+    #[test]
+    fn s135_ignores_continues_inside_switch_cases() {
+        // #504: every `continue` sits inside a switch case of the dispatch
+        // loop, so the loop's jump budget is never spent.
+        let dispatch = js_keys(
+            "function f(text, end) {\n  let pos = 0;\n  let canConsumeStar = false;\n  while (true) {\n    const ch = text.charCodeAt(pos);\n    switch (ch) {\n      case 13:\n        pos++;\n        continue;\n      case 9:\n        pos++;\n        continue;\n      case 47:\n        if (canConsumeStar) {\n          pos++;\n          continue;\n        }\n        break;\n      default:\n        return pos;\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&dispatch, "javascript:S135"), 0);
+
+        // Continues directly in the loop body still count.
+        let direct = js_keys(
+            "while (a) {\n  if (b) {\n    continue;\n  }\n  if (c) {\n    continue;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&direct, "javascript:S135"), 1);
+
+        // A labeled continue inside a case still counts toward the loop.
+        let labeled = js_keys(
+            "outer: while (a) {\n  switch (x) {\n    case 1:\n      continue outer;\n    case 2:\n      continue outer;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&labeled, "javascript:S135"), 1);
+    }
+
+    #[test]
+    fn s1535_accepts_prescribed_own_property_guards() {
+        // #525: `Object.prototype.hasOwnProperty.call` is the guard form
+        // the rule itself prescribes.
+        let call_guard = js_keys(
+            "for (const key in obj) {\n  if (Object.prototype.hasOwnProperty.call(obj, key)) {\n    res[key] = obj[key];\n  }\n}\n",
+        );
+        assert_eq!(count_key(&call_guard, "javascript:S1535"), 0);
+
+        let has_own = js_keys(
+            "for (const key in obj) {\n  if (Object.hasOwn(obj, key)) {\n    res[key] = obj[key];\n  }\n}\n",
+        );
+        assert_eq!(count_key(&has_own, "javascript:S1535"), 0);
+
+        // Unguarded loops and unrelated `call` receivers still flag.
+        let bare = js_keys("for (const k in obj) {\n  f(k);\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S1535"), 1);
+        let unrelated =
+            js_keys("for (const k in obj) {\n  if (fn.call(obj, k)) {\n    f(k);\n  }\n}\n");
+        assert_eq!(count_key(&unrelated, "javascript:S1535"), 1);
     }
 
     #[test]

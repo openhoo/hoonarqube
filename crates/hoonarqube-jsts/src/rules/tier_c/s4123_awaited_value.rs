@@ -43,10 +43,20 @@ impl TierCAwaitCollector<'_, '_> {
         }
     }
 
+    /// A local function is provably synchronous when it is not `async`,
+    /// cannot diverge, and either is a generator (whose result is the
+    /// generator object, never a promise) or has no opaque return value —
+    /// every valued `return` is a classified literal, which is not a
+    /// thenable. Declared `Promise`/`PromiseLike` returns also exempt it.
     fn is_known_sync_local(&self, callee: &IdentifierReference) -> bool {
         self.census
             .resolve(callee.name.as_str(), callee.span.start)
-            .is_some_and(|facts| !facts.r#async)
+            .is_some_and(|facts| {
+                !facts.r#async
+                    && !facts.never_returns
+                    && !facts.declared_maybe_thenable
+                    && (facts.generator || !facts.has_opaque_return)
+            })
     }
 }
 
