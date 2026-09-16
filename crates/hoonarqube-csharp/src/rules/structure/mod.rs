@@ -3,6 +3,7 @@
 
 pub(crate) mod abstract_member_mix;
 pub(crate) mod chains_end_with_else;
+pub(crate) mod class_coupling;
 pub(crate) mod cognitive_complexity;
 pub(crate) mod condition_only_for_loops;
 pub(crate) mod context_parentheses;

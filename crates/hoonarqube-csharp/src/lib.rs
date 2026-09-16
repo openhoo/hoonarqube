@@ -87,6 +87,9 @@ pub struct AnalyzerOptions {
     /// `csharpsquid:S6418` `secretWords`. The catalog default entries are
     /// understood natively; custom entries degrade to substring matches.
     pub secret_words: Vec<String>,
+    /// `csharpsquid:S1200` `max`: tolerated distinct type dependencies per
+    /// class.
+    pub maximum_class_dependencies: u32,
     /// `csharpsquid:S6418` `randomnessSensibility`: distinct character
     /// classes required inside a suspected secret literal.
     pub secret_randomness_sensibility: u32,
@@ -132,6 +135,7 @@ impl Default for AnalyzerOptions {
                 "secret".to_string(),
                 "token".to_string(),
             ],
+            maximum_class_dependencies: 30,
             secret_randomness_sensibility: 3,
             project_type_index: None,
         }

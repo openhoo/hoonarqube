@@ -1740,6 +1740,9 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         maximum_file_loc_threshold: parameter("csharpsquid:S104", "maximumFileLocThreshold")
             .and_then(|value| value.parse().ok())
             .unwrap_or(1000),
+        maximum_class_dependencies: parameter("csharpsquid:S1200", "max")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(30),
         ..hoonarqube_core::CSharpAnalyzerOptions::default()
     };
     let go = hoonarqube_core::GoAnalyzerOptions {

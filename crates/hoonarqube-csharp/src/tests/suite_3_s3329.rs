@@ -1730,7 +1730,7 @@ fn s2201_flags_discarded_pure_static_results() {
 }
 
 #[test]
-fn s2245_flags_random_in_security_named_contexts() {
+fn s2245_flags_every_random_creation() {
     let violating = analyze_default(
         "class TokenHandler\n{\n    void Issue()\n    {\n        var token = new Random();\n        token.Next();\n    }\n}\n",
     );
@@ -1738,8 +1738,13 @@ fn s2245_flags_random_in_security_named_contexts() {
     assert_eq!(flagged.len(), 1);
     assert_eq!(flagged[0].range.start.line, 5);
 
-    let clean =
+    // The reference platform reports every `new Random()` as a security
+    // hotspot; a non-security context no longer exempts the creation.
+    let also_flagged =
         analyze_default("void Sample()\n{\n    var count = new Random();\n    count.Next();\n}\n");
+    assert_eq!(with_key(&also_flagged, "csharpsquid:S2245").len(), 1);
+
+    let clean = analyze_default("void Sample()\n{\n    var count = Random.Shared.Next();\n}\n");
     assert!(with_key(&clean, "csharpsquid:S2245").is_empty());
 }
 

@@ -1,5 +1,6 @@
 use super::abstract_member_mix::check as check_abstract_member_mix;
 use super::chains_end_with_else::check as check_chains_end_with_else;
+use super::class_coupling::check as check_class_coupling;
 use super::cognitive_complexity::check as check_cognitive_complexity;
 use super::condition_only_for_loops::check as check_condition_only_for_loops;
 use super::context_parentheses::check as check_context_parentheses;
@@ -92,5 +93,6 @@ pub(crate) fn structure_issues(
     issues.extend(check_empty_default_clauses(root, source, language));
     issues.extend(check_condition_only_for_loops(root, source, language));
     issues.extend(check_for_increment_modifies_counter(root, source, language));
+    issues.extend(check_class_coupling(root, source, language, options));
     issues
 }

@@ -73,7 +73,9 @@ pub(crate) fn tier_c_heuristic_issues(
     issues.extend(check_field_capitalization_collisions(
         root, source, language,
     ));
-    issues.extend(check_override_default_values_differ(root, source, language));
+    issues.extend(check_override_default_values_differ(
+        root, source, language, options,
+    ));
     issues.extend(check_redundant_inheritance_entries(root, source, language));
     issues.extend(check_recursive_inheritance(root, source, language));
     issues.extend(check_params_missing_on_overrides(root, source, language));
