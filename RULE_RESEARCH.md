@@ -21,6 +21,24 @@ models. It does not embed upstream rule source or claim implementation parity.
 The JavaScript rules each produce separate JavaScript and TypeScript catalog
 records, so this wave adds ten records from eight upstream behaviors.
 
+The remaining adopted rules share the same boundary: upstream documentation
+defines intent, and each implementation reports only what the native syntax,
+scope, control-flow, and import models prove. Catalog metadata carries the
+full provenance record per key.
+
+| Upstream rule | Hoonarqube rule(s) |
+|---|---|
+| .NET CA2022, CA2024 | `hoonarqube-csharp:CA2022`, `hoonarqube-csharp:CA2024` |
+| gosec G110, G112, G114, G116, G117 | `hoonarqube-go:G110`, `G112`, `G114`, `G116`, `G117` |
+| gosec G301, G302, G303, G305, G306, G307 | `hoonarqube-go:G301`, `G302`, `G303`, `G305`, `G306`, `G307` |
+| gosec G401, G402, G403, G405, G406 | `hoonarqube-go:G401`, `G402`, `G403`, `G405`, `G406` |
+| Staticcheck SA1012, SA2000, SA2001, SA2003 | `hoonarqube-go:SA1012`, `SA2000`, `SA2001`, `SA2003` |
+| Staticcheck SA4006, SA4008, SA4010 | `hoonarqube-go:SA4006`, `SA4008`, `SA4010` |
+| Staticcheck SA5000, SA5001, SA5003, SA6000 | `hoonarqube-go:SA5000`, `SA5001`, `SA5003`, `SA6000` |
+| CodeQL `js/loop-iteration-skipped-due-to-shifting`, `js/unhandled-error-in-stream-pipeline` | JavaScript and TypeScript namespaces |
+| CodeQL `py/file-not-closed`, `py/side-effect-in-assert` | `hoonarqube-python:file-not-closed`, `hoonarqube-python:side-effect-in-assert` |
+| Clippy `await_holding_lock`, `await_holding_refcell_ref` | `hoonarqube-rust:await-holding-lock`, `hoonarqube-rust:await-holding-refcell-ref` |
+
 ## Researched, not approximated
 
 | Candidate | Decision boundary |

@@ -88,8 +88,11 @@ After an authorized PR is created and its head/body checked, checkpoint
 Live refresh retains ownership even when an external actor closes an issue.
 After stopping the package's writer and inspecting its final work/evidence,
 its owner checkpoints `--state closed`; the queue requires every owned issue
-to be closed in the saved tracker readback. Retain the merged SHA and acceptance evidence so a
-wontfix/duplicate closure is never described as an implemented fix.
+to be closed in the saved tracker readback. `closed` is reachable only from
+`verified`, `pr-open`, or `blocked` — a package still in `working` must
+transition through one of those states first. Retain the merged SHA and
+acceptance evidence so a wontfix/duplicate closure is never described as an
+implemented fix.
 
 ```sh
 python3 .agents/skills/work-issues/scripts/issue_queue.py --db "$RUN_DIR/queue.sqlite" report

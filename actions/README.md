@@ -17,17 +17,28 @@ checkout action and each Hoonarqube action to a full commit SHA.
 ```
 
 `actions/setup` verifies the Linux X64 release archive checksum and installed
-binary version. `actions/analyze` writes SonarQube Generic Issue Import JSON.
+binary version, runs `cosign verify-blob` on both the archive and SHA256SUMS
+with the pinned certificate identity/issuer, and exposes the configured
+`version` as an output.
+`actions/analyze` writes SonarQube Generic Issue Import JSON and exposes
+`report` (the configured output path) and `blocking-findings` (findings at or
+above the `fail-on` threshold) outputs. Its `fail-on` input accepts `critical`,
+`major`, `minor`, `info`, or `none` (default) — a different vocabulary from
+the code-quality action below.
 
 Its `profile` input accepts `sonar-parity` (default), `recommended`, `extended`,
 or `strict`; native rules remain disabled unless a native profile is selected.
 Non-default profiles require a release containing the native catalog, or the
-`executable` input pointing at a compatible local build.
-`cache-dir` is optional on both analysis actions. When it is nonempty, the
-action passes the value as one literal `--cache-dir` argument; paths containing
-spaces or shell metacharacters are not re-parsed. Set it only when the selected
-`executable` or release supports that CLI flag. Leave it empty for older
-releases to preserve their uncached behavior.
+`executable` input pointing at a compatible local build. `executable` skips
+release installation entirely. `working-directory` selects the repository
+directory to run in (default `.`), and `go-header-format` supplies an optional
+literal Go license header for `go:S1451`.
+`cache-dir` is optional on both analysis actions. `actions/analyze` passes the
+value as one literal `--cache-dir` argument; `actions/code-quality` first
+normalizes a relative value to an absolute path under `working-directory`.
+Paths containing spaces or shell metacharacters are not re-parsed. Set it only
+when the selected `executable` or release supports that CLI flag. Leave it
+empty for older releases to preserve their uncached behavior.
 
 ## GitHub Code Quality SARIF
 
@@ -43,19 +54,15 @@ releases to preserve their uncached behavior.
     upload: false
 ```
 
-`actions/code-quality` validates SARIF 2.1.0 and exposes `report`,
-`result-count`, and `blocking-findings` outputs. Upload is opt-in; set
-`upload: true` only for trusted pushes or same-repository pull requests and
-grant `security-events: write`. The action's profile is the isolated
-`github-code-quality` profile.
-
 Adoption is report-only by default because Hoonarqube does not yet have a
 reviewed baseline contract. `fail-on` accepts `none` (default), `findings`,
 `note`, `warning`, or `error`. A validated report is uploaded before a
 configured threshold fails the job. Directory analysis honors repository
-ignore files. Repository self-tests may set `executable` to a freshly built
-local binary; normal consumers should omit it so the verified release installer
-runs.
+ignore files. `working-directory` selects the repository directory to run in
+(default `.`); analyzed paths must stay inside the repository root — the
+action exits 2 for paths outside it. Repository self-tests may set
+`executable` to a freshly built local binary; normal consumers should omit it
+so the verified release installer runs.
 
 ## GitLab Code Quality
 

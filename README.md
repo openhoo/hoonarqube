@@ -2,8 +2,9 @@
 
 Rust-native SonarQube-compatible static analyzer for Python, JavaScript/TypeScript,
 C#, Go, Java, Ruby, and Rust. It combines a frozen Sonar-parity catalog with a
-separate, provenance-rich native catalog and emits text, JSON, SARIF, SonarQube
-Generic Issue Import JSON, or GitLab Code Quality JSON.
+separate, provenance-rich native catalog and emits text, JSON, SonarQube Generic
+Issue Import JSON, or GitLab Code Quality JSON. SARIF 2.1.0 output is reserved
+for the isolated `github-code-quality` profile, which requires `--format sarif`.
 
 ## Workspace
 
@@ -31,7 +32,7 @@ source releases do not imply crates.io publication.
 
 ## Analyzer architecture
 
-The Python and JS/TS analyzers follow this shared per-rule layout. C#, Go, and
+The Python and JS/TS analyzers share a per-rule layout; C#, Go, Java, Ruby, and
 Rust use tolerant tree-sitter traversals and language-specific semantic helpers:
 
 ```
@@ -41,9 +42,10 @@ src/
 ├── support/          # shared helpers: positions, issue constructors, scanners
 ├── engine/           # shared machinery: scope/symbol models, regex pattern parsers
 ├── rules/
-│   ├── mod.rs        # explicit registry: run_all(ctx) calling each rule's check in order
-│   └── <rule>.rs     # ONE FILE PER RULE: pub(crate) fn check(...) -> Vec<Issue>
-│                     #   + #[cfg(test)] mod tests co-located with the rule
+│   ├── mod.rs        # explicit registry dispatching to each rule module
+│   └── <rule>.rs     # rule implementation + #[cfg(test)] mod tests co-located
+│                     #   (JS/TS groups related rules into family directories
+│                     #   with a per-family walker; Python keeps one file per rule)
 └── tests.rs / tests/ # cross-rule integration tests only
 ```
 
@@ -67,11 +69,10 @@ Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict] [--a
 against the frozen catalog:
 
 | Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
-|---|---:|---:|---:|---:|---:|---:|
-| JavaScript | 406 | 406 | 0 | 0 | 406 | 100.0% |
-| TypeScript | 412 | 412 | 0 | 0 | 412 | 100.0% |
-| Python | 335 | 335 | 0 | 0 | 335 | 100.0% |
-| C# | 467 | 467 | 0 | 0 | 467 | 100.0% |
+| JavaScript | 445 | 445 | 0 | 0 | 445 | 100.0% |
+| TypeScript | 455 | 455 | 0 | 0 | 455 | 100.0% |
+| Python | 353 | 353 | 0 | 0 | 353 | 100.0% |
+| C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
 | Java | 0 | 0 | 0 | 733 | 733 | surface-only |
@@ -114,7 +115,7 @@ syntax-only matching does not establish complete framework or analyzer parity:
 - Third-party GraphQL symbol resolution and inheritance semantics — `python:S6786`.
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
-All 1,741 catalog implementations have direct repository test evidence, and
+All 1,842 catalog implementations have direct repository test evidence, and
 the strict implementation-coverage audit passes; the 775 Java and Ruby surface
 rows are catalogued with documented ownership but deliberately unimplemented. This is implementation
 coverage, not SonarQube equivalence: compiler prerequisites, reference-sensor
@@ -232,6 +233,14 @@ cargo run -p hoonarqube-bench -- --iterations N                # throughput tabl
 cargo run -p xtask -- catalog coverage                         # parity audit
 ```
 
+`rules list [--lang <id>]` prints the frozen catalog in canonical order and
+`rules search <term>` performs a case-insensitive substring search over keys,
+`sys_tags`, and tags. Rule-tuning flags on `analyze` and `fix` include
+`--go-header-format` (analyze only), `--csharp-header-format`, and
+`--python-require-type-hints`; each expects a literal header/format value or
+enables the stricter Python type-hint requirement, and an empty header value
+keeps the catalog-default disabled behavior.
+
 See [PERFORMANCE.md](PERFORMANCE.md) for measured runtime and memory changes,
 release footprint, and repeatable CLI benchmarks with exact output comparison.
 
@@ -239,20 +248,25 @@ release footprint, and repeatable CLI benchmarks with exact output comparison.
 
 `analyze <paths>` is source-only by default: supported source inputs are
 classified as `Source`, no test/generated/vendor filename heuristics are
-inferred, and no compiler/project, coverage, baseline, or quality-gate context
-is loaded. Native per-file findings and project measurements still run for
-supported languages.
+inferred, and no coverage, baseline, or quality-gate context is loaded. For
+JavaScript/TypeScript sources, `analyze` additionally auto-discovers each
+file's nearest ancestor `tsconfig.json` and loads a best-effort compiler
+context, so compiler-backed rules (S6606, S4328, S4325, S1874, S4782) fire on
+ordinary project scans; the isolated `github-code-quality` profile and `fix`
+stay context-free. Native per-file findings and project measurements still run
+for supported languages.
 
-Project/compiler contexts are explicit and use these existing flags:
+Project/compiler contexts use these existing flags:
 
 - `--typescript-project PATH` loads `PATH` when it is a `tsconfig.json` file, or
   `PATH/tsconfig.json` when `PATH` is a directory. `--typescript-module PATH`
-  optionally supplies the project-local TypeScript package/compiler location;
-  it is only valid with `--typescript-project`.
+  optionally supplies an explicit TypeScript package/compiler location; it is
+  only valid with `--typescript-project`.
 - TypeScript semantic analysis requires an installed Node.js `node` executable
-  and runs a helper that resolves a project-local TypeScript package only; it
-  never searches a global compiler or downloads one. The loaded compiler must
-  be exactly the pinned **6.0.3** release.
+  and runs a helper that resolves a project-local TypeScript package; it never
+  searches a global compiler or downloads one. The loaded compiler must be
+  exactly the pinned **6.0.3** release. `HOONARQUBE_TYPESCRIPT_PACKAGE` can
+  point the helper at a specific TypeScript package directory.
 - `--typescript-dependency-whitelist PACKAGE` supplies a repeatable S4328
   allowlist entry as a package name or scope. It requires
   `--typescript-project`; when omitted, the whitelist remains empty.
@@ -508,8 +522,8 @@ remaining definitions are not silently approximated, so this action must never
 be described as implementing all 382 queries or as full CodeQL behavioral
 parity.
 
-The executable registry currently covers **54 of 382** definitions: C# 13/69,
-Go 5/22, Java 15/89, JavaScript/TypeScript 13/98, Python 5/101, and Ruby 3/3.
+The executable registry currently covers **56 of 382** definitions: C# 13/69,
+Go 5/22, Java 15/89, JavaScript/TypeScript 15/98, Python 5/101, and Ruby 3/3.
 Audit the registry and print every missing ID with:
 
 ```bash
@@ -517,7 +531,7 @@ cargo run --locked -q -p xtask -- catalog github-coverage
 ```
 
 Add `--require-full` when a release is intended to claim complete parity; it
-currently fails closed because 328 definitions remain unimplemented.
+currently fails closed because 326 definitions remain unimplemented.
 
 Rust is deliberately excluded from this profile. Rust files produce no GitHub
 Code Quality findings; use the regular Sonar-compatible profile when Rust
@@ -539,9 +553,9 @@ Hoonarqube converts its internal 0-based columns to SARIF's 1-based columns
 and declares `columnKind: unicodeCodePoints` so non-BMP characters keep correct
 source locations. Artifact paths are percent-encoded relative URI references,
 including filenames containing colons. Flow evidence is retained as
-`relatedLocations` and `codeFlows`. Coordinate-dependent partial
-fingerprints are intentionally omitted unless a stable content fingerprint is
-available.
+`relatedLocations` and `codeFlows`. `partialFingerprints` carry a stable
+`primaryLocationLineHash` content fingerprint; coordinate-dependent
+fingerprints are intentionally omitted.
 
 `actions/code-quality` installs through the verified setup action, validates
 the SARIF document, and exposes `report`, `result-count`, and
@@ -649,9 +663,10 @@ before writing. Analysis remains read-only and may inspect symlinked source
 files, but never follows symlinked directories.
 
 Global `--json` keeps stdout as one JSON document, including requested diffs as
-per-file `diff` fields instead of mixing human text into machine output. Current
-finding-backed coverage includes the syntax-checked `python:S1721` redundant-
-parentheses remedy and guarded C# `csharpsquid:S3005`/`S3169` actions. See
+per-file `diff` fields instead of mixing human text into machine output. All
+54 cataloged C# keys, 57 of 58 Python keys, and all 28 JavaScript + 32
+TypeScript keys ship finding-backed fixes or selectable suggestions today;
+`python:S5806` remains the only documented gap. See
 [QUICKFIX.md](QUICKFIX.md) for the parity inventory and bounded proof.
 
 ## GitLab Code Quality report
