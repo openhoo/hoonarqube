@@ -2514,7 +2514,13 @@ fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positive
             ),
         ]
     );
+}
 
+#[test]
+fn semantic_s6606_flags_nullish_logical_or_operands() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
     // `a || b` reports on every nullish-typed left operand, including falsy
     // primitives and mixed unions: `||` is not nullish-safe there.
     let (or_path, or_source) = fixture.file("src/s6606-logical-or.ts");
@@ -2558,23 +2564,29 @@ fn semantic_s6606_flags_nullish_ternaries_without_falsy_primitive_false_positive
             "nullish-typed `||` must report in {name}"
         );
     }
-    for name in ["src/s6606-special-types.ts"] {
-        let (path, source) = fixture.file(name);
-        let analysis = context.analyze_with_context(
-            path.clone(),
-            source,
-            JstsLanguage::TypeScript,
-            &AnalyzerOptions::default(),
-        );
-        assert!(
-            analysis
-                .report
-                .issues
-                .iter()
-                .all(|issue| issue.rule_key != "typescript:S6606"),
-            "special types must not be rewritten as nullish in {name}"
-        );
-    }
+    let (special_path, special_source) = fixture.file("src/s6606-special-types.ts");
+    let special = context.analyze_with_context(
+        special_path.clone(),
+        special_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+    );
+    assert!(
+        special
+            .report
+            .issues
+            .iter()
+            .all(|issue| issue.rule_key != "typescript:S6606"),
+        "special types must not be rewritten as nullish"
+    );
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn semantic_s6606_flags_zod_shaped_ternaries() {
+    let Some((fixture, context)) = load_semantic_rules_fixture() else {
+        return;
+    };
     let (zod_path, zod_source) = fixture.file("src/s6606-zod.ts");
     let zod = context.analyze_with_context(
         zod_path.clone(),

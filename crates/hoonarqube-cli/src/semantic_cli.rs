@@ -152,55 +152,12 @@ impl ProjectSemanticContext {
     ) -> Result<Option<FileReport>, String> {
         let language = hoonarqube_core::language_for_path(path);
         match language {
-            Some(Language::JavaScript | Language::TypeScript) => {
-                let language = if language == Some(Language::JavaScript) {
-                    hoonarqube_jsts::JstsLanguage::JavaScript
-                } else {
-                    hoonarqube_jsts::JstsLanguage::TypeScript
-                };
-                if let Some(context) = self.jsts.as_ref() {
-                    if !context.is_complete() {
-                        return Ok(None);
-                    }
-                    let result = context.analyze_with_context(
-                        path.to_path_buf(),
-                        source,
-                        language,
-                        &options.jsts,
-                    );
-                    if let Some(diagnostic) = result
-                        .diagnostics
-                        .iter()
-                        .find(|diagnostic| diagnostic.category == "error")
-                    {
-                        return Err(format!("{}: {}", diagnostic.code, diagnostic.message));
-                    }
-                    return Ok(Some(result.report));
-                }
-                // Auto-discovered contexts are best-effort: a file outside
-                // every loaded context, or a context that cannot prove the
-                // source, falls back to the native report without diagnostics.
-                for context in &self.jsts_auto {
-                    if !context.is_complete() || context.file_facts(path).is_none() {
-                        continue;
-                    }
-                    let result = context.analyze_with_context(
-                        path.to_path_buf(),
-                        source,
-                        language,
-                        &options.jsts,
-                    );
-                    if result
-                        .diagnostics
-                        .iter()
-                        .any(|diagnostic| diagnostic.category == "error")
-                    {
-                        return Ok(None);
-                    }
-                    return Ok(Some(result.report));
-                }
-                Ok(None)
-            }
+            Some(Language::JavaScript | Language::TypeScript) => self.analyze_jsts(
+                path,
+                source,
+                language == Some(Language::JavaScript),
+                options,
+            ),
             Some(Language::CSharp) => {
                 let Some(context) = self.csharp.as_ref() else {
                     return Ok(None);
@@ -228,6 +185,55 @@ impl ProjectSemanticContext {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Runs the JS/TS arm: the explicit `--typescript-project` context first,
+    /// then each auto-discovered context that covers the file.  Explicit
+    /// contexts surface error diagnostics; auto contexts stay best-effort and
+    /// fall back to the native report on any error or missing coverage.
+    fn analyze_jsts(
+        &self,
+        path: &Path,
+        source: &str,
+        is_javascript: bool,
+        options: &AnalyzerOptionsBundle,
+    ) -> Result<Option<FileReport>, String> {
+        let language = if is_javascript {
+            hoonarqube_jsts::JstsLanguage::JavaScript
+        } else {
+            hoonarqube_jsts::JstsLanguage::TypeScript
+        };
+        if let Some(context) = self.jsts.as_ref() {
+            if !context.is_complete() {
+                return Ok(None);
+            }
+            let result =
+                context.analyze_with_context(path.to_path_buf(), source, language, &options.jsts);
+            if let Some(diagnostic) = result
+                .diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.category == "error")
+            {
+                return Err(format!("{}: {}", diagnostic.code, diagnostic.message));
+            }
+            return Ok(Some(result.report));
+        }
+        for context in &self.jsts_auto {
+            if !context.is_complete() || context.file_facts(path).is_none() {
+                continue;
+            }
+            let result =
+                context.analyze_with_context(path.to_path_buf(), source, language, &options.jsts);
+            if result
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.category == "error")
+            {
+                return Ok(None);
+            }
+            return Ok(Some(result.report));
+        }
+        Ok(None)
     }
 }
 #[derive(Default)]
