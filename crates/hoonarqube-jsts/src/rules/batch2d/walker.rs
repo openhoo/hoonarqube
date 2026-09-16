@@ -484,6 +484,27 @@ mod tests {
     }
 
     #[test]
+    fn class_member_namespaces_and_overloads_are_not_duplicates() {
+        // #552: static and instance members live in separate namespaces.
+        let namespaces = js_keys(
+            "class MessageBuffer {\n  static emptyBuffer = new Uint8Array(0);\n  emptyBuffer() {\n    return MessageBuffer.emptyBuffer;\n  }\n}\n",
+        );
+        assert_eq!(count_key(&namespaces, "javascript:S1534"), 0);
+
+        // #512: TypeScript overload signatures declare one logical member.
+        let overloads = findings(
+            "class API {\n  getSymbolAtLocation(node: number): Promise<string | undefined>;\n  getSymbolAtLocation(nodes: readonly number[]): Promise<(string | undefined)[]>;\n  async getSymbolAtLocation(nodeOrNodes: number | readonly number[]): Promise<string | (string | undefined)[] | undefined> {\n    return \"\";\n  }\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&overloads, "typescript:S1534"), 0);
+
+        // Same-namespace duplicates still flag, static or instance.
+        let duplicates =
+            js_keys("class D {\n  foo() {}\n  foo() {}\n  static bar() {}\n  static bar() {}\n}\n");
+        assert_eq!(count_key(&duplicates, "javascript:S1534"), 2);
+    }
+
+    #[test]
     fn duplicated_function_parameters_are_javascript_only() {
         let flagged = js_keys("function f(a, b, a) {\n  return a + b;\n}\n");
         assert_eq!(count_key(&flagged, "javascript:S1536"), 1);
