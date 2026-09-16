@@ -28,7 +28,6 @@ use oxc_ast::ast::AssignmentOperator;
 use oxc_ast::ast::BindingPattern;
 use oxc_ast::ast::ConditionalExpression;
 use oxc_ast::ast::Declaration;
-use oxc_ast::ast::DoWhileStatement;
 use oxc_ast::ast::ExportDeclaration;
 use oxc_ast::ast::ForInStatement;
 use oxc_ast::ast::ForOfStatement;
@@ -43,7 +42,6 @@ use oxc_ast::ast::UpdateExpression;
 use oxc_ast::ast::VariableDeclaration;
 use oxc_ast::ast::VariableDeclarationKind;
 use oxc_ast::ast::VariableDeclarator;
-use oxc_ast::ast::WhileStatement;
 use oxc_ast::ast::{
     Argument, ArrayExpression, ArrowFunctionBody, AssignmentTarget, BinaryOperator, CallExpression,
     Class, Expression, FormalParameters, MemberExpression, MethodDefinition, MethodDefinitionKind,
@@ -59,7 +57,6 @@ use oxc_ast_visit::walk::walk_array_pattern;
 use oxc_ast_visit::walk::walk_assignment_expression;
 use oxc_ast_visit::walk::walk_conditional_expression;
 use oxc_ast_visit::walk::walk_declaration;
-use oxc_ast_visit::walk::walk_do_while_statement;
 use oxc_ast_visit::walk::walk_export_named_declaration;
 use oxc_ast_visit::walk::walk_for_in_statement;
 use oxc_ast_visit::walk::walk_for_of_statement;
@@ -74,7 +71,6 @@ use oxc_ast_visit::walk::walk_ts_type_parameter_instantiation;
 use oxc_ast_visit::walk::walk_update_expression;
 use oxc_ast_visit::walk::walk_variable_declaration;
 use oxc_ast_visit::walk::walk_variable_declarator;
-use oxc_ast_visit::walk::walk_while_statement;
 use oxc_ast_visit::walk::{
     walk_array_expression, walk_call_expression, walk_class, walk_formal_parameters,
     walk_member_expression, walk_method_definition, walk_new_expression, walk_object_expression,
@@ -593,15 +589,9 @@ impl<'a> Visit<'a> for ConstantConditionCollector {
         walk_if_statement(self, node);
     }
 
-    fn visit_while_statement(&mut self, node: &WhileStatement<'a>) {
-        self.note_test(&node.test);
-        walk_while_statement(self, node);
-    }
-
-    fn visit_do_while_statement(&mut self, node: &DoWhileStatement<'a>) {
-        self.note_test(&node.test);
-        walk_do_while_statement(self, node);
-    }
+    // Literal loop conditions (`while (true)`, `do {} while (false)`) are the
+    // idiomatic infinite-loop shape; SonarJS S2589 only checks `if` tests and
+    // never flags loop heads, so no `visit_*_statement` hooks exist for them.
 
     fn visit_conditional_expression(&mut self, node: &ConditionalExpression<'a>) {
         self.note_test(&node.test);
