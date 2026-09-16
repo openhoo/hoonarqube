@@ -1,1 +1,1 @@
-type Tagged = string & { tag: "id" };
+type Tagged = string & never;
