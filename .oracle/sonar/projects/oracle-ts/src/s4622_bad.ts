@@ -1,1 +1,1 @@
-type Quad = North | South | East | West;
+function move(direction: North | South | East | West): void {}
