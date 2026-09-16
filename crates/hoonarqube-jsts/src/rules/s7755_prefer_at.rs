@@ -54,7 +54,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
                 check_computed_member(&mut sink, semantic, node, member);
             }
             AstKind::CallExpression(call) => {
-                check_char_at(&mut sink, call);
+                check_char_at(&mut sink, semantic, call);
                 check_slice(&mut sink, semantic, node, call);
                 check_get_last_function(&mut sink, call);
             }
@@ -179,6 +179,54 @@ fn is_left_hand_side(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool {
         _ => false,
     }
 }
+/// The `SonarJS` decorator gates every report on `typeHasMethod(node, 'at',
+/// services)` — without type information the reference stays silent. hq is
+/// syntactic, so the approximation flags only receivers that are
+/// self-evidently array/string *expressions* (array/string/template
+/// literals, `new Array(…)`, `.split(…)` results) or `const` bindings
+/// initialized to one; bare identifiers, member chains, and annotated
+/// parameters stay silent, matching Sonar's silence on unresolved types.
+fn is_self_evident_at_receiver(semantic: &Semantic<'_>, expression: &Expression<'_>) -> bool {
+    match unwrap_ts(unparenthesized(expression)) {
+        Expression::ArrayExpression(_)
+        | Expression::StringLiteral(_)
+        | Expression::TemplateLiteral(_) => true,
+        Expression::NewExpression(new_expression) => matches!(
+            unparenthesized(&new_expression.callee),
+            Expression::Identifier(callee) if callee.name == "Array"
+        ),
+        Expression::CallExpression(call) => method_member(call, "split").is_some(),
+        Expression::Identifier(identifier) => const_initializer(semantic, identifier)
+            .is_some_and(|init| is_self_evident_at_receiver(semantic, init)),
+        _ => false,
+    }
+}
+
+/// The `const` initializer of a single-declaration identifier binding —
+/// the reference's `getConstVariableInitializer` subset.
+fn const_initializer<'a>(
+    semantic: &Semantic<'a>,
+    identifier: &oxc_ast::ast::IdentifierReference<'a>,
+) -> Option<&'a Expression<'a>> {
+    let symbol = identifier
+        .reference_id
+        .get()
+        .and_then(|id| semantic.scoping().get_reference(id).symbol_id())?;
+    if semantic.scoping().symbol_declarations(symbol).count() != 1 {
+        return None;
+    }
+    let declaration = semantic.symbol_declaration(symbol);
+    let AstKind::VariableDeclarator(declarator) = semantic.nodes().kind(declaration.id()) else {
+        return None;
+    };
+    let AstKind::VariableDeclaration(kind) = semantic.nodes().parent_kind(declaration.id()) else {
+        return None;
+    };
+    if kind.kind != oxc_ast::ast::VariableDeclarationKind::Const {
+        return None;
+    }
+    declarator.init.as_ref()
+}
 
 fn check_computed_member(
     sink: &mut IssueSink<'_>,
@@ -189,7 +237,9 @@ fn check_computed_member(
     if is_left_hand_side(semantic, node) || is_arguments_object(&member.object) {
         return;
     }
-    if get_negative_index_length_node(&member.expression, &member.object).is_some() {
+    if get_negative_index_length_node(&member.expression, &member.object).is_some()
+        && is_self_evident_at_receiver(semantic, &member.object)
+    {
         sink.emit_span(
             RuleScope::Both,
             "S7755",
@@ -199,7 +249,7 @@ fn check_computed_member(
     }
 }
 
-fn check_char_at(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) {
+fn check_char_at(sink: &mut IssueSink<'_>, semantic: &Semantic<'_>, call: &CallExpression<'_>) {
     let Some(member) = method_member(call, "charAt") else {
         return;
     };
@@ -209,7 +259,9 @@ fn check_char_at(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) {
     let Some(index) = call.arguments[0].as_expression() else {
         return;
     };
-    if get_negative_index_length_node(index, &member.object).is_none() {
+    if get_negative_index_length_node(index, &member.object).is_none()
+        || !is_self_evident_at_receiver(semantic, &member.object)
+    {
         return;
     }
     sink.emit_span(
@@ -363,8 +415,11 @@ mod tests {
     fn s7755_flags_pinned_axios_to_form_data_anchor() {
         // Pinned anchor: axios/axios@18e7dfed lib/helpers/toFormData.js:173
         // `while (ancestors.length && ancestors[ancestors.length - 1] !== this) {`
+        // The receiver is a `const` array binding so the self-evident
+        // receiver gate admits it.
         let source = "\
-function walk(ancestors) {
+const ancestors = [];
+function walk() {
   while (ancestors.length && ancestors[ancestors.length - 1] !== this) {
     ancestors.pop();
   }
@@ -379,7 +434,7 @@ function walk(ancestors) {
             .find(|issue| issue.rule_key == "javascript:S7755")
             .expect("pinned axios ancestors access must be reported");
         assert_eq!(issue.message, "Prefer `.at(…)` over `[….length - index]`.");
-        assert_eq!(issue.range.start.line, 2);
+        assert_eq!(issue.range.start.line, 3);
         let prefix = "  while (ancestors.length && ancestors[";
         assert_eq!(
             issue.range.start.column,
@@ -396,7 +451,10 @@ function walk(ancestors) {
     fn s7755_flags_pinned_markdown_it_table_anchor() {
         // Pinned anchor: markdown-it/markdown-it@3c51991 src/rules_block/table.ts:126+188
         // `if (columns.length && columns[columns.length - 1] === '') columns.pop()`
+        // The receiver is a `const` array binding so the self-evident
+        // receiver gate admits it.
         let source = "\
+const columns = [''];
 function table() {
   if (columns.length && columns[columns.length - 1] === '') columns.pop();
   if (columns.length && columns[columns.length - 1] === '') columns.pop();
@@ -409,7 +467,7 @@ function table() {
             .filter(|(key, _)| key == "typescript:S7755")
             .map(|(_, line)| *line)
             .collect();
-        assert_eq!(findings, vec![2, 3]);
+        assert_eq!(findings, vec![3, 4]);
     }
 
     #[test]
@@ -421,7 +479,7 @@ const second = list[list.length - 2];
 const nested = list[list.length - 1 - 1];
 const half = list[list.length - 1.5];
 const char = 'abc'.charAt('abc'.length - 1);
-const charAt = char.charAt(char.length - 2);
+const charAt = 'abc'.charAt('abc'.length - 2);
 const sl = list.slice(-1)[0];
 const sh = list.slice(-1).shift();
 const pop = list.slice(-1).pop();
@@ -499,7 +557,10 @@ const firstOf = _.first(list);
     }
 
     #[test]
-    fn s7755_flags_member_receiver_negative_access() {
+    fn s7755_member_receiver_negative_access_stays_silent() {
+        // The receiver-type gate: a member chain is not a self-evident
+        // array/string expression, so the reference stays silent without
+        // type information.
         let source = "class Queue {
   last() {
     return this.items[this.items.length - 1];
@@ -507,19 +568,13 @@ const firstOf = _.first(list);
 }
 ";
         let report = js(source);
-        assert_eq!(count_key(&report_keys(&report), "javascript:S7755"), 1);
-        let issue = report
-            .issues
-            .iter()
-            .find(|issue| issue.rule_key == "javascript:S7755")
-            .expect("member receiver negative access must be reported");
-        assert_eq!(issue.message, "Prefer `.at(…)` over `[….length - index]`.");
+        assert_eq!(count_key(&report_keys(&report), "javascript:S7755"), 0);
     }
 
     #[test]
     fn s7755_reports_in_both_languages() {
         let ts_source = "\
-declare const list: string[];
+const list: string[] = [];
 const first = list[list.length - 1];
 ";
         let js_source = "\
