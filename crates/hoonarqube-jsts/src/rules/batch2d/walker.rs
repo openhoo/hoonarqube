@@ -359,6 +359,31 @@ mod tests {
     }
 
     #[test]
+    fn getters_must_return_a_value_on_every_path() {
+        // #466: a getter whose control flow can complete without a valued
+        // return is flagged, even without a same-named field.
+        let switch_fallthrough = findings(
+            "class Node {\n  kind = 0;\n  get keyword(): number | undefined {\n    switch (this.kind) {\n      case 1: return 100;\n    }\n  }\n}\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&switch_fallthrough, "typescript:S4275"), 1);
+
+        let partial_if =
+            js_keys("class C {\n  get v() {\n    if (c) {\n      return 1;\n    }\n  }\n}\n");
+        assert_eq!(count_key(&partial_if, "javascript:S4275"), 1);
+
+        // A bare return exits without a value.
+        let bare = js_keys("class C {\n  get v() {\n    return;\n  }\n}\n");
+        assert_eq!(count_key(&bare, "javascript:S4275"), 1);
+
+        // Every path returning or throwing stays silent, as do setters.
+        let clean = js_keys(
+            "class C {\n  get a() {\n    if (c) {\n      return 1;\n    }\n    return 2;\n  }\n  get b() {\n    if (c) {\n      return 1;\n    }\n    throw e;\n  }\n  set v(x) {\n    if (c) {\n      this.x = x;\n    }\n  }\n}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S4275"), 0);
+    }
+
+    #[test]
     fn adjacent_if_statements_must_not_share_a_line() {
         let same_line_siblings = js_keys("if (a) {\n  b();\n} if (b) {\n  c();\n}\n");
         assert_eq!(count_key(&same_line_siblings, "javascript:S3972"), 1);
