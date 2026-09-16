@@ -198,49 +198,131 @@ fn collect_and_operand<'a>(expression: &'a Expression<'a>, operands: &mut Vec<&'
     operands.push(unparenthesized(expression));
 }
 
-/// De Morgan dual of the `&&` guard family: every operand of the `||`
-/// chain is a single negation over the same receiver chain (`!fn ||
-/// !fn.handle || !fn.set`, `!this.a || !this.a.b`). All chains must share
-/// their first segment, calls stay outside the family, and at least one
-/// operand must guard a member access.
+/// Whether the expression is `null` or the `undefined` identifier — the
+/// nullish spellings an equality guard can test for (`S6582`).
+fn is_nullish(expression: &Expression<'_>) -> bool {
+    matches!(expression, Expression::NullLiteral(_))
+        || identifier_name(expression) == Some("undefined")
+}
+
+/// De Morgan dual of the `&&` guard family: an `||` chain reports when it
+/// rewrites to a single optional chain — a negated receiver guard
+/// (`!fn`, `!a.b`) or a nullish-equality guard (`a == null`) followed by
+/// operands that strictly extend the guard's chain (`!fn.handle`,
+/// `node.type !== "directory"`). Sibling members of one root
+/// (`!this.a || !this.b`) have no `?.` rewrite and stay silent.
 fn negated_or_guard_reports(logical: &LogicalExpression<'_>, source: &str) -> bool {
     let mut operands = Vec::new();
     collect_or_operands(logical, &mut operands);
-    // Shared root, `None` standing for the `this` receiver.
-    let mut root: Option<Option<&str>> = None;
-    let mut member_guard = false;
-    for &operand in &operands {
-        let Expression::UnaryExpression(unary) = operand else {
-            return false;
-        };
-        if unary.operator != UnaryOperator::LogicalNot {
-            return false;
+    let Some(base) = operands
+        .first()
+        .and_then(|first| or_guard_chain(first, source))
+    else {
+        return false;
+    };
+    operands[1..]
+        .iter()
+        .all(|operand| or_extender_chain(operand, &base, source))
+}
+
+/// The guard operand of an `||` chain: a single negation over a receiver
+/// chain without calls (`!fn`, `!this.a.b`), or a nullish-equality test
+/// (`a == null`, `a === undefined`).
+fn or_guard_chain<'a>(
+    expression: &'a Expression<'a>,
+    source: &'a str,
+) -> Option<Vec<ChainSegment<'a>>> {
+    match unparenthesized(expression) {
+        Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::LogicalNot => {
+            let chain = receiver_chain(unparenthesized(&unary.argument), source)?;
+            (!chain
+                .iter()
+                .any(|segment| matches!(segment, ChainSegment::Call)))
+            .then_some(chain)
         }
-        let argument = unparenthesized(&unary.argument);
-        let Some(chain) = receiver_chain(argument, source) else {
-            return false;
-        };
-        if chain
-            .iter()
-            .any(|segment| matches!(segment, ChainSegment::Call))
-        {
-            // Calls keep the `||` family out: `!a.b() || !a.c()` has no
-            // single optional-chain rewrite.
-            return false;
-        }
-        let first = match chain.first() {
-            Some(ChainSegment::Name(name)) => Some(*name),
-            Some(ChainSegment::This) => None,
-            _ => return false,
-        };
-        match root {
-            Some(known) if known != first => return false,
-            Some(_) => {}
-            None => root = Some(first),
-        }
-        member_guard |= chain.len() > 1;
+        Expression::BinaryExpression(binary) => or_nullish_guard_chain(binary, source),
+        _ => None,
     }
-    member_guard
+}
+
+/// `a == null` and `a === undefined` guard `a` against nullish access in
+/// an `||` chain; strict `=== null` does not cover `undefined`.
+fn or_nullish_guard_chain<'a>(
+    binary: &'a BinaryExpression<'a>,
+    source: &'a str,
+) -> Option<Vec<ChainSegment<'a>>> {
+    let accepts = match binary.operator {
+        BinaryOperator::Equality => is_nullish,
+        BinaryOperator::StrictEquality => {
+            |expression: &Expression<'_>| identifier_name(expression) == Some("undefined")
+        }
+        _ => return None,
+    };
+    for (chain_side, other) in [(&binary.left, &binary.right), (&binary.right, &binary.left)] {
+        if accepts(unparenthesized(other))
+            && let Some(chain) = receiver_chain(unparenthesized(chain_side), source)
+        {
+            return Some(chain);
+        }
+    }
+    None
+}
+
+/// A later `||` operand must strictly extend the guard's chain: either a
+/// negation over a longer call-free chain (`!fn.handle`) or a comparison
+/// whose chain side extends it (`node.type !== "directory"`).
+fn or_extender_chain<'a>(
+    expression: &'a Expression<'a>,
+    base: &[ChainSegment<'a>],
+    source: &'a str,
+) -> bool {
+    let extends =
+        |chain: &Vec<ChainSegment<'a>>| chain.len() > base.len() && chain.starts_with(base);
+    match unparenthesized(expression) {
+        Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::LogicalNot => {
+            match receiver_chain(unparenthesized(&unary.argument), source) {
+                Some(chain) => {
+                    !chain
+                        .iter()
+                        .any(|segment| matches!(segment, ChainSegment::Call))
+                        && extends(&chain)
+                }
+                None => false,
+            }
+        }
+        Expression::BinaryExpression(binary) => or_comparison_chain(binary, base, source),
+        _ => false,
+    }
+}
+
+/// `ext !== value` extends the guard when `value` keeps the comparison
+/// result while the receiver is nullish: `undefined !== v` is true for
+/// definite values and `null`, and `undefined == null` holds loosely.
+fn or_comparison_chain<'a>(
+    binary: &'a BinaryExpression<'a>,
+    base: &[ChainSegment<'a>],
+    source: &'a str,
+) -> bool {
+    let accepts = |expression: &Expression<'_>| match binary.operator {
+        BinaryOperator::StrictInequality => {
+            (is_definite_value(expression) && identifier_name(expression) != Some("undefined"))
+                || matches!(expression, Expression::NullLiteral(_))
+        }
+        BinaryOperator::Inequality => is_definite_value(expression) && !is_nullish(expression),
+        BinaryOperator::Equality => is_nullish(expression),
+        BinaryOperator::StrictEquality => identifier_name(expression) == Some("undefined"),
+        _ => false,
+    };
+    for (chain_side, other) in [(&binary.left, &binary.right), (&binary.right, &binary.left)] {
+        if accepts(unparenthesized(other))
+            && let Some(chain) = receiver_chain(unparenthesized(chain_side), source)
+            && chain.len() > base.len()
+            && chain.starts_with(base)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// Flattens a (possibly single-operand) `||` chain into its operands.

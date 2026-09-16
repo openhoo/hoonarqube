@@ -14,51 +14,58 @@ use oxc_span::GetSpan;
 impl EsIdiomCollector<'_> {
     /// `S3498, S3499` logic extracted from `visit_object_expression`.
     pub(crate) fn check_s3498_s3499_object_expression(&mut self, it: &ObjectExpression<'_>) {
-        let mut non_shorthand_seen = false;
+        // `S3499`: shorthand properties are compliant grouped at the
+        // beginning OR the end; only a split across both sides reports.
+        let shorthand: Vec<bool> = it
+            .properties
+            .iter()
+            .map(|property| {
+                matches!(property, ObjectPropertyKind::ObjectProperty(inner) if inner.shorthand)
+            })
+            .collect();
+        let total = shorthand.iter().filter(|flag| **flag).count();
+        let leading = shorthand.iter().take_while(|flag| **flag).count();
+        let trailing = shorthand.iter().rev().take_while(|flag| **flag).count();
+        if leading < total && trailing < total {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3499",
+                "Group all shorthand properties at either the beginning or end of this object declaration.",
+                oxc_span::Span::new(it.span.start, it.span.start.saturating_add(1)),
+            );
+        }
 
         for property in &it.properties {
             let ObjectPropertyKind::ObjectProperty(inner) = property else {
                 continue;
             };
-            if inner.kind != PropertyKind::Init {
+            if inner.kind != PropertyKind::Init || inner.shorthand || inner.method {
+                // Shorthand and method-shorthand properties are already the
+                // target form (`S3498`); accessors are not `Init` members.
                 continue;
             }
-            if inner.shorthand {
-                // `S3499`: shorthand properties come first.
-                if non_shorthand_seen {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S3499",
-                        "Group all shorthand properties at either the beginning or end of this object declaration.",
-                        oxc_span::Span::new(it.span.start, it.span.start.saturating_add(1)),
-                    );
-                }
-            } else {
-                non_shorthand_seen = true;
-                // `S3498`: `{ a: a }` should use the property shorthand,
-                // and an anonymous `function` property should use the
-                // method shorthand (`{ html: function () {} }`).
-                if let (Some(key), Some(value)) =
-                    (property_key_name(&inner.key), identifier_name(&inner.value))
-                    && key == value
-                {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S3498",
-                        "Expected property shorthand.",
-                        inner.key.span(),
-                    );
-                } else if let Expression::FunctionExpression(function) =
-                    unparenthesized(&inner.value)
-                    && function.id.is_none()
-                {
-                    self.sink.emit_span(
-                        RuleScope::Both,
-                        "S3498",
-                        "Expected method shorthand.",
-                        inner.key.span(),
-                    );
-                }
+            // `S3498`: `{ a: a }` should use the property shorthand,
+            // and an anonymous `function` property should use the
+            // method shorthand (`{ html: function () {} }`).
+            if let (Some(key), Some(value)) =
+                (property_key_name(&inner.key), identifier_name(&inner.value))
+                && key == value
+            {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3498",
+                    "Expected property shorthand.",
+                    inner.key.span(),
+                );
+            } else if let Expression::FunctionExpression(function) = unparenthesized(&inner.value)
+                && function.id.is_none()
+            {
+                self.sink.emit_span(
+                    RuleScope::Both,
+                    "S3498",
+                    "Expected method shorthand.",
+                    inner.key.span(),
+                );
             }
         }
     }
