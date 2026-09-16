@@ -1,7 +1,7 @@
 // Family walker for 'batch2d' (generated).
 use super::collectors::{
-    ClassAccessorCollector, DuplicationCollector, FunctionMetricsCollector,
-    KeywordPlacementCollector, PromiseFlowCollector,
+    ClassAccessorCollector, DuplicationCollector, ExpressionOperatorScope,
+    FunctionMetricsCollector, KeywordPlacementCollector, PromiseFlowCollector,
 };
 use super::s3512_es_idioms::check_es_idioms;
 use super::s3796_s3796_call_expression::collect_s3796_call_spans;
@@ -121,6 +121,7 @@ fn check_duplications(
             issues: Vec::new(),
         },
         function_spans: Vec::new(),
+        expr_scopes: vec![ExpressionOperatorScope::default()],
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -205,6 +206,87 @@ mod tests {
             "function g(a){ return a ?? a.b ?? a.c ?? a.d ?? a.e ?? a.f ?? a.g ?? a.h ?? a.i ?? a.j ?? a.k; }\n",
         );
         assert_eq!(count_key(&nullish, "javascript:S1541"), 1);
+    }
+    #[test]
+    fn cyclomatic_ignores_catch_but_cognitive_counts_it() {
+        // #506: the reference cyclomatic scorer has no CatchClause arm, so
+        // ten decision points plus a catch stay at 10 while the same catch
+        // is a structural cognitive increment.
+        let source = "function f(a) {\n  try {\n    g();\n  } catch (e) {\n    h(e);\n  }\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n  if (a) {}\n}\n";
+        let report = js_keys(source);
+        assert_eq!(count_key(&report, "javascript:S1541"), 0);
+        // 9 ifs + catch + base = 11 cognitive: still under 15.
+        assert_eq!(count_key(&report, "javascript:S3776"), 0);
+    }
+
+    #[test]
+    fn cognitive_counts_else_flat_and_only_and_chains() {
+        // #485: a plain `else` adds a flat +1; `||`/`??` chains add nothing.
+        // if(+1) else(+1) if(+2) else(+1) if(+3) else(+1) = 9, plus the
+        // && chain +1 and the || chains +0 = 10: clean.
+        let clean = js_keys(
+            "function f(a) {\n  if (a) {\n    g();\n  } else {\n    if (a) {\n      g();\n    } else {\n      if (a) {\n        g();\n      } else {\n        h();\n      }\n    }\n  }\n  const x = a || b || c || d || e;\n  const y = a ?? b ?? c ?? d ?? e;\n  if (a && b) {}\n}\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S3776"), 0);
+
+        // Same shape with `&&` runs broken by `||`: each `&&` run after a
+        // different operator counts again.
+        let alternating = js_keys(
+            "function f(a) {\n  if (a) {\n    g();\n  } else {\n    if (a) {\n      g();\n    } else {\n      if (a) {\n        g();\n      } else {\n        h();\n      }\n    }\n  }\n  const x = a && b || c && d || e && f;\n  if (a && b) {}\n}\n",
+        );
+        // 9 + three && runs (3) + trailing if-&& (1) = 13: still clean.
+        assert_eq!(count_key(&alternating, "javascript:S3776"), 0);
+    }
+
+    #[test]
+    fn export_default_functions_are_measured() {
+        // #561: `export default function` reaches the metrics collector via
+        // the module-declaration path, not Declaration::FunctionDeclaration.
+        let source = "export default function getExePath() {\n  const a = x ? 1 : 2;\n  const b = y ? 3 : 4;\n  const c = z ? 5 : 6;\n  if (a) { f(); } else if (b) { g(); } else { h(); }\n  if (p && q) { i(); }\n  try { j(); } catch (e) { k(); }\n  if (r || s) { l(); }\n  if (t) { m(); }\n  return a;\n}\nfunction plain() {\n  const a = x ? 1 : 2;\n  const b = y ? 3 : 4;\n  const c = z ? 5 : 6;\n  if (a) { f(); } else if (b) { g(); } else { h(); }\n  if (p && q) { i(); }\n  try { j(); } catch (e) { k(); }\n  if (r || s) { l(); }\n  if (t) { m(); }\n  return a;\n}\n";
+        let report = js_keys(source);
+        assert_eq!(count_key(&report, "javascript:S1541"), 2);
+
+        // S3801 applies to export-default functions too.
+        let mixed = js_keys("export default function f(c) {\n  if (c) {\n    return 1;\n  }\n}\n");
+        assert_eq!(count_key(&mixed, "javascript:S3801"), 1);
+    }
+
+    #[test]
+    fn terminal_switch_and_try_do_not_fall_off_the_end() {
+        // #535/#547: every switch path returning or throwing, or a
+        // try/catch whose arms all return, is a consistent function.
+        let exhaustive = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      return 'warning';\n    case 1:\n      return 'error';\n    default:\n      throw new Error('unknown');\n  }\n}\n",
+        );
+        assert_eq!(count_key(&exhaustive, "javascript:S3801"), 0);
+
+        let try_catch = js_keys(
+            "const has = (() => {\n  try {\n    return check('x');\n  } catch {\n    return false;\n  }\n});\n",
+        );
+        assert_eq!(count_key(&try_catch, "javascript:S3801"), 0);
+
+        // A switch without default, or whose last case falls through, still
+        // falls off the end.
+        let no_default = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      return 'warning';\n    case 1:\n      return 'error';\n  }\n}\n",
+        );
+        assert_eq!(count_key(&no_default, "javascript:S3801"), 1);
+
+        let falls_through = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      return 'warning';\n    default:\n      g();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&falls_through, "javascript:S3801"), 1);
+
+        // A case that breaks out of the switch completes it normally.
+        let breaking = js_keys(
+            "function f(category) {\n  switch (category) {\n    case 0:\n      break;\n    default:\n      return 'error';\n  }\n}\n",
+        );
+        assert_eq!(count_key(&breaking, "javascript:S3801"), 1);
+
+        // try/catch where only one arm returns still falls off the end.
+        let partial_try =
+            js_keys("function f() {\n  try {\n    return 1;\n  } catch {\n    g();\n  }\n}\n");
+        assert_eq!(count_key(&partial_try, "javascript:S3801"), 1);
     }
 
     #[test]
@@ -527,19 +609,43 @@ mod tests {
         let clean = js_keys("export const stable = 1;\nconst renamed = 2;\nexport { renamed };\n");
         assert_eq!(count_key(&clean, "javascript:S6861"), 0);
     }
-
     #[test]
     fn condition_operator_limit_is_three() {
         let at_limit = js_keys("if (a && b && c && d) {\n  g();\n}\n");
         assert_eq!(count_key(&at_limit, "javascript:S1067"), 0);
 
-        let over = js_keys("while (a && !b && c || d) {\n  g();\n}\n");
+        // Unary `!` is not a boolean operator: three `&&`/`||` stay clean.
+        let unary = js_keys("while (a && !b && c || d) {\n  g();\n}\n");
+        assert_eq!(count_key(&unary, "javascript:S1067"), 0);
+
+        let over = js_keys("while (a && !b && c || d || e) {\n  g();\n}\n");
         assert_eq!(count_key(&over, "javascript:S1067"), 1);
 
         // Conditions inside nested functions are their own units and are
         // still examined when reached.
         let nested = js_keys("const g = () => {\n  if (a && b && c && d && e) {}\n};\n");
         assert_eq!(count_key(&nested, "javascript:S1067"), 1);
+    }
+
+    #[test]
+    fn s1067_covers_expressions_beyond_condition_positions() {
+        // #469: returns, initializers, and arguments are expression trees too.
+        let returned = js_keys("function f(a, b, c, d, e) {\n  return a && b && c && d && e;\n}\n");
+        assert_eq!(count_key(&returned, "javascript:S1067"), 1);
+
+        let initialized = js_keys("const v = a && b && c && d && e;\n");
+        assert_eq!(count_key(&initialized, "javascript:S1067"), 1);
+
+        let argument = js_keys("g(a && b && c && d && e);\n");
+        assert_eq!(count_key(&argument, "javascript:S1067"), 1);
+
+        // Ternary `?` counts as a conditional operator in the same tree.
+        let ternary = js_keys("const v = a && b && c && d ? e : f;\n");
+        assert_eq!(count_key(&ternary, "javascript:S1067"), 1);
+
+        // Call boundaries split the count: the callee chain is its own tree.
+        let split = js_keys("const v = f(a && b) && g(c && d);\n");
+        assert_eq!(count_key(&split, "javascript:S1067"), 0);
     }
 
     #[test]

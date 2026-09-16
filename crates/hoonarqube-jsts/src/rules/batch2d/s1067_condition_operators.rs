@@ -1,27 +1,26 @@
-use super::collectors::{ConditionOperatorScanner, DuplicationCollector};
+use super::collectors::DuplicationCollector;
 use crate::support::RuleScope;
-use oxc_ast::ast::Expression;
-use oxc_ast_visit::Visit;
-use oxc_span::GetSpan;
+use oxc_span::Span;
 
-/// `S1067`: conditions carrying more boolean operators than this are
+/// `S1067`: expressions carrying more conditional operators than this are
 /// flagged (frozen catalog default of the `max` parameter).
 const MAX_CONDITION_OPERATORS: usize = 3;
 
 impl DuplicationCollector<'_> {
-    /// `S1067`: conditions with more operators than the catalog maximum.
-    pub(crate) fn check_condition_operators(&mut self, test: &Expression<'_>) {
-        let mut scanner = ConditionOperatorScanner::default();
-        scanner.visit_expression(test);
-        if scanner.count > MAX_CONDITION_OPERATORS {
+    /// `S1067`: an expression tree with more conditional operators than the
+    /// catalog maximum. `operators` counts `&&`/`||`/`??` and ternary `?`
+    /// tokens accumulated by the collector's scope tracking; unary `!` is
+    /// not a boolean operator for this rule.
+    pub(crate) fn report_condition_operators(&mut self, operators: u32, span: Span) {
+        let operators = usize::try_from(operators).unwrap_or(usize::MAX);
+        if operators > MAX_CONDITION_OPERATORS {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1067",
                 &format!(
-                    "This condition uses {} boolean operators; simplify it to at most {}.",
-                    scanner.count, MAX_CONDITION_OPERATORS
+                    "This condition uses {operators} boolean operators; simplify it to at most {MAX_CONDITION_OPERATORS}."
                 ),
-                test.span(),
+                span,
             );
         }
     }

@@ -49,42 +49,61 @@ impl MiscCollector<'_> {
 /// `import`/`export` declaration, or any reference to the module-scope
 /// bindings `require`, `module`, or `exports`.
 fn program_participates_in_modules(program: &oxc_ast::ast::Program<'_>) -> bool {
-    let mut detector = ModuleMarkerDetector { module: false };
+    let mut detector = ModuleMarkerDetector::default();
     detector.visit_program(program);
-    detector.module
+    detector.esm || detector.cjs_reference
 }
 
+/// Whether the file is a `CommonJS` module: `require`/`module`/`exports` module
+/// markers (references or bindings — compiled TypeScript helpers reference
+/// `exports` only as a parameter name) and no `import`/`export` declarations.
+/// In `CommonJS`, top-level `this` is `module.exports`, not the global object.
+pub(crate) fn program_is_commonjs(program: &oxc_ast::ast::Program<'_>) -> bool {
+    let mut detector = ModuleMarkerDetector::default();
+    detector.visit_program(program);
+    !detector.esm && (detector.cjs_reference || detector.cjs_binding)
+}
+
+#[derive(Default)]
 struct ModuleMarkerDetector {
-    module: bool,
+    esm: bool,
+    cjs_reference: bool,
+    cjs_binding: bool,
 }
 
 impl Visit<'_> for ModuleMarkerDetector {
     fn visit_import_declaration(&mut self, _it: &oxc_ast::ast::ImportDeclaration<'_>) {
-        self.module = true;
+        self.esm = true;
     }
 
     fn visit_export_all_declaration(&mut self, _it: &oxc_ast::ast::ExportAllDeclaration<'_>) {
-        self.module = true;
+        self.esm = true;
     }
 
     fn visit_export_named_declaration(&mut self, _it: &oxc_ast::ast::ExportNamedDeclaration<'_>) {
-        self.module = true;
+        self.esm = true;
     }
 
     fn visit_export_from_declaration(&mut self, _it: &oxc_ast::ast::ExportFromDeclaration<'_>) {
-        self.module = true;
+        self.esm = true;
     }
 
     fn visit_export_default_declaration(
         &mut self,
         _it: &oxc_ast::ast::ExportDefaultDeclaration<'_>,
     ) {
-        self.module = true;
+        self.esm = true;
     }
 
     fn visit_identifier_reference(&mut self, it: &oxc_ast::ast::IdentifierReference<'_>) {
         if matches!(it.name.as_str(), "require" | "module" | "exports") {
-            self.module = true;
+            self.cjs_reference = true;
+        }
+    }
+
+    fn visit_binding_identifier(&mut self, it: &oxc_ast::ast::BindingIdentifier<'_>) {
+        if matches!(it.name.as_str(), "require" | "module" | "exports") {
+            self.cjs_binding = true;
         }
     }
 }

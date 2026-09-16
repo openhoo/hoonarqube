@@ -1,9 +1,9 @@
 interface Cat {
-  meows: boolean;
+  meows?: boolean;
 }
 
 function isCat(candidate: Cat): boolean {
-  return candidate.meows;
+  return (candidate as Cat).meows !== undefined;
 }
 
 const pickles: Cat = { meows: true };
