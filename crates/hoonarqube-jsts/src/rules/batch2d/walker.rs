@@ -1,7 +1,7 @@
 // Family walker for 'batch2d' (generated).
 use super::collectors::{
-    ClassAccessorCollector, DuplicationCollector, FunctionMetricsCollector,
-    KeywordPlacementCollector, PromiseFlowCollector,
+    ClassAccessorCollector, DuplicationCollector, ExpressionOperatorScope,
+    FunctionMetricsCollector, KeywordPlacementCollector, PromiseFlowCollector,
 };
 use super::s3512_es_idioms::check_es_idioms;
 use super::s3796_s3796_call_expression::collect_s3796_call_spans;
@@ -121,6 +121,7 @@ fn check_duplications(
             issues: Vec::new(),
         },
         function_spans: Vec::new(),
+        expr_scopes: vec![ExpressionOperatorScope::default()],
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -467,19 +468,43 @@ mod tests {
         let clean = js_keys("export const stable = 1;\nconst renamed = 2;\nexport { renamed };\n");
         assert_eq!(count_key(&clean, "javascript:S6861"), 0);
     }
-
     #[test]
     fn condition_operator_limit_is_three() {
         let at_limit = js_keys("if (a && b && c && d) {\n  g();\n}\n");
         assert_eq!(count_key(&at_limit, "javascript:S1067"), 0);
 
-        let over = js_keys("while (a && !b && c || d) {\n  g();\n}\n");
+        // Unary `!` is not a boolean operator: three `&&`/`||` stay clean.
+        let unary = js_keys("while (a && !b && c || d) {\n  g();\n}\n");
+        assert_eq!(count_key(&unary, "javascript:S1067"), 0);
+
+        let over = js_keys("while (a && !b && c || d || e) {\n  g();\n}\n");
         assert_eq!(count_key(&over, "javascript:S1067"), 1);
 
         // Conditions inside nested functions are their own units and are
         // still examined when reached.
         let nested = js_keys("const g = () => {\n  if (a && b && c && d && e) {}\n};\n");
         assert_eq!(count_key(&nested, "javascript:S1067"), 1);
+    }
+
+    #[test]
+    fn s1067_covers_expressions_beyond_condition_positions() {
+        // #469: returns, initializers, and arguments are expression trees too.
+        let returned = js_keys("function f(a, b, c, d, e) {\n  return a && b && c && d && e;\n}\n");
+        assert_eq!(count_key(&returned, "javascript:S1067"), 1);
+
+        let initialized = js_keys("const v = a && b && c && d && e;\n");
+        assert_eq!(count_key(&initialized, "javascript:S1067"), 1);
+
+        let argument = js_keys("g(a && b && c && d && e);\n");
+        assert_eq!(count_key(&argument, "javascript:S1067"), 1);
+
+        // Ternary `?` counts as a conditional operator in the same tree.
+        let ternary = js_keys("const v = a && b && c && d ? e : f;\n");
+        assert_eq!(count_key(&ternary, "javascript:S1067"), 1);
+
+        // Call boundaries split the count: the callee chain is its own tree.
+        let split = js_keys("const v = f(a && b) && g(c && d);\n");
+        assert_eq!(count_key(&split, "javascript:S1067"), 0);
     }
 
     #[test]

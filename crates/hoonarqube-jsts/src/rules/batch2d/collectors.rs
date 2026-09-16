@@ -6,6 +6,7 @@ use crate::support::LineIndex;
 use crate::support::binding_identifier_name;
 use crate::support::property_key_name;
 use oxc_allocator::ArenaVec;
+use oxc_ast::AstKind;
 use oxc_ast::ast::ArrowFunctionExpression;
 use oxc_ast::ast::BinaryExpression;
 use oxc_ast::ast::BlockStatement;
@@ -41,8 +42,6 @@ use oxc_ast::ast::StaticBlock;
 use oxc_ast::ast::SwitchStatement;
 use oxc_ast::ast::TSAccessibility;
 use oxc_ast::ast::TryStatement;
-use oxc_ast::ast::UnaryExpression;
-use oxc_ast::ast::UnaryOperator;
 use oxc_ast::ast::WhileStatement;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::walk_block_statement;
@@ -55,9 +54,9 @@ use oxc_ast_visit::walk::{
     walk_call_expression, walk_class, walk_conditional_expression, walk_continue_statement,
     walk_declaration, walk_do_while_statement, walk_export_declaration, walk_expression,
     walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_formal_parameters,
-    walk_if_statement, walk_logical_expression, walk_member_expression, walk_method_definition,
-    walk_new_expression, walk_object_expression, walk_statements, walk_switch_statement,
-    walk_try_statement, walk_unary_expression, walk_while_statement,
+    walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
+    walk_object_expression, walk_statements, walk_switch_statement, walk_try_statement,
+    walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -605,49 +604,63 @@ impl<'a> Visit<'a> for PromiseFlowCollector<'_> {
     }
 }
 
-/// Counts `&&`, `||`, and `!` operators in one condition, excluding
-/// conditions of nested function units.
+/// One `S1067` expression scope: operators of a conditional tree
+/// (logical expressions and ternaries) accumulate per scope; calls, object
+/// literals, functions, and JSX elements open a fresh scope so their
+/// contents are counted separately, matching the reference scorer.
 #[derive(Default)]
-pub(crate) struct ConditionOperatorScanner {
-    pub(crate) count: usize,
-}
-
-impl<'a> Visit<'a> for ConditionOperatorScanner {
-    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
-        self.count += 1;
-        walk_logical_expression(self, it);
-    }
-
-    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
-        if it.operator == UnaryOperator::LogicalNot {
-            self.count += 1;
-        }
-        walk_unary_expression(self, it);
-    }
-
-    fn visit_expression(&mut self, it: &Expression<'a>) {
-        if !matches!(
-            it,
-            Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
-        ) {
-            walk_expression(self, it);
-        }
-    }
-
-    fn visit_declaration(&mut self, it: &Declaration<'a>) {
-        if !matches!(it, Declaration::FunctionDeclaration(_)) {
-            walk_declaration(self, it);
-        }
-    }
+pub(crate) struct ExpressionOperatorScope {
+    depth: u32,
+    operators: u32,
 }
 
 /// `S1534`, `S1536`, `S6861`, and `S1067` in one traversal.
 pub(crate) struct DuplicationCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) function_spans: Vec<Span>,
+    /// `S1067` scope stack; the bottom entry is the statement level.
+    pub(crate) expr_scopes: Vec<ExpressionOperatorScope>,
 }
 
 impl<'a> Visit<'a> for DuplicationCollector<'a> {
+    fn enter_node(&mut self, kind: AstKind<'a>) {
+        match kind {
+            AstKind::LogicalExpression(_) | AstKind::ConditionalExpression(_) => {
+                if let Some(scope) = self.expr_scopes.last_mut() {
+                    scope.depth += 1;
+                    scope.operators += 1;
+                }
+            }
+            AstKind::Function(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::ObjectExpression(_)
+            | AstKind::CallExpression(_)
+            | AstKind::JSXElement(_) => {
+                self.expr_scopes.push(ExpressionOperatorScope::default());
+            }
+            _ => {}
+        }
+    }
+
+    fn leave_node(&mut self, kind: AstKind<'a>) {
+        match kind {
+            AstKind::LogicalExpression(it) => {
+                self.close_conditional_like(it.span());
+            }
+            AstKind::ConditionalExpression(it) => {
+                self.close_conditional_like(it.span());
+            }
+            AstKind::Function(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::ObjectExpression(_)
+            | AstKind::CallExpression(_)
+            | AstKind::JSXElement(_) => {
+                self.expr_scopes.pop();
+            }
+            _ => {}
+        }
+    }
+
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         self.function_spans.push(it.span());
         walk_function(self, it, flags);
@@ -727,36 +740,23 @@ impl<'a> Visit<'a> for DuplicationCollector<'a> {
         self.check_s6861_export_declaration(it);
         walk_export_declaration(self, it);
     }
-
-    fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        self.check_condition_operators(&it.test);
-        walk_if_statement(self, it);
-    }
-
-    fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
-        self.check_condition_operators(&it.test);
-        walk_while_statement(self, it);
-    }
-
-    fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
-        self.check_condition_operators(&it.test);
-        walk_do_while_statement(self, it);
-    }
-
-    fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
-        if let Some(test) = &it.test {
-            self.check_condition_operators(test);
-        }
-        walk_for_statement(self, it);
-    }
-
-    fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
-        self.check_condition_operators(&it.test);
-        walk_conditional_expression(self, it);
-    }
 }
 
 impl DuplicationCollector<'_> {
+    /// `S1067`: closes one conditional-like node; at the outermost level of
+    /// the current scope the accumulated operator count is reported once.
+    fn close_conditional_like(&mut self, span: Span) {
+        let Some(scope) = self.expr_scopes.last_mut() else {
+            return;
+        };
+        scope.depth = scope.depth.saturating_sub(1);
+        if scope.depth == 0 {
+            let operators = scope.operators;
+            scope.operators = 0;
+            self.report_condition_operators(operators, span);
+        }
+    }
+
     fn flag_duplicate<'name>(&mut self, seen: &mut Vec<&'name str>, name: &'name str, span: Span) {
         if seen.contains(&name) {
             self.emit_duplicate_key(&format!("\"{name}\""), span);
