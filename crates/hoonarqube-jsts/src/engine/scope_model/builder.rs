@@ -357,7 +357,13 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
             name_binding = Some(self.declare(id.name.as_str(), TbKind::Function, id.span));
         }
         self.push_scope(TbScopeKind::Function, function.span);
-        if !declaration && let Some(id) = &function.id {
+        // A bodiless signature (`TSDeclareFunction` overloads, `declare
+        // function`) is part of the enclosing declaration group: its name is
+        // not a nested binding and must not shadow the implementation.
+        if !declaration
+            && function.body.is_some()
+            && let Some(id) = &function.id
+        {
             self.declare(id.name.as_str(), TbKind::Function, id.span);
         }
         let parameter_start = self.model.bindings.len();
