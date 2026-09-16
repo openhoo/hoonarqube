@@ -67,7 +67,6 @@ fn check_expression_rules(
         contexts: Vec::new(),
         ternary_spans: HashSet::new(),
         grammar_parenthesized_depth: 0,
-        required_parenthesized_depth: 0,
         required_parenthesized_spans: HashSet::new(),
         template_depth: 0,
         own_proto_bindings,
@@ -92,7 +91,6 @@ struct ExpressionCollector<'index, 'semantic> {
     contexts: Vec<ExpressionContext>,
     ternary_spans: HashSet<(u32, u32)>,
     grammar_parenthesized_depth: usize,
-    required_parenthesized_depth: usize,
     required_parenthesized_spans: HashSet<(u32, u32)>,
     /// Nesting depth of template literals for `S4624`.
     template_depth: u32,
@@ -183,16 +181,23 @@ impl ExpressionCollector<'_, '_> {
         }
     }
 
-    fn mark_required_arrow_body_parentheses(&mut self, expression: &Expression<'_>) {
+    /// `SonarJS` treats the outermost pair around an arrow expression body as
+    /// belonging to the arrow grammar, so it never counts as redundant.
+    /// Inner pairs still need the object-literal check: `() => ({})` keeps
+    /// its braces-required pair.
+    fn mark_arrow_body_parentheses(&mut self, expression: &Expression<'_>) {
         let Expression::ParenthesizedExpression(parenthesized) = expression else {
             return;
         };
-        let mut parenthesized = parenthesized.as_ref();
-        while let Expression::ParenthesizedExpression(inner) = &parenthesized.expression {
-            parenthesized = inner.as_ref();
+        let span = parenthesized.span();
+        self.required_parenthesized_spans
+            .insert((span.start, span.end));
+        let mut innermost = parenthesized.as_ref();
+        while let Expression::ParenthesizedExpression(inner) = &innermost.expression {
+            innermost = inner.as_ref();
         }
-        if matches!(&parenthesized.expression, Expression::ObjectExpression(_)) {
-            let span = parenthesized.span();
+        if matches!(&innermost.expression, Expression::ObjectExpression(_)) {
+            let span = innermost.span();
             self.required_parenthesized_spans
                 .insert((span.start, span.end));
         }
@@ -234,7 +239,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     }
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         if let Some(body) = it.body.as_expression() {
-            self.mark_required_arrow_body_parentheses(body);
+            self.mark_arrow_body_parentheses(body);
         }
         self.with_non_condition_context(|collector| {
             walk_arrow_function_expression(collector, it);
@@ -504,12 +509,10 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         let nested = matches!(&it.expression, Expression::ParenthesizedExpression(_));
         // OXC consumes the delimiter belonging to a condition/import. Any
         // explicit pair remaining in that grammar position is redundant,
-        // unless precedence/argument syntax marked it as required.
-        if !required
-            && (nested
-                || self.grammar_parenthesized_depth > 0
-                || self.required_parenthesized_depth > 0)
-        {
+        // unless precedence/argument syntax marked it as required. SonarJS
+        // also tolerates one pair inside a required pair for readability,
+        // so only nested pairs and grammar positions report.
+        if !required && (nested || self.grammar_parenthesized_depth > 0) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1110",
@@ -517,13 +520,7 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
                 span,
             );
         }
-        if required {
-            self.required_parenthesized_depth += 1;
-        }
         walk_parenthesized_expression(self, it);
-        if required {
-            self.required_parenthesized_depth -= 1;
-        }
     }
 
     fn visit_sequence_expression(&mut self, it: &SequenceExpression<'a>) {

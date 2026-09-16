@@ -1,7 +1,7 @@
 // Rule module s1488_scan_statement_sequence (generated).
 use crate::rules::shared::statement_ends_with_jump;
 use crate::support::{IssueSink, RuleScope, binding_identifier_name, identifier_name};
-use oxc_ast::ast::{Declaration, Statement};
+use oxc_ast::ast::{Declaration, Statement, VariableDeclarationKind};
 use oxc_span::GetSpan;
 
 /// Scans one statement list for `S1763` (the first statement after an
@@ -10,6 +10,13 @@ use oxc_span::GetSpan;
 pub(crate) fn scan_statement_sequence(sink: &mut IssueSink<'_>, statements: &[Statement<'_>]) {
     let mut jumped = false;
     for statement in statements {
+        // Statements ESLint `no-unreachable` never registers (hoisted
+        // function declarations, imports, type-only declarations, bare
+        // `var`s, empty statements) stay transparent: they are neither
+        // reported nor do they consume the first-unreachable slot.
+        if statement_is_transparent_to_reachability(statement) {
+            continue;
+        }
         if jumped {
             sink.emit_span(
                 RuleScope::Both,
@@ -64,6 +71,29 @@ pub(crate) fn scan_statement_sequence(sink: &mut IssueSink<'_>, statements: &[St
     }
 }
 
+/// Whether `no-unreachable` treats the statement as invisible: hoisted
+/// function declarations, `import` declarations, TypeScript-only
+/// declarations, `var` declarations without any initializer, and empty
+/// statements are never reported and never break the unreachable run.
+fn statement_is_transparent_to_reachability(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::EmptyStatement(_)
+        | Statement::ImportDeclaration(_)
+        | Statement::TSExportAssignment(_) => true,
+        _ => match statement.as_declaration() {
+            Some(Declaration::VariableDeclaration(declaration)) => {
+                declaration.kind == VariableDeclarationKind::Var
+                    && declaration
+                        .declarations
+                        .iter()
+                        .all(|declarator| declarator.init.is_none())
+            }
+            Some(Declaration::ClassDeclaration(_)) | None => false,
+            Some(_) => true,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
@@ -72,6 +102,38 @@ mod tests {
     fn s1763_flags_first_statement_after_unconditional_jump() {
         let findings = js_keys("function f() {\n  return 1;\n  console.log(2);\n}\n");
         assert_eq!(count_key(&findings, "javascript:S1763"), 1);
+    }
+
+    #[test]
+    fn s1763_allows_hoisted_function_declaration_after_return() {
+        let findings = js_keys(
+            "function transform(source) {\n  return applyEdits(source);\n\n  function applyEdits(s) {\n    return s.trim();\n  }\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S1763"), 0);
+    }
+
+    #[test]
+    fn s1763_still_flags_non_declaration_after_transparent_statements() {
+        // A hoisted function declaration must not consume the
+        // first-unreachable slot: the expression statement after it is the
+        // first genuinely unreachable statement.
+        let findings =
+            js_keys("function f() {\n  return 1;\n  function hoisted() {}\n  console.log(2);\n}\n");
+        assert_eq!(count_key(&findings, "javascript:S1763"), 1);
+    }
+
+    #[test]
+    fn s1763_allows_bare_var_and_type_declarations_but_flags_initialized_var() {
+        let bare_var = js_keys("function f() {\n  return 1;\n  var x;\n}\n");
+        assert_eq!(count_key(&bare_var, "javascript:S1763"), 0);
+
+        let initialized = js_keys("function f() {\n  return 1;\n  var x = 2;\n}\n");
+        assert_eq!(count_key(&initialized, "javascript:S1763"), 1);
+
+        let type_only = ts_keys(
+            "function f(): number {\n  return 1;\n  interface Later { x: number }\n  type T = number;\n}\n",
+        );
+        assert_eq!(count_key(&type_only, "typescript:S1763"), 0);
     }
 
     #[test]

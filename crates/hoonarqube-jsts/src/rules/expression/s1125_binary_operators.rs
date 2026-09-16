@@ -16,7 +16,8 @@ pub(crate) fn check_binary_operators(
     if matches!(
         it.operator,
         BinaryOperator::Equality | BinaryOperator::Inequality
-    ) {
+    ) && !eqeqeq_smart_exempt(it)
+    {
         let (loose, strict) = match it.operator {
             BinaryOperator::Equality => ("==", "==="),
             BinaryOperator::Inequality => ("!=", "!=="),
@@ -74,6 +75,48 @@ pub(crate) fn check_binary_operators(
             "Use \"Number.isNaN()\" to test for NaN.",
             it.span(),
         );
+    }
+}
+
+/// Whether `SonarJS` `eqeqeq` (default `smart`) exempts this loose
+/// comparison: `== null`/`!= null` checks both `null` and `undefined`,
+/// `typeof x == "…"` is a deliberate type probe, and comparing two
+/// literals of the same type is already precise.
+fn eqeqeq_smart_exempt(it: &BinaryExpression<'_>) -> bool {
+    let left = unparenthesized(&it.left);
+    let right = unparenthesized(&it.right);
+    is_null_literal(left)
+        || is_null_literal(right)
+        || is_typeof_expression(left)
+        || is_typeof_expression(right)
+        || literal_type(left).is_some_and(|kind| Some(kind) == literal_type(right))
+}
+
+fn is_null_literal(expression: &Expression<'_>) -> bool {
+    matches!(expression, Expression::NullLiteral(_))
+}
+
+fn is_typeof_expression(expression: &Expression<'_>) -> bool {
+    matches!(
+        expression,
+        Expression::UnaryExpression(unary) if unary.operator == UnaryOperator::Typeof
+    )
+}
+
+/// The `typeof` category of a literal operand, mirroring `ESLint`'s
+/// `getLiteralType`: template literals without substitutions count as
+/// strings.
+fn literal_type(expression: &Expression<'_>) -> Option<&'static str> {
+    match expression {
+        Expression::NullLiteral(_) | Expression::RegExpLiteral(_) => Some("object"),
+        Expression::BooleanLiteral(_) => Some("boolean"),
+        Expression::NumericLiteral(_) => Some("number"),
+        Expression::BigIntLiteral(_) => Some("bigint"),
+        Expression::StringLiteral(_) => Some("string"),
+        Expression::TemplateLiteral(template) => {
+            template.expressions.is_empty().then_some("string")
+        }
+        _ => None,
     }
 }
 /// Reports the logical-expression cases covered by pinned S1125.
@@ -153,5 +196,34 @@ mod tests {
         assert_eq!(count_key(&findings, "javascript:S1125"), 0);
         assert_eq!(count_key(&findings, "javascript:S2688"), 1);
         assert_eq!(count_key(&findings, "javascript:S6679"), 1);
+    }
+
+    #[test]
+    fn s1440_exempts_null_comparisons() {
+        // SonarJS eqeqeq defaults to "smart": `== null`/`!= null` check
+        // both null and undefined and stay silent.
+        let findings = js_keys(
+            "function f(a, b) {\n  if (a == null) return 1;\n  if (b != null) return 2;\n  return 0;\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S1440"), 0);
+
+        let ts =
+            ts_keys("declare const data: number[] | null | undefined;\nif (data == null) {}\n");
+        assert_eq!(count_key(&ts, "typescript:S1440"), 0);
+    }
+
+    #[test]
+    fn s1440_exempts_typeof_and_same_type_literal_comparisons() {
+        let findings =
+            js_keys("if (typeof x == \"object\") {}\nif (\"a\" == \"b\") {}\nif (1 == 2) {}\n");
+        assert_eq!(count_key(&findings, "javascript:S1440"), 0);
+    }
+
+    #[test]
+    fn s1440_still_flags_non_null_loose_equality() {
+        let findings = js_keys(
+            "function f(a, b) {\n  if (a == b) return 1;\n  if (a == 3) return 2;\n  if (a == undefined) return 3;\n  return 0;\n}\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S1440"), 3);
     }
 }
