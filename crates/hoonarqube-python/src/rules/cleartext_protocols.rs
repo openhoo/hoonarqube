@@ -74,7 +74,7 @@ pub(crate) fn check_cleartext_protocols(
                 let host = if text[start..].starts_with('[') {
                     text[start..]
                         .find(']')
-                        .map(|end| &text[start..start + end + 1])
+                        .map(|end| &text[start..=start + end])
                         .unwrap_or_default()
                 } else {
                     text[start..]
@@ -86,7 +86,7 @@ pub(crate) fn check_cleartext_protocols(
                     || host.ends_with(".example.org")
                     || host.ends_with(".example.com")
                     || host.ends_with(".svc.cluster.local")
-                    || host.ends_with(".test")
+                    || host.rsplit_once('.').is_some_and(|(_, tld)| tld == "test")
                     || host.ends_with(".localhost")
                     || NAMESPACE_AUTHORITIES.contains(&host);
                 // Sonar flags even a bare `http://` literal — the empty host

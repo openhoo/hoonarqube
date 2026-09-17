@@ -137,7 +137,7 @@ fn seq_has_super_linear(lin: &[&RxItem], partial: bool, full: bool) -> bool {
         if partial && reachable_from_start(lin, index) {
             return true;
         }
-        for &earlier in active.iter() {
+        for &earlier in &active {
             if pair_is_quadratic(lin, earlier, index) {
                 return true;
             }
@@ -197,7 +197,7 @@ fn node_body_has_end_anchor(node: &RxNode) -> bool {
 /// `canReachWithoutConsumingInput(state, endOfRegex)`: the rest can reach
 /// the end through epsilon/negation/boundary transitions only. Every item
 /// must be skippable; a lookaround is skippable when some body branch can
-/// reach its own end without consuming (Sonar's EndOfLookaroundState
+/// reach its own end without consuming (Sonar's `EndOfLookaroundState`
 /// quirk). After an end boundary, line breaks and DOTALL dots also
 /// traverse.
 fn can_reach_end(rest: &[&RxItem]) -> bool {
@@ -302,7 +302,6 @@ fn gap_item_skippable(item: &RxItem) -> bool {
         return true;
     }
     match &item.atom {
-        RxAtom::Anchor(_) => false,
         RxAtom::Group(group)
             if matches!(
                 group.kind,

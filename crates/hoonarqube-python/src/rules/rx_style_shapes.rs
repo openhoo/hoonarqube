@@ -84,7 +84,7 @@ fn check_reluctant_quantifier(
     if last.quant.is_some() {
         return;
     }
-    let Some(base) = base_character(element) else {
+    let Ok(base) = base_character(element) else {
         return;
     };
     let Some(replacement) = negated_class_for(last, base, source) else {
@@ -127,11 +127,11 @@ fn reluctant_element(atom: &RxAtom) -> Option<&RxAtom> {
 
 /// `getBaseCharacter`: `None` for `.` (represented as `Ok(None)`), the
 /// escaped class itself otherwise. `Err` marks an unhandled element.
-fn base_character(element: &RxAtom) -> Option<Option<crate::engine::rx::RxEscClass>> {
+fn base_character(element: &RxAtom) -> Result<Option<crate::engine::rx::RxEscClass>, ()> {
     match element {
-        RxAtom::Dot => Some(None),
-        RxAtom::EscClass(class) => Some(Some(*class)),
-        _ => None,
+        RxAtom::Dot => Ok(None),
+        RxAtom::EscClass(class) => Ok(Some(*class)),
+        _ => Err(()),
     }
 }
 
@@ -196,7 +196,9 @@ fn negated_class_for(
 }
 
 fn negate_esc_class(class: crate::engine::rx::RxEscClass) -> Option<String> {
-    use crate::engine::rx::RxEscClass::*;
+    use crate::engine::rx::RxEscClass::{
+        Digit, NotDigit, NotSpace, NotWord, Space, UnicodeOpaque, Word,
+    };
     Some(
         match class {
             Digit => 'D',
@@ -212,7 +214,9 @@ fn negate_esc_class(class: crate::engine::rx::RxEscClass) -> Option<String> {
 }
 
 fn esc_class_letter(class: crate::engine::rx::RxEscClass) -> char {
-    use crate::engine::rx::RxEscClass::*;
+    use crate::engine::rx::RxEscClass::{
+        Digit, NotDigit, NotSpace, NotWord, Space, UnicodeOpaque, Word,
+    };
     match class {
         Digit => 'd',
         NotDigit => 'D',
