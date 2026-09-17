@@ -126,16 +126,10 @@ fn is_sentinel_assignment(suite: &[Stmt], range: TextRange) -> bool {
     let mut found = false;
     crate::support::for_each_stmt(suite, &mut |stmt| {
         let value: Option<&Expr> = match stmt {
-            Stmt::Assign(assign) if assign
-                .targets
-                .iter()
-                .any(|target| target.range() == range) =>
-            {
+            Stmt::Assign(assign) if assign.targets.iter().any(|target| target.range() == range) => {
                 Some(assign.value.as_ref())
             }
-            Stmt::AnnAssign(assign) if assign.target.range() == range => {
-                assign.value.as_deref()
-            }
+            Stmt::AnnAssign(assign) if assign.target.range() == range => assign.value.as_deref(),
             _ => None,
         };
         if let Some(value) = value {

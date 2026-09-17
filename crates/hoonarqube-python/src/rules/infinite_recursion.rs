@@ -107,10 +107,13 @@ fn is_self_call(
     receiver_is_bound: bool,
 ) -> bool {
     let (call, awaited) = match expr {
-        Expr::Await(await_expr) => (match await_expr.value.as_ref() {
-            Expr::Call(call) => Some(call),
-            _ => None,
-        }, true),
+        Expr::Await(await_expr) => (
+            match await_expr.value.as_ref() {
+                Expr::Call(call) => Some(call),
+                _ => None,
+            },
+            true,
+        ),
         Expr::Call(call) => (Some(call), false),
         _ => (None, false),
     };

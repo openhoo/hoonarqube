@@ -74,8 +74,7 @@ pub(crate) fn check_overwritten_parameters(
             // Loads inside the first overwriting statement but outside the
             // target range are right-hand-side reads of the initial value.
             let overwrite_statement = statement_ranges.iter().find(|range| {
-                range.start() <= first_overwrite.start()
-                    && first_overwrite.end() <= range.end()
+                range.start() <= first_overwrite.start() && first_overwrite.end() <= range.end()
             });
             let read_on_overwrite_rhs = overwrite_statement.is_some_and(|statement| {
                 loads.iter().any(|range| {

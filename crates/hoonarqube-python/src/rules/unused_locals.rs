@@ -28,8 +28,7 @@ pub(crate) fn check_unused_locals(
             Stmt::For(node) => Some(node.target.as_ref()),
             _ => None,
         };
-        if let Some(ruff_python_ast::Expr::Tuple(_) | ruff_python_ast::Expr::List(_)) = target
-        {
+        if let Some(ruff_python_ast::Expr::Tuple(_) | ruff_python_ast::Expr::List(_)) = target {
             let mut names = Vec::new();
             crate::support::collect_target_names(target.unwrap(), &mut names);
             for name in names {
@@ -106,7 +105,10 @@ fn collect_target_ranges(expr: &Expr, out: &mut std::collections::HashSet<TextRa
         Expr::Name(name) => {
             out.insert(name.range());
         }
-        Expr::Tuple(tuple) => tuple.elts.iter().for_each(|e| collect_target_ranges(e, out)),
+        Expr::Tuple(tuple) => tuple
+            .elts
+            .iter()
+            .for_each(|e| collect_target_ranges(e, out)),
         Expr::List(list) => list.elts.iter().for_each(|e| collect_target_ranges(e, out)),
         Expr::Starred(starred) => collect_target_ranges(&starred.value, out),
         _ => {}

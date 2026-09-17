@@ -51,9 +51,8 @@ mod tests {
         // Single-line duplicate branches are exempt in the reference.
         let chain = scan("if a == 1:\n    do(x)\nelif a == 2:\n    do(x)\n");
         assert!(findings(&chain, "python:S1871").is_empty());
-        let multi_line = scan(
-            "if a == 1:\n    do(x)\n    do(y)\nelif a == 2:\n    do(x)\n    do(y)\n",
-        );
+        let multi_line =
+            scan("if a == 1:\n    do(x)\n    do(y)\nelif a == 2:\n    do(x)\n    do(y)\n");
         let found = findings(&multi_line, "python:S1871");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 5);
