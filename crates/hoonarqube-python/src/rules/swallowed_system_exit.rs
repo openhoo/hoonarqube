@@ -54,7 +54,7 @@ pub(crate) fn check_swallowed_system_exit(
 }
 
 /// Flags a typed handler that swallows `SystemExit`/`BaseException` without
-/// re-raising; returns whether SystemExit is now handled.
+/// re-raising; returns whether `SystemExit` is now handled.
 fn check_typed_handler(
     inner: &ruff_python_ast::ExceptHandlerExceptHandler,
     caught_type: &Expr,
