@@ -23,23 +23,6 @@ pub(crate) fn is_locals_call(expr: &Expr) -> bool {
     matches!(expr, Expr::Call(call) if called_name(&call.func) == Some("locals"))
 }
 
-pub(crate) fn meta_declares_fields(meta: &ruff_python_ast::StmtClassDef) -> bool {
-    meta.body.iter().any(|stmt| {
-        let target_name = match stmt {
-            Stmt::Assign(assign) => assign.targets.first().and_then(|target| match target {
-                Expr::Name(name) => Some(name.id.as_str().to_string()),
-                _ => None,
-            }),
-            Stmt::AnnAssign(assign) => match assign.target.as_ref() {
-                Expr::Name(name) => Some(name.id.as_str().to_string()),
-                _ => None,
-            },
-            _ => None,
-        };
-        matches!(target_name.as_deref(), Some("fields" | "exclude"))
-    })
-}
-
 pub(crate) const ROUTE_DECORATOR_TAILS: [&str; 9] = [
     "route", "get", "post", "put", "patch", "delete", "head", "options", "receiver",
 ];

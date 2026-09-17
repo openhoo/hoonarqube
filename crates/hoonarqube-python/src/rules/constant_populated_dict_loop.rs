@@ -16,6 +16,22 @@ pub(crate) fn check_constant_populated_dict_loop(
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    // A dict comprehension whose value is the same constant for every key
+    // is the same pattern the reference flags for the loop form.
+    for expr in &file_ctx.exprs {
+        let Expr::DictComp(comp) = expr else {
+            continue;
+        };
+        if is_constant_expression(&comp.value) {
+            issues.push(issue_at(
+                "python:S7519",
+                "Populate this dictionary with 'dict.fromkeys' instead of assigning a constant in a loop.",
+                comp.range(),
+                index,
+                source,
+            ));
+        }
+    }
     for stmt in &file_ctx.stmts {
         let Stmt::For(for_stmt) = stmt else { continue };
         if for_stmt.body.is_empty() {

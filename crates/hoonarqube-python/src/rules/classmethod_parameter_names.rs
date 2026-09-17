@@ -17,7 +17,13 @@ pub(crate) fn check_classmethod_parameter_names(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_method(parsed.syntax().body.as_slice(), &mut |_class, function| {
-        if !has_decorator(function, "classmethod") {
+        // `__new__`, `__init_subclass__` and `__class_getitem__` are implicit
+        // classmethods; the reference checks them without the decorator.
+        let implicit = matches!(
+            function.name.as_str(),
+            "__new__" | "__init_subclass__" | "__class_getitem__"
+        );
+        if !implicit && !has_decorator(function, "classmethod") {
             return;
         }
         if let Some(first) = positional_parameters(&function.parameters).first()

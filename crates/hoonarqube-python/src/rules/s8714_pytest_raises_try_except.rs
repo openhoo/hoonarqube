@@ -54,17 +54,43 @@ fn check_try(try_stmt: &StmtTry, index: &LineIndex, source: &str, issues: &mut V
     issues.push(issue);
 }
 
-/// The `pytest.fail(...)` statement marking the expected exception: the
-/// last statement of the try body, or any statement of the `else` suite.
+/// The `pytest.fail(...)`/`self.fail(...)` statement marking the expected
+/// exception: the last statement of the try body, any statement of the
+/// `else` suite, or a fail call inside an except handler — the reference
+/// flags the try/except-fail pattern as a reimplemented pytest.raises.
 fn pytest_fail_statement(try_stmt: &StmtTry) -> Option<TextRange> {
     if try_stmt.body.last().is_some_and(is_pytest_fail_statement) {
         return try_stmt.body.last().map(Ranged::range);
     }
-    try_stmt
+    if let Some(failure) = try_stmt
         .orelse
         .iter()
         .find(|stmt| is_pytest_fail_statement(stmt))
         .map(Ranged::range)
+    {
+        return Some(failure);
+    }
+    try_stmt.handlers.iter().find_map(|handler| {
+        let ExceptHandler::ExceptHandler(inner) = handler;
+        inner
+            .body
+            .iter()
+            .find(|stmt| is_fail_statement(stmt))
+            .map(Ranged::range)
+    })
+}
+
+/// A bare expression statement calling `pytest.fail`, `self.fail`, or a
+/// bare `fail(...)` — the unittest/pytest failure markers.
+fn is_fail_statement(stmt: &Stmt) -> bool {
+    let Stmt::Expr(statement) = stmt else {
+        return false;
+    };
+    let Expr::Call(call) = statement.value.as_ref() else {
+        return false;
+    };
+    dotted_name(&call.func)
+        .is_some_and(|path| path == "pytest.fail" || path == "self.fail" || path == "fail")
 }
 
 /// A bare expression statement calling `pytest.fail(...)`.

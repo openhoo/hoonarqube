@@ -686,6 +686,29 @@ impl<'a> RxParser<'a> {
         self.bump();
         let named_reference = next.ch == '=';
         let terminator = if named_reference { ')' } else { '>' };
+        let name = self.read_group_name(terminator)?;
+        if named_reference {
+            // `(?P=name)` is a complete atom including its closing paren.
+            let close = self.bump();
+            match close {
+                Some(unit) if unit.ch == ')' => {}
+                other => return Err(self.err_at(other)),
+            }
+            let span = TextRange::new(marker.at, self.consumed_end(marker.at));
+            self.record_backref(Some(name.clone()), None, span);
+            return Ok(GroupHead::NamedBackref(name));
+        }
+        let close = self.bump();
+        match close {
+            Some(unit) if unit.ch == '>' => {}
+            other => return Err(self.err_at(other)),
+        }
+        Ok(GroupHead::Capture(Some(name)))
+    }
+
+    /// Reads a `(?P<name>`/`(?P=name)` group name up to `terminator`,
+    /// requiring a non-empty identifier starting with a letter or `_`.
+    fn read_group_name(&mut self, terminator: char) -> RxResult<String> {
         let mut name = String::new();
         while let Some(unit) = self.peek() {
             if unit.ch == terminator {
@@ -705,23 +728,7 @@ impl<'a> RxParser<'a> {
         {
             return Err(self.err_at(self.peek()));
         }
-        if named_reference {
-            // `(?P=name)` is a complete atom including its closing paren.
-            let close = self.bump();
-            match close {
-                Some(unit) if unit.ch == ')' => {}
-                other => return Err(self.err_at(other)),
-            }
-            let span = TextRange::new(marker.at, self.consumed_end(marker.at));
-            self.record_backref(Some(name.clone()), None, span);
-            return Ok(GroupHead::NamedBackref(name));
-        }
-        let close = self.bump();
-        match close {
-            Some(unit) if unit.ch == '>' => {}
-            other => return Err(self.err_at(other)),
-        }
-        Ok(GroupHead::Capture(Some(name)))
+        Ok(name)
     }
 
     /// `(?(1)yes|no)` conditional: consume the condition up to its `)`.
