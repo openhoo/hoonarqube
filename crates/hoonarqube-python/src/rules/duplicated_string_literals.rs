@@ -89,23 +89,7 @@ pub(crate) fn check_duplicated_string_literals(
 fn collect_excluded_ranges(suite: &[Stmt], out: &mut Vec<TextRange>) {
     for stmt in suite {
         match stmt {
-            Stmt::FunctionDef(function) => {
-                out.extend(function.decorator_list.iter().map(Ranged::range));
-                for parameter in function
-                    .parameters
-                    .posonlyargs
-                    .iter()
-                    .chain(&function.parameters.args)
-                    .chain(&function.parameters.kwonlyargs)
-                {
-                    if let Some(annotation) = &parameter.parameter.annotation {
-                        out.push(annotation.range());
-                    }
-                }
-                if let Some(returns) = &function.returns {
-                    out.push(returns.range());
-                }
-            }
+            Stmt::FunctionDef(function) => collect_function_exclusions(function, out),
             Stmt::ClassDef(class) => {
                 out.extend(class.decorator_list.iter().map(Ranged::range));
             }
@@ -122,6 +106,30 @@ fn collect_excluded_ranges(suite: &[Stmt], out: &mut Vec<TextRange>) {
 /// (docstrings and bare literal statements), in one file-wide
 /// source-ordered occurrence list. The grouping key is the raw literal
 /// text including quotes and prefixes, matching the reference.
+///
+/// Decorators, parameter annotations, and the return annotation of a
+/// function are excluded literal ranges.
+fn collect_function_exclusions(
+    function: &ruff_python_ast::StmtFunctionDef,
+    out: &mut Vec<TextRange>,
+) {
+    out.extend(function.decorator_list.iter().map(Ranged::range));
+    for parameter in function
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&function.parameters.args)
+        .chain(&function.parameters.kwonlyargs)
+    {
+        if let Some(annotation) = &parameter.parameter.annotation {
+            out.push(annotation.range());
+        }
+    }
+    if let Some(returns) = &function.returns {
+        out.push(returns.range());
+    }
+}
+
 fn collect_file_wide(
     suite: &[Stmt],
     excluded: &[TextRange],

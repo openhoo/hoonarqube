@@ -2642,6 +2642,16 @@ fn s930_uses_python_c3_order_for_diamond_inheritance() {
 }
 
 #[test]
+fn s5549_flags_duplicate_call_arguments() {
+    // A positional and a keyword binding the same parameter is a duplicate.
+    let flagged = scan("def f(a, b):\n    pass\n\n\nf(1, a=2)\n");
+    assert_eq!(findings(&flagged, "python:S5549").len(), 1);
+    // Distinct parameters are clean.
+    let clean = scan("def f(a, b):\n    pass\n\n\nf(1, b=2)\n");
+    assert!(findings(&clean, "python:S5549").is_empty());
+}
+
+#[test]
 fn s5655_rejects_complex_literals_for_float_parameters() {
     let source = concat!(
         "def accept(value: float):\n",
