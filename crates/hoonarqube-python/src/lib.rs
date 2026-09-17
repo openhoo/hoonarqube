@@ -367,16 +367,9 @@ pub fn analyze_with_context(
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(
-        &parsed,
-        &index,
-        source,
-        options,
-        &file_ctx,
-        path.as_path(),
+        &parsed, &index, source, options, &file_ctx, path.as_path(),
     ));
-    issues.extend(check_tier_a_battery_2(
-        &parsed, &index, source, options, &file_ctx,
-    ));
+    issues.extend(check_tier_a_battery_2(&parsed, &index, source, options, &file_ctx));
     issues.extend(check_naming_convention_battery(
         &parsed, &index, source, &file_ctx,
     ));
@@ -384,12 +377,7 @@ pub fn analyze_with_context(
         &parsed, &index, source, options, &metrics,
     ));
     issues.extend(check_tier_b_battery(
-        &parsed,
-        &index,
-        source,
-        options,
-        &file_ctx,
-        path.as_path(),
+        &parsed, &index, source, options, &file_ctx, path.as_path(),
     ));
     issues.extend(check_regex_battery(&parsed, &index, source, options));
     let module_name = module_name_from_path(path.as_path());
