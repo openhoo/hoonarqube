@@ -94,14 +94,13 @@ fn import_module_names(parsed: &Parsed<ModModule>) -> HashMap<TextRange, String>
             let module = import
                 .module
                 .as_ref()
-                .map(|name| name.to_string())
+                .map(ToString::to_string)
                 .unwrap_or_default();
             for alias in &import.names {
                 let range = alias
                     .asname
                     .as_ref()
-                    .map(|name| name.range())
-                    .unwrap_or_else(|| alias.name.range());
+                    .map_or_else(|| alias.name.range(), Ranged::range);
                 modules.insert(range, module.clone());
             }
         }
@@ -110,8 +109,7 @@ fn import_module_names(parsed: &Parsed<ModModule>) -> HashMap<TextRange, String>
                 let range = alias
                     .asname
                     .as_ref()
-                    .map(|name| name.range())
-                    .unwrap_or_else(|| alias.name.range());
+                    .map_or_else(|| alias.name.range(), Ranged::range);
                 modules.insert(range, alias.name.to_string());
             }
         }

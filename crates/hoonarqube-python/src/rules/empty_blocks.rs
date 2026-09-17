@@ -37,7 +37,6 @@ pub(crate) fn check_empty_blocks(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ParentKind {
     Module,
-    Function,
     Class,
     Except,
     Other,
@@ -51,10 +50,8 @@ fn visit_suite(
     index: &LineIndex,
     source: &str,
 ) {
-    if !matches!(
-        parent,
-        ParentKind::Function | ParentKind::Class | ParentKind::Except
-    ) && pass_only_suite(suite)
+    if !matches!(parent, ParentKind::Class | ParentKind::Except)
+        && pass_only_suite(suite)
         && !block_has_comment(suite, parsed, source)
     {
         issues.push(issue_at(
@@ -99,7 +96,7 @@ fn block_has_comment(suite: &[Stmt], parsed: &Parsed<ModModule>, source: &str) -
                 )
                 && token.range().end() <= span.start()
         })
-        .last()
+        .rfind(|_| true)
         .map(|token| token.range().start())
         .unwrap_or_default();
     let header_line_start = source[..usize::from(header_end)]

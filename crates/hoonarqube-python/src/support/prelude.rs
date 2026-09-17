@@ -124,53 +124,6 @@ pub(crate) fn has_person_reference(text_after_tag: &str) -> bool {
             .all(|c| c == '_' || c == ' ' || c == '@' || c == '.' || c.is_ascii_alphanumeric())
 }
 
-/// Validates every `noqa` occurrence in the raw comment text against
-/// `# noqa` / `# noqa: E501[,F841]`.
-pub(crate) fn noqa_format_valid(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    let mut search_from = 0;
-    while let Some(rel) = lower[search_from..].find("noqa") {
-        let start = search_from + rel;
-        let before = &text[..start];
-        let hash_ok = match before.rfind('#') {
-            Some(hash_pos) => {
-                let gap = &before[hash_pos + 1..];
-                !gap.is_empty() && gap.chars().all(|c| c == ' ')
-            }
-            None => false,
-        };
-        if !hash_ok {
-            return false;
-        }
-        let after = &text[start + 4..];
-        if !(after.is_empty() || after.starts_with('#')) {
-            let Some(codes) = after.strip_prefix(':') else {
-                return false;
-            };
-            for code in codes.split(',') {
-                let code = code.trim();
-                let valid = !code.is_empty()
-                    && code
-                        .chars()
-                        .all(|c: char| c.is_ascii_uppercase() || c.is_ascii_digit())
-                    && code.chars().any(|c: char| c.is_ascii_uppercase())
-                    && code
-                        .find(|c: char| c.is_ascii_digit())
-                        .is_some_and(|first_digit| {
-                            code[..first_digit]
-                                .chars()
-                                .all(|c: char| c.is_ascii_uppercase())
-                        });
-                if !valid {
-                    return false;
-                }
-            }
-        }
-        search_from = start + 4;
-    }
-    true
-}
-
 /// Matches `([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+)` without a regex engine.
 pub(crate) fn module_name_matches_convention(name: &str) -> bool {
     let mut chars = name.chars();

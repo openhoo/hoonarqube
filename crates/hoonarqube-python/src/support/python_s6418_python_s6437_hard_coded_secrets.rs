@@ -201,17 +201,6 @@ pub(crate) fn suite_span(suite: &[Stmt]) -> TextRange {
     )
 }
 
-/// Whether a suite holds nothing but `pass`/`...` placeholders; docstrings
-/// and every other statement count as content.
-pub(crate) fn placeholder_only_suite(suite: &[Stmt]) -> bool {
-    !suite.is_empty()
-        && suite.iter().all(|stmt| match stmt {
-            Stmt::Pass(_) => true,
-            Stmt::Expr(expr) => matches!(expr.value.as_ref(), Expr::EllipsisLiteral(_)),
-            _ => false,
-        })
-}
-
 /// Callee name of a call shaped `name(...)` or `value.name(...)`.
 pub(crate) fn called_name(func: &Expr) -> Option<&str> {
     match func {

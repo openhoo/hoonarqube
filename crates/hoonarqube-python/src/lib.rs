@@ -208,7 +208,7 @@ use crate::support::is_test_scope_file;
 use crate::support::parse;
 use crate::support::sort_issues;
 use ruff_source_file::LineIndex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod native;
 
@@ -317,6 +317,14 @@ pub fn analyze(
 
 /// Runs the Python analyzer with syntax-backed cross-module facts.
 ///
+/// Test-scope files only run TEST-scope rules; MAIN and ALL rules stay
+/// silent, matching the reference's test-file behavior.
+fn retain_main_scope_issues(issues: &mut Vec<Issue>, path: &Path) {
+    if is_test_scope_file(path) {
+        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+    }
+}
+
 /// The context is explicit so the caller controls the project/module boundary;
 /// unresolved imports and dynamic values remain unresolved instead of being
 /// guessed from names.
@@ -420,9 +428,7 @@ pub fn analyze_with_context(
         options,
         &file_ctx,
     ));
-    if is_test_scope_file(path.as_path()) {
-        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
-    }
+    retain_main_scope_issues(&mut issues, path.as_path());
     attach_quick_fixes(&parsed, &index, source, &file_ctx, &mut issues);
     sort_issues(&mut issues);
 
