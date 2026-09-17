@@ -19,13 +19,22 @@ pub(crate) fn check_meaningless_size_comparisons(
         let Expr::Compare(compare) = expr else {
             continue;
         };
+        // Chained comparisons pair each comparator with the previous
+        // operand — `0 < value <= len(choices)` tests `value <= len(...)`,
+        // not `0 <= len(...)`.
         let meaningless = compare
             .ops
             .iter()
             .zip(&compare.comparators)
-            .any(|(op, comparator)| {
-                len_zero_verdict(&compare.left, comparator, *op)
-                    || len_zero_verdict_swapped(&compare.left, comparator, *op)
+            .enumerate()
+            .any(|(index, (op, comparator))| {
+                let left = if index == 0 {
+                    &compare.left
+                } else {
+                    &compare.comparators[index - 1]
+                };
+                len_zero_verdict(left, comparator, *op)
+                    || len_zero_verdict_swapped(left, comparator, *op)
             });
         if meaningless {
             issues.push(issue_at(

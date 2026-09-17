@@ -4,6 +4,7 @@ use crate::support::issue_at;
 use crate::support::module_all_exports;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
+use ruff_python_ast::Stmt;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 
@@ -16,7 +17,13 @@ pub(crate) fn check_all_exports_exist(
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
-    if facts.dynamic_names || facts.has_wildcard_import {
+    // Sonar's UndefinedNameAllPropertyCheck exempts modules defining
+    // module-level __getattr__ or __dir__ — they resolve __all__ entries
+    // dynamically.
+    let has_dynamic_lookup = parsed.syntax().body.iter().any(|stmt| {
+        matches!(stmt, Stmt::FunctionDef(f) if matches!(f.name.as_str(), "__getattr__" | "__dir__"))
+    });
+    if facts.dynamic_names || facts.has_wildcard_import || has_dynamic_lookup {
         return Vec::new();
     }
     let mut issues = Vec::new();

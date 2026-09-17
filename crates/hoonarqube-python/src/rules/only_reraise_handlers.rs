@@ -18,24 +18,27 @@ pub(crate) fn check_only_reraise_handlers(
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         let Stmt::Try(try_stmt) = stmt else { continue };
-        for handler in &try_stmt.handlers {
-            let ExceptHandler::ExceptHandler(inner) = handler;
-            let [only] = &inner.body[..] else { continue };
-            let Stmt::Raise(raised) = only else { continue };
-            let caught = exception_type_names(inner.type_.as_deref());
-            let pure_reraise = raised.exc.is_none() && raised.cause.is_none()
-                || raised.exc.as_deref().is_some_and(
-                    |exc| matches!(exc, Expr::Name(name) if caught.contains(&name.id.to_string())),
-                );
-            if pure_reraise {
-                issues.push(issue_at(
-                    "python:S2737",
-                    "Remove this 'except' clause or handle the exception; it only re-raises.",
-                    handler.range(),
-                    index,
-                    source,
-                ));
-            }
+        // Sonar's ExceptRethrowingCheck only inspects the LAST except
+        // clause — earlier handlers stay silent.
+        let Some(handler) = try_stmt.handlers.last() else {
+            continue;
+        };
+        let ExceptHandler::ExceptHandler(inner) = handler;
+        let [only] = &inner.body[..] else { continue };
+        let Stmt::Raise(raised) = only else { continue };
+        let caught = exception_type_names(inner.type_.as_deref());
+        let pure_reraise = raised.exc.is_none() && raised.cause.is_none()
+            || raised.exc.as_deref().is_some_and(
+                |exc| matches!(exc, Expr::Name(name) if caught.contains(&name.id.to_string())),
+            );
+        if pure_reraise {
+            issues.push(issue_at(
+                "python:S2737",
+                "Remove this 'except' clause or handle the exception; it only re-raises.",
+                handler.range(),
+                index,
+                source,
+            ));
         }
     }
     issues

@@ -1,5 +1,4 @@
 use crate::support::for_each_annotation;
-use crate::support::for_each_expr;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -17,17 +16,18 @@ pub(crate) fn check_any_type_hints(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_annotation(parsed.syntax().body.as_slice(), &mut |annotation| {
-        for_each_expr(annotation, &mut |expr| {
-            if matches!(expr, Expr::Name(name) if name.id.as_str() == "Any") {
-                issues.push(issue_at(
-                    "python:S6542",
-                    "Do not use Any as a type hint.",
-                    expr.range(),
-                    index,
-                    source,
-                ));
-            }
-        });
+        // Sonar's isTypeAny only matches annotations that are exactly
+        // `typing.Any` — `list[Any]` nests it inside a generic and stays
+        // silent.
+        if matches!(annotation, Expr::Name(name) if name.id.as_str() == "Any") {
+            issues.push(issue_at(
+                "python:S6542",
+                "Do not use Any as a type hint.",
+                annotation.range(),
+                index,
+                source,
+            ));
+        }
     });
     issues
 }

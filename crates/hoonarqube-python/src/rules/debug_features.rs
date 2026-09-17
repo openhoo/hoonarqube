@@ -75,7 +75,9 @@ fn visit_statement_expressions(
             };
             let debug_call =
                 dotted_name(&call.func).is_some_and(|path| DEBUG_CALLS.contains(&path.as_str()));
-            if debug_call || keyword_value(&call.arguments, "debug").is_some_and(is_true_literal) {
+            // Sonar's DebugModeCheck only inspects specific framework debug
+            // entry points — a generic `debug=True` kwarg is not a finding.
+            if debug_call {
                 issues.push(issue_at(
                     "python:S4507",
                     "Remove this debug feature before shipping to production.",
@@ -307,7 +309,9 @@ mod tests {
     fn s4507_retains_debug_hooks_and_flags_lowercase_debug() {
         let report = scan("breakpoint()\napp.run(debug=True)\n");
         let found = findings(&report, "python:S4507");
-        assert_eq!(found.len(), 2);
+        // Only the debug hook fires — `debug=True` on an arbitrary method
+        // is not a Sonar finding.
+        assert_eq!(found.len(), 1);
     }
     #[test]
     fn s4507_tracks_django_settings_aliases_and_rebinding() {

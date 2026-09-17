@@ -2,7 +2,6 @@ use crate::engine::file_context::FileContext;
 use crate::support::child_bodies;
 use crate::support::for_each_expr;
 use crate::support::for_each_stmt;
-use crate::support::is_true_literal;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use crate::support::string_value_text;
@@ -173,8 +172,9 @@ fn report_condition_issue(
     if condition_truth(test, block, pos, facts).is_none() {
         return;
     }
-    // `while True:` is the idiomatic infinite loop, not a defect.
-    if matches!(stmt, Stmt::While(_)) && is_true_literal(test) {
+    // `while <constant>:` is the idiomatic infinite/dead loop, not a
+    // defect — Sonar exempts literal while conditions entirely.
+    if matches!(stmt, Stmt::While(_)) && constant_truth(test).is_some() {
         return;
     }
     issues.push(issue_at(

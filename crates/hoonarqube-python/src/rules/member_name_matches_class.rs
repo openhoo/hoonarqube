@@ -43,6 +43,11 @@ fn flag_matching_members(
     index: &LineIndex,
     source: &str,
 ) {
+    // Sonar's FieldDuplicatesClassNameCheck returns early when the class
+    // has any base — a same-named field may intentionally shadow a base.
+    if !class.bases().is_empty() {
+        return;
+    }
     let lowered_class = class.name.id.to_lowercase();
     let mut push = |name: &str, name_range: ruff_text_size::TextRange| {
         issues.push(issue_at(

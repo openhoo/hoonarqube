@@ -1,17 +1,15 @@
 use crate::engine::rx::RxItem;
-use crate::engine::rx::RxNode;
 use crate::engine::rx::RxParsed;
 use crate::engine::rx::RxSet;
+use crate::engine::rx::for_each_rx_alternation;
 use crate::engine::rx::for_each_rx_seq_deep;
 use crate::engine::rx::rx_atom_first_set;
 use crate::engine::rx::rx_equivalent;
 use crate::engine::rx::rx_item_consuming;
-use crate::engine::rx::rx_leading_anchor_span;
 use crate::engine::rx::rx_lookahead_body;
 use crate::engine::rx::rx_node_first_set;
 use crate::engine::rx::rx_positive_lookahead_body;
 use crate::engine::rx::rx_sets_intersect;
-use crate::engine::rx::rx_trailing_anchor_span;
 use crate::rules::rx_alternation_nodes::check_rx_alternation_nodes;
 use crate::rules::rx_anchor_order::check_rx_anchor_order;
 use crate::rules::rx_space_runs::check_rx_space_runs;
@@ -22,13 +20,16 @@ pub(crate) fn check_rx_alternation_shapes(
     verbose: bool,
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
-    // python:S5850 — anchors in a top-level alternation need grouping.
-    if let RxNode::Alternation(branches) = &parsed.root
-        && branches.len() >= 2
-    {
-        let leading_start = branches.first().and_then(rx_leading_anchor_span);
-        let trailing_end = branches.last().and_then(rx_trailing_anchor_span);
-        if (leading_start.is_some() || trailing_end.is_some())
+    // python:S5850 — an alternation anchored at one end only, with no other
+    // branch anchored anywhere, needs explicit grouping. Mirrors Sonar's
+    // AnchorPrecedenceFinder over every disjunction (nested ones included).
+    for_each_rx_alternation(&parsed.root, &mut |branches| {
+        if branches.len() < 2 {
+            return;
+        }
+        let anchored = anchored_at_beginning(branches) || anchored_at_end(branches);
+        if anchored
+            && not_anchored_elsewhere(branches)
             && let (Some(first), Some(last)) = (branches.first(), branches.last())
         {
             push(
@@ -37,7 +38,7 @@ pub(crate) fn check_rx_alternation_shapes(
                 TextRange::new(first.span.start(), last.span.end()),
             );
         }
-    }
+    });
     for_each_rx_seq_deep(&parsed.root, &mut |seq| {
         // python:S6002 — contradictory lookarounds.
         check_contradictory_lookaheads(&seq.items, push);
@@ -52,6 +53,59 @@ pub(crate) fn check_rx_alternation_shapes(
     // python:S6035 / python:S6323 — single-character alternations and empty
     // alternatives.
     check_rx_alternation_nodes(&parsed.root, false, push);
+}
+
+/// python:S5850 helpers — Sonar's `AnchorPrecedenceFinder` semantics.
+/// `isAnchored` inspects the first/last non-flag-setter item of a branch
+/// sequence and accepts any `^`, `$`, `\A`, `\Z`, or `\z` boundary.
+fn anchored_at_beginning(branches: &[crate::engine::rx::RxSeq]) -> bool {
+    branches
+        .first()
+        .is_some_and(|branch| branch_is_anchored(branch, true))
+}
+
+fn anchored_at_end(branches: &[crate::engine::rx::RxSeq]) -> bool {
+    branches
+        .last()
+        .is_some_and(|branch| branch_is_anchored(branch, false))
+}
+
+fn not_anchored_elsewhere(branches: &[crate::engine::rx::RxSeq]) -> bool {
+    if branches
+        .first()
+        .is_some_and(|branch| branch_is_anchored(branch, false))
+        || branches
+            .last()
+            .is_some_and(|branch| branch_is_anchored(branch, true))
+    {
+        return false;
+    }
+    branches[1..branches.len() - 1]
+        .iter()
+        .all(|branch| !branch_is_anchored(branch, true) && !branch_is_anchored(branch, false))
+}
+
+fn branch_is_anchored(branch: &crate::engine::rx::RxSeq, beginning: bool) -> bool {
+    let items: Vec<&RxItem> = branch
+        .items
+        .iter()
+        .filter(|item| !is_flag_setter(item))
+        .collect();
+    if items.is_empty() {
+        return false;
+    }
+    let edge = if beginning {
+        items[0]
+    } else {
+        items[items.len() - 1]
+    };
+    edge.quant.is_none() && matches!(edge.atom, crate::engine::rx::RxAtom::Anchor(_))
+}
+
+/// Flag-setter items (`(?i)`-style empty non-capturing groups) are skipped
+/// when locating a branch's edge item.
+fn is_flag_setter(item: &RxItem) -> bool {
+    matches!(item.atom, crate::engine::rx::RxAtom::GlobalFlags)
 }
 
 /// python:S6002 — lookarounds that contradict the rest of their sequence.

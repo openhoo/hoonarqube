@@ -110,18 +110,27 @@ pub(crate) const FIXME_TAG: &str = "fixme";
 
 pub(crate) const TODO_TAG: &str = "todo";
 
-/// Checks the text immediately following an anchored TODO/FIXME tag for the
-/// person reference pattern `[ ]*\([ _a-zA-Z0-9@.]+\)` — e.g. `(jane)`.
+/// Checks the text following a TODO/FIXME tag for the person reference
+/// pattern `[ ]*\([ _a-zA-Z0-9@.]+\)` — e.g. `(jane)`. Sonar applies it
+/// with unanchored `find()`, so any parenthesized group anywhere in the
+/// tail exempts the comment.
 pub(crate) fn has_person_reference(text_after_tag: &str) -> bool {
-    let rest = text_after_tag.trim_start_matches(' ');
-    let Some(body) = rest.strip_prefix('(').and_then(|r| r.split_once(')')) else {
-        return false;
-    };
-    !body.0.is_empty()
-        && body
-            .0
-            .chars()
-            .all(|c| c == '_' || c == ' ' || c == '@' || c == '.' || c.is_ascii_alphanumeric())
+    let mut rest = text_after_tag;
+    while let Some(open) = rest.find('(') {
+        let after_open = &rest[open + 1..];
+        let Some((body, _)) = after_open.split_once(')') else {
+            return false;
+        };
+        if !body.is_empty()
+            && body
+                .chars()
+                .all(|c| c == '_' || c == ' ' || c == '@' || c == '.' || c.is_ascii_alphanumeric())
+        {
+            return true;
+        }
+        rest = after_open;
+    }
+    false
 }
 
 /// Matches `([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+)` without a regex engine.

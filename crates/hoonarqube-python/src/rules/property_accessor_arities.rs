@@ -1,7 +1,6 @@
 use crate::support::for_each_method;
 use crate::support::has_decorator;
 use crate::support::issue_at;
-use crate::support::positional_parameters;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
@@ -27,7 +26,16 @@ pub(crate) fn check_property_accessor_arities(
         } else {
             return;
         };
-        let actual = positional_parameters(&function.parameters).len();
+        // Sonar's countRequiredParameters counts only parameters without
+        // defaults or star markers — `def num_feat(self, force=1)` is a
+        // valid one-required-parameter getter.
+        let actual = function
+            .parameters
+            .posonlyargs
+            .iter()
+            .chain(&function.parameters.args)
+            .filter(|param| param.default.is_none())
+            .count();
         if actual == required {
             return;
         }

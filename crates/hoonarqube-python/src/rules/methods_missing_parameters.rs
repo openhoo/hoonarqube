@@ -16,8 +16,11 @@ pub(crate) fn check_methods_missing_parameters(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_method(parsed.syntax().body.as_slice(), &mut |_class, function| {
+        // Sonar accepts `*args` as satisfying the positional-parameter
+        // requirement; only `**kwargs`- or keyword-only signatures flag.
         if !has_decorator(function, "staticmethod")
             && positional_parameters(&function.parameters).is_empty()
+            && function.parameters.vararg.is_none()
         {
             let message = if has_decorator(function, "classmethod") {
                 "Add a class parameter"
@@ -80,7 +83,7 @@ mod tests {
         assert_eq!(findings(&classmethod, "python:S5719").len(), 1);
 
         let vararg_only = scan("class C:\n    def forward(*args):\n        pass\n");
-        assert_eq!(findings(&vararg_only, "python:S5719").len(), 1);
+        assert!(findings(&vararg_only, "python:S5719").is_empty());
 
         let kwonly_only = scan("class C:\n    def configure(*, key):\n        pass\n");
         assert_eq!(findings(&kwonly_only, "python:S5719").len(), 1);

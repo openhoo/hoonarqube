@@ -31,50 +31,87 @@ pub(crate) fn check_closure_captures_loop_variable(
             if let Expr::Lambda(lambda) = expr
                 && loads_any_name(&lambda.body, &targets)
             {
-                let mut reported = false;
-                for_each_expr(&lambda.body, &mut |node| {
-                    if reported {
-                        return;
-                    }
-                    if let Expr::Name(name) = node
-                        && targets.iter().any(|target| target == name.id.as_str())
-                    {
-                        let variable = name.id.as_str();
-                        issues.push(issue_at(
-                            "python:S1515",
-                            &format!(
-                                "Add a parameter to the parent lambda function and use variable \
-                                 \"{variable}\" as its default value; The value of \"{variable}\" \
-                                 might change at the next loop iteration."
-                            ),
-                            name.range(),
-                            index,
-                            source,
-                        ));
-                        reported = true;
-                    }
-                });
+                report_lambda_capture(&lambda.body, &targets, index, source, &mut issues);
             }
         });
         for_each_stmt(&for_stmt.body, &mut |nested| {
-            if let Stmt::FunctionDef(function) = nested
-                && stmts_load_any_name(&function.body, &targets)
-            {
-                issues.push(issue_at(
-                    "python:S1515",
-                    &format!(
-                        "Add a parameter to function \"{}\" and use a captured loop variable as \
-                         its default value; The value might change at the next loop iteration.",
-                        function.name
-                    ),
-                    function.name.range(),
-                    index,
-                    source,
-                ));
+            if let Stmt::FunctionDef(function) = nested {
+                // A loop variable bound as a parameter is the rule's own
+                // recommended fix, not a capture.
+                let free_targets: Vec<String> = targets
+                    .iter()
+                    .filter(|target| !function_takes_parameter(function, target))
+                    .cloned()
+                    .collect();
+                if !free_targets.is_empty() && stmts_load_any_name(&function.body, &free_targets) {
+                    issues.push(issue_at(
+                        "python:S1515",
+                        &format!(
+                            "Add a parameter to function \"{}\" and use a captured loop variable as \
+                             its default value; The value might change at the next loop iteration.",
+                            function.name
+                        ),
+                        function.name.range(),
+                        index,
+                        source,
+                    ));
+                }
             }
         });
     }
     issues
+}
+
+fn report_lambda_capture(
+    body: &Expr,
+    targets: &[String],
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let mut reported = false;
+    for_each_expr(body, &mut |node| {
+        if reported {
+            return;
+        }
+        if let Expr::Name(name) = node
+            && targets.iter().any(|target| target == name.id.as_str())
+        {
+            let variable = name.id.as_str();
+            issues.push(issue_at(
+                "python:S1515",
+                &format!(
+                    "Add a parameter to the parent lambda function and use variable \
+                     \"{variable}\" as its default value; The value of \"{variable}\" \
+                     might change at the next loop iteration."
+                ),
+                name.range(),
+                index,
+                source,
+            ));
+            reported = true;
+        }
+    });
+}
+
+/// Whether `function` declares `name` as any parameter (positional,
+/// keyword-only, `*args`, or `**kwargs`).
+fn function_takes_parameter(function: &ruff_python_ast::StmtFunctionDef, name: &str) -> bool {
+    let parameters = &function.parameters;
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .chain(&parameters.kwonlyargs)
+        .any(|param| param.parameter.name.as_str() == name)
+        || parameters
+            .vararg
+            .as_ref()
+            .is_some_and(|param| param.name.as_str() == name)
+        || parameters
+            .kwarg
+            .as_ref()
+            .is_some_and(|param| param.name.as_str() == name)
 }
 
 #[cfg(test)]

@@ -16,11 +16,18 @@ pub(crate) fn check_self_assignment(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
+        // Sonar exempts class-body assignments (the `Database = Database`
+        // re-export idiom) and self-assignments of imported or builtin
+        // names.
+        if in_class_body(stmt, file_ctx) {
+            continue;
+        }
         match stmt {
             Stmt::Assign(assign) => {
                 if assign.targets.iter().any(|target| {
                     is_assignable_shape(target)
                         && exprs_textually_equal(target, &assign.value, source)
+                        && !is_exempt_name(target, file_ctx)
                 }) {
                     let operator_start = assign
                         .targets
@@ -62,7 +69,43 @@ pub(crate) fn check_self_assignment(
             _ => {}
         }
     }
+
     issues
+}
+
+/// Whether `stmt` sits directly inside a class body.
+fn in_class_body(stmt: &Stmt, file_ctx: &FileContext) -> bool {
+    file_ctx
+        .classes
+        .iter()
+        .any(|class| class.body.iter().any(|member| std::ptr::eq(member, stmt)))
+}
+
+/// Self-assignment of a name bound by an import or naming a builtin is the
+/// re-export idiom, not a defect.
+fn is_exempt_name(target: &ruff_python_ast::Expr, file_ctx: &FileContext) -> bool {
+    let ruff_python_ast::Expr::Name(name) = target else {
+        return false;
+    };
+    if crate::support::is_builtin_name(name.id.as_str()) {
+        return true;
+    }
+    file_ctx.imports.iter().any(|entry| match entry {
+        crate::engine::file_context::AnyImport::Plain(import) => import.names.iter().any(|alias| {
+            alias
+                .asname
+                .as_ref()
+                .map_or_else(|| alias.name.as_str(), |asname| asname.as_str())
+                == name.id.as_str()
+        }),
+        crate::engine::file_context::AnyImport::From(import) => import.names.iter().any(|alias| {
+            alias
+                .asname
+                .as_ref()
+                .map_or_else(|| alias.name.as_str(), |asname| asname.as_str())
+                == name.id.as_str()
+        }),
+    })
 }
 
 #[cfg(test)]

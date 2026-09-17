@@ -17,6 +17,10 @@ pub(crate) fn check_inverted_boolean_checks(
         if let Expr::UnaryOp(unary) = expr
             && unary.op == ruff_python_ast::UnaryOp::Not
             && let Expr::Compare(compare) = unary.operand.as_ref()
+            // Sonar's checkNotExpression returns early when the left
+            // operand is itself a comparison — chained comparisons like
+            // `not (0 <= index < size)` stay silent.
+            && compare.comparators.len() == 1
         {
             let opposite = match compare.ops.first() {
                 Some(ruff_python_ast::CmpOp::Eq) => "!=",

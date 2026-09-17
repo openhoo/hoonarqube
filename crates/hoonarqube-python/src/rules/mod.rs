@@ -542,7 +542,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_unconditional_assertions(
         parsed, index, source, file_ctx,
     ));
-    issues.extend(check_unseeded_randomness(index, source, file_ctx));
+    issues.extend(check_unseeded_randomness(parsed, index, source, file_ctx));
     issues.extend(check_sync_os_calls_in_async(
         parsed, index, source, file_ctx,
     ));
@@ -1038,7 +1038,7 @@ pub(crate) fn check_structural_battery(
     let mut issues = Vec::new();
     issues.extend(check_collapsible_ifs(parsed, index, source));
     issues.extend(check_empty_functions(parsed, index, source));
-    issues.extend(check_missing_docstrings(parsed, index, source));
+    issues.extend(check_missing_docstrings(parsed, index, source, path));
     issues.extend(check_similar_names_scope(parsed, index, source));
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));
@@ -1396,9 +1396,6 @@ mod rx_class;
 mod rx_empty_groups;
 
 mod rx_lazy_quantifiers;
-
-mod rx_overlapping_repeats;
-
 mod rx_pointless_groups;
 
 mod rx_possessive_deadlock;

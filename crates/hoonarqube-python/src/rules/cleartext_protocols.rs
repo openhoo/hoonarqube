@@ -15,12 +15,53 @@ pub(crate) fn check_cleartext_protocols(
     source: &str,
 ) -> Vec<Issue> {
     const CLEARTEXT_SCHEMES: [&str; 3] = ["http://", "ftp://", "telnet://"];
-    const SAFE_HOSTS: [&str; 5] = [
+    // Sonar's CleartextProtocolFilter safe-host pattern: localhost,
+    // loopback/link-local IPs, cloud metadata endpoints, and
+    // example/test/localhost TLDs.
+    const SAFE_HOSTS: [&str; 12] = [
         "localhost",
         "127.0.0.1",
         "::1",
+        "169.254.0.0",
+        "168.63.129.16",
+        "100.100.100.200",
+        "metadata.google.internal",
+        "metadata.internal",
+        "host.docker.internal",
+        "gateway.docker.internal",
         "example.org",
         "example.com",
+    ];
+    // Sonar's CleartextProtocolFilter namespace-authority exemption list.
+    const NAMESPACE_AUTHORITIES: [&str; 28] = [
+        "www.w3.org",
+        "schemas.android.com",
+        "schemas.microsoft.com",
+        "schemas.xmlsoap.org",
+        "www.sap.com",
+        "www.opengis.net",
+        "hl7.org",
+        "unitsofmeasure.org",
+        "purl.org",
+        "docs.oasis-open.org",
+        "xmlns.com",
+        "json-ld.org",
+        "schema.org",
+        "www.springframework.org",
+        "www.mulesoft.org",
+        "maven.apache.org",
+        "dublincore.org",
+        "ogp.me",
+        "xml.apache.org",
+        "schemas.openxmlformats.org",
+        "rdfs.org",
+        "schemas.google.com",
+        "a9.com",
+        "ns.adobe.com",
+        "ltsc.ieee.org",
+        "docbook.org",
+        "graphml.graphdrawing.org",
+        "json-schema.org",
     ];
     let mut issues = Vec::new();
     for (text, range) in collect_value_string_contents(parsed.syntax().body.as_slice()) {
@@ -29,14 +70,17 @@ pub(crate) fn check_cleartext_protocols(
             let mut search = 0usize;
             while let Some(relative) = text[search..].find(scheme) {
                 let start = search + relative + scheme.len();
-                let host = text[start..]
-                    .split(['/', ':', '?', '#'])
-                    .next()
-                    .unwrap_or_default();
+                let host = protocol_host(&text[start..]);
                 let safe = SAFE_HOSTS.contains(&host)
                     || host.ends_with(".example.org")
-                    || host.ends_with(".example.com");
-                if !safe && !host.is_empty() {
+                    || host.ends_with(".example.com")
+                    || host.ends_with(".svc.cluster.local")
+                    || host.rsplit_once('.').is_some_and(|(_, tld)| tld == "test")
+                    || host.ends_with(".localhost")
+                    || NAMESPACE_AUTHORITIES.contains(&host);
+                // Sonar flags even a bare `http://` literal — the empty host
+                // is not an exemption.
+                if !safe {
                     flagged_protocol = Some(scheme.trim_end_matches("://"));
                 }
                 search = start;
@@ -62,13 +106,28 @@ pub(crate) fn check_cleartext_protocols(
     issues
 }
 
+fn protocol_host(authority: &str) -> &str {
+    // IPv6 literals are bracketed; the host ends at `]`.
+    if authority.starts_with('[') {
+        authority
+            .find(']')
+            .map(|end| &authority[..=end])
+            .unwrap_or_default()
+    } else {
+        authority
+            .split(['/', ':', '?', '#'])
+            .next()
+            .unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::{findings, scan};
 
     #[test]
     fn s5332_flags_remote_cleartext_urls_and_spares_safe_hosts() {
-        let bad = scan("web = 'http://unsafe.test/path'\nfiles = 'ftp://files.test/data'\n");
+        let bad = scan("web = 'http://unsafe.example/path'\nfiles = 'ftp://files.example/data'\n");
         assert_eq!(findings(&bad, "python:S5332").len(), 2);
 
         let good = scan("secure = 'https://unsafe.test'\nlocal = 'http://localhost:8000'\n");
@@ -95,7 +154,7 @@ mod docstring_prose_tests {
         let source = concat!(
             "def fetch():\n",
             "    \"\"\"Reads the spec at http://yaml.org/spec.\"\"\"\n",
-            "    return download(\"http://unsafe.test/data\")\n",
+            "    return download(\"http://unsafe.example/data\")\n",
         );
         let flagged = scan(source);
         let found = findings(&flagged, "python:S5332");

@@ -436,7 +436,9 @@ fn s5042_requires_members_filter_on_extractall() {
 #[test]
 fn s4507_flags_debug_hooks_and_debug_flags() {
     let flagged = scan("breakpoint()\npdb.set_trace()\nrun(app, debug=True)\n");
-    assert_eq!(findings(&flagged, "python:S4507").len(), 3);
+    // Sonar's DebugModeCheck only inspects specific framework debug entry
+    // points — a generic `debug=True` kwarg is not a finding.
+    assert_eq!(findings(&flagged, "python:S4507").len(), 2);
 }
 
 #[test]
@@ -717,17 +719,19 @@ fn s5717_flags_mutated_defaults() {
 
 #[test]
 fn s5797_flags_constant_conditions_but_not_while_true() {
+    // Sonar's ConstantConditionCheck only inspects if/elif/conditional-
+    // expression/comprehension conditions — `while` is never checked.
     let flagged = scan(
         "if True:\n    pass\nwhile False:\n    pass\nwhile True:\n    pass\nif flag:\n    pass\n",
     );
     let found = findings(&flagged, "python:S5797");
-    assert_eq!(found.len(), 2);
+    assert_eq!(found.len(), 1);
     assert_eq!(
         found
             .iter()
             .map(|issue| issue.range.start.line)
             .collect::<Vec<_>>(),
-        vec![1, 3]
+        vec![1]
     );
 }
 
@@ -1928,7 +1932,9 @@ fn s5852_flags_catastrophic_backtracking_shapes() {
         "import re\nre.compile(r'(a+)+b')\n",
         "python:S5852"
     ));
-    assert!(regex_finds(
+    // `.*_.*` is the super-linear concern of python:S8786, not the
+    // nested-ambiguous-repetition shape this rule reports.
+    assert!(!regex_finds(
         "import re\nre.compile(r'.*_.*')\n",
         "python:S5852"
     ));
@@ -1972,11 +1978,13 @@ fn s2092_requires_secure_cookie_flag() {
 
 #[test]
 fn s3330_requires_httponly_cookie_flag() {
-    let flagged = "resp.set_cookie(\"k\", \"v\")\nresp.set_cookie(\"k\", \"v\", httponly=False)\n";
-    assert_eq!(findings(&scan(flagged), "python:S3330").len(), 2);
+    // Sonar treats any present httponly kwarg as compliant — the value
+    // need not be a literal True.
+    let flagged = "resp.set_cookie(\"k\", \"v\")\n";
+    assert_eq!(findings(&scan(flagged), "python:S3330").len(), 1);
     assert!(
         findings(
-            &scan("resp.set_cookie(\"k\", \"v\", httponly=True)\n"),
+            &scan("resp.set_cookie(\"k\", \"v\", httponly=False)\n"),
             "python:S3330"
         )
         .is_empty()
@@ -2971,7 +2979,7 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
         "OTHER = \"pay load\"\n",
         "THIRD = \"pay load\"\n",
         "GATEWAY = \"192.168.1.1\"\n",
-        "ENDPOINT = \"http://unsafe.test/path\"\n",
+        "ENDPOINT = \"http://unsafe.example/path\"\n",
         "\n",
         "def helper():\n",
         "    stale = 1\n",
@@ -4278,8 +4286,11 @@ fn s8714_accepts_try_except_without_pytest_fail() {
 #[test]
 fn s8786_flags_super_linear_regex_literals() {
     // Pinned psf/requests src/requests/utils.py#L536-L538 @ dae7ef63:
-    // three `re.compile` literals pair a lazy dot-all run with further
-    // unbounded quantifiers, so backtracking is super-linear.
+    // `charset_re` and `xml_re` pair a lazy dot run with adjacent
+    // intersecting quantifiers, and `a*a*c` has two intersecting adjacent
+    // repetitions. `pragma_re`'s `content=...;?charset=` gap needs more
+    // characters than a single element supplies, and `find_title`'s
+    // `title>` gap is disjoint from `.` — both stay silent like Sonar.
     let flagged = scan(concat!(
         "import re\n",
         "\n",
@@ -4296,17 +4307,15 @@ fn s8786_flags_super_linear_regex_literals() {
         "    return re.compile(r'a*a*c')\n",
     ));
     let found = findings(&flagged, "python:S8786");
-    assert_eq!(found.len(), 5);
+    assert_eq!(found.len(), 3);
     assert_eq!(
         found[0].message,
         "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
     );
     assert_eq!(found[0].range.start, pos(4, 28));
     assert_eq!(found[0].range.end, pos(4, 64));
-    assert_eq!(found[1].range.start, pos(5, 27));
-    assert_eq!(found[2].range.start, pos(6, 24));
-    assert_eq!(found[3].range.start, pos(10, 21));
-    assert_eq!(found[4].range.start, pos(13, 22));
+    assert_eq!(found[1].range.start, pos(6, 24));
+    assert_eq!(found[2].range.start, pos(13, 22));
 }
 
 #[test]
@@ -4665,7 +4674,13 @@ fn s9073_flags_composite_assertions() {
             "    assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
         ),
     );
+    // Test-scoped file: silenced by the central MAIN-scope gate.
     assert!(findings(&in_tests, "python:S9073").is_empty());
+    let non_test = scan_at(
+        PathBuf::from("src/app.py"),
+        "def check(x):\n    assert x and x.ok\n",
+    );
+    assert!(findings(&non_test, "python:S9073").is_empty());
 }
 
 #[test]

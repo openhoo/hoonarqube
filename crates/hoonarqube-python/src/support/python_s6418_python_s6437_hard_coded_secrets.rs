@@ -283,11 +283,14 @@ pub(crate) fn visit_ifexp_branches(
     index: &LineIndex,
     source: &str,
 ) {
-    let mut pending = vec![(expr, in_branch)];
-    while let Some((expr, in_branch)) = pending.pop() {
+    // Sonar's NestedConditionalExpressionCheck exempts any conditional with
+    // a comprehension ancestor — comprehension element expressions are
+    // already constrained to a single expression.
+    let mut pending = vec![(expr, in_branch, false)];
+    while let Some((expr, in_branch, in_comprehension)) = pending.pop() {
         match expr {
             Expr::If(nested) => {
-                if in_branch {
+                if in_branch && !in_comprehension {
                     issues.push(issue_at(
                         "python:S3358",
                         "Extract this nested conditional expression into an independent statement.",
@@ -296,16 +299,24 @@ pub(crate) fn visit_ifexp_branches(
                         source,
                     ));
                 }
-                pending.push((&nested.orelse, true));
-                pending.push((&nested.body, true));
-                pending.push((&nested.test, false));
+                pending.push((&nested.orelse, true, in_comprehension));
+                pending.push((&nested.body, true, in_comprehension));
+                pending.push((&nested.test, false, in_comprehension));
+            }
+            Expr::ListComp(_) | Expr::SetComp(_) | Expr::DictComp(_) | Expr::Generator(_) => {
+                pending.extend(
+                    child_exprs(expr)
+                        .into_iter()
+                        .rev()
+                        .map(|child| (child, in_branch, true)),
+                );
             }
             _ => {
                 pending.extend(
                     child_exprs(expr)
                         .into_iter()
                         .rev()
-                        .map(|child| (child, in_branch)),
+                        .map(|child| (child, in_branch, in_comprehension)),
                 );
             }
         }
