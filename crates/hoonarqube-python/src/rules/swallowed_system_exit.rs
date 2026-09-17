@@ -40,33 +40,55 @@ pub(crate) fn check_swallowed_system_exit(
                 }
                 break;
             };
-            for name in exception_type_names(Some(caught_type)) {
-                if handler_reraises(&inner.body, inner.name.as_deref()) {
-                    system_exit_handled |= name == "SystemExit";
-                    continue;
-                }
-                if name == "SystemExit" {
-                    issues.push(issue_at(
-                        "python:S5754",
-                        "Reraise this exception to stop the application as the user expects",
-                        caught_type.range(),
-                        index,
-                        source,
-                    ));
-                    system_exit_handled = true;
-                } else if name == "BaseException" && !system_exit_handled {
-                    issues.push(issue_at(
-                        "python:S5754",
-                        "Catch a more specific exception or reraise the exception",
-                        caught_type.range(),
-                        index,
-                        source,
-                    ));
-                }
-            }
+            system_exit_handled |= check_typed_handler(
+                inner,
+                caught_type,
+                system_exit_handled,
+                &mut issues,
+                index,
+                source,
+            );
         }
     }
     issues
+}
+
+/// Flags a typed handler that swallows SystemExit/BaseException without
+/// re-raising; returns whether SystemExit is now handled.
+fn check_typed_handler(
+    inner: &ruff_python_ast::ExceptHandlerExceptHandler,
+    caught_type: &Expr,
+    system_exit_handled: bool,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) -> bool {
+    let mut handled = false;
+    for name in exception_type_names(Some(caught_type)) {
+        if handler_reraises(&inner.body, inner.name.as_deref()) {
+            handled |= name == "SystemExit";
+            continue;
+        }
+        if name == "SystemExit" {
+            issues.push(issue_at(
+                "python:S5754",
+                "Reraise this exception to stop the application as the user expects",
+                caught_type.range(),
+                index,
+                source,
+            ));
+            handled = true;
+        } else if name == "BaseException" && !system_exit_handled {
+            issues.push(issue_at(
+                "python:S5754",
+                "Catch a more specific exception or reraise the exception",
+                caught_type.range(),
+                index,
+                source,
+            ));
+        }
+    }
+    handled
 }
 
 /// Whether the handler body re-raises: a bare `raise`, `raise <bound name>`,
