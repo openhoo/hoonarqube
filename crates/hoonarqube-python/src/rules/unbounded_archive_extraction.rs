@@ -36,18 +36,7 @@ pub(crate) fn check_unbounded_archive_extraction(
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         // The reference's ExpandingArchiveCheck flags `tarfile.open` itself.
-        if matches!(
-            dotted_name(&call.func).as_deref(),
-            Some("tarfile.open" | "tarfile.TarFile.open")
-        ) || (called_name(&call.func) == Some("open")
-            && file_ctx.imports.iter().any(|import| {
-                let crate::engine::file_context::AnyImport::From(from) = import else {
-                    return false;
-                };
-                from.module.as_deref() == Some("tarfile")
-                    && from.names.iter().any(|alias| alias.name.as_str() == "open")
-            }))
-        {
+        if is_tarfile_open(call, file_ctx) {
             issues.push(issue_at(
                 "python:S5042",
                 "Make sure that expanding this archive file is safe here.",
@@ -79,4 +68,23 @@ pub(crate) fn check_unbounded_archive_extraction(
         }
     }
     issues
+}
+
+/// Whether the call is `tarfile.open`/`tarfile.TarFile.open` or a bare
+/// `open(...)` bound by `from tarfile import open`.
+fn is_tarfile_open(call: &ruff_python_ast::ExprCall, file_ctx: &FileContext) -> bool {
+    if matches!(
+        dotted_name(&call.func).as_deref(),
+        Some("tarfile.open" | "tarfile.TarFile.open")
+    ) {
+        return true;
+    }
+    called_name(&call.func) == Some("open")
+        && file_ctx.imports.iter().any(|import| {
+            let crate::engine::file_context::AnyImport::From(from) = import else {
+                return false;
+            };
+            from.module.as_deref() == Some("tarfile")
+                && from.names.iter().any(|alias| alias.name.as_str() == "open")
+        })
 }
