@@ -1289,6 +1289,9 @@ fn project_file_from_report(
     } else if error.is_none() {
         error = Some("source facts unavailable for analyzed file".to_owned());
     }
+    // Semantic reports bypass `hoonarqube_core::analyze`, so the retired
+    // security-hotspot filter is applied here as well.
+    hoonarqube_core::drop_retired_security_hotspots(&mut report);
     let report = if is_razor && error.is_some() {
         None
     } else {
@@ -2017,8 +2020,8 @@ fn is_recognized_unsupported_file(path: &Path) -> bool {
     let extension = path.extension().and_then(|extension| extension.to_str());
     if extension.is_some_and(|extension| {
         [
-            "css", "less", "scss", "sass", "html", "xhtml", "cshtml", "vbhtml", "aspx", "ascx",
-            "rhtml", "erb", "shtm", "shtml", "cmp", "twig", "htm",
+            "css", "less", "scss", "sass", "cshtml", "vbhtml", "aspx", "ascx", "rhtml", "erb",
+            "cmp", "twig",
         ]
         .iter()
         .any(|candidate| extension.eq_ignore_ascii_case(candidate))
@@ -2727,8 +2730,8 @@ mod tests {
         let main = fix.write("main.py", "value = 1\n");
         let style_upper = fix.write("style.CSS", "body { color: red; }\n");
         fix.write("style.css", "body { color: blue; }\n");
-        fix.write("index.HTML", "<p>unsupported</p>\n");
-        fix.write("index.html", "<p>unsupported</p>\n");
+        fix.write("page.CSHTML", "<p>unsupported</p>\n");
+        fix.write("page.cshtml", "<p>unsupported</p>\n");
         fix.write("Dockerfile", "FROM scratch\n");
         fix.write("dockerfile", "FROM scratch\n");
         fix.write("notes.txt", "ordinary notes\n");
@@ -2763,8 +2766,8 @@ mod tests {
         for name in [
             "style.CSS",
             "style.css",
-            "index.HTML",
-            "index.html",
+            "page.CSHTML",
+            "page.cshtml",
             "Dockerfile",
             "dockerfile",
         ] {

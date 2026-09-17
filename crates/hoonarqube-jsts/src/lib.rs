@@ -334,6 +334,189 @@ fn analyze_on_scoped_stack(
         )
     })
 }
+/// Analyzes the inline `<script>` bodies of a web template as JavaScript.
+///
+/// `SonarQube`'s web analyzer feeds every inline script body to the JS
+/// analyzer while reporting findings at their original template offsets.
+/// The extraction masks all markup to spaces (newlines preserved) so issue
+/// positions map one-to-one onto the template, then runs the ordinary JS
+/// pipeline. Scripts with a `src` attribute or a non-JavaScript `type`
+/// contribute no code, matching browser and reference behavior.
+#[must_use]
+pub fn analyze_embedded_html(
+    path: PathBuf,
+    source: &str,
+    options: &AnalyzerOptions,
+) -> hoonarqube_ir::FileReport {
+    let (extracted, line_has_code) = extract_inline_scripts(source);
+    let mut report = analyze(path, &extracted, JstsLanguage::JavaScript, options);
+    // Source-text rules (trailing whitespace, line length, file header)
+    // would flag the masked markup; the reference only reports findings on
+    // real script lines, so findings on fully masked lines are dropped.
+    report.issues.retain(|issue| {
+        line_has_code
+            .get(issue.range.start.line.saturating_sub(1) as usize)
+            .copied()
+            .unwrap_or(false)
+    });
+    "web".clone_into(&mut report.language);
+    report
+}
+
+fn extract_inline_scripts(source: &str) -> (String, Vec<bool>) {
+    let bytes = source.as_bytes();
+    let mut masked = vec![b' '; bytes.len()];
+    for (index, byte) in bytes.iter().enumerate() {
+        if matches!(byte, b'\n' | b'\r') {
+            masked[index] = *byte;
+        }
+    }
+    let mut offset = 0;
+    while let Some(open) = find_script_open(bytes, offset) {
+        let (tag_end, inline) = script_tag_end(bytes, open);
+        if !inline {
+            offset = tag_end;
+            continue;
+        }
+        let content_end = find_script_close(bytes, tag_end);
+        masked[tag_end..content_end].copy_from_slice(&bytes[tag_end..content_end]);
+        offset = content_end;
+    }
+    // The mask only ever replaces bytes with ASCII spaces or copies source
+    // slices verbatim, so the result is always valid UTF-8.
+    let extracted = String::from_utf8(masked).unwrap_or_default();
+    let line_has_code = extracted
+        .split('\n')
+        .map(|line| !line.trim().is_empty())
+        .collect();
+    (extracted, line_has_code)
+}
+
+/// Finds the next `<script` tag at or after `offset`, requiring a tag
+/// boundary (whitespace, `/`, or `>`) so `<scripts>` does not match.
+fn find_script_open(bytes: &[u8], offset: usize) -> Option<usize> {
+    let mut index = offset;
+    while index + 7 <= bytes.len() {
+        if bytes[index] == b'<'
+            && bytes[index + 1..index + 7].eq_ignore_ascii_case(b"script")
+            && bytes.get(index + 7).is_none_or(|byte| {
+                matches!(byte, b'>' | b'/' | b'\t' | b'\n' | b'\r' | b' ' | 0x0c)
+            })
+        {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Finds the `</script` close tag at or after `offset`; unclosed scripts
+/// run to end of input like browser parsing.
+fn find_script_close(bytes: &[u8], offset: usize) -> usize {
+    let mut index = offset;
+    while index + 8 <= bytes.len() {
+        if bytes[index] == b'<'
+            && bytes[index + 1] == b'/'
+            && bytes[index + 2..index + 8].eq_ignore_ascii_case(b"script")
+            && bytes.get(index + 8).is_none_or(|byte| {
+                matches!(byte, b'>' | b'/' | b'\t' | b'\n' | b'\r' | b' ' | 0x0c)
+            })
+        {
+            return index;
+        }
+        index += 1;
+    }
+    bytes.len()
+}
+
+/// Returns the offset just past the tag's closing `>` and whether the tag
+/// opens an inline JavaScript body.
+fn script_tag_end(bytes: &[u8], open: usize) -> (usize, bool) {
+    let mut index = open + 1;
+    let mut quote = None;
+    while index < bytes.len() {
+        match (bytes[index], quote) {
+            (b'"' | b'\'', None) => quote = Some(bytes[index]),
+            (b'>', None) => break,
+            (byte, Some(active)) if byte == active => quote = None,
+            _ => {}
+        }
+        index += 1;
+    }
+    let tag = &bytes[open..index.min(bytes.len())];
+    (
+        index.saturating_add(1).min(bytes.len()),
+        tag_is_inline_javascript(tag),
+    )
+}
+
+/// Whether a `<script ...>` tag body is inline JavaScript: no `src`
+/// attribute and a `type` that is absent, empty, `module`, or a
+/// JavaScript MIME type.
+fn tag_is_inline_javascript(tag: &[u8]) -> bool {
+    if attribute_value(tag, b"src").is_some() {
+        return false;
+    }
+    match attribute_value(tag, b"type") {
+        None => true,
+        Some(value) => {
+            value.is_empty()
+                || value.eq_ignore_ascii_case(b"module")
+                || contains_ascii_case_insensitive(value, b"javascript")
+                || contains_ascii_case_insensitive(value, b"ecmascript")
+                || contains_ascii_case_insensitive(value, b"jscript")
+        }
+    }
+}
+
+/// Extracts one attribute value from a tag, quoted or unquoted.
+fn attribute_value<'tag>(tag: &'tag [u8], name: &[u8]) -> Option<&'tag [u8]> {
+    let mut index = 0;
+    while let Some(found) = find_ascii_case_insensitive(tag, name, index) {
+        let before_ok = found == 0
+            || !matches!(tag[found - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_');
+        let mut cursor = found + name.len();
+        while cursor < tag.len() && matches!(tag[cursor], b'\t' | b'\n' | b'\r' | b' ' | 0x0c) {
+            cursor += 1;
+        }
+        if before_ok && tag.get(cursor) == Some(&b'=') {
+            cursor += 1;
+            while cursor < tag.len() && matches!(tag[cursor], b'\t' | b'\n' | b'\r' | b' ' | 0x0c) {
+                cursor += 1;
+            }
+            let (start, end) = if matches!(tag.get(cursor), Some(b'"' | b'\'')) {
+                let quote = tag[cursor];
+                let start = cursor + 1;
+                let end = tag[start..]
+                    .iter()
+                    .position(|byte| *byte == quote)
+                    .map_or(tag.len(), |offset| start + offset);
+                (start, end)
+            } else {
+                let start = cursor;
+                let end = tag[start..]
+                    .iter()
+                    .position(|byte| {
+                        matches!(*byte, b'\t' | b'\n' | b'\r' | b' ' | 0x0c | b'>' | b'/')
+                    })
+                    .map_or(tag.len(), |offset| start + offset);
+                (start, end)
+            };
+            return Some(&tag[start..end]);
+        }
+        index = found + 1;
+    }
+    None
+}
+
+fn find_ascii_case_insensitive(haystack: &[u8], needle: &[u8], offset: usize) -> Option<usize> {
+    (offset..=haystack.len().saturating_sub(needle.len()))
+        .find(|index| haystack[*index..*index + needle.len()].eq_ignore_ascii_case(needle))
+}
+
+fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    find_ascii_case_insensitive(haystack, needle, 0).is_some()
+}
 
 /// Whether the path names a TypeScript declaration file. Matched on the
 /// file name so directory routers can keep their own conventions; the
@@ -414,7 +597,6 @@ fn analyze_with_rules_and_facts(
         language,
         options,
         rules,
-        has_parse_errors,
         comments,
     };
     let mut issues = Vec::new();

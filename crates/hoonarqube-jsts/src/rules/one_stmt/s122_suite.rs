@@ -344,21 +344,28 @@ mod tests {
         let findings = js_keys("let a = 1; let b = 2;\n");
         assert_eq!(count_key(&findings, "javascript:S122"), 1);
         assert_eq!(
-            js("let a = 1; let b = 2;\n").issues[0].message,
-            "This line has 2 statements. Maximum allowed is 1."
+            js("let a = 1; let b = 2;\n")
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == "javascript:S122")
+                .map(|issue| issue.message.as_str()),
+            Some("This line has 2 statements. Maximum allowed is 1.")
         );
 
         let separate = js_keys("let a = 1;\nlet b = 2;\n");
         assert_eq!(count_key(&separate, "javascript:S122"), 0);
     }
-
     #[test]
     fn three_and_four_statement_lines_report_the_line_total() {
         let three = js("let a = 1; let b = 2; let c = 3;\n");
         assert_eq!(count_key(&report_keys(&three), "javascript:S122"), 1);
         assert_eq!(
-            three.issues[0].message,
-            "This line has 3 statements. Maximum allowed is 1."
+            three
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == "javascript:S122")
+                .map(|issue| issue.message.as_str()),
+            Some("This line has 3 statements. Maximum allowed is 1.")
         );
 
         let calls = js("f(); g(); h(); i();\n");

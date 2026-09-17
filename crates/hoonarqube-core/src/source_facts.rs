@@ -266,8 +266,20 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     }
+    // Web templates carry no tree-sitter grammar: their inline scripts are
+    // analyzed by the JS analyzer, while source facts stay plain-text
+    // fallback metrics with no tokens, so duplication skips them.
+    if language == Language::Html {
+        return Some(SourceFacts {
+            metrics: fallback_metrics(source, language),
+            tokens: Vec::new(),
+            symbols: Vec::new(),
+            units: Vec::new(),
+            error: None,
+            language,
+        });
+    }
     let line_starts = semantic_line_starts(source, language);
-
     let mut parser = Parser::new();
     if let Err(error) = set_parser_language(&mut parser, language, extension) {
         return Some(SourceFacts {
@@ -334,6 +346,9 @@ fn set_parser_language(
         Language::Java => parser.set_language(&tree_sitter_java::LANGUAGE.into()),
         Language::Rust => parser.set_language(&tree_sitter_rust::LANGUAGE.into()),
         Language::Ruby => parser.set_language(&tree_sitter_ruby::LANGUAGE.into()),
+        // Unreachable: `collect_source_facts` returns fallback facts for
+        // web templates before a parser is created.
+        Language::Html => return Err("web templates have no tree-sitter grammar".to_owned()),
     };
     result.map_err(|_| "tree-sitter grammar is unavailable or incompatible".to_owned())
 }
@@ -1601,7 +1616,7 @@ fn contains_interpolation(node: Node<'_>) -> bool {
     false
 }
 
-fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
+pub(crate) fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
     let lines = semantic_line_count(source, language);
     let mut code_lines = 0usize;
     let mut comment_lines = 0usize;
@@ -1664,21 +1679,32 @@ fn consume_fallback_comment<'source>(
     language: Language,
     in_block_comment: &mut bool,
 ) -> Option<&'source str> {
+    let block_end = if language == Language::Html {
+        "-->"
+    } else {
+        "*/"
+    };
     if *in_block_comment {
-        if let Some(end) = text.find("*/") {
+        if let Some(end) = text.find(block_end) {
             *in_block_comment = false;
-            return Some(text[end + 2..].trim_start());
+            return Some(text[end + block_end.len()..].trim_start());
         }
         return Some("");
     }
     let line_comment = match language {
         Language::Python | Language::Ruby => text.starts_with('#'),
+        Language::Html => false,
         _ => text.starts_with("//"),
     };
     if line_comment {
         return Some("");
     }
-    if let Some(rest) = text.strip_prefix("/*") {
+    let block_start = if language == Language::Html {
+        "<!--"
+    } else {
+        "/*"
+    };
+    if let Some(rest) = text.strip_prefix(block_start) {
         *in_block_comment = true;
         return Some(rest);
     }
