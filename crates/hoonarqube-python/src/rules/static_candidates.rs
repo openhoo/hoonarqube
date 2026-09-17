@@ -104,9 +104,9 @@ fn uses_first_parameter(function: &StmtFunctionDef) -> bool {
         .first()
         .or_else(|| parameters.args.first())
         .map(|parameter| &parameter.parameter)
-        .or_else(|| parameters.vararg.as_deref())
+        .or(parameters.vararg.as_deref())
         .or_else(|| parameters.kwonlyargs.first().map(|p| &p.parameter))
-        .or_else(|| parameters.kwarg.as_deref());
+        .or(parameters.kwarg.as_deref());
     let Some(first) = first else {
         // No parameters at all: the method cannot use a receiver.
         return false;

@@ -47,12 +47,11 @@ fn is_exempt_async_function(
         return true;
     }
     let trivial = function.body.iter().all(|stmt| match stmt {
-        Stmt::Pass(_) => true,
+        Stmt::Pass(_) | Stmt::Raise(_) => true,
         Stmt::Expr(expr) => matches!(
             expr.value.as_ref(),
             Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
         ),
-        Stmt::Raise(_) => true,
         Stmt::Return(ret) => ret.value.as_deref().is_some_and(
             |value| matches!(value, Expr::Name(name) if name.id.as_str() == "NotImplemented"),
         ),

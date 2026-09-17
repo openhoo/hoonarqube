@@ -134,18 +134,6 @@ fn function_used_in_class_body(class: &StmtClassDef, name: &str) -> bool {
     })
 }
 
-/// Whether the class directly inherits from `type` and therefore defines
-/// metaclass methods whose first parameter receives the created class.
-fn is_metaclass(class: &StmtClassDef) -> bool {
-    class.arguments.as_deref().is_some_and(|arguments| {
-        arguments.args.iter().any(|base| match base {
-            Expr::Name(name) => name.id.as_str() == "type",
-            Expr::Attribute(attribute) => attribute.attr.as_str() == "type",
-            _ => false,
-        })
-    })
-}
-
 /// Names bound by a deferred `name = classmethod(name)` wrapper in the same
 /// class body.
 fn deferred_classmethod_names(class: &StmtClassDef) -> Vec<&str> {
