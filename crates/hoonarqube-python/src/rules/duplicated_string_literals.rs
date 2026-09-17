@@ -170,40 +170,53 @@ fn collect_stmt_literals(
 /// exclusion pattern.
 fn literal_is_excluded(value: &str, options: &AnalyzerOptions) -> bool {
     value.len() < 5
-        || value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        || value.chars().all(|c| {
-            matches!(
-                c,
-                '0'..='9'
-                    | '{'
-                    | '}'
-                    | ' '
-                    | '.'
-                    | '-'
-                    | '_'
-                    | '%'
-                    | ':'
-                    | 'd'
-                    | 'f'
-                    | 'r'
-                    | 's'
-                    | 'y'
-                    | 'm'
-                    | 'h'
-                    | 'Y'
-                    | 'M'
-                    | 'H'
-                    | 'S'
-                    | '<'
-                    | '>'
-            )
-        })
-        || (value.len() == 7
-            && value.starts_with('#')
-            && value[1..].chars().all(|c| c.is_ascii_hexdigit()))
+        || is_identifier_like(value)
+        || is_formatting_pattern(value)
+        || is_hex_color(value)
         || excluded_by_pattern(&options.duplicate_literal_exclusion_regex, value)
+}
+
+/// `^[_\-a-zA-Z0-9]+$`: identifier-like literals are exempt.
+fn is_identifier_like(value: &str) -> bool {
+    value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// `^[0-9{} .\-_%:dfrsymhYMHS<>]+$`: formatting patterns are exempt.
+fn is_formatting_pattern(value: &str) -> bool {
+    value.chars().all(|c| {
+        matches!(
+            c,
+            '0'..='9'
+                | '{'
+                | '}'
+                | ' '
+                | '.'
+                | '-'
+                | '_'
+                | '%'
+                | ':'
+                | 'd'
+                | 'f'
+                | 'r'
+                | 's'
+                | 'y'
+                | 'm'
+                | 'h'
+                | 'Y'
+                | 'M'
+                | 'H'
+                | 'S'
+                | '<'
+                | '>'
+        )
+    })
+}
+
+/// `#rrggbb` hex colors are exempt.
+fn is_hex_color(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
 // ---------------------------------------------------------------------------

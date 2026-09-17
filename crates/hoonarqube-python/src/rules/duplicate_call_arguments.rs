@@ -83,29 +83,33 @@ fn has_duplicate_binding(
         .chain(&parameters.kwonlyargs)
         .map(|entry| entry.parameter.name.as_str())
         .collect();
-    for keyword in &arguments.keywords {
-        match keyword.arg.as_ref() {
-            Some(name) => {
-                if !bound.insert(name.to_string()) {
-                    return true;
-                }
-            }
-            // `**{"name": ...}` binds `name` like an explicit keyword.
-            None => {
-                if let Expr::Dict(dict) = &keyword.value {
-                    for item in &dict.items {
-                        if let Some(key) = item.key.as_ref()
-                            && let Expr::StringLiteral(literal) = key
-                        {
-                            let text = crate::support::string_value_text(&literal.value);
-                            if keyword_names.contains(text.as_str()) && !bound.insert(text) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    arguments
+        .keywords
+        .iter()
+        .any(|keyword| keyword_binds_duplicate(keyword, &keyword_names, &mut bound))
+}
+
+/// Whether one keyword argument re-binds an already-bound parameter name.
+/// `**{"name": ...}` binds `name` like an explicit keyword.
+fn keyword_binds_duplicate(
+    keyword: &ruff_python_ast::Keyword,
+    keyword_names: &HashSet<&str>,
+    bound: &mut HashSet<String>,
+) -> bool {
+    if let Some(name) = keyword.arg.as_ref() {
+        return !bound.insert(name.to_string());
     }
-    false
+    let Expr::Dict(dict) = &keyword.value else {
+        return false;
+    };
+    dict.items.iter().any(|item| {
+        let Some(key) = item.key.as_ref() else {
+            return false;
+        };
+        let Expr::StringLiteral(literal) = key else {
+            return false;
+        };
+        let text = crate::support::string_value_text(&literal.value);
+        keyword_names.contains(text.as_str()) && !bound.insert(text)
+    })
 }
