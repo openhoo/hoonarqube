@@ -97,8 +97,8 @@ mod tests {
         assert_eq!(
             ranges,
             vec![hoonarqube_ir::Range {
-                start: pos(5, 12),
-                end: pos(5, 35),
+                start: pos(5, 11),
+                end: pos(5, 34),
             }]
         );
     }
@@ -114,19 +114,22 @@ mod tests {
             "0.1 < lower == upper\n",
             "lower == upper < 0.1\n",
         ] {
-            assert!(findings(&scan(source), "python:S1244").is_empty(), "{source}");
+            assert!(
+                findings(&scan(source), "python:S1244").is_empty(),
+                "{source}"
+            );
         }
     }
 
     #[test]
     fn s1244_preserves_numeric_operands_and_adjacent_chain_equalities() {
         for (source, end_column) in [
-            ("value == (-0.5)\n", 16),
-            ("(+0.5) != value\n", 16),
-            ("0.1 + 0.2 == value\n", 19),
-            ("lower < 0.1 == upper\n", 21),
-            ("lower == 0.1 < upper\n", 21),
-            ("0.1 == middle != 0.2\n", 21),
+            ("value == (-0.5)\n", 15),
+            ("(+0.5) != value\n", 15),
+            ("0.1 + 0.2 == value\n", 18),
+            ("lower < 0.1 == upper\n", 20),
+            ("lower == 0.1 < upper\n", 20),
+            ("0.1 == middle != 0.2\n", 20),
         ] {
             let report = scan(source);
             let issues = findings(&report, "python:S1244");
@@ -134,7 +137,7 @@ mod tests {
             assert_eq!(
                 ranges,
                 vec![hoonarqube_ir::Range {
-                    start: pos(1, 1),
+                    start: pos(1, 0),
                     end: pos(1, end_column),
                 }],
                 "{source}"
