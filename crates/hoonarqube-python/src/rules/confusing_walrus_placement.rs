@@ -73,7 +73,7 @@ fn flag_expr_walrus(expr: &Expr, issues: &mut Vec<Issue>, index: &LineIndex, sou
 }
 
 /// Flags every walrus (`Named`) expression nested inside `expr`, mirroring
-/// the reference's WalrusVisitor over parameters and argument lists.
+/// the reference's `WalrusVisitor` over parameters and argument lists.
 fn flag_nested_walrus(expr: &Expr, issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
     for_each_expr(expr, &mut |inner| {
         if matches!(inner, Expr::Named(_)) {

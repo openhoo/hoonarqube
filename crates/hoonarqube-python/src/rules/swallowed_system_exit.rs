@@ -93,7 +93,7 @@ fn check_typed_handler(
 
 /// Whether the handler body re-raises: a bare `raise`, `raise <bound name>`,
 /// `raise SystemExit`, or a call to `sys.exit`/`sys.exc_info` — the cases the
-/// reference's ExceptionReRaiseCheckVisitor treats as propagation.
+/// reference's `ExceptionReRaiseCheckVisitor` treats as propagation.
 fn handler_reraises(body: &[Stmt], bound_name: Option<&str>) -> bool {
     let mut re_raised = false;
     for_each_stmt_in_scope(body, &mut |candidate| {
