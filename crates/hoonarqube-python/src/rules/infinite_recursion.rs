@@ -10,6 +10,7 @@ use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
 pub(crate) fn check_infinite_recursion(
+    parsed: &ruff_python_parser::Parsed<ruff_python_ast::ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
@@ -18,6 +19,11 @@ pub(crate) fn check_infinite_recursion(
     for stmt in &file_ctx.stmts {
         if let Stmt::FunctionDef(function) = stmt {
             let receiver = method_receiver(function, &file_ctx.classes);
+            if receiver.is_none()
+                && module_rebinds(parsed.syntax().body.as_slice(), function.name.as_str())
+            {
+                continue;
+            }
             if straight_line_self_call(function, receiver) {
                 issues.push(issue_at(
                     "python:S2190",
@@ -32,15 +38,33 @@ pub(crate) fn check_infinite_recursion(
     issues
 }
 
+/// Module-level functions rebound more than once cannot be proven to call
+/// themselves (the reference requires fewer than two binding usages).
+fn module_rebinds(module: &[Stmt], name: &str) -> bool {
+    let mut bindings = 0usize;
+    for stmt in module {
+        if matches!(stmt, Stmt::FunctionDef(f) if f.name.as_str() == name) {
+            bindings += 1;
+            continue;
+        }
+        bindings += stmt_store_names(stmt)
+            .iter()
+            .filter(|bound| bound.as_str() == name)
+            .count();
+    }
+    bindings >= 2
+}
+
 fn straight_line_self_call(function: &StmtFunctionDef, receiver: Option<&str>) -> bool {
     let name = function.name.as_str();
-    let direct_name_is_bound = !name_is_shadowed(function, name);
+    let direct_name_is_bound = receiver.is_none() && !name_is_shadowed(function, name);
     let receiver_rebound = receiver.is_some_and(|name| body_rebinds_name(function, name));
     for stmt in &function.body {
         match stmt {
             Stmt::Expr(expr_stmt) => {
                 if is_self_call(
                     &expr_stmt.value,
+                    function,
                     name,
                     direct_name_is_bound,
                     receiver,
@@ -53,6 +77,7 @@ fn straight_line_self_call(function: &StmtFunctionDef, receiver: Option<&str>) -
                 if let Some(value) = return_stmt.value.as_deref()
                     && is_self_call(
                         value,
+                        function,
                         name,
                         direct_name_is_bound,
                         receiver,
@@ -68,19 +93,36 @@ fn straight_line_self_call(function: &StmtFunctionDef, receiver: Option<&str>) -
     false
 }
 /// A recursive target is either an unqualified reference to the function's
-/// lexical name or a method call through that method's first positional
-/// receiver.  Attribute tails alone are insufficient: `super().run()` and
-/// `other.run()` must not be treated as calls back into `run`.
+/// lexical name (module functions only — a bare `name()` inside a method
+/// resolves to a different symbol) or a method call through that method's
+/// first positional receiver.  Attribute tails alone are insufficient:
+/// `super().run()` and `other.run()` must not be treated as calls back into
+/// `run`.  In async functions only `await`ed calls recurse.
 fn is_self_call(
     expr: &Expr,
+    function: &StmtFunctionDef,
     name: &str,
     direct_name_is_bound: bool,
     receiver: Option<&str>,
     receiver_is_bound: bool,
 ) -> bool {
-    let Expr::Call(call) = expr else {
+    let (call, awaited) = match expr {
+        Expr::Await(await_expr) => (
+            match await_expr.value.as_ref() {
+                Expr::Call(call) => Some(call),
+                _ => None,
+            },
+            true,
+        ),
+        Expr::Call(call) => (Some(call), false),
+        _ => (None, false),
+    };
+    let Some(call) = call else {
         return false;
     };
+    if function.is_async && !awaited {
+        return false;
+    }
     match call.func.as_ref() {
         Expr::Name(callee) => direct_name_is_bound && callee.id.as_str() == name,
         Expr::Attribute(attribute) => {
@@ -96,7 +138,6 @@ fn is_self_call(
         _ => false,
     }
 }
-
 /// Finds a method's first positional binding only when the function is
 /// directly in an enclosing class body.  Nested functions are not methods,
 /// and static methods do not receive an implicit receiver.

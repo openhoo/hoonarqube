@@ -30,7 +30,10 @@ pub(crate) fn flag_copy_only(
     source: &str,
 ) {
     let [generator] = generators else { return };
-    if generator.ifs.is_empty() && exprs_textually_equal(element, &generator.target, source) {
+    if generator.ifs.is_empty()
+        && !generator.is_async
+        && exprs_textually_equal(element, &generator.target, source)
+    {
         issues.push(issue_at(
             "python:S7500",
             "Copy the iterable directly instead of using a comprehension that only renames.",

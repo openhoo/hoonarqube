@@ -64,7 +64,17 @@ pub(crate) fn flag_duplicate_branches(
     index: &LineIndex,
     source: &str,
 ) {
+    let single_line = |suite: &[Stmt]| {
+        let span = suite_span(suite);
+        index.line_column(span.start(), source).line.get()
+            == index.line_column(span.end(), source).line.get()
+    };
     for (later_index, later) in branches.iter().enumerate() {
+        // The reference exempts a duplicate branch only when its own
+        // statements fit on one line.
+        if single_line(later) {
+            continue;
+        }
         for earlier in &branches[..later_index] {
             if ranges_textually_equal(suite_span(later), suite_span(earlier), source) {
                 let earlier_line = index

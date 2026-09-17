@@ -341,14 +341,14 @@ fn s1192_groups_duplicates_file_wide_with_primary_at_first_occurrence() {
     // One file-wide tally: module, class, and function scopes share the
     // grouping, the first occurrence carries the primary finding, and later
     // occurrences ride along as secondary locations.
-    let module_level = scan("a = \"dup\"\nb = \"dup\"\nc = \"dup\"\n");
+    let module_level = scan("a = \"dup value\"\nb = \"dup value\"\nc = \"dup value\"\n");
     let primary = findings(&module_level, "python:S1192");
     assert_eq!(primary.len(), 1);
     assert_eq!(primary[0].range.start.line, 1);
     assert!(
-        primary[0]
-            .message
-            .contains("Define a constant instead of duplicating this literal \"dup\" 3 times.")
+        primary[0].message.contains(
+            "Define a constant instead of duplicating this literal \"dup value\" 3 times."
+        )
     );
     assert_eq!(primary[0].flows.len(), 1);
     let locations = &primary[0].flows[0].locations;
@@ -356,20 +356,21 @@ fn s1192_groups_duplicates_file_wide_with_primary_at_first_occurrence() {
     assert_eq!(locations[0].range.start.line, 2);
     assert_eq!(locations[1].range.start.line, 3);
 
-    let class_body = scan("class C:\n    a = \"dup\"\n    b = \"dup\"\n    c = \"dup\"\n");
+    let class_body =
+        scan("class C:\n    a = \"dup value\"\n    b = \"dup value\"\n    c = \"dup value\"\n");
     let grouped = findings(&class_body, "python:S1192");
     assert_eq!(grouped.len(), 1);
     assert_eq!(grouped[0].range.start.line, 2);
 
     let cross_function = scan(
-        "def a():\n    return \"dup\"\n\ndef b():\n    return \"dup\"\n\ndef c():\n    return \"dup\"\n",
+        "def a():\n    return \"dup value\"\n\ndef b():\n    return \"dup value\"\n\ndef c():\n    return \"dup value\"\n",
     );
     let grouped = findings(&cross_function, "python:S1192");
     assert_eq!(grouped.len(), 1);
     assert_eq!(grouped[0].range.start.line, 2);
 
     // Two occurrences stay below the threshold of three.
-    let split = scan("def a():\n    return \"dup\"\n\ndef b():\n    return \"dup\"\n");
+    let split = scan("def a():\n    return \"dup value\"\n\ndef b():\n    return \"dup value\"\n");
     assert!(findings(&split, "python:S1192").is_empty());
 }
 
@@ -380,7 +381,7 @@ fn s1192_exclusion_regex_suppresses_matches() {
         ..AnalyzerOptions::default()
     };
     let report = scan_with_options(
-        "def run():\n    x = \"dup\" + \"dup\"\n    return \"dup\"\n\n\nrun()\n",
+        "def run():\n    x = \"dup value\" + \"dup value\"\n    return \"dup value\"\n\n\nrun()\n",
         &options,
     );
     assert!(findings(&report, "python:S1192").is_empty());
@@ -392,7 +393,7 @@ fn s1192_sees_duplicates_inside_pep695_type_aliases() {
     // values duplicate exactly like assigned string literals (catalog S1192
     // threshold: 3 occurrences within one function scope).
     let flagged = scan(
-        "def run():\n    type Bucket = Literal[\"dup\"]\n    type Mirror = Literal[\"dup\"]\n    type Trio = Literal[\"dup\"]\n\n\nrun()\n",
+        "def run():\n    type Bucket = Literal[\"dup value\"]\n    type Mirror = Literal[\"dup value\"]\n    type Trio = Literal[\"dup value\"]\n\n\nrun()\n",
     );
     assert!(!findings(&flagged, "python:S1192").is_empty());
     let single = scan("type Bucket = Literal[\"dup\"]\n");
@@ -1178,18 +1179,18 @@ fn s1226_flags_parameters_overwritten_before_read() {
 fn s1854_flags_dead_final_stores() {
     let flagged = scan(concat!(
         "def tally(items):\n",
-        "    total = 0\n",
+        "    total = 2\n",
         "    for item in items:\n",
         "        total += item\n",
         "    report(total)\n",
-        "    total = 0\n"
+        "    total = 3\n"
     ));
     let found = findings(&flagged, "python:S1854");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 6);
     let alive = scan(concat!(
         "def tally(items):\n",
-        "    total = 0\n",
+        "    total = 2\n",
         "    for item in items:\n",
         "        total += item\n",
         "    report(total)\n"
@@ -1221,7 +1222,7 @@ fn s1854_flags_first_store_overwritten_on_every_branch() {
         "    return handle\n"
     ));
     assert!(findings(&reads_first_store, "python:S1854").is_empty());
-    let straight = scan("def straight():\n    value = 0\n    observe(value)\n    value = 1\n");
+    let straight = scan("def straight():\n    value = 2\n    observe(value)\n    value = 3\n");
     let found = findings(&straight, "python:S1854");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 4);
@@ -2646,6 +2647,16 @@ fn s930_uses_python_c3_order_for_diamond_inheritance() {
     let found = findings(&report, "python:S930");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 12);
+}
+
+#[test]
+fn s5549_flags_duplicate_call_arguments() {
+    // A positional and a keyword binding the same parameter is a duplicate.
+    let flagged = scan("def f(a, b):\n    pass\n\n\nf(1, a=2)\n");
+    assert_eq!(findings(&flagged, "python:S5549").len(), 1);
+    // Distinct parameters are clean.
+    let clean = scan("def f(a, b):\n    pass\n\n\nf(1, b=2)\n");
+    assert!(findings(&clean, "python:S5549").is_empty());
 }
 
 #[test]
