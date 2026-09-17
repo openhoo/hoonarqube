@@ -943,6 +943,7 @@ fn language_rank(language: Language) -> u8 {
         Language::Java => 5,
         Language::Rust => 6,
         Language::Ruby => 7,
+        Language::Html => 8,
     }
 }
 
@@ -956,6 +957,7 @@ fn language_name(language: Language) -> &'static str {
         Language::Java => "java",
         Language::Rust => "rust",
         Language::Ruby => "ruby",
+        Language::Html => "web",
     }
 }
 

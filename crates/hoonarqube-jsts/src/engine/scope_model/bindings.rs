@@ -270,7 +270,7 @@ fn record_shadows(model: &mut TbModel<'_>, scope: usize, ids: &[usize]) {
 }
 
 fn record_duplicates(model: &mut TbModel<'_>, ids: &[usize]) {
-    let duplicate_kind = |kind| matches!(kind, TbKind::Var | TbKind::Function);
+    let duplicate_kind = |kind| matches!(kind, TbKind::Var | TbKind::Function | TbKind::Import);
     let mut first_by_name: HashMap<&str, usize> = HashMap::new();
     for &id in ids {
         let binding = &model.bindings[id];

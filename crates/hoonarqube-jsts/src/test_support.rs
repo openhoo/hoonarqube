@@ -30,12 +30,22 @@ pub(crate) fn issue(
     }
 }
 
+/// Options with `S1451` disabled: an empty `headerFormat` under
+/// `isRegularExpression=true` disables the file-header check, matching the
+/// pre-SonarJS-13.4 default behavior tests were written against.
+pub(crate) fn no_header_options() -> AnalyzerOptions {
+    AnalyzerOptions {
+        header_is_regular_expression: true,
+        ..AnalyzerOptions::default()
+    }
+}
+
 pub(crate) fn js(source: &str) -> hoonarqube_ir::FileReport {
     analyze(
         PathBuf::from("test.js"),
         source,
         JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
 }
 
@@ -44,7 +54,7 @@ pub(crate) fn ts(source: &str) -> hoonarqube_ir::FileReport {
         PathBuf::from("test.ts"),
         source,
         JstsLanguage::TypeScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
 }
 
@@ -53,7 +63,7 @@ pub(crate) fn findings(source: &str, language: JstsLanguage) -> Vec<(String, u32
         PathBuf::from("test.js"),
         source,
         language,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
     .issues
     .into_iter()
@@ -81,7 +91,7 @@ pub(crate) fn findings_ts(source: &str) -> Vec<(String, u32)> {
         PathBuf::from("test.ts"),
         source,
         JstsLanguage::TypeScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
     .issues
     .into_iter()
@@ -94,7 +104,7 @@ pub(crate) fn js_with_rules(source: &str, rules: &RuleOptions) -> hoonarqube_ir:
         PathBuf::from("test.js"),
         source,
         JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
         rules,
     )
 }
@@ -116,7 +126,7 @@ pub(crate) fn jsx_keys(source: &str) -> Vec<(String, u32)> {
         PathBuf::from("test.jsx"),
         source,
         JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
     .issues
     .into_iter()
@@ -129,7 +139,7 @@ pub(crate) fn test_file_keys(source: &str) -> Vec<(String, u32)> {
         PathBuf::from("app.test.js"),
         source,
         JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
     .issues
     .into_iter()
@@ -172,6 +182,6 @@ pub(crate) fn jsx(source: &str) -> hoonarqube_ir::FileReport {
         PathBuf::from("test.jsx"),
         source,
         JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     )
 }
