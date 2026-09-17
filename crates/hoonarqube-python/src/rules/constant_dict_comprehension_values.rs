@@ -15,7 +15,10 @@ pub(crate) fn check_constant_dict_comprehension_values(
     let mut issues = Vec::new();
     for expr in &file_ctx.exprs {
         if let Expr::DictComp(comp) = expr
-            && matches!(comp.key.as_ref(), Expr::Name(_))
+            && comp
+                .key
+                .as_ref()
+                .is_some_and(|key| matches!(key.as_ref(), Expr::Name(_)))
             && let [generator] = comp.generators.as_slice()
             && generator.ifs.is_empty()
             && !generator.is_async
@@ -72,7 +75,10 @@ mod tests {
             "result = {k: 0 for group in groups for k in group}\n",
             "async def collect(keys):\n    return {k: 0 async for k in keys}\n",
         ] {
-            assert!(findings(&scan(source), "python:S7506").is_empty(), "{source}");
+            assert!(
+                findings(&scan(source), "python:S7506").is_empty(),
+                "{source}"
+            );
         }
     }
 
@@ -92,19 +98,31 @@ mod tests {
             "result = {k: k for k in keys}\n",
             "result = {k: value for k, value in pairs}\n",
         ] {
-            assert!(findings(&scan(source), "python:S7506").is_empty(), "{source}");
+            assert!(
+                findings(&scan(source), "python:S7506").is_empty(),
+                "{source}"
+            );
         }
     }
 
     #[test]
     fn s7506_preserves_genuine_fromkeys_suggestions() {
-        for value in ["0", "False", "None", "'ready'", "b'ready'", "f'ready'", "shared"] {
+        for value in [
+            "0", "False", "None", "'ready'", "b'ready'", "f'ready'", "shared",
+        ] {
             let source = format!("shared = object()\nresult = {{k: {value} for k in keys}}\n");
             let report = scan(&source);
             let issues = findings(&report, "python:S7506");
             assert_eq!(issues.len(), 1, "{source}");
-            assert_eq!(issues[0].range.start, pos(2, 14), "{source}");
-            assert_eq!(issues[0].range.end, pos(2, 14 + value.len() as u32), "{source}");
+            assert_eq!(issues[0].range.start, pos(2, 13), "{source}");
+            assert_eq!(
+                issues[0].range.end,
+                pos(
+                    2,
+                    13 + u32::try_from(value.len()).expect("short fixture value")
+                ),
+                "{source}"
+            );
         }
     }
 }
