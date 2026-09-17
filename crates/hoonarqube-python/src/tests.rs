@@ -3349,7 +3349,7 @@ fn s134_elif_chains_and_nested_units_do_not_inflate_depth() {
             .all(|issue| issue.rule_key != "python:S134")
     );
 
-    // Nested definitions are separate units and reset the counter.
+    // Definitions add no control-flow depth: these two loops remain below four.
     let units = scan(
         "def outer():\n    for a in []:\n        def inner():\n            for b in []:\n                pass\n",
     );
@@ -3359,6 +3359,37 @@ fn s134_elif_chains_and_nested_units_do_not_inflate_depth() {
             .iter()
             .all(|issue| issue.rule_key != "python:S134")
     );
+}
+
+#[test]
+fn s134_preserves_nested_definition_depth_only_on_main_sources() {
+    let source = concat!(
+        "if enabled:\n",
+        "    def outer():\n",
+        "        for item in items:\n",
+        "            class Nested:\n",
+        "                while ready:\n",
+        "                    def inner():\n",
+        "                        with resource:\n",
+        "                            if valid:\n",
+        "                                pass\n",
+    );
+    for path in ["src/nesting.py", "docs/nesting.py"] {
+        let report = scan_at(PathBuf::from(path), source);
+        let found: Vec<_> = findings(&report, "python:S134")
+            .iter()
+            .map(|issue| (issue.range.start, issue.range.end))
+            .collect();
+        assert_eq!(found, vec![(pos(8, 28), pos(8, 30))], "{path}");
+    }
+    for path in [
+        "django/test/nesting.py",
+        "tests/nesting.py",
+        "src/test_nesting.py",
+    ] {
+        let report = scan_at(PathBuf::from(path), source);
+        assert!(findings(&report, "python:S134").is_empty(), "{path}");
+    }
 }
 
 #[test]
