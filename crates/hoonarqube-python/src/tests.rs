@@ -3595,6 +3595,7 @@ fn tracked_python_oracle_gap_pairs_trigger_only_the_bad_control() {
         ("python:S6332", "s6332_bad.py", "s6332_good.py", 1),
         ("python:S6333", "s6333_bad.py", "s6333_good.py", 1),
         ("python:S6463", "s6463_bad.py", "s6463_good.py", 1),
+        ("python:S6554", "s6554_bad.py", "s6554_good.py", 1),
     ];
     let project = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../.oracle/sonar/projects/oracle-py/src");
