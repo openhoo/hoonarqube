@@ -85,3 +85,37 @@ pub(crate) fn check_copy_only_comprehensions(
 fn same_name(left: &Expr, right: &Expr) -> bool {
     matches!((left, right), (Expr::Name(left), Expr::Name(right)) if left.id == right.id)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, pos, scan};
+
+    #[test]
+    fn s7500_exempts_async_copies_but_preserves_synchronous_findings() {
+        let source = concat!(
+            "async def copies(qs, items, pairs):\n",
+            "    async_list = [obj async for obj in qs]\n",
+            "    async_set = {obj async for obj in qs}\n",
+            "    async_generator = (obj async for obj in qs)\n",
+            "    async_dict = {key: value async for key, value in pairs}\n",
+            "    sync_list = [obj for obj in items]\n",
+            "    sync_set = {obj for obj in items}\n",
+            "    sync_generator = (obj for obj in items)\n",
+            "    sync_dict = {key: value for key, value in pairs}\n",
+        );
+        let report = scan(source);
+        let ranges: Vec<_> = findings(&report, "python:S7500")
+            .into_iter()
+            .map(|issue| (issue.range.start, issue.range.end))
+            .collect();
+        assert_eq!(
+            ranges,
+            vec![
+                (pos(6, 16), pos(6, 38)),
+                (pos(7, 15), pos(7, 37)),
+                (pos(8, 21), pos(8, 43)),
+                (pos(9, 16), pos(9, 52)),
+            ]
+        );
+    }
+}
