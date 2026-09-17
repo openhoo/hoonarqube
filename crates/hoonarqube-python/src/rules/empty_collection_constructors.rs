@@ -16,7 +16,8 @@ pub(crate) fn check_empty_collection_constructors(
     for expr in &file_ctx.exprs {
         let Expr::Call(call) = expr else { continue };
         // Sonar type-checks the callee against the builtin constructors, so
-        // `list`/`set`/`tuple`/`dict` must be the bare callee name; instance
+        // `list`/`tuple`/`dict` must be the bare callee name (`set()` has no
+        // literal equivalent and the reference never flags it); instance
         let Expr::Name(callee) = call.func.as_ref() else {
             continue;
         };
@@ -24,7 +25,7 @@ pub(crate) fn check_empty_collection_constructors(
             continue;
         }
         let name = callee.id.as_str();
-        let literal_shaped = matches!(name, "list" | "set" | "tuple" | "dict")
+        let literal_shaped = matches!(name, "list" | "tuple" | "dict")
             && (call.arguments.keywords.is_empty()
                 || name == "dict"
                     && call
