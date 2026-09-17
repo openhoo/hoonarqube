@@ -1175,18 +1175,18 @@ fn s1226_flags_parameters_overwritten_before_read() {
 fn s1854_flags_dead_final_stores() {
     let flagged = scan(concat!(
         "def tally(items):\n",
-        "    total = 0\n",
+        "    total = 2\n",
         "    for item in items:\n",
         "        total += item\n",
         "    report(total)\n",
-        "    total = 0\n"
+        "    total = 3\n"
     ));
     let found = findings(&flagged, "python:S1854");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 6);
     let alive = scan(concat!(
         "def tally(items):\n",
-        "    total = 0\n",
+        "    total = 2\n",
         "    for item in items:\n",
         "        total += item\n",
         "    report(total)\n"
@@ -1218,7 +1218,7 @@ fn s1854_flags_first_store_overwritten_on_every_branch() {
         "    return handle\n"
     ));
     assert!(findings(&reads_first_store, "python:S1854").is_empty());
-    let straight = scan("def straight():\n    value = 0\n    observe(value)\n    value = 1\n");
+    let straight = scan("def straight():\n    value = 2\n    observe(value)\n    value = 3\n");
     let found = findings(&straight, "python:S1854");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 4);
