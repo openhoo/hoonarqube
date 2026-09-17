@@ -133,13 +133,13 @@ pub(crate) enum ResolvedCallee<'a> {
 }
 
 impl ResolvedCallee<'_> {
-    fn function(&self) -> &ruff_python_ast::StmtFunctionDef {
+    pub(crate) fn function(&self) -> &ruff_python_ast::StmtFunctionDef {
         match self {
             ResolvedCallee::Function(function) | ResolvedCallee::Bound(function, _) => function,
         }
     }
 
-    fn skips_receiver(self) -> bool {
+    pub(crate) fn skips_receiver(self) -> bool {
         matches!(self, ResolvedCallee::Bound(_, false))
     }
 }
@@ -310,6 +310,11 @@ impl<'a> LocalSignatures<'a> {
 
     fn resolve_bound_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
         let function = self.nearest_method(class_name, method)?;
+        if is_property_like(function) {
+            // `@property`/`@cached_property` attributes are values, not
+            // methods; the reference never checks calls through them.
+            return None;
+        }
         Some(ResolvedCallee::Bound(
             function,
             has_decorator(function, "staticmethod"),
@@ -318,6 +323,9 @@ impl<'a> LocalSignatures<'a> {
 
     fn resolve_class_method(&self, class_name: &str, method: &str) -> Option<ResolvedCallee<'a>> {
         let function = self.nearest_method(class_name, method)?;
+        if is_property_like(function) {
+            return None;
+        }
         // Ordinary methods accessed through the class are unbound: callers
         // must supply `self`. Only a classmethod supplies the receiver.
         Some(if has_decorator(function, "classmethod") {
@@ -326,6 +334,18 @@ impl<'a> LocalSignatures<'a> {
             ResolvedCallee::Function(function)
         })
     }
+}
+
+/// Property-family decorators turn a method into a value attribute.
+fn is_property_like(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    function.decorator_list.iter().any(|decorator| {
+        let name = match &decorator.expression {
+            Expr::Name(name) => name.id.as_str(),
+            Expr::Attribute(attribute) => attribute.attr.as_str(),
+            _ => return false,
+        };
+        matches!(name, "property" | "cached_property" | "classproperty")
+    })
 }
 
 fn declared_method<'a>(

@@ -529,7 +529,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_unraised_exceptions(parsed, index, source));
     issues.extend(check_generic_exception_raised(parsed, index, source));
     issues.extend(check_incompatible_assert_literals(index, source, file_ctx));
-    issues.extend(check_duplicate_call_arguments(index, source, file_ctx));
+    issues.extend(check_duplicate_call_arguments(parsed, index, source));
     issues.extend(check_skip_without_reason(index, source, file_ctx));
     issues.extend(check_disclosed_secret_keys(index, source, file_ctx));
     issues.extend(check_jwt_secret_arguments(index, source, file_ctx));
@@ -626,7 +626,9 @@ pub(crate) fn check_tier_b_battery(
         issues.extend(check_dead_stores(
             parsed, &table, &facts, options, index, source,
         ));
-        issues.extend(check_overwritten_parameters(&table, &facts, index, source));
+        issues.extend(check_overwritten_parameters(
+            parsed, &table, &facts, index, source,
+        ));
         issues.extend(check_known_value_comparisons(index, source, file_ctx));
         issues.extend(check_static_candidates(parsed, index, source));
     }
@@ -651,7 +653,7 @@ pub(crate) fn check_tier_b_battery(
     ));
     issues.extend(check_unreachable_except_blocks(index, source, file_ctx));
     issues.extend(check_single_iteration_loops(index, source, file_ctx));
-    issues.extend(check_infinite_recursion(index, source, file_ctx));
+    issues.extend(check_infinite_recursion(parsed, index, source, file_ctx));
     issues.extend(check_explicit_test_skips(index, source, file_ctx));
     issues.extend(check_tf_function_recursion(index, source, file_ctx));
     issues.extend(check_percent_argument_counts(index, source, file_ctx));
