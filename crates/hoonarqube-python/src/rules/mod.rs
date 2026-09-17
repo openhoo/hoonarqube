@@ -542,7 +542,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_unconditional_assertions(
         parsed, index, source, file_ctx,
     ));
-    issues.extend(check_unseeded_randomness(index, source, file_ctx));
+    issues.extend(check_unseeded_randomness(parsed, index, source, file_ctx));
     issues.extend(check_sync_os_calls_in_async(
         parsed, index, source, file_ctx,
     ));
