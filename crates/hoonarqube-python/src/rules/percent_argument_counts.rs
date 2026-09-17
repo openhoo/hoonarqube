@@ -52,6 +52,33 @@ pub(crate) fn check_percent_argument_counts(
             }
             continue;
         }
+        // The reference only verifies literal argument collections: a
+        // non-literal right operand (name, call, ...) is unverifiable.
+        if !matches!(
+            right_operand,
+            Expr::Tuple(_) | Expr::List(_) | Expr::Set(_) | Expr::Dict(_)
+        ) {
+            if conversions.len() > 1
+                && matches!(
+                    right_operand,
+                    Expr::StringLiteral(_)
+                        | Expr::BytesLiteral(_)
+                        | Expr::NumberLiteral(_)
+                        | Expr::BooleanLiteral(_)
+                        | Expr::NoneLiteral(_)
+                        | Expr::EllipsisLiteral(_)
+                )
+            {
+                issues.push(issue_at(
+                    "python:S2275",
+                    "Replace this formatting argument with a tuple.",
+                    right_operand.range(),
+                    index,
+                    source,
+                ));
+            }
+            continue;
+        }
         if conversions.len() != arguments.len() {
             let message = if conversions.len() > arguments.len() {
                 format!(

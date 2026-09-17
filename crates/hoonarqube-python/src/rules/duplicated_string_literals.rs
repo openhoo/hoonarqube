@@ -26,27 +26,33 @@ pub(crate) fn check_duplicated_string_literals(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let threshold = (options.duplicate_literal_threshold.max(2)) as usize;
-    let mut occurrences: Vec<(String, TextRange)> = Vec::new();
-    collect_file_wide(parsed.syntax().body.as_slice(), &mut occurrences);
+    // Literals inside decorators and type annotations are excluded.
+    let mut excluded_ranges: Vec<TextRange> = Vec::new();
+    collect_excluded_ranges(parsed.syntax().body.as_slice(), &mut excluded_ranges);
+    let mut occurrences: Vec<(String, String, TextRange)> = Vec::new();
+    collect_file_wide(
+        parsed.syntax().body.as_slice(),
+        &excluded_ranges,
+        source,
+        &mut occurrences,
+    );
 
     // The reference contract tallies eligible literals file-wide: module,
     // class, and function scopes share one grouping; the first occurrence
     // carries the primary finding and later occurrences become secondary
     // locations.
     let mut totals: HashMap<&str, usize> = HashMap::new();
-    for (text, _) in &occurrences {
+    for (text, _, _) in &occurrences {
         *totals.entry(text.as_str()).or_insert(0) += 1;
     }
     let mut emitted: HashSet<&str> = HashSet::new();
     let mut issues = Vec::new();
-    for (text, range) in &occurrences {
+    for (text, value, range) in &occurrences {
         if !emitted.insert(text.as_str()) {
             continue;
         }
         let total = totals[text.as_str()];
-        if total < threshold
-            || excluded_by_pattern(&options.duplicate_literal_exclusion_regex, text)
-        {
+        if total < threshold || literal_is_excluded(value, options) {
             continue;
         }
         let mut issue = issue_at(
@@ -61,9 +67,9 @@ pub(crate) fn check_duplicated_string_literals(
         );
         let secondary_locations = occurrences
             .iter()
-            .filter(|(candidate, _)| candidate == text)
+            .filter(|(candidate, _, _)| candidate == text)
             .skip(1)
-            .map(|(_, secondary_range)| {
+            .map(|(_, _, secondary_range)| {
                 FlowLocation::in_primary_file(
                     "Duplication",
                     to_range(*secondary_range, index, source),
@@ -78,28 +84,126 @@ pub(crate) fn check_duplicated_string_literals(
     issues
 }
 
-/// Every plain string literal except suite-leading docstrings, in one
-/// file-wide source-ordered occurrence list. Function headers (decorators,
-/// defaults, annotations) evaluate in the enclosing scope.
-fn collect_file_wide(suite: &[Stmt], out: &mut Vec<(String, TextRange)>) {
-    for (position, stmt) in suite.iter().enumerate() {
-        if position != 0 || !is_standalone_string_stmt(stmt) {
-            collect_stmt_literals(stmt, out);
+/// Ranges of decorator and type-annotation expressions: literals inside
+/// them never count.
+fn collect_excluded_ranges(suite: &[Stmt], out: &mut Vec<TextRange>) {
+    for stmt in suite {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                out.extend(function.decorator_list.iter().map(|d| d.range()));
+                for parameter in function
+                    .parameters
+                    .posonlyargs
+                    .iter()
+                    .chain(&function.parameters.args)
+                    .chain(&function.parameters.kwonlyargs)
+                {
+                    if let Some(annotation) = &parameter.parameter.annotation {
+                        out.push(annotation.range());
+                    }
+                }
+                if let Some(returns) = &function.returns {
+                    out.push(returns.range());
+                }
+            }
+            Stmt::ClassDef(class) => {
+                out.extend(class.decorator_list.iter().map(|d| d.range()));
+            }
+            Stmt::AnnAssign(assign) => out.push(assign.annotation.range()),
+            _ => {}
         }
         for body in child_bodies(stmt) {
-            collect_file_wide(body, out);
+            collect_excluded_ranges(body, out);
         }
     }
 }
 
-fn collect_stmt_literals(stmt: &Stmt, out: &mut Vec<(String, TextRange)>) {
+/// Every plain string literal except standalone string statements
+/// (docstrings and bare literal statements), in one file-wide
+/// source-ordered occurrence list. The grouping key is the raw literal
+/// text including quotes and prefixes, matching the reference.
+fn collect_file_wide(
+    suite: &[Stmt],
+    excluded: &[TextRange],
+    source: &str,
+    out: &mut Vec<(String, String, TextRange)>,
+) {
+    for stmt in suite.iter() {
+        if !is_standalone_string_stmt(stmt) {
+            collect_stmt_literals(stmt, excluded, source, out);
+        }
+        for body in child_bodies(stmt) {
+            collect_file_wide(body, excluded, source, out);
+        }
+    }
+}
+
+fn collect_stmt_literals(
+    stmt: &Stmt,
+    excluded: &[TextRange],
+    source: &str,
+    out: &mut Vec<(String, String, TextRange)>,
+) {
     for expr in stmt_exprs(stmt) {
         for_each_expr(expr, &mut |expr| {
-            if let Expr::StringLiteral(literal) = expr {
-                out.push((string_value_text(&literal.value), literal.range()));
+            if let Expr::StringLiteral(literal) = expr
+                && !excluded
+                    .iter()
+                    .any(|range| range.contains_range(literal.range()))
+            {
+                // The reference groups by the literal's raw token text
+                // (quotes and prefixes included), while the exclusion
+                // checks use the unescaped value.
+                out.push((
+                    source[literal.range()].to_string(),
+                    string_value_text(&literal.value),
+                    literal.range(),
+                ));
             }
         });
     }
+}
+
+/// Reference exclusions: literals shorter than 5 chars, identifier-like
+/// literals (`^[_\-a-zA-Z0-9]+$`), formatting patterns
+/// (`^[0-9{} .\-_%:dfrsymhYMHS<>]+$`), `#rrggbb` colors, and the custom
+/// exclusion pattern.
+fn literal_is_excluded(value: &str, options: &AnalyzerOptions) -> bool {
+    value.len() < 5
+        || value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        || value.chars().all(|c| {
+            matches!(
+                c,
+                '0'..='9'
+                    | '{'
+                    | '}'
+                    | ' '
+                    | '.'
+                    | '-'
+                    | '_'
+                    | '%'
+                    | ':'
+                    | 'd'
+                    | 'f'
+                    | 'r'
+                    | 's'
+                    | 'y'
+                    | 'm'
+                    | 'h'
+                    | 'Y'
+                    | 'M'
+                    | 'H'
+                    | 'S'
+                    | '<'
+                    | '>'
+            )
+        })
+        || (value.len() == 7
+            && value.starts_with('#')
+            && value[1..].chars().all(|c| c.is_ascii_hexdigit()))
+        || excluded_by_pattern(&options.duplicate_literal_exclusion_regex, value)
 }
 
 // ---------------------------------------------------------------------------

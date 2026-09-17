@@ -529,7 +529,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_unraised_exceptions(parsed, index, source));
     issues.extend(check_generic_exception_raised(parsed, index, source));
     issues.extend(check_incompatible_assert_literals(index, source, file_ctx));
-    issues.extend(check_duplicate_call_arguments(index, source, file_ctx));
+    issues.extend(check_duplicate_call_arguments(parsed, index, source));
     issues.extend(check_skip_without_reason(index, source, file_ctx));
     issues.extend(check_disclosed_secret_keys(index, source, file_ctx));
     issues.extend(check_jwt_secret_arguments(index, source, file_ctx));
