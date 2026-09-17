@@ -259,7 +259,7 @@ fn flag_excess_nesting(
 
 /// Walks nesting constructs (If/For/While/Try/With), tracking depth. Elif
 /// and else clauses share their `if`'s level; handler bodies share their
-/// `try`'s level; nested definitions are units of their own and reset it.
+/// `try`'s level; nested definitions preserve the enclosing control-flow depth.
 pub(crate) fn walk_nesting_depth(
     stmts: &[Stmt],
     depth: u32,
