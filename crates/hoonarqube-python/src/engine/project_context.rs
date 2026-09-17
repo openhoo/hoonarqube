@@ -1141,7 +1141,7 @@ fn class_str_method(class: &ruff_python_ast::StmtClassDef) -> Option<bool> {
     for statement in &class.body {
         match statement {
             Stmt::FunctionDef(function) if function.name.as_str() == "__str__" => {
-                method = Some(true)
+                method = Some(true);
             }
             _ => crate::support::for_each_stmt_in_scope(
                 std::slice::from_ref(statement),
