@@ -79,14 +79,11 @@ fn handler_reraises(body: &[Stmt], bound_name: Option<&str>) -> bool {
             match raise.exc.as_deref() {
                 None => re_raised = true,
                 Some(Expr::Name(name))
-                    if Some(name.id.as_str()) == bound_name
-                        || name.id.as_str() == "SystemExit" =>
+                    if Some(name.id.as_str()) == bound_name || name.id.as_str() == "SystemExit" =>
                 {
                     re_raised = true;
                 }
-                Some(Expr::Call(call))
-                    if called_name(&call.func) == Some("SystemExit") =>
-                {
+                Some(Expr::Call(call)) if called_name(&call.func) == Some("SystemExit") => {
                     re_raised = true;
                 }
                 _ => {}

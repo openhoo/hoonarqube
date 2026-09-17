@@ -25,11 +25,9 @@ pub(crate) fn check_modelform_meta_fields(
             // The reference flags `exclude = ...` unconditionally and
             // `fields = "__all__"`; a missing Meta or missing fields is not
             // reported by this rule.
-            let Some(meta) = class.body.iter().find_map(|inner| {
-                match inner {
-                    Stmt::ClassDef(meta) if meta.name.as_str() == "Meta" => Some(meta),
-                    _ => None,
-                }
+            let Some(meta) = class.body.iter().find_map(|inner| match inner {
+                Stmt::ClassDef(meta) if meta.name.as_str() == "Meta" => Some(meta),
+                _ => None,
             }) else {
                 continue;
             };
