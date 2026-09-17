@@ -90,7 +90,7 @@ fn collect_excluded_ranges(suite: &[Stmt], out: &mut Vec<TextRange>) {
     for stmt in suite {
         match stmt {
             Stmt::FunctionDef(function) => {
-                out.extend(function.decorator_list.iter().map(|d| d.range()));
+                out.extend(function.decorator_list.iter().map(Ranged::range));
                 for parameter in function
                     .parameters
                     .posonlyargs
@@ -107,7 +107,7 @@ fn collect_excluded_ranges(suite: &[Stmt], out: &mut Vec<TextRange>) {
                 }
             }
             Stmt::ClassDef(class) => {
-                out.extend(class.decorator_list.iter().map(|d| d.range()));
+                out.extend(class.decorator_list.iter().map(Ranged::range));
             }
             Stmt::AnnAssign(assign) => out.push(assign.annotation.range()),
             _ => {}
@@ -128,7 +128,7 @@ fn collect_file_wide(
     source: &str,
     out: &mut Vec<(String, String, TextRange)>,
 ) {
-    for stmt in suite.iter() {
+    for stmt in suite {
         if !is_standalone_string_stmt(stmt) {
             collect_stmt_literals(stmt, excluded, source, out);
         }
