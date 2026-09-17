@@ -83,7 +83,7 @@ pub(crate) fn check_function_complexity(
     issues
 }
 
-/// Function-specific traversal from SonarPython's `FunctionComplexityVisitor`:
+/// Function-specific traversal mirroring the upstream reference visitor:
 /// include the root's header, skip nested functions entirely, and walk classes.
 fn measure_function(root: &Stmt) -> u32 {
     let mut total = 1;
