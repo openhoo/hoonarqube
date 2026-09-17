@@ -325,6 +325,47 @@ fn retain_main_scope_issues(issues: &mut Vec<Issue>, path: &Path) {
     }
 }
 
+/// Tiered rule batteries share the parsed module, line index, file context,
+/// and path; grouping them keeps `analyze_with_context` under the line cap.
+/// Shared per-file analysis context for the tiered rule batteries.
+struct BatteryContext<'a> {
+    parsed: &'a Parsed<ModModule>,
+    index: &'a LineIndex,
+    source: &'a str,
+    options: &'a AnalyzerOptions,
+    file_ctx: &'a FileContext<'a>,
+    path: &'a Path,
+    metrics: &'a hoonarqube_ir::FileMetrics,
+}
+
+fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
+    let BatteryContext {
+        parsed,
+        index,
+        source,
+        options,
+        file_ctx,
+        path,
+        metrics,
+    } = *ctx;
+    issues.extend(check_tier_a_battery(
+        parsed, index, source, options, file_ctx, path,
+    ));
+    issues.extend(check_tier_a_battery_2(
+        parsed, index, source, options, file_ctx,
+    ));
+    issues.extend(check_naming_convention_battery(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_size_metric_battery(
+        parsed, index, source, options, metrics,
+    ));
+    issues.extend(check_tier_b_battery(
+        parsed, index, source, options, file_ctx, path,
+    ));
+    issues.extend(check_regex_battery(parsed, index, source, options));
+}
+
 /// The context is explicit so the caller controls the project/module boundary;
 /// unresolved imports and dynamic values remain unresolved instead of being
 /// guessed from names.
@@ -366,20 +407,18 @@ pub fn analyze_with_context(
     issues.extend(check_invalid_string_escapes(&index, source, &file_ctx));
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
-    issues.extend(check_tier_a_battery(
-        &parsed, &index, source, options, &file_ctx, path.as_path(),
-    ));
-    issues.extend(check_tier_a_battery_2(&parsed, &index, source, options, &file_ctx));
-    issues.extend(check_naming_convention_battery(
-        &parsed, &index, source, &file_ctx,
-    ));
-    issues.extend(check_size_metric_battery(
-        &parsed, &index, source, options, &metrics,
-    ));
-    issues.extend(check_tier_b_battery(
-        &parsed, &index, source, options, &file_ctx, path.as_path(),
-    ));
-    issues.extend(check_regex_battery(&parsed, &index, source, options));
+    run_tier_batteries(
+        &BatteryContext {
+            parsed: &parsed,
+            index: &index,
+            source,
+            options,
+            file_ctx: &file_ctx,
+            path: path.as_path(),
+            metrics: &metrics,
+        },
+        &mut issues,
+    );
     let module_name = module_name_from_path(path.as_path());
     add_web_security_batteries(
         &parsed,
