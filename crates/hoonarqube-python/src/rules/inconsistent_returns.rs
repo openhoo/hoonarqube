@@ -1,8 +1,6 @@
 use crate::engine::file_context::FileContext;
-use crate::support::child_bodies;
 use crate::support::for_each_stmt_expr_in_scope;
 use crate::support::for_each_stmt_in_scope;
-use crate::support::is_none_literal;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
@@ -10,7 +8,6 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
-use ruff_text_size::TextRange;
 
 pub(crate) fn check_inconsistent_returns(
     index: &LineIndex,
@@ -23,6 +20,15 @@ pub(crate) fn check_inconsistent_returns(
             continue;
         };
         if suite_contains_yield(&function.body) || function.body.is_empty() {
+            continue;
+        }
+        // The reference bails out on CFGs with except/finally branching:
+        // exceptional exits make return consistency undecidable.
+        let mut has_try = false;
+        for_each_stmt_in_scope(&function.body, &mut |inner| {
+            has_try |= matches!(inner, Stmt::Try(_));
+        });
+        if has_try {
             continue;
         }
         let (valued, empty) = direct_return_kinds(&function.body);
@@ -51,40 +57,19 @@ fn suite_contains_yield(suite: &[Stmt]) -> bool {
 }
 
 fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
-    // Returns inside except handlers resolve exceptional outcomes; they feed
-    // exit analysis below but stay out of the normal-path return census.
-    let mut handler_ranges: Vec<TextRange> = Vec::new();
-    collect_except_handler_ranges(suite, &mut handler_ranges);
+    // `return <expr>` is valued even when the expression is `None`; only a
+    // bare `return` is empty, matching the reference's hasValue check.
     let mut valued = 0;
     let mut empty = 0;
     for_each_stmt_in_scope(suite, &mut |stmt| {
         if let Stmt::Return(return_stmt) = stmt {
-            let in_handler = handler_ranges.iter().any(|range| {
-                range.start() <= return_stmt.start() && return_stmt.end() <= range.end()
-            });
-            if !in_handler {
-                match return_stmt.value.as_deref() {
-                    Some(value) if !is_none_literal(value) => valued += 1,
-                    _ => empty += 1,
-                }
+            match return_stmt.value.as_deref() {
+                Some(_) => valued += 1,
+                None => empty += 1,
             }
         }
     });
     (valued, empty)
-}
-
-/// Ranges of every `except` clause under `suite`, nested compounds included.
-fn collect_except_handler_ranges(suite: &[Stmt], out: &mut Vec<TextRange>) {
-    for stmt in suite {
-        if let Stmt::Try(try_stmt) = stmt {
-            for handler in &try_stmt.handlers {
-                out.push(handler.range());
-            }
-        }
-        for body in child_bodies(stmt) {
-            collect_except_handler_ranges(body, out);
-        }
-    }
 }
 
 /// Whether control provably leaves `stmt` through a `return`/`raise`
@@ -180,9 +165,11 @@ mod tests {
     fn s3801_partial_compound_tails_stay_flagged() {
         let missing_else = scan("def f(flag):\n    if flag:\n        return 5\n");
         assert!(!findings(&missing_else, "python:S3801").is_empty());
+        // The reference bails out on CFGs with except/finally branching, so
+        // a function containing try/except is never flagged.
         let swallowing_handler =
             scan("def g():\n    try:\n        return read()\n    except OSError:\n        pass\n");
-        assert!(!findings(&swallowing_handler, "python:S3801").is_empty());
+        assert!(findings(&swallowing_handler, "python:S3801").is_empty());
     }
 
     #[test]
