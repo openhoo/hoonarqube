@@ -70,18 +70,7 @@ pub(crate) fn check_cleartext_protocols(
             let mut search = 0usize;
             while let Some(relative) = text[search..].find(scheme) {
                 let start = search + relative + scheme.len();
-                // IPv6 literals are bracketed; the host ends at `]`.
-                let host = if text[start..].starts_with('[') {
-                    text[start..]
-                        .find(']')
-                        .map(|end| &text[start..=start + end])
-                        .unwrap_or_default()
-                } else {
-                    text[start..]
-                        .split(['/', ':', '?', '#'])
-                        .next()
-                        .unwrap_or_default()
-                };
+                let host = protocol_host(&text[start..]);
                 let safe = SAFE_HOSTS.contains(&host)
                     || host.ends_with(".example.org")
                     || host.ends_with(".example.com")
@@ -115,6 +104,21 @@ pub(crate) fn check_cleartext_protocols(
         }
     }
     issues
+}
+
+fn protocol_host(authority: &str) -> &str {
+    // IPv6 literals are bracketed; the host ends at `]`.
+    if authority.starts_with('[') {
+        authority
+            .find(']')
+            .map(|end| &authority[..=end])
+            .unwrap_or_default()
+    } else {
+        authority
+            .split(['/', ':', '?', '#'])
+            .next()
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
