@@ -1,59 +1,115 @@
-use crate::engine::file_context::FileContext;
-use crate::support::excluded_identical_pair;
-use crate::support::exprs_textually_equal;
-use crate::support::is_none_literal;
+use crate::engine::calls::LocalSignatures;
+use crate::engine::calls::ResolvedCallee;
+use crate::support::for_each_stmt_with_class;
 use crate::support::issue_at;
+use crate::support::stmt_exprs;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
+use ruff_python_ast::ModModule;
+use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
+use std::collections::HashSet;
+
+// --- python:S5549 — arguments bound to the same parameter --------------------
+//
+// The reference reports duplicate *parameter bindings*: the same parameter
+// supplied positionally and by keyword, or a `**dict` literal key colliding
+// with an explicit argument. It requires a resolvable callee, so calls to
+// unknown functions are never flagged.
 
 pub(crate) fn check_duplicate_call_arguments(
+    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
-    file_ctx: &FileContext,
 ) -> Vec<Issue> {
+    let signatures = LocalSignatures::new(parsed.syntax().body.as_slice());
     let mut issues = Vec::new();
-    for call in &file_ctx.calls {
-        let arguments = &call.arguments.args;
-        'outer: for left in arguments {
-            for right in arguments {
-                if std::ptr::eq(left, right) {
-                    continue;
-                }
-                if exprs_textually_equal(left, right, source) && !trivially_repeatable(left, right)
-                {
-                    issues.push(issue_at(
-                        "python:S5549",
-                        "This identical argument appears more than once.",
-                        call.range(),
-                        index,
-                        source,
-                    ));
-                    break 'outer;
+    for_each_stmt_with_class(
+        parsed.syntax().body.as_slice(),
+        None,
+        &mut |stmt, class_context| {
+            for top_expr in stmt_exprs(stmt) {
+                let mut pending = vec![top_expr];
+                while let Some(expr) = pending.pop() {
+                    let Expr::Call(call) = expr else {
+                        pending.extend(crate::support::child_exprs(expr));
+                        continue;
+                    };
+                    if let Some(resolved) = signatures.resolve(&call.func, class_context)
+                        && has_duplicate_binding(&resolved, &call.arguments)
+                    {
+                        issues.push(issue_at(
+                            "python:S5549",
+                            "This identical argument appears more than once.",
+                            call.range(),
+                            index,
+                            source,
+                        ));
+                    }
+                    pending.extend(crate::support::child_exprs(expr));
                 }
             }
-        }
-    }
+        },
+    );
     issues
 }
 
-// --- python:S5549 — identical arguments repeated within one call ------------------
-
-fn trivially_repeatable(left: &Expr, right: &Expr) -> bool {
-    excluded_identical_pair(left, right)
-        || (is_none_literal(left) && is_none_literal(right))
-        || (matches!(left, Expr::BooleanLiteral(_)) && matches!(right, Expr::BooleanLiteral(_)))
+/// Whether any parameter of the resolved callee is bound twice: positionally
+/// and by keyword, or by an explicit argument plus a `**{...}` literal key.
+fn has_duplicate_binding(
+    resolved: &ResolvedCallee,
+    arguments: &ruff_python_ast::Arguments,
+) -> bool {
+    let parameters = &resolved.function().parameters;
+    let mut positional: Vec<&str> = parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .map(|entry| entry.parameter.name.as_str())
+        .collect();
+    if resolved.skips_receiver() && !positional.is_empty() {
+        positional.remove(0);
+    }
+    let mut bound: HashSet<String> = HashSet::new();
+    for (position, _argument) in arguments.args.iter().enumerate() {
+        if let Some(name) = positional.get(position) {
+            bound.insert((*name).to_string());
+        }
+    }
+    let keyword_names: HashSet<&str> = parameters
+        .args
+        .iter()
+        .chain(&parameters.kwonlyargs)
+        .map(|entry| entry.parameter.name.as_str())
+        .collect();
+    arguments
+        .keywords
+        .iter()
+        .any(|keyword| keyword_binds_duplicate(keyword, &keyword_names, &mut bound))
 }
 
-#[cfg(test)]
-mod tests {
-
-    use crate::test_support::{findings, scan};
-
-    #[test]
-    fn s5549_flags_repeated_nontrivial_arguments() {
-        let flagged = scan("f(a, a)\nf(None, None)\ng(1, 1)\nh(a, b)\n");
-        assert_eq!(findings(&flagged, "python:S5549").len(), 1);
+/// Whether one keyword argument re-binds an already-bound parameter name.
+/// `**{"name": ...}` binds `name` like an explicit keyword.
+fn keyword_binds_duplicate(
+    keyword: &ruff_python_ast::Keyword,
+    keyword_names: &HashSet<&str>,
+    bound: &mut HashSet<String>,
+) -> bool {
+    if let Some(name) = keyword.arg.as_ref() {
+        return !bound.insert(name.to_string());
     }
+    let Expr::Dict(dict) = &keyword.value else {
+        return false;
+    };
+    dict.items.iter().any(|item| {
+        let Some(key) = item.key.as_ref() else {
+            return false;
+        };
+        let Expr::StringLiteral(literal) = key else {
+            return false;
+        };
+        let text = crate::support::string_value_text(&literal.value);
+        keyword_names.contains(text.as_str()) && !bound.insert(text)
+    })
 }
