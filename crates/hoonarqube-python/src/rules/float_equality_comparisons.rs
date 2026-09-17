@@ -1,4 +1,5 @@
 use crate::engine::file_context::FileContext;
+use crate::support::contains_float_literal;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
@@ -44,7 +45,7 @@ pub(crate) fn check_float_equality_comparisons(
 // collection or a call argument does not make the operand itself a float.
 fn is_float_operand(expr: &Expr) -> bool {
     match expr {
-        Expr::NumberLiteral(number) => matches!(number.value, ruff_python_ast::Number::Float(_)),
+        Expr::NumberLiteral(_) => contains_float_literal(expr),
         Expr::UnaryOp(unary)
             if matches!(
                 unary.op,
