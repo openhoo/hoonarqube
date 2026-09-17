@@ -320,7 +320,10 @@ fn owner_is_abstract(file_ctx: &FileContext, name_range: TextRange) -> bool {
     arguments.args.iter().any(|base| {
         crate::support::dotted_name(base).is_some_and(|path| {
             matches!(path.as_str(), "ABC" | "ABCMeta" | "abc.ABC" | "abc.ABCMeta")
-                || path.rsplit('.').next().is_some_and(|tail| matches!(tail, "ABC" | "ABCMeta"))
+                || path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|tail| matches!(tail, "ABC" | "ABCMeta"))
         })
     })
 }
