@@ -23,10 +23,8 @@ pub(crate) fn check_empty_functions(
     let mut visit = |function: &StmtFunctionDef, in_class_body: bool| {
         // The reference exempts the ABC decorator family by dotted suffix.
         let is_abstract = function.decorator_list.iter().any(|decorator| {
-            decorator_name(&decorator.expression).is_some_and(|name| {
-                name.split('.')
-                    .any(|part| ABC_DECORATORS.contains(&part))
-            })
+            decorator_name(&decorator.expression)
+                .is_some_and(|name| name.split('.').any(|part| ABC_DECORATORS.contains(&part)))
         });
         if is_abstract {
             return;
@@ -76,10 +74,7 @@ fn decorator_name(expr: &ruff_python_ast::Expr) -> Option<&str> {
 /// Whether any comment token sits inside the function's range or in the gap
 /// between the previous non-trivia token and the function start (comments
 /// directly above `def`/decorators explain the empty body).
-fn function_has_comment(
-    function: &StmtFunctionDef,
-    parsed: &Parsed<ModModule>,
-) -> bool {
+fn function_has_comment(function: &StmtFunctionDef, parsed: &Parsed<ModModule>) -> bool {
     let mut previous_end = ruff_text_size::TextSize::new(0);
     for token in parsed.tokens() {
         if token.range().start() >= function.range().start() {

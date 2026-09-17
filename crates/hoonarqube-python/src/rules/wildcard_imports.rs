@@ -51,12 +51,16 @@ fn contains_application_logic(parsed: &Parsed<ModModule>) -> bool {
     let mut found = false;
     for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
         match stmt {
-            Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::While(_) | Stmt::For(_)
-            | Stmt::With(_) | Stmt::AugAssign(_) => found = true,
+            Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::While(_)
+            | Stmt::For(_)
+            | Stmt::With(_)
+            | Stmt::AugAssign(_) => found = true,
             Stmt::Assign(assign) => {
-                found |= assign.targets.iter().any(|target| {
-                    !matches!(target, Expr::Name(name) if name.id.as_str() == "__all__")
-                });
+                found |= assign.targets.iter().any(
+                    |target| !matches!(target, Expr::Name(name) if name.id.as_str() == "__all__"),
+                );
             }
             _ => {}
         }

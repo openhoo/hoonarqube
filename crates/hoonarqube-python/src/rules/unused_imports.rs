@@ -60,7 +60,9 @@ pub(crate) fn check_unused_imports(
             .iter()
             .any(|load| load.target == Some(0) && load.name == *name)
             || name_used_in_tokens(facts, name, &import_ranges)
-            || comments.iter().any(|comment| comment.contains(name.as_str()))
+            || comments
+                .iter()
+                .any(|comment| comment.contains(name.as_str()))
             || facts.string_texts.iter().any(|text| text == name);
         if !used {
             for range in import_ranges {
@@ -87,35 +89,33 @@ fn import_is_allowed(module: &str) -> bool {
 /// import c` yields `a.b` for `c`'s range, `import a.b` yields `a.b`.
 fn import_module_names(parsed: &Parsed<ModModule>) -> HashMap<TextRange, String> {
     let mut modules = HashMap::new();
-    crate::support::for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        match stmt {
-            Stmt::ImportFrom(import) => {
-                let module = import
-                    .module
+    crate::support::for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
+        Stmt::ImportFrom(import) => {
+            let module = import
+                .module
+                .as_ref()
+                .map(|name| name.to_string())
+                .unwrap_or_default();
+            for alias in &import.names {
+                let range = alias
+                    .asname
                     .as_ref()
-                    .map(|name| name.to_string())
-                    .unwrap_or_default();
-                for alias in &import.names {
-                    let range = alias
-                        .asname
-                        .as_ref()
-                        .map(|name| name.range())
-                        .unwrap_or_else(|| alias.name.range());
-                    modules.insert(range, module.clone());
-                }
+                    .map(|name| name.range())
+                    .unwrap_or_else(|| alias.name.range());
+                modules.insert(range, module.clone());
             }
-            Stmt::Import(import) => {
-                for alias in &import.names {
-                    let range = alias
-                        .asname
-                        .as_ref()
-                        .map(|name| name.range())
-                        .unwrap_or_else(|| alias.name.range());
-                    modules.insert(range, alias.name.to_string());
-                }
-            }
-            _ => {}
         }
+        Stmt::Import(import) => {
+            for alias in &import.names {
+                let range = alias
+                    .asname
+                    .as_ref()
+                    .map(|name| name.range())
+                    .unwrap_or_else(|| alias.name.range());
+                modules.insert(range, alias.name.to_string());
+            }
+        }
+        _ => {}
     });
     modules
 }

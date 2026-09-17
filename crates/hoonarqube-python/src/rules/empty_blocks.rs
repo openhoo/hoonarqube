@@ -51,8 +51,10 @@ fn visit_suite(
     index: &LineIndex,
     source: &str,
 ) {
-    if !matches!(parent, ParentKind::Function | ParentKind::Class | ParentKind::Except)
-        && pass_only_suite(suite)
+    if !matches!(
+        parent,
+        ParentKind::Function | ParentKind::Class | ParentKind::Except
+    ) && pass_only_suite(suite)
         && !block_has_comment(suite, parsed, source)
     {
         issues.push(issue_at(
@@ -134,20 +136,48 @@ fn visit_children(
             }
         }
         Stmt::ClassDef(class) => {
-            visit_suite(class.body.as_slice(), ParentKind::Class, parsed, issues, index, source);
+            visit_suite(
+                class.body.as_slice(),
+                ParentKind::Class,
+                parsed,
+                issues,
+                index,
+                source,
+            );
         }
         Stmt::For(node) => {
             visit_suite(&node.body, ParentKind::Other, parsed, issues, index, source);
-            visit_suite(&node.orelse, ParentKind::Other, parsed, issues, index, source);
+            visit_suite(
+                &node.orelse,
+                ParentKind::Other,
+                parsed,
+                issues,
+                index,
+                source,
+            );
         }
         Stmt::While(node) => {
             visit_suite(&node.body, ParentKind::Other, parsed, issues, index, source);
-            visit_suite(&node.orelse, ParentKind::Other, parsed, issues, index, source);
+            visit_suite(
+                &node.orelse,
+                ParentKind::Other,
+                parsed,
+                issues,
+                index,
+                source,
+            );
         }
         Stmt::If(node) => {
             visit_suite(&node.body, ParentKind::Other, parsed, issues, index, source);
             for clause in &node.elif_else_clauses {
-                visit_suite(&clause.body, ParentKind::Other, parsed, issues, index, source);
+                visit_suite(
+                    &clause.body,
+                    ParentKind::Other,
+                    parsed,
+                    issues,
+                    index,
+                    source,
+                );
             }
         }
         Stmt::With(node) => {
@@ -160,11 +190,32 @@ fn visit_children(
         }
         Stmt::Try(node) => {
             visit_suite(&node.body, ParentKind::Other, parsed, issues, index, source);
-            visit_suite(&node.orelse, ParentKind::Other, parsed, issues, index, source);
-            visit_suite(&node.finalbody, ParentKind::Other, parsed, issues, index, source);
+            visit_suite(
+                &node.orelse,
+                ParentKind::Other,
+                parsed,
+                issues,
+                index,
+                source,
+            );
+            visit_suite(
+                &node.finalbody,
+                ParentKind::Other,
+                parsed,
+                issues,
+                index,
+                source,
+            );
             for handler in &node.handlers {
                 let ExceptHandler::ExceptHandler(handler) = handler;
-                visit_suite(&handler.body, ParentKind::Except, parsed, issues, index, source);
+                visit_suite(
+                    &handler.body,
+                    ParentKind::Except,
+                    parsed,
+                    issues,
+                    index,
+                    source,
+                );
             }
         }
         _ => {}

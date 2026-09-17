@@ -336,7 +336,9 @@ pub(crate) fn check_tier_a_battery(
     issues.extend(check_duplicate_branches(index, source, file_ctx));
     issues.extend(check_inverted_boolean_checks(index, source, file_ctx));
     issues.extend(check_self_assignment(index, source, file_ctx));
-    issues.extend(check_wildcard_imports(parsed, index, source, file_ctx, path));
+    issues.extend(check_wildcard_imports(
+        parsed, index, source, file_ctx, path,
+    ));
     issues.extend(check_doubled_prefix_operators(index, source, file_ctx));
     issues.extend(check_confusing_walrus_placement(index, source, file_ctx));
     issues.extend(check_constant_none_comparisons(index, source, file_ctx));

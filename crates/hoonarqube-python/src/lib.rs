@@ -359,7 +359,12 @@ pub fn analyze_with_context(
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
     issues.extend(check_tier_a_battery(
-        &parsed, &index, source, options, &file_ctx, path.as_path(),
+        &parsed,
+        &index,
+        source,
+        options,
+        &file_ctx,
+        path.as_path(),
     ));
     issues.extend(check_tier_a_battery_2(
         &parsed, &index, source, options, &file_ctx,

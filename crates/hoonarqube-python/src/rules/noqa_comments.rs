@@ -46,7 +46,6 @@ pub(crate) fn check_noqa_comments(
     issues
 }
 
-
 // --- python:S7632 — suppression-comment grammar --------------------------------
 //
 // Mirrors the reference's NoSonarInfoParser: a comment is split on `#` into
@@ -56,9 +55,7 @@ fn is_invalid_suppression_comment(text: &str) -> bool {
     text.split('#')
         .filter(|piece| !piece.is_empty())
         .map(|piece| format!("#{piece}"))
-        .any(|piece| {
-            invalid_nosonar(&piece) || invalid_noqa(&piece) || invalid_nosec(&piece)
-        })
+        .any(|piece| invalid_nosonar(&piece) || invalid_noqa(&piece) || invalid_nosec(&piece))
 }
 
 /// `^#\s*NOSONAR(\W.*)?` prefix, then `^#\s*NOSONAR(?:\s*\(([^)]*)\))?($|\s.*)`
@@ -71,7 +68,11 @@ fn invalid_nosonar(piece: &str) -> bool {
         return piece.contains("NOSONAR");
     };
     // Prefix gate: the character after NOSONAR must be non-word (or end).
-    if rest.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_') {
+    if rest
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    {
         return false;
     }
     // Full pattern: optional `\s*(rules)` then end or whitespace+text.
