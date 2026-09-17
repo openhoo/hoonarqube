@@ -165,7 +165,9 @@ fn check_binding_statement(
                 LocalKind::Assignment => is_constant_name(name.id.as_str()) || type_assigned,
                 LocalKind::LoopTarget => name.id.len() <= 1,
             };
-            if !exempt {
+            if exempt {
+                seen.insert(name.id.as_str().to_string());
+            } else {
                 push_local_name_issue(
                     issues,
                     seen,
@@ -175,8 +177,6 @@ fn check_binding_statement(
                     index,
                     source,
                 );
-            } else {
-                seen.insert(name.id.as_str().to_string());
             }
         }
     }
@@ -209,7 +209,7 @@ fn push_local_name_issue(
 /// Whether the assigned value denotes a type rather than an instance:
 /// `type(...)`/`TypeVar`/`NewType`/`namedtuple` calls, `Type[...]`-style
 /// typing subscripts, references to classes defined in this file, and
-/// PascalCase name or attribute references (imported classes).
+/// `PascalCase` name or attribute references (imported classes).
 fn is_type_assignment(value: &Expr, classes: &[&StmtClassDef]) -> bool {
     match value {
         Expr::Call(call) => {
@@ -280,10 +280,10 @@ fn parameter_is_type_like(function: &StmtFunctionDef, name: &str) -> bool {
         if entry.parameter.name.as_str() != name {
             continue;
         }
-        if let Some(annotation) = entry.parameter.annotation.as_deref() {
-            if annotation_is_type(annotation) {
-                return true;
-            }
+        if let Some(annotation) = entry.parameter.annotation.as_deref()
+            && annotation_is_type(annotation)
+        {
+            return true;
         }
         if let Some(default) = entry.default.as_deref()
             && is_type_assignment(default, &[])

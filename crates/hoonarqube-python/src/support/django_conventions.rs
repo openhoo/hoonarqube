@@ -87,7 +87,7 @@ pub(crate) fn function_parameters(
 }
 
 /// Names referenced inside any `urlpatterns = [...]` assignment in the
-/// module — the URLconf registration that makes a function a Django view
+/// module — the `URLconf` registration that makes a function a Django view
 /// (`FunctionSymbolImpl.isDjangoView` in the reference).
 pub(crate) fn django_view_names(module_body: &[Stmt]) -> std::collections::HashSet<String> {
     let mut names = std::collections::HashSet::new();
