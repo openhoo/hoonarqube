@@ -20,14 +20,44 @@ pub(crate) fn check_function_lengths(
         parsed.syntax().body.as_slice(),
         false,
         &mut |function, _| {
-            let start_line = index
-                .line_column(function.range().start(), source)
-                .line
-                .get();
-            let end_line = index.line_column(function.range().end(), source).line.get();
-            let lines = end_line.saturating_sub(start_line);
+            // The reference counts distinct lines holding code tokens inside
+            // the body (comments and blank lines carry no tokens) and
+            // subtracts the lines spanned by the docstring.
+            let body_range = ruff_text_size::TextRange::new(
+                function
+                    .body
+                    .first()
+                    .map(|s| s.start())
+                    .unwrap_or(function.range().start()),
+                function
+                    .body
+                    .last()
+                    .map(|s| s.end())
+                    .unwrap_or(function.range().end()),
+            );
+            let mut code_lines = std::collections::HashSet::new();
+            for token in parsed.tokens() {
+                if token.kind().is_trivia() || !body_range.contains_range(token.range()) {
+                    continue;
+                }
+                let first = index.line_column(token.range().start(), source).line.get();
+                let last = index.line_column(token.range().end(), source).line.get();
+                for line in first..=last {
+                    code_lines.insert(line);
+                }
+            }
+            if let Some(ruff_python_ast::Stmt::Expr(doc)) = function.body.first()
+                && matches!(doc.value.as_ref(), ruff_python_ast::Expr::StringLiteral(_))
+            {
+                let first = index.line_column(doc.range().start(), source).line.get();
+                let last = index.line_column(doc.range().end(), source).line.get();
+                for line in first..=last {
+                    code_lines.remove(&line);
+                }
+            }
+            let lines = to_u32(code_lines.len());
             let maximum = options.maximum_function_length;
-            if to_u32(lines) > maximum {
+            if lines > maximum {
                 issues.push(issue_at(
                     "python:S138",
                     &format!(
