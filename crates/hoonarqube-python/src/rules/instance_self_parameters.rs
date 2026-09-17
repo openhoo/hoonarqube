@@ -15,6 +15,32 @@ use ruff_text_size::Ranged;
 
 const EXEMPT_DUNDERS: [&str; 3] = ["__new__", "__init_subclass__", "__class_getitem__"];
 
+/// `cls`/`mcs` are also allowed when the class might be a metaclass:
+/// decorated classes, `type`/`Protocol` subclasses, or unresolved bases
+/// (any base not defined in this file).
+fn might_be_metaclass(class: &StmtClassDef, parsed: &Parsed<ModModule>) -> bool {
+    let local_classes: std::collections::HashSet<&str> = {
+        let mut names = std::collections::HashSet::new();
+        for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+            if let Stmt::ClassDef(class) = stmt {
+                names.insert(class.name.as_str());
+            }
+        });
+        names
+    };
+    !class.decorator_list.is_empty()
+        || class.arguments.as_deref().is_some_and(|arguments| {
+            arguments.args.iter().any(|base| {
+                let base_name = match base {
+                    Expr::Name(name) => name.id.as_str(),
+                    Expr::Attribute(attribute) => attribute.attr.as_str(),
+                    _ => "",
+                };
+                matches!(base_name, "type" | "Protocol") || !local_classes.contains(base_name)
+            })
+        })
+}
+
 pub(crate) fn check_instance_self_parameters(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -40,30 +66,7 @@ pub(crate) fn check_instance_self_parameters(
         if nested_ranges.contains(&class.range()) {
             return;
         }
-        // `cls`/`mcs` are also allowed when the class might be a metaclass:
-        // decorated classes, `type`/`Protocol` subclasses, or unresolved
-        // bases (any base not defined in this file).
-        let local_classes: std::collections::HashSet<&str> = {
-            let mut names = std::collections::HashSet::new();
-            for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-                if let Stmt::ClassDef(class) = stmt {
-                    names.insert(class.name.as_str());
-                }
-            });
-            names
-        };
-        let might_be_metaclass = !class.decorator_list.is_empty()
-            || class.arguments.as_deref().is_some_and(|arguments| {
-                arguments.args.iter().any(|base| {
-                    let base_name = match base {
-                        Expr::Name(name) => name.id.as_str(),
-                        Expr::Attribute(attribute) => attribute.attr.as_str(),
-                        _ => "",
-                    };
-                    matches!(base_name, "type" | "Protocol") || !local_classes.contains(base_name)
-                })
-            });
-        let metaclass = might_be_metaclass;
+        let metaclass = might_be_metaclass(class, parsed);
         // A later `name = classmethod(name)` in the same body class-binds the
         // function, making its `cls` parameter correct.
         let deferred_classmethods = deferred_classmethod_names(class);
