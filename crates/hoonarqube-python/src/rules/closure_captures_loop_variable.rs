@@ -31,29 +31,7 @@ pub(crate) fn check_closure_captures_loop_variable(
             if let Expr::Lambda(lambda) = expr
                 && loads_any_name(&lambda.body, &targets)
             {
-                let mut reported = false;
-                for_each_expr(&lambda.body, &mut |node| {
-                    if reported {
-                        return;
-                    }
-                    if let Expr::Name(name) = node
-                        && targets.iter().any(|target| target == name.id.as_str())
-                    {
-                        let variable = name.id.as_str();
-                        issues.push(issue_at(
-                            "python:S1515",
-                            &format!(
-                                "Add a parameter to the parent lambda function and use variable \
-                                 \"{variable}\" as its default value; The value of \"{variable}\" \
-                                 might change at the next loop iteration."
-                            ),
-                            name.range(),
-                            index,
-                            source,
-                        ));
-                        reported = true;
-                    }
-                });
+                report_lambda_capture(&lambda.body, &targets, index, source, &mut issues);
             }
         });
         for_each_stmt(&for_stmt.body, &mut |nested| {
@@ -82,6 +60,38 @@ pub(crate) fn check_closure_captures_loop_variable(
         });
     }
     issues
+}
+
+fn report_lambda_capture(
+    body: &Expr,
+    targets: &[String],
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    let mut reported = false;
+    for_each_expr(body, &mut |node| {
+        if reported {
+            return;
+        }
+        if let Expr::Name(name) = node
+            && targets.iter().any(|target| target == name.id.as_str())
+        {
+            let variable = name.id.as_str();
+            issues.push(issue_at(
+                "python:S1515",
+                &format!(
+                    "Add a parameter to the parent lambda function and use variable \
+                     \"{variable}\" as its default value; The value of \"{variable}\" \
+                     might change at the next loop iteration."
+                ),
+                name.range(),
+                index,
+                source,
+            ));
+            reported = true;
+        }
+    });
 }
 
 /// Whether `function` declares `name` as any parameter (positional,
