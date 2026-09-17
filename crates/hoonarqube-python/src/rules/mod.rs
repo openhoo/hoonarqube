@@ -1386,9 +1386,6 @@ mod rx_class;
 mod rx_empty_groups;
 
 mod rx_lazy_quantifiers;
-
-mod rx_overlapping_repeats;
-
 mod rx_pointless_groups;
 
 mod rx_possessive_deadlock;

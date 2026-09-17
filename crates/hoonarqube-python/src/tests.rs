@@ -1914,7 +1914,9 @@ fn s5852_flags_catastrophic_backtracking_shapes() {
         "import re\nre.compile(r'(a+)+b')\n",
         "python:S5852"
     ));
-    assert!(regex_finds(
+    // `.*_.*` is the super-linear concern of python:S8786, not the
+    // nested-ambiguous-repetition shape this rule reports.
+    assert!(!regex_finds(
         "import re\nre.compile(r'.*_.*')\n",
         "python:S5852"
     ));
@@ -4246,8 +4248,11 @@ fn s8714_accepts_try_except_without_pytest_fail() {
 #[test]
 fn s8786_flags_super_linear_regex_literals() {
     // Pinned psf/requests src/requests/utils.py#L536-L538 @ dae7ef63:
-    // three `re.compile` literals pair a lazy dot-all run with further
-    // unbounded quantifiers, so backtracking is super-linear.
+    // `charset_re` and `xml_re` pair a lazy dot run with adjacent
+    // intersecting quantifiers, and `a*a*c` has two intersecting adjacent
+    // repetitions. `pragma_re`'s `content=...;?charset=` gap needs more
+    // characters than a single element supplies, and `find_title`'s
+    // `title>` gap is disjoint from `.` — both stay silent like Sonar.
     let flagged = scan(concat!(
         "import re\n",
         "\n",
@@ -4264,17 +4269,15 @@ fn s8786_flags_super_linear_regex_literals() {
         "    return re.compile(r'a*a*c')\n",
     ));
     let found = findings(&flagged, "python:S8786");
-    assert_eq!(found.len(), 5);
+    assert_eq!(found.len(), 3);
     assert_eq!(
         found[0].message,
         "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
     );
     assert_eq!(found[0].range.start, pos(4, 28));
     assert_eq!(found[0].range.end, pos(4, 64));
-    assert_eq!(found[1].range.start, pos(5, 27));
-    assert_eq!(found[2].range.start, pos(6, 24));
-    assert_eq!(found[3].range.start, pos(10, 21));
-    assert_eq!(found[4].range.start, pos(13, 22));
+    assert_eq!(found[1].range.start, pos(6, 24));
+    assert_eq!(found[2].range.start, pos(13, 22));
 }
 
 #[test]

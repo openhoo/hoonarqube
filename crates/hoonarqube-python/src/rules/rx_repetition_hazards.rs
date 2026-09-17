@@ -6,7 +6,6 @@ use crate::engine::rx::for_each_rx_seq_deep;
 use crate::engine::rx::is_repetitive;
 use crate::engine::rx::rx_body_ambiguous;
 use crate::rules::rx_lazy_quantifiers::check_rx_lazy_quantifiers;
-use crate::rules::rx_overlapping_repeats::check_rx_overlapping_repeats;
 use crate::rules::rx_possessive_deadlock::check_rx_possessive_deadlock;
 use ruff_text_size::TextRange;
 
@@ -19,8 +18,10 @@ pub(crate) fn check_rx_repetition_hazards(
     for_each_rx_seq_deep(&parsed.root, &mut |seq| {
         check_rx_lazy_quantifiers(seq, push);
         check_rx_possessive_deadlock(seq, push);
-        check_rx_overlapping_repeats(seq, push);
     });
+    // python:S5852 — nested ambiguous repetition inside an open-ended
+    // quantified group (Sonar's BacktrackingFinder); sibling overlapping
+    // repeats are the super-linear concern of python:S8786.
     for_each_rx_item(&parsed.root, &mut |item| {
         if let Some(quant) = &item.quant
             && !quant.possessive
