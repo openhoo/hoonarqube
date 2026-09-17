@@ -742,6 +742,7 @@ fn parse_language(value: &str) -> Option<Language> {
         "java" => Language::Java,
         "rust" => Language::Rust,
         "ruby" => Language::Ruby,
+        "web" => Language::Html,
         _ => return None,
     })
 }
@@ -756,6 +757,7 @@ fn language_name(language: Language) -> &'static str {
         Language::Java => "java",
         Language::Rust => "rust",
         Language::Ruby => "ruby",
+        Language::Html => "web",
     }
 }
 

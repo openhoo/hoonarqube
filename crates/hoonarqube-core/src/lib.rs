@@ -44,6 +44,9 @@ pub enum Language {
     Java,
     Rust,
     Ruby,
+    /// Web templates whose inline `<script>` bodies are analyzed as
+    /// JavaScript; reported under the `SonarQube` `web` language key.
+    Html,
 }
 
 /// Deterministic GitHub Code Quality registry grouped by catalog family.
@@ -98,6 +101,11 @@ const EXTENSIONS: &[(&str, Language)] = &[
     ("java", Language::Java),
     ("rs", Language::Rust),
     ("rb", Language::Ruby),
+    ("html", Language::Html),
+    ("htm", Language::Html),
+    ("xhtml", Language::Html),
+    ("shtm", Language::Html),
+    ("shtml", Language::Html),
 ];
 
 /// Maps a bare file extension to its language; matched case-insensitively
@@ -221,8 +229,15 @@ pub fn analyze(
         }
         Language::Go => hoonarqube_go::analyze(path, source, &options.go),
         Language::Java => hoonarqube_java::analyze(path, source, &options.java),
-        Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
         Language::Ruby => hoonarqube_ruby::analyze(path, source, &options.ruby),
+        Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
+        Language::Html => {
+            let mut report = hoonarqube_jsts::analyze_embedded_html(path, source, &options.jsts);
+            // Report metrics describe the template, not the masked script
+            // extraction, matching the project source-facts measurement.
+            report.metrics = source_facts::fallback_metrics(source, language);
+            report
+        }
     };
     if options.profile != RuleProfile::SonarParity {
         let mut native = match language {
@@ -235,7 +250,7 @@ pub fn analyze(
             }
             Language::CSharp => hoonarqube_csharp::analyze_native(source),
             Language::Go => hoonarqube_go::analyze_native(source),
-            Language::Java | Language::Ruby => Vec::new(),
+            Language::Java | Language::Ruby | Language::Html => Vec::new(),
             Language::Rust => hoonarqube_rust::analyze_native(source),
         };
         debug_assert!(
@@ -251,7 +266,24 @@ pub fn analyze(
         hoonarqube_ir::sort_issues(&mut report.issues);
         report.issues.dedup();
     }
+    drop_retired_security_hotspots(&mut report);
     Some(report)
+}
+
+/// Removes findings from rules the reference scanner retired to the
+/// security-hotspot review stream.
+///
+/// `SonarQube` Community marks these rules `DEPRECATED` with type
+/// `SECURITY_HOTSPOT`; they are absent from `api/issues` because they are
+/// routed to hotspot review instead of reported as regular issues. hq has
+/// no hotspot stream, so emitting them as ordinary findings is a false
+/// positive against the reference output.
+pub fn drop_retired_security_hotspots(report: &mut hoonarqube_ir::FileReport) {
+    report.issues.retain(|issue| {
+        !hoonarqube_catalog::embedded()
+            .rule(&issue.rule_key)
+            .is_some_and(|rule| rule.status == "DEPRECATED" && rule.rule_type == "SECURITY_HOTSPOT")
+    });
 }
 
 fn analyze_github_quality(
@@ -280,6 +312,14 @@ fn analyze_github_quality(
             issues: Vec::new(),
             metrics: hoonarqube_rust::file_metrics(source),
         },
+        // Web templates have no GitHub Code Quality queries; metrics still
+        // follow the plain-text fallback used for project measurement.
+        Language::Html => hoonarqube_ir::FileReport {
+            path,
+            language: "web".to_owned(),
+            issues: Vec::new(),
+            metrics: source_facts::fallback_metrics(source, language),
+        },
     };
     let family = github_family(language);
     let registry = github_registry(language);
@@ -297,7 +337,6 @@ fn analyze_github_quality(
     report.issues.dedup();
     report
 }
-
 fn github_family(language: Language) -> Option<hoonarqube_catalog::github_quality::LanguageFamily> {
     use hoonarqube_catalog::github_quality::LanguageFamily;
 
@@ -308,7 +347,7 @@ fn github_family(language: Language) -> Option<hoonarqube_catalog::github_qualit
         Language::JavaScript | Language::TypeScript => Some(LanguageFamily::JavaScriptTypeScript),
         Language::Python => Some(LanguageFamily::Python),
         Language::Ruby => Some(LanguageFamily::Ruby),
-        Language::Rust => None,
+        Language::Rust | Language::Html => None,
     }
 }
 
@@ -387,7 +426,7 @@ mod tests {
                 Language::Go => hoonarqube_go::analyze_github_quality(source),
                 Language::Java => hoonarqube_java::analyze_github_quality(source),
                 Language::Ruby => hoonarqube_ruby::analyze_github_quality(source),
-                Language::Rust => Vec::new(),
+                Language::Rust | Language::Html => Vec::new(),
             };
             hoonarqube_ir::sort_issues(&mut expected);
             expected.dedup();
@@ -560,7 +599,7 @@ mod tests {
             );
             languages.insert(*language);
         }
-        assert_eq!(languages.len(), 8, "every language needs an extension");
+        assert_eq!(languages.len(), 9, "every language needs an extension");
     }
 
     #[test]

@@ -3,7 +3,7 @@ use crate::project_context::{
 };
 use crate::test_support::{
     AnalyzerOptions, JstsLanguage, Language, PathBuf, RuleOptions, analyze, count_key, findings,
-    issue, js, js_keys, js_with_rules, language_for_extension, report_keys, ts,
+    issue, js, js_keys, js_with_rules, language_for_extension, no_header_options, report_keys, ts,
 };
 use std::{
     fs,
@@ -543,7 +543,12 @@ const input = 'x';
 eval(input);
 let b = 1; let c = 2;
 ";
-    let report = js(source);
+    let report = analyze(
+        PathBuf::from("test.js"),
+        source,
+        JstsLanguage::JavaScript,
+        &no_header_options(),
+    );
     let starts: Vec<_> = report
         .issues
         .iter()
@@ -559,7 +564,9 @@ let b = 1; let c = 2;
         starts,
         vec![
             (2_u32, 0_u32, "javascript:S1523".to_string()),
+            (3_u32, 4_u32, "javascript:S3353".to_string()),
             (3_u32, 11_u32, "javascript:S122".to_string()),
+            (3_u32, 15_u32, "javascript:S3353".to_string()),
         ]
     );
 }
@@ -577,7 +584,12 @@ window.eval('not plain identifier');
 new window.Function('also ignored');
 
 ";
-    let report = js(source);
+    let report = analyze(
+        PathBuf::from("test.js"),
+        source,
+        JstsLanguage::JavaScript,
+        &no_header_options(),
+    );
     assert_eq!(
         report.issues,
         vec![
@@ -634,7 +646,12 @@ fn typescript_input_parses_and_carries_typescript_prefix() {
     // `const X: number = 1;` would now legitimately raise `S3257`
     // (primitive annotation with initializer), so the smoke input keeps
     // its annotation without an initializer.
-    let report = ts("let x: number;\ninterface Y { z: string; w: number }\n");
+    let report = analyze(
+        PathBuf::from("test.ts"),
+        "let x: number;\ninterface Y { z: string; w: number }\n",
+        JstsLanguage::TypeScript,
+        &no_header_options(),
+    );
     assert_eq!(report.language, "typescript");
     assert!(report.issues.is_empty());
 }
@@ -673,7 +690,7 @@ fn jsx_input_parses_cleanly() {
         PathBuf::from("test.jsx"),
         "const el = <div className=\"a\">hi</div>;\n",
         JstsLanguage::JavaScript,
-        &AnalyzerOptions::default(),
+        &no_header_options(),
     );
     assert!(report.issues.is_empty());
 }
