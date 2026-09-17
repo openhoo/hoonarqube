@@ -1,10 +1,15 @@
+use std::path::Path;
+
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{BoolOp, Expr, ModModule, Stmt, UnaryOp};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-use crate::support::for_each_stmt;
+use crate::support::TestScope;
+use crate::support::child_bodies;
+use crate::support::class_is_testcase_subclass;
+use crate::support::is_pytest_file_name;
 use crate::support::issue_at;
 
 const RULE_KEY: &str = "python:S9073";
@@ -15,30 +20,61 @@ const MESSAGE: &str = "Split this composite assertion into separate assertions."
 /// equivalent. Plain `assert a or b` stays silent because splitting it
 /// would change the meaning from "at least one holds" to "all hold"; the
 /// same exclusion covers a top-level `or` with a nested `and`. The assert
-/// statement anchors the finding. Catalog scope MAIN: test-scoped files are
-/// silenced centrally by the analyzer's MAIN-scope gate.
+/// statement anchors the finding. The reference check overrides catalog MAIN
+/// scope with ALL: every assert in a pytest-named file is eligible, as are
+/// function-body asserts within a unittest class on any path. Other production
+/// assertions (including arbitrary `test*` functions) are not test contexts.
 pub(crate) fn check_s9073_composite_assertion(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    path: &Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    // Sonar's CompositeAssertionCheck targets test-context asserts — only
-    // asserts inside functions named `test_*` or TestCase methods fire.
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        if let Stmt::FunctionDef(function) = stmt {
-            let is_test_fn = function.name.as_str().starts_with("test");
-            for_each_stmt(&function.body, &mut |inner| {
-                if let Stmt::Assert(assert) = inner
-                    && is_test_fn
+    walk_s9073(
+        &parsed.syntax().body,
+        TestScope::root(),
+        is_pytest_file_name(path),
+        index,
+        source,
+        &mut issues,
+    );
+    issues
+}
+
+fn walk_s9073<'a>(
+    stmts: &'a [Stmt],
+    scope: TestScope<'a>,
+    pytest_file: bool,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::FunctionDef(function) => {
+                let inner = scope.enter_function(function.name.as_str());
+                walk_s9073(&function.body, inner, pytest_file, index, source, issues);
+            }
+            Stmt::ClassDef(class) => {
+                let inner =
+                    TestScope::enter_class(class.name.as_str(), class_is_testcase_subclass(class));
+                walk_s9073(&class.body, inner, pytest_file, index, source, issues);
+            }
+            Stmt::Assert(assert) => {
+                if (pytest_file || (scope.function.is_some() && scope.class_is_testcase))
                     && is_composite_assert(assert)
                 {
                     issues.push(issue_at(RULE_KEY, MESSAGE, assert.range(), index, source));
                 }
-            });
+            }
+            _ => {
+                for body in child_bodies(stmt) {
+                    walk_s9073(body, scope, pytest_file, index, source, issues);
+                }
+            }
         }
-    });
-    issues
+    }
 }
 
 fn is_composite_assert(assert: &ruff_python_ast::StmtAssert) -> bool {
