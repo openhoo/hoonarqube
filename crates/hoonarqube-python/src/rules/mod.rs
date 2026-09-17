@@ -625,7 +625,9 @@ pub(crate) fn check_tier_b_battery(
         issues.extend(check_known_value_comparisons(index, source, file_ctx));
         issues.extend(check_static_candidates(&table, index, source));
     }
-    issues.extend(check_unused_private_methods(&table, &facts, index, source));
+    issues.extend(check_unused_private_methods(
+        &table, &facts, index, source, file_ctx,
+    ));
     issues.extend(check_unused_private_nested_classes(
         &table, &facts, index, source,
     ));

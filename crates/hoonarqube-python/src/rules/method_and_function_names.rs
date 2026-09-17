@@ -1,4 +1,6 @@
+use crate::support::class_has_inheritance;
 use crate::support::for_each_function_def;
+use crate::support::for_each_method;
 use crate::support::issue_at;
 use crate::support::matches_snake_case;
 use hoonarqube_ir::Issue;
@@ -9,33 +11,59 @@ use ruff_text_size::Ranged;
 
 /// Methods (functions declared directly in a class body) are python:S100;
 /// module-level and nested functions are python:S1542.
+///
+/// Mirroring the reference `MethodNameCheck`, methods are exempt when the
+/// owning class has any base other than a lone `object` (the name may be an
+/// inherited contract) and when they are unittest lifecycle fixtures.
+const UNITTEST_FIXTURE_METHODS: [&str; 5] = [
+    "setUp",
+    "tearDown",
+    "setUpClass",
+    "tearDownClass",
+    "setUpTestData",
+];
+
 pub(crate) fn check_method_and_function_names(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    for_each_method(parsed.syntax().body.as_slice(), &mut |class, function| {
+        if class_has_inheritance(class)
+            || UNITTEST_FIXTURE_METHODS.contains(&function.name.as_str())
+            || matches_snake_case(function.name.as_str())
+        {
+            return;
+        }
+        issues.push(issue_at(
+            "python:S100",
+            &format!(
+                "Rename method \"{}\" to match the regular expression ^[a-z_][a-z0-9_]*$.",
+                function.name
+            ),
+            function.name.range(),
+            index,
+            source,
+        ));
+    });
     for_each_function_def(
         parsed.syntax().body.as_slice(),
         false,
         &mut |function, in_class_body| {
-            if !matches_snake_case(function.name.as_str()) {
-                let (rule_key, kind) = if in_class_body {
-                    ("python:S100", "method")
-                } else {
-                    ("python:S1542", "function")
-                };
-                issues.push(issue_at(
-                    rule_key,
-                    &format!(
-                        "Rename {kind} \"{}\" to match the regular expression ^[a-z_][a-z0-9_]*$.",
-                        function.name
-                    ),
-                    function.name.range(),
-                    index,
-                    source,
-                ));
+            if in_class_body || matches_snake_case(function.name.as_str()) {
+                return;
             }
+            issues.push(issue_at(
+                "python:S1542",
+                &format!(
+                    "Rename function \"{}\" to match the regular expression ^[a-z_][a-z0-9_]*$.",
+                    function.name
+                ),
+                function.name.range(),
+                index,
+                source,
+            ));
         },
     );
     issues

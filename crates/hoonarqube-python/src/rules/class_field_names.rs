@@ -1,5 +1,7 @@
 use crate::engine::file_context::FileContext;
 use crate::support::binding_target_names;
+use crate::support::class_has_inheritance;
+use crate::support::is_constant_name;
 use crate::support::issue_at;
 use crate::support::matches_field_name;
 use hoonarqube_ir::Issue;
@@ -8,7 +10,10 @@ use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-/// Fields assigned directly in a class body are python:S116.
+/// Fields assigned directly in a class body are python:S116. Mirroring the
+/// reference `FieldNameCheck`, classes with any base other than `object` are
+/// skipped (fields may be inherited contracts) and all-caps constant names
+/// are exempt.
 pub(crate) fn check_class_field_names(
     index: &LineIndex,
     source: &str,
@@ -19,11 +24,14 @@ pub(crate) fn check_class_field_names(
         let Stmt::ClassDef(class) = stmt else {
             continue;
         };
+        if class_has_inheritance(class) {
+            continue;
+        }
         for target_name in class.body.iter().flat_map(class_field_names) {
             let Expr::Name(name) = target_name else {
                 continue;
             };
-            if !matches_field_name(name.id.as_str()) {
+            if !matches_field_name(name.id.as_str()) && !is_constant_name(name.id.as_str()) {
                 issues.push(issue_at(
                     "python:S116",
                     &format!(

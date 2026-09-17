@@ -106,6 +106,17 @@ fn function_is_exempt(
     if can_override_in_file(file_ctx, name_range, name) {
         return true;
     }
+    // Abstract-base and metaclass hierarchies fix member signatures.
+    if owner_is_abstract(file_ctx, name_range) {
+        return true;
+    }
+    // Django middleware hooks and URLconf-registered views are framework
+    // callbacks whose signatures are fixed by the framework.
+    if is_django_middleware_method(file_ctx, name_range, name)
+        || crate::support::is_django_view(file_ctx.module_body, name)
+    {
+        return true;
+    }
     // `pass`/`raise`/string-or-ellipsis-only bodies declare a stub contract.
     if is_contract_body(&function.body) {
         return true;
@@ -150,38 +161,88 @@ fn class_defines_member(class: &StmtClassDef, member: &str) -> bool {
         .any(|stmt| matches!(stmt, Stmt::FunctionDef(function) if function.name.as_str() == member))
 }
 
-fn base_names(class: &StmtClassDef) -> Vec<&str> {
+/// Base names written as plain `Name` expressions; `None` when any base is
+/// not a plain name (attribute paths, subscripts, calls, keyword arguments)
+/// because the hierarchy is then unresolvable from this file alone.
+fn base_names(class: &StmtClassDef) -> Option<Vec<&str>> {
     let Some(arguments) = class.arguments.as_deref() else {
-        return Vec::new();
+        return Some(Vec::new());
     };
+    if !arguments.keywords.is_empty() {
+        return None;
+    }
     arguments
         .args
         .iter()
-        .filter_map(|base| base.as_name_expr())
-        .map(|name| name.id.as_str())
-        .chain(
-            arguments
-                .keywords
-                .iter()
-                .filter_map(|keyword| keyword.value.as_name_expr())
-                .map(|name| name.id.as_str()),
-        )
+        .map(|base| base.as_name_expr().map(|name| name.id.as_str()))
         .collect()
 }
 
+/// Members `object` itself provides; a base of `object` resolves through
+/// typeshed, so only these names can be overriding methods on it.
+const OBJECT_MEMBERS: [&str; 17] = [
+    "__init__",
+    "__new__",
+    "__init_subclass__",
+    "__class_getitem__",
+    "__subclasshook__",
+    "__repr__",
+    "__str__",
+    "__eq__",
+    "__ne__",
+    "__lt__",
+    "__le__",
+    "__gt__",
+    "__ge__",
+    "__hash__",
+    "__getattribute__",
+    "__setattr__",
+    "__delattr__",
+];
+
+/// Members the builtin exception hierarchy provides beyond `object`; these
+/// bases resolve through typeshed, so only listed members can be overrides.
+const BUILTIN_EXCEPTION_MEMBERS: [&str; 9] = [
+    "args",
+    "with_traceback",
+    "add_note",
+    "__cause__",
+    "__context__",
+    "__suppress_context__",
+    "exceptions",
+    "message",
+    "print_exc",
+];
+
 /// Mirrors the reference's canBeAnOverridingMethod reduced to in-file facts:
-/// walking the owner's transitive bases, an unresolved (non-in-file) base
-/// could provide the member, and an in-file base that defines it is a real
-/// override. A method whose full in-file hierarchy lacks the member is judged
-/// on its own body.
+/// walking the owner's transitive bases, an unresolved (non-in-file or
+/// non-name) base could provide the member, and an in-file base that defines
+/// it is a real override. `object` and the builtin exceptions resolve to
+/// their fixed member sets. A method whose full in-file hierarchy lacks the
+/// member is judged on its own body.
 fn can_override_in_file(file_ctx: &FileContext, name_range: TextRange, member: &str) -> bool {
     let Some(owner) = find_owner_class(file_ctx, name_range) else {
         return false;
     };
-    let mut pending: Vec<&str> = base_names(owner);
+    let Some(initial) = base_names(owner) else {
+        return true;
+    };
+    let mut pending: Vec<&str> = initial;
     let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
     while let Some(base_name) = pending.pop() {
         if !visited.insert(base_name) {
+            continue;
+        }
+        if base_name == "object" {
+            if OBJECT_MEMBERS.contains(&member) {
+                return true;
+            }
+            continue;
+        }
+        if matches!(base_name, "Exception" | "BaseException" | "ArithmeticError" | "LookupError" | "ValueError" | "TypeError" | "RuntimeError" | "OSError" | "IOError" | "KeyError" | "IndexError" | "AttributeError" | "NameError" | "ImportError" | "StopIteration" | "StopAsyncIteration" | "AssertionError" | "NotImplementedError" | "OverflowError" | "ZeroDivisionError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "SyntaxError" | "IndentationError" | "BufferError" | "EOFError" | "MemoryError" | "RecursionError" | "SystemError" | "ReferenceError" | "Warning" | "GeneratorExit" | "KeyboardInterrupt" | "SystemExit") {
+            if OBJECT_MEMBERS.contains(&member) || BUILTIN_EXCEPTION_MEMBERS.contains(&member) {
+                return true;
+            }
             continue;
         }
         let Some(base) = file_ctx
@@ -195,9 +256,66 @@ fn can_override_in_file(file_ctx: &FileContext, name_range: TextRange, member: &
         if class_defines_member(base, member) {
             return true;
         }
-        pending.extend(base_names(base));
+        let Some(base_bases) = base_names(base) else {
+            return true;
+        };
+        pending.extend(base_bases);
     }
     false
+}
+
+/// The reference's isAbstractClass: methods of classes extending `abc.ABC`
+/// (or `ABC`/`ABCMeta` by name) or declaring any metaclass are exempt.
+fn owner_is_abstract(file_ctx: &FileContext, name_range: TextRange) -> bool {
+    let Some(owner) = find_owner_class(file_ctx, name_range) else {
+        return false;
+    };
+    let Some(arguments) = owner.arguments.as_deref() else {
+        return false;
+    };
+    if arguments
+        .keywords
+        .iter()
+        .any(|keyword| keyword.arg.as_deref() == Some("metaclass"))
+    {
+        return true;
+    }
+    arguments.args.iter().any(|base| {
+        crate::support::dotted_name(base).is_some_and(|path| {
+            matches!(
+                path.as_str(),
+                "ABC" | "ABCMeta" | "abc.ABC" | "abc.ABCMeta"
+            ) || path.ends_with(".ABC")
+                || path.ends_with(".ABCMeta")
+        })
+    })
+}
+
+/// The reference's isDjangoMiddlewareFunction: `process_request`,
+/// `process_exception`, `process_view`, and `process_template_response` on a
+/// class extending `MiddlewareMixin` keep their contract signatures.
+fn is_django_middleware_method(file_ctx: &FileContext, name_range: TextRange, name: &str) -> bool {
+    const MIDDLEWARE_METHODS: [&str; 4] = [
+        "process_request",
+        "process_exception",
+        "process_view",
+        "process_template_response",
+    ];
+    if !MIDDLEWARE_METHODS.contains(&name) {
+        return false;
+    }
+    let Some(owner) = find_owner_class(file_ctx, name_range) else {
+        return false;
+    };
+    owner
+        .arguments
+        .as_deref()
+        .is_some_and(|arguments| {
+            arguments.args.iter().any(|base| {
+                crate::support::dotted_name(base)
+                    .is_some_and(|path| path == "MiddlewareMixin" || path.ends_with(".MiddlewareMixin"))
+            })
+        })
 }
 
 /// The reference's interface-method shape: every top-level statement is
@@ -352,9 +470,11 @@ mod tests {
         ));
         assert!(findings(&dunder, "python:S1172").is_empty());
 
-        // Methods of classes with bases may override the base contract.
+        // Methods of classes with unresolvable bases may override the base
+        // contract; builtin bases like `Exception` resolve through typeshed
+        // and do not exempt members they lack.
         let overridable = scan(
-            "class Handler(Exception):\n    def handle(self, payload):\n        return None\n",
+            "class Handler(SomeBase):\n    def handle(self, payload):\n        return None\n",
         );
         assert!(findings(&overridable, "python:S1172").is_empty());
 

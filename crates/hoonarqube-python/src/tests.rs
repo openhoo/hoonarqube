@@ -810,12 +810,16 @@ fn s1128_flags_unused_module_imports() {
 
 #[test]
 fn s1144_flags_unreferenced_private_methods() {
-    let flagged = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
+    // Only class-private (`__name`) members are in scope; single-underscore
+    // names are not flagged by the reference check.
+    let flagged = scan("class C:\n    def __hidden(self):\n        return 7\n\n\nc = C()\n");
     assert_eq!(findings(&flagged, "python:S1144").len(), 1);
     let referenced = scan(
-        "class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\nprint(c._hidden())\n",
+        "class C:\n    def __hidden(self):\n        return 7\n\n\nc = C()\nprint(c.__hidden())\n",
     );
     assert!(findings(&referenced, "python:S1144").is_empty());
+    let single_underscore = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
+    assert!(findings(&single_underscore, "python:S1144").is_empty());
 }
 
 #[test]
@@ -3057,20 +3061,36 @@ fn s101_flags_non_conforming_class_names_on_boundary_shapes() {
 }
 #[test]
 fn s116_flags_class_fields_on_boundary_shapes() {
-    // Upper-case constants violate the field pattern; multi-target
+    // Mixed-case fields violate the field pattern; multi-target
     // assignments report each offending name.
     assert_eq!(
         findings_of("class C:\n    Value = 1\n", "python:S116").len(),
         1
     );
     assert_eq!(
-        findings_of("class C:\n    A = B = 1\n", "python:S116").len(),
+        findings_of("class C:\n    aB = cD = 1\n", "python:S116").len(),
         2
     );
     // No digit directly after the lead character.
     assert_eq!(
         findings_of("class C:\n    _1bad = 1\n", "python:S116").len(),
         1
+    );
+    // All-caps constants are exempt (CONSTANT_PATTERN), and classes with
+    // bases are skipped because fields may be inherited contracts.
+    assert!(
+        findings_of(
+            "class C:\n    NEVER = 1\n    ALLOW = 2\n",
+            "python:S116"
+        )
+        .is_empty()
+    );
+    assert!(
+        findings_of(
+            "class C(Base):\n    Value = 1\n",
+            "python:S116"
+        )
+        .is_empty()
     );
     // Lowercase, underscore-prefixed, dunder and digit-tailed names
     // comply.
