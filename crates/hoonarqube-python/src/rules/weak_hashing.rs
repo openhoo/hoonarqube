@@ -19,14 +19,18 @@ pub(crate) fn check_weak_hashing(
         let Some(path) = dotted_name(&call.func) else {
             continue;
         };
-        let weak_direct = matches!(path.as_str(), "hashlib.md5" | "hashlib.sha1");
-        let weak_named_new = path == "hashlib.new"
+        // The reference's questionableHashlibAlgorithm set; bare `md5(...)`,
+        // `sha1(...)`, `sha224(...)` calls resolve to the same hashlib FQNs
+        // through `from hashlib import ...`.
+        let weak_names = ["hashlib.md5", "hashlib.sha1", "hashlib.sha224", "md5", "sha1", "sha224"];
+        let weak_direct = weak_names.contains(&path.as_str());
+        let weak_named_new = matches!(path.as_str(), "hashlib.new" | "new")
             && call
                 .arguments
                 .args
                 .first()
                 .and_then(string_literal_text)
-                .is_some_and(|name| matches!(name.to_lowercase().as_str(), "md5" | "sha1" | "sha"));
+                .is_some_and(|name| matches!(name.to_lowercase().as_str(), "md5" | "sha1" | "sha224" | "sha"));
         if (weak_direct || weak_named_new) && !hash_call_is_exempt(call) {
             let range = if weak_direct {
                 match call.func.as_ref() {

@@ -41,12 +41,57 @@ pub(crate) fn check_s2077_sql_formatting(
     issues
 }
 
+/// Whether the file imports anything under `django.db.models` or
+/// `django.db.connection` — the reference's usage gates for the `.raw()`/
+/// `.extra()` and `.execute()` sinks.
+fn django_db_usage(file_ctx: &FileContext) -> (bool, bool) {
+    let mut models = false;
+    let mut connection = false;
+    for import in &file_ctx.imports {
+        match import {
+            crate::engine::file_context::AnyImport::Plain(plain) => {
+                for alias in &plain.names {
+                    let path = alias.name.as_str();
+                    models |= path.contains("django.db.models");
+                    connection |= path.contains("django.db.connection");
+                }
+            }
+            crate::engine::file_context::AnyImport::From(from) => {
+                let module = from.module.as_deref().unwrap_or("");
+                // The reference tests the bound name's FQN, so
+                // `from django.db import connections` counts as a
+                // django.db.connection usage ("...connections" contains it).
+                for alias in &from.names {
+                    let fqn = format!("{module}.{}", alias.name.as_str());
+                    models |= fqn.contains("django.db.models");
+                    connection |= fqn.contains("django.db.connection");
+                }
+            }
+        }
+    }
+    (models, connection)
+}
+
 fn is_s2077_execute_sink(call: &ExprCall, file_ctx: &FileContext) -> bool {
+    let (uses_models, uses_connection) = django_db_usage(file_ctx);
+    // `RawSQL(...)` is a sink whenever the callee resolves to the Django
+    // expression class or the file imports it by name.
+    if matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "RawSQL")
+        || crate::support::dotted_name(&call.func).as_deref()
+            == Some("django.db.models.expressions.RawSQL")
+    {
+        return true;
+    }
     let Expr::Attribute(attribute) = call.func.as_ref() else {
         return false;
     };
-    attribute.attr.as_str() == "execute"
-        && file_ctx.known_bindings.resolve_call(call) == KnownBinding::DjangoCursorExecute
+    let method = attribute.attr.as_str();
+    if uses_models && matches!(method, "raw" | "extra") {
+        return true;
+    }
+    method == "execute"
+        && (uses_connection
+            || file_ctx.known_bindings.resolve_call(call) == KnownBinding::DjangoCursorExecute)
 }
 
 fn query_argument(call: &ExprCall) -> Option<&Expr> {
@@ -54,7 +99,10 @@ fn query_argument(call: &ExprCall) -> Option<&Expr> {
         call.arguments
             .keywords
             .iter()
-            .find_map(|keyword| (keyword.arg.as_deref() == Some("sql")).then_some(&keyword.value))
+            .find_map(|keyword| {
+                matches!(keyword.arg.as_deref(), Some("sql" | "select" | "where" | "tables"))
+                    .then_some(&keyword.value)
+            })
     })
 }
 
@@ -981,7 +1029,9 @@ mod tests {
             "        return query\n",
             "Cursor().execute(query)\n",
         );
-        assert_eq!(findings(&scan(source), "python:S2077").len(), 1);
+        // With a django.db.connection import present, the reference treats
+        // every `.execute` as a sink; both call sites are flagged.
+        assert_eq!(findings(&scan(source), "python:S2077").len(), 2);
     }
 
     #[test]

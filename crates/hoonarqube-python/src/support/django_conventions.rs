@@ -85,3 +85,27 @@ pub(crate) fn function_parameters(
         .chain(parameters.kwonlyargs.iter())
         .collect()
 }
+
+/// Names referenced inside any `urlpatterns = [...]` assignment in the
+/// module — the URLconf registration that makes a function a Django view
+/// (`FunctionSymbolImpl.isDjangoView` in the reference).
+pub(crate) fn django_view_names(module_body: &[Stmt]) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for stmt in module_body {
+        let Stmt::Assign(assign) = stmt else {
+            continue;
+        };
+        let is_urlpatterns = assign.targets.iter().any(|target| {
+            matches!(target, Expr::Name(name) if name.id.as_str() == "urlpatterns")
+        });
+        if !is_urlpatterns {
+            continue;
+        }
+        crate::support::for_each_expr(&assign.value, &mut |expr| {
+            if let Expr::Name(name) = expr {
+                names.insert(name.id.to_string());
+            }
+        });
+    }
+    names
+}

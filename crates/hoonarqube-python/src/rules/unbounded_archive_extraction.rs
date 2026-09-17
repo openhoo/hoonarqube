@@ -35,6 +35,31 @@ pub(crate) fn check_unbounded_archive_extraction(
         .collect();
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
+        // The reference's ExpandingArchiveCheck flags `tarfile.open` itself.
+        if matches!(
+            dotted_name(&call.func).as_deref(),
+            Some("tarfile.open" | "tarfile.TarFile.open")
+        ) || (called_name(&call.func) == Some("open")
+            && file_ctx.imports.iter().any(|import| {
+                let crate::engine::file_context::AnyImport::From(from) = import else {
+                    return false;
+                };
+                from.module.as_deref() == Some("tarfile")
+                    && from
+                        .names
+                        .iter()
+                        .any(|alias| alias.name.as_str() == "open")
+            }))
+        {
+            issues.push(issue_at(
+                "python:S5042",
+                "Make sure that expanding this archive file is safe here.",
+                call.range(),
+                index,
+                source,
+            ));
+            continue;
+        }
         if called_name(&call.func) == Some("extractall") && !has_keyword(&call.arguments, "members")
         {
             let range = match call.func.as_ref() {
