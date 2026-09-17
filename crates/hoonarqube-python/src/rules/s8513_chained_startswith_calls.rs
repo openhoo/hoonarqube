@@ -44,33 +44,38 @@ fn check_bool_op(bool_op: &ExprBoolOp, index: &LineIndex, source: &str, issues: 
         return;
     }
     let mut receivers = Vec::new();
+    let mut methods = Vec::new();
     for value in &bool_op.values {
         match prefix_call_receiver(value, source) {
-            Some(receiver) => receivers.push(receiver),
+            Some((method, receiver)) => {
+                methods.push(method);
+                receivers.push(receiver);
+            }
             None => return,
         }
     }
     let first = receivers[0];
-    if receivers.iter().all(|receiver| *receiver == first) {
+    let same_method = methods.iter().all(|method| *method == methods[0]);
+    if same_method && receivers.iter().all(|receiver| *receiver == first) {
         issues.push(issue_at(RULE_KEY, MESSAGE, bool_op.range(), index, source));
     }
 }
 
-/// Textual receiver of a `receiver.startswith("literal")` call, or
+/// Textual receiver of a `receiver.startswith("literal")` or
 /// `None` for any other expression shape.
-fn prefix_call_receiver<'a>(expr: &'a Expr, source: &'a str) -> Option<&'a str> {
+fn prefix_call_receiver<'a>(expr: &'a Expr, source: &'a str) -> Option<(&'a str, &'a str)> {
     let Expr::Call(call) = expr else {
         return None;
     };
     let Expr::Attribute(method) = call.func.as_ref() else {
         return None;
     };
-    if method.attr.as_str() != "startswith"
+    if !matches!(method.attr.as_str(), "startswith" | "endswith")
         || call.arguments.args.len() != 1
         || !call.arguments.keywords.is_empty()
     {
         return None;
     }
     string_literal_text(&call.arguments.args[0])?;
-    Some(&source[method.value.range()])
+    Some((method.attr.as_str(), &source[method.value.range()]))
 }

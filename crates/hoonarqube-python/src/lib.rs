@@ -79,12 +79,21 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:PreIncrementDecrement",
     "python:PrintStatementUsage",
     "python:S1045",
+    "python:S1066",
+    "python:S107",
+    "python:S108",
     "python:S112",
+    "python:S1128",
     "python:S1131",
     "python:S1142",
+    "python:S1186",
     "python:S1192",
+    "python:S1226",
+    "python:S125",
     "python:S1313",
     "python:S138",
+    "python:S139",
+    "python:S1481",
     "python:S1515",
     "python:S1523",
     "python:S1542",
@@ -96,6 +105,7 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S1721",
     "python:S1722",
     "python:S1763",
+    "python:S1854",
     "python:S1871",
     "python:S2053",
     "python:S2068",
@@ -103,9 +113,13 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S2092",
     "python:S2115",
     "python:S2159",
+    "python:S2190",
     "python:S2201",
+    "python:S2208",
     "python:S2245",
     "python:S2257",
+    "python:S2275",
+    "python:S2325",
     "python:S2612",
     "python:S2638",
     "python:S2710",
@@ -115,6 +129,7 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S2734",
     "python:S2737",
     "python:S2755",
+    "python:S2757",
     "python:S2772",
     "python:S2836",
     "python:S2876",
@@ -123,7 +138,9 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S3403",
     "python:S3516",
     "python:S3752",
+    "python:S3776",
     "python:S3801",
+    "python:S4144",
     "python:S4423",
     "python:S4426",
     "python:S4433",
@@ -151,8 +168,10 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S5542",
     "python:S5547",
     "python:S5549",
+    "python:S5607",
     "python:S5659",
     "python:S5717",
+    "python:S5720",
     "python:S5754",
     "python:S5806",
     "python:S5807",
@@ -177,6 +196,9 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S6437",
     "python:S6463",
     "python:S6725",
+    "python:S7498",
+    "python:S7503",
+    "python:S7632",
     "python:S905",
     "python:S9073",
     "python:S930",
@@ -186,7 +208,7 @@ use crate::support::is_test_scope_file;
 use crate::support::parse;
 use crate::support::sort_issues;
 use ruff_source_file::LineIndex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod native;
 
@@ -295,6 +317,55 @@ pub fn analyze(
 
 /// Runs the Python analyzer with syntax-backed cross-module facts.
 ///
+/// Test-scope files only run TEST-scope rules; MAIN and ALL rules stay
+/// silent, matching the reference's test-file behavior.
+fn retain_main_scope_issues(issues: &mut Vec<Issue>, path: &Path) {
+    if is_test_scope_file(path) {
+        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+    }
+}
+
+/// Tiered rule batteries share the parsed module, line index, file context,
+/// and path; grouping them keeps `analyze_with_context` under the line cap.
+/// Shared per-file analysis context for the tiered rule batteries.
+struct BatteryContext<'a> {
+    parsed: &'a Parsed<ModModule>,
+    index: &'a LineIndex,
+    source: &'a str,
+    options: &'a AnalyzerOptions,
+    file_ctx: &'a FileContext<'a>,
+    path: &'a Path,
+    metrics: &'a hoonarqube_ir::FileMetrics,
+}
+
+fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
+    let BatteryContext {
+        parsed,
+        index,
+        source,
+        options,
+        file_ctx,
+        path,
+        metrics,
+    } = *ctx;
+    issues.extend(check_tier_a_battery(
+        parsed, index, source, options, file_ctx, path,
+    ));
+    issues.extend(check_tier_a_battery_2(
+        parsed, index, source, options, file_ctx,
+    ));
+    issues.extend(check_naming_convention_battery(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_size_metric_battery(
+        parsed, index, source, options, metrics,
+    ));
+    issues.extend(check_tier_b_battery(
+        parsed, index, source, options, file_ctx, path,
+    ));
+    issues.extend(check_regex_battery(parsed, index, source, options));
+}
+
 /// The context is explicit so the caller controls the project/module boundary;
 /// unresolved imports and dynamic values remain unresolved instead of being
 /// guessed from names.
@@ -336,27 +407,18 @@ pub fn analyze_with_context(
     issues.extend(check_invalid_string_escapes(&index, source, &file_ctx));
     issues.extend(check_mixed_string_concatenation(&parsed, &index, source));
     issues.extend(check_one_statement_per_line(&parsed, &index, source));
-    issues.extend(check_tier_a_battery(
-        &parsed, &index, source, options, &file_ctx,
-    ));
-    issues.extend(check_tier_a_battery_2(
-        &parsed, &index, source, options, &file_ctx,
-    ));
-    issues.extend(check_naming_convention_battery(
-        &parsed, &index, source, &file_ctx,
-    ));
-    issues.extend(check_size_metric_battery(
-        &parsed, &index, source, options, &metrics,
-    ));
-    issues.extend(check_tier_b_battery(
-        &parsed,
-        &index,
-        source,
-        options,
-        &file_ctx,
-        path.as_path(),
-    ));
-    issues.extend(check_regex_battery(&parsed, &index, source, options));
+    run_tier_batteries(
+        &BatteryContext {
+            parsed: &parsed,
+            index: &index,
+            source,
+            options,
+            file_ctx: &file_ctx,
+            path: path.as_path(),
+            metrics: &metrics,
+        },
+        &mut issues,
+    );
     let module_name = module_name_from_path(path.as_path());
     add_web_security_batteries(
         &parsed,
@@ -393,9 +455,7 @@ pub fn analyze_with_context(
         options,
         &file_ctx,
     ));
-    if is_test_scope_file(path.as_path()) {
-        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
-    }
+    retain_main_scope_issues(&mut issues, path.as_path());
     attach_quick_fixes(&parsed, &index, source, &file_ctx, &mut issues);
     sort_issues(&mut issues);
 

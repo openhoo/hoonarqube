@@ -1,4 +1,3 @@
-use crate::engine::scope::SuiteOwner;
 use crate::support::visit_suites_for_pass;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -11,13 +10,7 @@ pub(crate) fn check_needless_pass(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    visit_suites_for_pass(
-        parsed.syntax().body.as_slice(),
-        SuiteOwner::Module,
-        &mut issues,
-        index,
-        source,
-    );
+    visit_suites_for_pass(parsed.syntax().body.as_slice(), &mut issues, index, source);
     issues
 }
 
@@ -38,11 +31,19 @@ mod tests {
         let found = findings(&flagged, "python:S2772");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 2);
-        for clean in ["def f():\n    pass\n", "class A:\n    pass\n    x = 1\n"] {
+        // Docstrings are filtered before counting, so a docstring + pass
+        // class body is a single meaningful statement and stays clean.
+        for clean in [
+            "def f():\n    pass\n",
+            "class A:\n    \"\"\"Docstring.\"\"\"\n    pass\n",
+        ] {
             assert!(
                 findings(&scan(clean), "python:S2772").is_empty(),
                 "clean: {clean}"
             );
         }
+        // A pass alongside a real statement is redundant even in a class.
+        let flagged = scan("class A:\n    pass\n    x = 1\n");
+        assert_eq!(findings(&flagged, "python:S2772").len(), 1);
     }
 }

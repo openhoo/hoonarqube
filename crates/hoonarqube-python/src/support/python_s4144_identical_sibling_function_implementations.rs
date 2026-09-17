@@ -7,12 +7,29 @@ use ruff_python_ast::token::{Token, TokenKind};
 use ruff_source_file::LineIndex;
 use ruff_text_size::{Ranged, TextRange};
 
-fn body_is_trivial(body: &[Stmt]) -> bool {
-    match body.len() {
-        0 => true,
-        1 => matches!(&body[0], Stmt::Pass(_) | Stmt::Expr(_)),
-        _ => false,
+/// The reference exempts bodies whose statements fit on one line and bodies
+/// that only raise (docstring lines are skipped when measuring).
+fn body_is_trivial(body: &[Stmt], index: &LineIndex, source: &str) -> bool {
+    let statements: &[Stmt] = match body.first() {
+        Some(Stmt::Expr(expr))
+            if matches!(expr.value.as_ref(), ruff_python_ast::Expr::StringLiteral(_)) =>
+        {
+            &body[1..]
+        }
+        _ => body,
+    };
+    if statements.is_empty() {
+        return true;
     }
+    let first_line = index.line_column(statements[0].start(), source).line.get();
+    let last_line = index
+        .line_column(statements[statements.len() - 1].end(), source)
+        .line
+        .get();
+    if first_line == last_line {
+        return true;
+    }
+    statements.len() == 1 && matches!(statements[0], Stmt::Raise(_))
 }
 
 pub(crate) fn flag_identical_function_pairs(
@@ -31,8 +48,8 @@ pub(crate) fn flag_identical_function_pairs(
         .collect();
     for (position, later) in definitions.iter().enumerate().skip(1) {
         for earlier in &definitions[..position] {
-            if body_is_trivial(&earlier.body)
-                || body_is_trivial(&later.body)
+            if body_is_trivial(&earlier.body, index, source)
+                || body_is_trivial(&later.body, index, source)
                 || !bodies_equal_ignoring_comments(
                     suite_span(&earlier.body),
                     suite_span(&later.body),

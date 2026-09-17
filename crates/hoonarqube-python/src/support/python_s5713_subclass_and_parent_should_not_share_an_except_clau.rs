@@ -11,7 +11,6 @@ use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 /// Module-level file-local classes by name.
 pub(crate) fn module_classes(module: &[Stmt]) -> HashMap<&str, &ruff_python_ast::StmtClassDef> {
@@ -73,6 +72,8 @@ pub(crate) fn matches_snake_case(name: &str) -> bool {
 }
 
 /// `^_?([A-Z_][a-zA-Z0-9]*|[a-z_][a-z0-9_]*)$` — class names (python:S101).
+/// A leading underscore satisfies either branch's first character, so the
+/// remainder may follow either alternative (`__proxy__` is compliant).
 pub(crate) fn matches_class_name(name: &str) -> bool {
     let rest = name.strip_prefix('_').unwrap_or(name);
     let mut chars = rest.chars();
@@ -81,10 +82,40 @@ pub(crate) fn matches_class_name(name: &str) -> bool {
     };
     if first.is_ascii_uppercase() || first == '_' {
         chars.all(|c| c.is_ascii_alphanumeric())
+            || rest
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
     } else {
         first.is_ascii_lowercase()
             && chars.all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
     }
+}
+
+/// `^[_A-Z][A-Z0-9_]*$` — all-caps constant names exempted from the field,
+/// parameter, and local-variable naming rules (python:S116/S117).
+pub(crate) fn is_constant_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_uppercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+}
+
+/// Mirrors Sonar's `CheckUtils.classHasInheritance`: any base list other than
+/// a lone `object` argument counts as inheritance.
+pub(crate) fn class_has_inheritance(class: &ruff_python_ast::StmtClassDef) -> bool {
+    let Some(arguments) = class.arguments.as_deref() else {
+        return false;
+    };
+    if arguments.args.is_empty() && arguments.keywords.is_empty() {
+        return false;
+    }
+    !(arguments.keywords.is_empty()
+        && arguments.args.len() == 1
+        && arguments.args[0]
+            .as_name_expr()
+            .is_some_and(|name| name.id.as_str() == "object"))
 }
 
 /// `^[_a-z][_a-z0-9]*$` — class-body field names; unlike function and local
@@ -157,33 +188,19 @@ pub(crate) fn binding_stmt_targets(stmt: &Stmt) -> Vec<&Expr> {
     }
 }
 
-pub(crate) fn push_local_name_issue(
-    issues: &mut Vec<Issue>,
-    seen: &mut HashSet<String>,
-    name: &str,
-    range: TextRange,
-    index: &LineIndex,
-    source: &str,
-) {
-    if !seen.insert(name.to_string()) || matches_snake_case(name) {
-        return;
-    }
-    issues.push(issue_at(
-        "python:S117",
-        "Rename this local variable to match the regular expression '^[_a-z][a-z0-9_]*$'.",
-        range,
-        index,
-        source,
-    ));
-}
-
-/// Counts `return` statements in this function's own body; nested function
-/// definitions are separate units with their own budgets.
+/// Counts `return` and `yield`/`yield from` statements in this function's own
+/// body; nested function definitions are separate units with their own
+/// budgets (python:S1142 counts both, matching the reference visitor).
 pub(crate) fn count_own_returns(stmts: &[Stmt]) -> usize {
     stmts
         .iter()
         .map(|stmt| match stmt {
             Stmt::Return(_) => 1,
+            Stmt::Expr(expr)
+                if matches!(expr.value.as_ref(), Expr::Yield(_) | Expr::YieldFrom(_)) =>
+            {
+                1
+            }
             Stmt::FunctionDef(_) | Stmt::ClassDef(_) => 0,
             _ => child_bodies(stmt)
                 .iter()

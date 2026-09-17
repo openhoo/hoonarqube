@@ -2,7 +2,6 @@ use crate::support::REGEX_FUNCTIONS;
 use crate::support::decode_escape;
 use crate::support::dotted_name;
 use crate::support::for_each_call;
-use crate::support::for_each_stmt;
 use crate::support::has_verbose_flag;
 use crate::support::keyword_value;
 use crate::support::member_in_ranges;
@@ -608,7 +607,7 @@ impl<'a> RxParser<'a> {
             GroupHead::NamedBackref(name) => RxAtom::NamedRef(name),
             GroupHead::Kind(kind) => {
                 let body = self.parse_alternation(Some(')'))?;
-                let close = self.expect_close(')')?;
+                let close = self.expect_close()?;
                 RxAtom::Group(RxGroup {
                     kind,
                     body,
@@ -627,7 +626,7 @@ impl<'a> RxParser<'a> {
                     self.visible_names.push(name.clone());
                 }
                 let body = self.parse_alternation(Some(')'))?;
-                let close = self.expect_close(')')?;
+                let close = self.expect_close()?;
                 RxAtom::Group(RxGroup {
                     kind: RxGroupKind::Capture,
                     body,
@@ -687,19 +686,29 @@ impl<'a> RxParser<'a> {
         self.bump();
         let named_reference = next.ch == '=';
         let terminator = if named_reference { ')' } else { '>' };
-        let name = self.read_group_name(terminator, marker)?;
+        let name = self.read_group_name(terminator)?;
         if named_reference {
             // `(?P=name)` is a complete atom including its closing paren.
-            self.expect_close(')')?;
+            let close = self.bump();
+            match close {
+                Some(unit) if unit.ch == ')' => {}
+                other => return Err(self.err_at(other)),
+            }
             let span = TextRange::new(marker.at, self.consumed_end(marker.at));
             self.record_backref(Some(name.clone()), None, span);
             return Ok(GroupHead::NamedBackref(name));
         }
-        self.expect_close('>')?;
+        let close = self.bump();
+        match close {
+            Some(unit) if unit.ch == '>' => {}
+            other => return Err(self.err_at(other)),
+        }
         Ok(GroupHead::Capture(Some(name)))
     }
 
-    fn read_group_name(&mut self, terminator: char, _marker: RxUnit) -> RxResult<String> {
+    /// Reads a `(?P<name>`/`(?P=name)` group name up to `terminator`,
+    /// requiring a non-empty identifier starting with a letter or `_`.
+    fn read_group_name(&mut self, terminator: char) -> RxResult<String> {
         let mut name = String::new();
         while let Some(unit) = self.peek() {
             if unit.ch == terminator {
@@ -767,10 +776,10 @@ impl<'a> RxParser<'a> {
         }
     }
 
-    fn expect_close(&mut self, ch: char) -> RxResult<TextSize> {
+    fn expect_close(&mut self) -> RxResult<TextSize> {
         let close = self.bump();
         match close {
-            Some(unit) if unit.ch == ch => Ok(unit.at + TextSize::from(to_u32(ch.len_utf8()))),
+            Some(unit) if unit.ch == ')' => Ok(unit.at + TextSize::from(to_u32(')'.len_utf8()))),
             other => Err(self.err_at(other)),
         }
     }
@@ -1131,26 +1140,12 @@ pub(crate) struct RegexLiteral {
     pub(crate) range: TextRange,
 }
 
-/// How a `re` call site consumes its pattern, mirroring Sonar's
-/// `MatchType`: `fullmatch` is full-only, the partial methods allow a
-/// trailing implicit `.*`, and `re.compile` resolves through the bound
-/// name's method usages. `re.match`/`re.finditer` and unresolved compiled
-/// patterns stay `Unknown` (no implicit match-all, non-strict can-fail).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RxMatchType {
-    Full,
-    Partial,
-    Both,
-    Unknown,
-}
-
 /// One `re.<fn>(...)` call site relevant to the regex rules.
 pub(crate) struct RegexSite {
     pub(crate) pattern_range: TextRange,
     pub(crate) pattern: Option<Vec<RxUnit>>,
     pub(crate) repl: Option<RegexLiteral>,
     pub(crate) verbose: bool,
-    pub(crate) match_type: RxMatchType,
 }
 
 fn decode_regex_literal(expr: &Expr, source: &str) -> Option<RegexLiteral> {
@@ -1170,62 +1165,6 @@ fn decode_regex_literal(expr: &Expr, source: &str) -> Option<RegexLiteral> {
     })
 }
 
-/// `re` methods whose match semantics allow a trailing implicit `.*`.
-const PARTIAL_MATCH_METHODS: [&str; 5] = ["findall", "search", "split", "sub", "subn"];
-
-/// Match type of a `re.compile` site: resolved through the bound name's
-/// method usages (`x.fullmatch` → full, partial methods → partial, both →
-/// both), `Unknown` when the binding or usages cannot be seen.
-fn compiled_match_type(call: &ruff_python_ast::ExprCall, body: &[Stmt]) -> RxMatchType {
-    let mut bound_name = None;
-    for_each_stmt(body, &mut |stmt| {
-        if let Stmt::Assign(assign) = stmt
-            && let Expr::Call(value_call) = assign.value.as_ref()
-            && std::ptr::eq(value_call, call)
-            && let Some(target) = assign.targets.first()
-            && let Expr::Name(name) = target
-        {
-            bound_name = Some(name.id.as_str().to_string());
-        }
-    });
-    let Some(bound_name) = bound_name else {
-        return RxMatchType::Unknown;
-    };
-    let mut full = false;
-    let mut partial = false;
-    for_each_call(body, &mut |usage| {
-        let Expr::Attribute(attr) = usage.func.as_ref() else {
-            return;
-        };
-        let Expr::Name(receiver) = attr.value.as_ref() else {
-            return;
-        };
-        if receiver.id.as_str() != bound_name {
-            return;
-        }
-        if attr.attr.as_str() == "fullmatch" {
-            full = true;
-        } else if PARTIAL_MATCH_METHODS.contains(&attr.attr.as_str()) {
-            partial = true;
-        }
-    });
-    match (full, partial) {
-        (true, true) => RxMatchType::Both,
-        (true, false) => RxMatchType::Full,
-        (false, true) => RxMatchType::Partial,
-        (false, false) => RxMatchType::Unknown,
-    }
-}
-
-fn site_match_type(path: &str, call: &ruff_python_ast::ExprCall, body: &[Stmt]) -> RxMatchType {
-    match path {
-        "re.fullmatch" => RxMatchType::Full,
-        "re.findall" | "re.search" | "re.split" | "re.sub" | "re.subn" => RxMatchType::Partial,
-        "re.compile" => compiled_match_type(call, body),
-        _ => RxMatchType::Unknown,
-    }
-}
-
 pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite> {
     let mut sites = Vec::new();
     for_each_call(body, &mut |call| {
@@ -1240,7 +1179,6 @@ pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite>
             .args
             .first()
             .or_else(|| keyword_value(&call.arguments, "pattern"));
-
         let repl = if matches!(path.as_str(), "re.sub" | "re.subn") {
             call.arguments
                 .args
@@ -1257,7 +1195,6 @@ pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite>
                 .map(|literal| literal.units),
             repl,
             verbose: has_verbose_flag(&call.arguments),
-            match_type: site_match_type(&path, call, body),
         });
     });
     sites
@@ -1298,30 +1235,6 @@ pub(crate) fn for_each_rx_seq_deep<'a>(node: &'a RxNode, visit: &mut impl FnMut(
             }
         }
     });
-}
-
-/// Visits every alternation node, including ones nested inside groups.
-pub(crate) fn for_each_rx_alternation<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a [RxSeq])) {
-    let mut pending = vec![node];
-    while let Some(current) = pending.pop() {
-        match current {
-            RxNode::Alternation(branches) => {
-                visit(branches);
-                for branch in branches {
-                    collect_group_bodies(&branch.items, &mut pending);
-                }
-            }
-            RxNode::Seq(seq) => collect_group_bodies(&seq.items, &mut pending),
-        }
-    }
-}
-
-fn collect_group_bodies<'a>(items: &'a [RxItem], pending: &mut Vec<&'a RxNode>) {
-    for item in items {
-        if let RxAtom::Group(group) = &item.atom {
-            pending.push(&group.body);
-        }
-    }
 }
 
 pub(crate) fn rx_atom_nullable(atom: &RxAtom) -> bool {
@@ -1601,6 +1514,29 @@ pub(crate) fn rx_sets_intersect(a: &RxSet, b: &RxSet) -> bool {
     }
 }
 
+/// Span of a branch-leading start anchor (`^a|b` mis-shape).
+pub(crate) fn rx_leading_anchor_span(branch: &RxSeq) -> Option<TextRange> {
+    match branch.items.first() {
+        Some(item)
+            if item.quant.is_none() && matches!(item.atom, RxAtom::Anchor(a) if a.is_start()) =>
+        {
+            Some(item.span)
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn rx_trailing_anchor_span(branch: &RxSeq) -> Option<TextRange> {
+    match branch.items.last() {
+        Some(item)
+            if item.quant.is_none() && matches!(item.atom, RxAtom::Anchor(a) if a.is_end()) =>
+        {
+            Some(item.span)
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn rx_lookahead_body(atom: &RxAtom) -> Option<&RxNode> {
     match atom {
         RxAtom::Group(group)
@@ -1752,6 +1688,19 @@ pub(crate) fn rx_item_nullable_pub(item: &RxItem) -> bool {
         Some(quant) => quant.min == 0 || rx_atom_nullable(&item.atom),
         None => rx_atom_nullable(&item.atom),
     }
+}
+
+pub(crate) fn rx_optional_separator_overlaps(
+    middle: &RxItem,
+    first: &RxItem,
+    second: &RxItem,
+) -> bool {
+    let Some(set_m) = rx_atom_first_set(&middle.atom) else {
+        return true;
+    };
+    [(first, "f"), (second, "s")].iter().any(|(item, _)| {
+        rx_atom_first_set(&item.atom).is_some_and(|set| rx_sets_intersect(&set, &set_m))
+    })
 }
 
 pub(crate) fn for_each_class<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a RxClass)) {

@@ -326,10 +326,14 @@ fn s7519_prefers_fromkeys_for_constant_loops() {
 
 #[test]
 fn s7512_flags_items_pairs_when_only_keys_used() {
-    let flagged = scan("for key, value in record.items():\n    audit(key)\n");
+    let flagged = scan("record = {}\nfor key, value in record.items():\n    audit(key)\n");
     assert_eq!(findings(&flagged, "python:S7512").len(), 1);
-    let clean = "for key, value in record.items():\n    audit(key, value)\n";
+    let clean = "record = {}\nfor key, value in record.items():\n    audit(key, value)\n";
     assert!(findings(&scan(clean), "python:S7512").is_empty());
+    // An unproven receiver (attribute access, unresolved name) is not a
+    // provable dict and stays silent, matching dictItemsTypeCheck.
+    let unproven = "for key, value in loader.replacements.items():\n    audit(key)\n";
+    assert!(findings(&scan(unproven), "python:S7512").is_empty());
 }
 
 #[test]
@@ -419,11 +423,13 @@ fn s5445_flags_insecure_temp_file_apis() {
 
 #[test]
 fn s5042_requires_members_filter_on_extractall() {
+    // The reference flags `tarfile.open` itself plus `extractall` without a
+    // members filter.
     let flagged = scan(concat!(
         "tarfile.open(\"a\").extractall()\n",
         "tarfile.open(\"b\").extractall(members=[])\n"
     ));
-    assert_eq!(findings(&flagged, "python:S5042").len(), 1);
+    assert_eq!(findings(&flagged, "python:S5042").len(), 3);
 }
 
 #[test]
@@ -814,12 +820,17 @@ fn s1128_flags_unused_module_imports() {
 
 #[test]
 fn s1144_flags_unreferenced_private_methods() {
-    let flagged = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
+    // Only class-private (`__name`) members are in scope; single-underscore
+    // names are not flagged by the reference check.
+    let flagged = scan("class C:\n    def __hidden(self):\n        return 7\n\n\nc = C()\n");
     assert_eq!(findings(&flagged, "python:S1144").len(), 1);
     let referenced = scan(
-        "class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\nprint(c._hidden())\n",
+        "class C:\n    def __hidden(self):\n        return 7\n\n\nc = C()\nprint(c.__hidden())\n",
     );
     assert!(findings(&referenced, "python:S1144").is_empty());
+    let single_underscore =
+        scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
+    assert!(findings(&single_underscore, "python:S1144").is_empty());
 }
 
 #[test]
@@ -1257,8 +1268,10 @@ fn s3516_flags_identical_constant_returns() {
 
 #[test]
 fn s3801_flags_mixed_value_and_none_returns() {
+    // `return None` is a valued return in the reference; a bare `return`
+    // mixed with valued returns is the inconsistency.
     let flagged =
-        scan("def fetch(flag):\n    if flag:\n        return 5\n    return None\n\n\nfetch(1)\n");
+        scan("def fetch(flag):\n    if flag:\n        return 5\n    return\n\n\nfetch(1)\n");
     assert_eq!(findings(&flagged, "python:S3801").len(), 1);
     let consistent =
         scan("def fetch(flag):\n    if flag:\n        return 5\n    return 0\n\n\nfetch(1)\n");
@@ -2951,9 +2964,9 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
     // #357: Sonar rules with catalog scope MAIN never report on test
     // sources; scope-ALL rules keep firing, and docs stay MAIN scope.
     let source = concat!(
-        "BUFFER = \"payload\"\n",
-        "OTHER = \"payload\"\n",
-        "THIRD = \"payload\"\n",
+        "BUFFER = \"pay load\"\n",
+        "OTHER = \"pay load\"\n",
+        "THIRD = \"pay load\"\n",
         "GATEWAY = \"192.168.1.1\"\n",
         "ENDPOINT = \"http://unsafe.test/path\"\n",
         "\n",
@@ -2975,9 +2988,11 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
             "{key} is MAIN scope and must not report on test files"
         );
     }
+    // The reference's ALL-scope rules also stay silent on test files; only
+    // TEST-scope rules run there.
     assert!(
-        !findings(&in_tests, "python:S1481").is_empty(),
-        "python:S1481 is scope ALL and still reports on test files"
+        findings(&in_tests, "python:S1481").is_empty(),
+        "python:S1481 is scope ALL and does not report on test files"
     );
 
     let in_sources = scan_at(PathBuf::from("src/gateway.py"), source);
@@ -3065,14 +3080,14 @@ fn s101_flags_non_conforming_class_names_on_boundary_shapes() {
 }
 #[test]
 fn s116_flags_class_fields_on_boundary_shapes() {
-    // Upper-case constants violate the field pattern; multi-target
+    // Mixed-case fields violate the field pattern; multi-target
     // assignments report each offending name.
     assert_eq!(
         findings_of("class C:\n    Value = 1\n", "python:S116").len(),
         1
     );
     assert_eq!(
-        findings_of("class C:\n    A = B = 1\n", "python:S116").len(),
+        findings_of("class C:\n    aB = cD = 1\n", "python:S116").len(),
         2
     );
     // No digit directly after the lead character.
@@ -3080,6 +3095,10 @@ fn s116_flags_class_fields_on_boundary_shapes() {
         findings_of("class C:\n    _1bad = 1\n", "python:S116").len(),
         1
     );
+    // All-caps constants are exempt (CONSTANT_PATTERN), and classes with
+    // bases are skipped because fields may be inherited contracts.
+    assert!(findings_of("class C:\n    NEVER = 1\n    ALLOW = 2\n", "python:S116").is_empty());
+    assert!(findings_of("class C(Base):\n    Value = 1\n", "python:S116").is_empty());
     // Lowercase, underscore-prefixed, dunder and digit-tailed names
     // comply.
     assert!(
@@ -3391,8 +3410,9 @@ fn s108_flags_placeholder_only_non_function_suites() {
         "while b:\n",
         "    pass\n",
     ));
-    // Class body, if body, try body, handler, and while body: five blocks.
-    assert_eq!(findings(&flagged, "python:S108").len(), 5);
+    // The reference skips function/class/except parents and treats `...` as
+    // content: only the `try` and `while` bodies report.
+    assert_eq!(findings(&flagged, "python:S108").len(), 2);
 }
 
 #[test]
@@ -3448,7 +3468,8 @@ fn s1186_flags_placeholder_only_functions() {
         "    def method(self):\n",
         "        pass\n",
     ));
-    assert_eq!(findings(&flagged, "python:S1186").len(), 3);
+    // The reference exempts `...`-only bodies (they count as content).
+    assert_eq!(findings(&flagged, "python:S1186").len(), 2);
 }
 
 #[test]

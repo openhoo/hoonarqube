@@ -37,8 +37,10 @@ fn preferred_assertion(call: &ruff_python_ast::ExprCall) -> Option<&'static str>
         Some("assertEqual" | "assertNotEqual") if args.len() == 2 => {
             preferred_equality_assertion(args, called_name(&call.func) == Some("assertNotEqual"))
         }
-        Some("assertTrue") if args.len() == 1 => preferred_true_assertion(&args[0]),
-        Some("assertFalse") if args.len() == 1 => preferred_false_assertion(&args[0]),
+        // The optional failure-message argument does not change the
+        // assertion being made; the reference inspects args[0] either way.
+        Some("assertTrue") if (1..=2).contains(&args.len()) => preferred_true_assertion(&args[0]),
+        Some("assertFalse") if (1..=2).contains(&args.len()) => preferred_false_assertion(&args[0]),
         _ => None,
     }
 }

@@ -30,45 +30,72 @@ pub(crate) fn check_s2638_override_contracts(
             let Some(base) = classes.get(base_name) else {
                 continue;
             };
-            for member in &class.body {
-                let Stmt::FunctionDef(override_method) = member else {
-                    continue;
-                };
-                let method_name = override_method.name.as_str();
-                let Some(Stmt::FunctionDef(base_method)) = base.body.iter().find(|candidate| {
-                    matches!(candidate, Stmt::FunctionDef(function)
-                        if function.name.as_str() == method_name)
-                }) else {
-                    continue;
-                };
-                if is_property_family(base_method)
-                    || is_property_family(override_method)
-                    || has_decorator(base_method, "staticmethod")
-                        != has_decorator(override_method, "staticmethod")
-                {
-                    continue;
-                }
-                let shapes = (
-                    method_shape(base_method, source),
-                    method_shape(override_method, source),
-                );
-                let Some(reason) = s2638_contract_change(&shapes.0, &shapes.1) else {
-                    continue;
-                };
-                issues.push(issue_at(
-                    "python:S2638",
-                    &format!(
-                        "This override of '{base_name}.{method_name}' changes its contract: \
-                         {reason}."
-                    ),
-                    override_method.name.range(),
-                    index,
-                    source,
-                ));
-            }
+            check_base_overrides(class, base, base_name, index, source, &mut issues);
         }
     }
     issues
+}
+
+/// Flags each method in `class` that changes the contract of the same-named
+/// method on `base`.
+fn check_base_overrides(
+    class: &ruff_python_ast::StmtClassDef,
+    base: &ruff_python_ast::StmtClassDef,
+    base_name: &str,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for member in &class.body {
+        let Stmt::FunctionDef(override_method) = member else {
+            continue;
+        };
+        let method_name = override_method.name.as_str();
+        // The reference ignores dunder overrides and any method with
+        // variadic parameters or non-trivial decorators.
+        if crate::support::is_dunder_name(method_name)
+            || override_method.parameters.vararg.is_some()
+            || override_method.parameters.kwarg.is_some()
+            || has_non_ignoring_decorator(override_method)
+        {
+            continue;
+        }
+        let Some(Stmt::FunctionDef(base_method)) = base.body.iter().find(|candidate| {
+            matches!(candidate, Stmt::FunctionDef(function)
+                if function.name.as_str() == method_name)
+        }) else {
+            continue;
+        };
+        // The reference also skips when the overridden method is
+        // variadic or carries a non-trivial decorator.
+        if base_method.parameters.vararg.is_some()
+            || base_method.parameters.kwarg.is_some()
+            || has_non_ignoring_decorator(base_method)
+            || is_property_family(base_method)
+            || is_property_family(override_method)
+            || has_decorator(base_method, "staticmethod")
+                != has_decorator(override_method, "staticmethod")
+        {
+            continue;
+        }
+        let shapes = (
+            method_shape(base_method, source),
+            method_shape(override_method, source),
+        );
+        let Some(reason) = s2638_contract_change(&shapes.0, &shapes.1) else {
+            continue;
+        };
+        issues.push(issue_at(
+            "python:S2638",
+            &format!(
+                "This override of '{base_name}.{method_name}' changes its contract: \
+                 {reason}."
+            ),
+            override_method.name.range(),
+            index,
+            source,
+        ));
+    }
 }
 
 // --- python:S2638 — method overrides should not change contracts --------------
@@ -81,4 +108,19 @@ fn is_property_family(function: &ruff_python_ast::StmtFunctionDef) -> bool {
     PROPERTY_FAMILY_DECORATORS
         .iter()
         .any(|name| has_decorator(function, name))
+}
+
+/// Decorators the reference tolerates while still checking the contract.
+const IGNORING_DECORATORS: [&str; 2] = ["abstractmethod", "overload"];
+
+/// Any decorator outside the ignoring set exempts the method entirely.
+fn has_non_ignoring_decorator(function: &ruff_python_ast::StmtFunctionDef) -> bool {
+    function.decorator_list.iter().any(|decorator| {
+        let name = match &decorator.expression {
+            ruff_python_ast::Expr::Name(name) => name.id.as_str(),
+            ruff_python_ast::Expr::Attribute(attribute) => attribute.attr.as_str(),
+            _ => return true,
+        };
+        !IGNORING_DECORATORS.contains(&name)
+    })
 }

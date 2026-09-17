@@ -20,19 +20,27 @@ pub(crate) fn check_function_parameter_counts(
     for_each_function_def(
         parsed.syntax().body.as_slice(),
         false,
-        &mut |function, _| {
+        &mut |function, in_class_body| {
             let parameters = &function.parameters;
-            let count = parameters.posonlyargs.len()
+            let mut count = parameters.posonlyargs.len()
                 + parameters.args.len()
                 + parameters.kwonlyargs.len()
                 + usize::from(parameters.vararg.is_some())
                 + usize::from(parameters.kwarg.is_some());
+            // The receiver is implicitly passed, so methods (except
+            // staticmethods) count one parameter fewer.
+            let is_method =
+                in_class_body && !crate::support::has_decorator(function, "staticmethod");
+            if is_method {
+                count = count.saturating_sub(1);
+            }
             let maximum = options.maximum_function_parameters;
             if to_u32(count) > maximum {
+                let kind = if is_method { "Method" } else { "Function" };
                 issues.push(issue_at(
                     "python:S107",
                     &format!(
-                        "Function \"{}\" has {count} parameters, which is greater than the \
+                        "{kind} \"{}\" has {count} parameters, which is greater than the \
                          {maximum} authorized.",
                         function.name
                     ),

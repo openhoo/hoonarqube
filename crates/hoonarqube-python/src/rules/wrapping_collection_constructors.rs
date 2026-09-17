@@ -40,6 +40,7 @@ fn wrapping_redundancy(func_name: &str, argument: &Expr) -> bool {
         "list" => matches!(argument, Expr::List(_) | Expr::ListComp(_)),
         "set" => matches!(argument, Expr::Set(_) | Expr::SetComp(_)),
         "dict" => matches!(argument, Expr::Dict(_) | Expr::DictComp(_)),
+        "tuple" => matches!(argument, Expr::Tuple(_) | Expr::List(_) | Expr::ListComp(_)),
         _ => false,
     }
 }

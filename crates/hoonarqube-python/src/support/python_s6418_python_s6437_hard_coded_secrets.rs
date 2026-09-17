@@ -1,6 +1,5 @@
 // --- python:S6418 / python:S6437 — hard-coded secrets.
 
-use crate::engine::scope::SuiteOwner;
 use crate::support::{
     child_bodies, child_exprs, for_each_expr, is_keyword, string_value_text, to_range,
 };
@@ -200,17 +199,6 @@ pub(crate) fn suite_span(suite: &[Stmt]) -> TextRange {
         suite.first().expect("non-empty").range().start(),
         suite.last().expect("non-empty").range().end(),
     )
-}
-
-/// Whether a suite holds nothing but `pass`/`...` placeholders; docstrings
-/// and every other statement count as content.
-pub(crate) fn placeholder_only_suite(suite: &[Stmt]) -> bool {
-    !suite.is_empty()
-        && suite.iter().all(|stmt| match stmt {
-            Stmt::Pass(_) => true,
-            Stmt::Expr(expr) => matches!(expr.value.as_ref(), Expr::EllipsisLiteral(_)),
-            _ => false,
-        })
 }
 
 /// Callee name of a call shaped `name(...)` or `value.name(...)`.
@@ -423,18 +411,24 @@ pub(crate) fn has_decorator(
         })
 }
 
+/// A statement that is only a string literal (docstring); the reference
+/// `NeedlessPassCheck` filters these before counting suite statements.
+fn is_string_literal_statement(stmt: &Stmt) -> bool {
+    matches!(stmt, Stmt::Expr(expression) if matches!(expression.value.as_ref(), Expr::StringLiteral(_)))
+}
+
 pub(crate) fn visit_suites_for_pass(
     suite: &[Stmt],
-    owner: SuiteOwner,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
 ) {
-    for (position, stmt) in suite.iter().enumerate() {
-        if matches!(stmt, Stmt::Pass(_))
-            && suite.len() > 1
-            && !(matches!(owner, SuiteOwner::Class) && position == 0)
-        {
+    let meaningful = suite
+        .iter()
+        .filter(|stmt| !is_string_literal_statement(stmt))
+        .count();
+    for stmt in suite {
+        if matches!(stmt, Stmt::Pass(_)) && meaningful > 1 {
             issues.push(issue_at(
                 "python:S2772",
                 "Remove this unneeded \"pass\".",
@@ -443,13 +437,8 @@ pub(crate) fn visit_suites_for_pass(
                 source,
             ));
         }
-        let nested = if matches!(stmt, Stmt::ClassDef(_)) {
-            SuiteOwner::Class
-        } else {
-            SuiteOwner::Other
-        };
         for body in child_bodies(stmt) {
-            visit_suites_for_pass(body, nested, issues, index, source);
+            visit_suites_for_pass(body, issues, index, source);
         }
     }
 }
