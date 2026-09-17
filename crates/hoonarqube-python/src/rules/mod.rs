@@ -974,8 +974,8 @@ pub(crate) fn check_future_reference_battery(
 
 /// Aggregates the pytest-contract detectors (python:S8992,
 /// python:S8997, python:S9000, python:S9001, python:S9073) added ahead
-/// of their catalog entries; all but the scope-ALL S8992 gate on the
-/// pytest file name.
+/// of their catalog entries. S9073 also accepts unittest function contexts;
+/// S8992 does not require a pytest file name.
 pub(crate) fn check_pytest_contract_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -990,7 +990,7 @@ pub(crate) fn check_pytest_contract_battery(
         parsed, index, source, path,
     ));
     issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
-    issues.extend(check_s9073_composite_assertion(parsed, index, source));
+    issues.extend(check_s9073_composite_assertion(parsed, index, source, path));
     issues.extend(check_s8992_autouse_fixture_params(parsed, index, source));
     issues
 }
