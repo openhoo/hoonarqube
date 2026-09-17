@@ -26,37 +26,49 @@ pub(crate) fn check_static_candidates(
         let Stmt::ClassDef(class) = stmt else {
             return;
         };
-        // Any base class or `metaclass=` keyword means the method may be an
-        // override or metaclass hook; the reference bails out entirely.
-        if class
-            .arguments
-            .as_deref()
-            .is_some_and(|arguments| !arguments.args.is_empty() || !arguments.keywords.is_empty())
-        {
-            return;
-        }
-        for member in &class.body {
-            let Stmt::FunctionDef(function) = member else {
-                continue;
-            };
-            if is_dunder_name(&function.name)
-                || !function.decorator_list.is_empty()
-                || !has_valuable_code(function)
-                || may_raise_not_implemented_error(function)
-                || uses_first_parameter(function)
-            {
-                continue;
-            }
-            issues.push(issue_at(
-                "python:S2325",
-                "Make this method static.",
-                function.name.range(),
-                index,
-                source,
-            ));
-        }
+        check_class_for_static_candidates(class, index, source, &mut issues);
     });
     issues
+}
+
+/// Flags each method in `class` that the reference considers a static
+/// candidate: no bases or metaclass keyword, not dunder/static/decorated,
+/// valuable body, no `NotImplementedError`, unused first parameter.
+fn check_class_for_static_candidates(
+    class: &ruff_python_ast::StmtClassDef,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    // Any base class or `metaclass=` keyword means the method may be an
+    // override or metaclass hook; the reference bails out entirely.
+    if class
+        .arguments
+        .as_deref()
+        .is_some_and(|arguments| !arguments.args.is_empty() || !arguments.keywords.is_empty())
+    {
+        return;
+    }
+    for member in &class.body {
+        let Stmt::FunctionDef(function) = member else {
+            continue;
+        };
+        if is_dunder_name(&function.name)
+            || !function.decorator_list.is_empty()
+            || !has_valuable_code(function)
+            || may_raise_not_implemented_error(function)
+            || uses_first_parameter(function)
+        {
+            continue;
+        }
+        issues.push(issue_at(
+            "python:S2325",
+            "Make this method static.",
+            function.name.range(),
+            index,
+            source,
+        ));
+    }
 }
 
 /// Bodies holding only docstrings, `pass`, or `...` carry no behavior worth
