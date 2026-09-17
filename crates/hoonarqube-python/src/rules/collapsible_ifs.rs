@@ -63,9 +63,8 @@ fn merged_line_too_long(inner: &StmtIf, outer: &StmtIf, index: &LineIndex, sourc
     let outer_end = index.line_column(outer.test.end(), source);
     let inner_start = index.line_column(inner.test.start(), source);
     let inner_end = index.line_column(inner.test.end(), source);
-    let outer_last_column = outer_end.column.get() as usize;
-    let inner_condition_length =
-        inner_end.column.get() as usize - inner_start.column.get() as usize;
+    let outer_last_column = outer_end.column.get();
+    let inner_condition_length = inner_end.column.get() - inner_start.column.get();
     outer_last_column + inner_condition_length + 5 > 80
 }
 
