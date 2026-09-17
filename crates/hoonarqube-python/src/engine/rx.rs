@@ -827,6 +827,12 @@ impl<'a> RxParser<'a> {
             'U' => self.parse_hex_escape(start, 8),
             'N' => self.parse_named_char(start),
             'p' | 'P' => self.parse_unicode_property(start),
+            // Control-character escapes (`\n`, `\t`, …) are literal
+            // characters in Python `re`, exactly like inside a class.
+            't' | 'n' | 'r' | 'f' | 'v' | 'a' => {
+                self.bump();
+                done(RxAtom::Literal(class_escape_char(next.ch)))
+            }
             'g' => Err(self.err_at(Some(next))),
             '0'..='9' => self.parse_number_escape(start),
             ch if ch.is_ascii_alphabetic() => Err(self.err_at(Some(next))),
