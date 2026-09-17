@@ -32,7 +32,6 @@ use ruff_text_size::TextRange;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-
 // --- python:S5704/S5747/S1143/S1716 — raise/jump flow placement ---------------
 
 #[derive(Clone, Copy, PartialEq)]

@@ -10,12 +10,7 @@ pub(crate) fn check_needless_pass(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    visit_suites_for_pass(
-        parsed.syntax().body.as_slice(),
-        &mut issues,
-        index,
-        source,
-    );
+    visit_suites_for_pass(parsed.syntax().body.as_slice(), &mut issues, index, source);
     issues
 }
 

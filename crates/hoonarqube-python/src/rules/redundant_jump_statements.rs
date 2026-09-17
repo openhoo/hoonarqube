@@ -46,12 +46,7 @@ pub(crate) fn check_redundant_jump_statements(
 /// successor. Exemptions match the reference: `return` with an expression
 /// (including `return None`), jumps that are the only statement of their
 /// block, and anything under a `try` ancestor (imprecise CFG).
-fn walk_suite(
-    suite: &[Stmt],
-    tail: Tail,
-    in_try: bool,
-    flag: &mut dyn FnMut(&Stmt),
-) {
+fn walk_suite(suite: &[Stmt], tail: Tail, in_try: bool, flag: &mut dyn FnMut(&Stmt)) {
     for (position, stmt) in suite.iter().enumerate() {
         let is_last = position + 1 == suite.len();
         let child_tail = if is_last { tail } else { Tail::None };
