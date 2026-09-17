@@ -2956,9 +2956,9 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
     // #357: Sonar rules with catalog scope MAIN never report on test
     // sources; scope-ALL rules keep firing, and docs stay MAIN scope.
     let source = concat!(
-        "BUFFER = \"payload\"\n",
-        "OTHER = \"payload\"\n",
-        "THIRD = \"payload\"\n",
+        "BUFFER = \"pay load\"\n",
+        "OTHER = \"pay load\"\n",
+        "THIRD = \"pay load\"\n",
         "GATEWAY = \"192.168.1.1\"\n",
         "ENDPOINT = \"http://unsafe.test/path\"\n",
         "\n",
@@ -2980,9 +2980,11 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
             "{key} is MAIN scope and must not report on test files"
         );
     }
+    // The reference's ALL-scope rules also stay silent on test files; only
+    // TEST-scope rules run there.
     assert!(
-        !findings(&in_tests, "python:S1481").is_empty(),
-        "python:S1481 is scope ALL and still reports on test files"
+        findings(&in_tests, "python:S1481").is_empty(),
+        "python:S1481 is scope ALL and does not report on test files"
     );
 
     let in_sources = scan_at(PathBuf::from("src/gateway.py"), source);
@@ -3400,8 +3402,9 @@ fn s108_flags_placeholder_only_non_function_suites() {
         "while b:\n",
         "    pass\n",
     ));
-    // Class body, if body, try body, handler, and while body: five blocks.
-    assert_eq!(findings(&flagged, "python:S108").len(), 5);
+    // The reference skips function/class/except parents and treats `...` as
+    // content: only the `try` and `while` bodies report.
+    assert_eq!(findings(&flagged, "python:S108").len(), 2);
 }
 
 #[test]
@@ -3457,7 +3460,8 @@ fn s1186_flags_placeholder_only_functions() {
         "    def method(self):\n",
         "        pass\n",
     ));
-    assert_eq!(findings(&flagged, "python:S1186").len(), 3);
+    // The reference exempts `...`-only bodies (they count as content).
+    assert_eq!(findings(&flagged, "python:S1186").len(), 2);
 }
 
 #[test]
