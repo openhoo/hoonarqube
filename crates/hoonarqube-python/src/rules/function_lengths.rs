@@ -27,13 +27,11 @@ pub(crate) fn check_function_lengths(
                 function
                     .body
                     .first()
-                    .map(|s| s.start())
-                    .unwrap_or(function.range().start()),
+                    .map_or_else(|| function.range().start(), ruff_text_size::Ranged::start),
                 function
                     .body
                     .last()
-                    .map(|s| s.end())
-                    .unwrap_or(function.range().end()),
+                    .map_or_else(|| function.range().end(), ruff_text_size::Ranged::end),
             );
             let mut code_lines = std::collections::HashSet::new();
             for token in parsed.tokens() {
