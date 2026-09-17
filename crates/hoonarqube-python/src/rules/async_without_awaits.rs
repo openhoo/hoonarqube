@@ -53,9 +53,9 @@ fn is_exempt_async_function(
             Expr::StringLiteral(_) | Expr::EllipsisLiteral(_)
         ),
         Stmt::Raise(_) => true,
-        Stmt::Return(ret) => ret.value.as_deref().is_some_and(|value| {
-            matches!(value, Expr::Name(name) if name.id.as_str() == "NotImplemented")
-        }),
+        Stmt::Return(ret) => ret.value.as_deref().is_some_and(
+            |value| matches!(value, Expr::Name(name) if name.id.as_str() == "NotImplemented"),
+        ),
         _ => false,
     });
     if trivial {
@@ -64,11 +64,13 @@ fn is_exempt_async_function(
     // A method inside a class with any base or `metaclass=` may override a
     // synchronous base method.
     classes.iter().any(|class| {
-        class.body.iter().any(|member| {
-            matches!(member, Stmt::FunctionDef(m) if m.range() == function.range())
-        }) && class.arguments.as_deref().is_some_and(|arguments| {
-            !arguments.args.is_empty() || !arguments.keywords.is_empty()
-        })
+        class
+            .body
+            .iter()
+            .any(|member| matches!(member, Stmt::FunctionDef(m) if m.range() == function.range()))
+            && class.arguments.as_deref().is_some_and(|arguments| {
+                !arguments.args.is_empty() || !arguments.keywords.is_empty()
+            })
     })
 }
 
@@ -84,18 +86,10 @@ fn async_features_present(function: &ruff_python_ast::StmtFunctionDef) -> bool {
             for_each_expr_for_async_scope(expr, &mut |expr| {
                 found |= matches!(expr, Expr::Await(_) | Expr::Yield(_));
                 match expr {
-                    Expr::ListComp(c) => {
-                        found |= c.generators.iter().any(|g| g.is_async)
-                    }
-                    Expr::SetComp(c) => {
-                        found |= c.generators.iter().any(|g| g.is_async)
-                    }
-                    Expr::DictComp(c) => {
-                        found |= c.generators.iter().any(|g| g.is_async)
-                    }
-                    Expr::Generator(c) => {
-                        found |= c.generators.iter().any(|g| g.is_async)
-                    }
+                    Expr::ListComp(c) => found |= c.generators.iter().any(|g| g.is_async),
+                    Expr::SetComp(c) => found |= c.generators.iter().any(|g| g.is_async),
+                    Expr::DictComp(c) => found |= c.generators.iter().any(|g| g.is_async),
+                    Expr::Generator(c) => found |= c.generators.iter().any(|g| g.is_async),
                     _ => {}
                 }
             });

@@ -28,9 +28,11 @@ pub(crate) fn check_static_candidates(
         };
         // Any base class or `metaclass=` keyword means the method may be an
         // override or metaclass hook; the reference bails out entirely.
-        if class.arguments.as_deref().is_some_and(|arguments| {
-            !arguments.args.is_empty() || !arguments.keywords.is_empty()
-        }) {
+        if class
+            .arguments
+            .as_deref()
+            .is_some_and(|arguments| !arguments.args.is_empty() || !arguments.keywords.is_empty())
+        {
             return;
         }
         for member in &class.body {

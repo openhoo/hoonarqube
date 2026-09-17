@@ -21,10 +21,7 @@ fn body_is_trivial(body: &[Stmt], index: &LineIndex, source: &str) -> bool {
     if statements.is_empty() {
         return true;
     }
-    let first_line = index
-        .line_column(statements[0].start(), source)
-        .line
-        .get();
+    let first_line = index.line_column(statements[0].start(), source).line.get();
     let last_line = index
         .line_column(statements[statements.len() - 1].end(), source)
         .line

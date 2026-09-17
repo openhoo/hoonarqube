@@ -78,12 +78,8 @@ pub(crate) fn binop_literal_invalid(
 /// `str % value`/`bytes % value` is printf-style formatting: the right
 /// operand may be a tuple, mapping, or any single value, so `%` with a
 /// string/bytes left operand is never an incompatible-operands pair.
-fn is_printf_format_operation(
-    op: ruff_python_ast::Operator,
-    left: &Expr,
-) -> bool {
-    op == ruff_python_ast::Operator::Mod
-        && matches!(literal_kind(left), Some("string" | "bytes"))
+fn is_printf_format_operation(op: ruff_python_ast::Operator, left: &Expr) -> bool {
+    op == ruff_python_ast::Operator::Mod && matches!(literal_kind(left), Some("string" | "bytes"))
 }
 
 pub(crate) fn binop_literals_invalid(

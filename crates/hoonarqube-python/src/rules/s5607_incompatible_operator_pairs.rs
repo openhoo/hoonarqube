@@ -109,12 +109,8 @@ mod tuple_format_tests {
     fn s5607_still_flags_incompatible_tuple_formatting() {
         // The reference never treats `str %`/`bytes %` as incompatible:
         // printf-style formatting is valid for any right operand shape.
-        assert!(
-            findings(&scan("value = \"%s:%s\" % (\"a\",)\n"), "python:S5607").is_empty()
-        );
-        assert!(
-            findings(&scan("value = \"%d\" % (\"a\",)\n"), "python:S5607").is_empty()
-        );
+        assert!(findings(&scan("value = \"%s:%s\" % (\"a\",)\n"), "python:S5607").is_empty());
+        assert!(findings(&scan("value = \"%d\" % (\"a\",)\n"), "python:S5607").is_empty());
         // Non-formatting `%` misuse still reports.
         assert_eq!(
             findings(&scan("value = 1 % \"a\"\n"), "python:S5607").len(),

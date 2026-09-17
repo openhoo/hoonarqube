@@ -60,8 +60,7 @@ pub(crate) fn check_instance_self_parameters(
                         Expr::Attribute(attribute) => attribute.attr.as_str(),
                         _ => "",
                     };
-                    matches!(base_name, "type" | "Protocol")
-                        || !local_classes.contains(base_name)
+                    matches!(base_name, "type" | "Protocol") || !local_classes.contains(base_name)
                 })
             });
         let metaclass = might_be_metaclass;
