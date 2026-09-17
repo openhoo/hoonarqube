@@ -22,10 +22,7 @@ fn is_class_private_name(name: &str) -> bool {
 
 /// Decorated methods are exempt unless every decorator is `staticmethod` or
 /// `classmethod`, which keep the member a plain private method.
-fn has_only_static_decorators(
-    file_ctx: &FileContext,
-    name_range: TextRange,
-) -> bool {
+fn has_only_static_decorators(file_ctx: &FileContext, name_range: TextRange) -> bool {
     let Some(function) = file_ctx
         .functions
         .iter()

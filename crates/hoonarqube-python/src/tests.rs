@@ -818,7 +818,8 @@ fn s1144_flags_unreferenced_private_methods() {
         "class C:\n    def __hidden(self):\n        return 7\n\n\nc = C()\nprint(c.__hidden())\n",
     );
     assert!(findings(&referenced, "python:S1144").is_empty());
-    let single_underscore = scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
+    let single_underscore =
+        scan("class C:\n    def _hidden(self):\n        return 7\n\n\nc = C()\n");
     assert!(findings(&single_underscore, "python:S1144").is_empty());
 }
 
@@ -3078,20 +3079,8 @@ fn s116_flags_class_fields_on_boundary_shapes() {
     );
     // All-caps constants are exempt (CONSTANT_PATTERN), and classes with
     // bases are skipped because fields may be inherited contracts.
-    assert!(
-        findings_of(
-            "class C:\n    NEVER = 1\n    ALLOW = 2\n",
-            "python:S116"
-        )
-        .is_empty()
-    );
-    assert!(
-        findings_of(
-            "class C(Base):\n    Value = 1\n",
-            "python:S116"
-        )
-        .is_empty()
-    );
+    assert!(findings_of("class C:\n    NEVER = 1\n    ALLOW = 2\n", "python:S116").is_empty());
+    assert!(findings_of("class C(Base):\n    Value = 1\n", "python:S116").is_empty());
     // Lowercase, underscore-prefixed, dunder and digit-tailed names
     // comply.
     assert!(

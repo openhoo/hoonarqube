@@ -239,7 +239,44 @@ fn can_override_in_file(file_ctx: &FileContext, name_range: TextRange, member: &
             }
             continue;
         }
-        if matches!(base_name, "Exception" | "BaseException" | "ArithmeticError" | "LookupError" | "ValueError" | "TypeError" | "RuntimeError" | "OSError" | "IOError" | "KeyError" | "IndexError" | "AttributeError" | "NameError" | "ImportError" | "StopIteration" | "StopAsyncIteration" | "AssertionError" | "NotImplementedError" | "OverflowError" | "ZeroDivisionError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "SyntaxError" | "IndentationError" | "BufferError" | "EOFError" | "MemoryError" | "RecursionError" | "SystemError" | "ReferenceError" | "Warning" | "GeneratorExit" | "KeyboardInterrupt" | "SystemExit") {
+        if matches!(
+            base_name,
+            "Exception"
+                | "BaseException"
+                | "ArithmeticError"
+                | "LookupError"
+                | "ValueError"
+                | "TypeError"
+                | "RuntimeError"
+                | "OSError"
+                | "IOError"
+                | "KeyError"
+                | "IndexError"
+                | "AttributeError"
+                | "NameError"
+                | "ImportError"
+                | "StopIteration"
+                | "StopAsyncIteration"
+                | "AssertionError"
+                | "NotImplementedError"
+                | "OverflowError"
+                | "ZeroDivisionError"
+                | "UnicodeError"
+                | "UnicodeDecodeError"
+                | "UnicodeEncodeError"
+                | "SyntaxError"
+                | "IndentationError"
+                | "BufferError"
+                | "EOFError"
+                | "MemoryError"
+                | "RecursionError"
+                | "SystemError"
+                | "ReferenceError"
+                | "Warning"
+                | "GeneratorExit"
+                | "KeyboardInterrupt"
+                | "SystemExit"
+        ) {
             if OBJECT_MEMBERS.contains(&member) || BUILTIN_EXCEPTION_MEMBERS.contains(&member) {
                 return true;
             }
@@ -282,10 +319,8 @@ fn owner_is_abstract(file_ctx: &FileContext, name_range: TextRange) -> bool {
     }
     arguments.args.iter().any(|base| {
         crate::support::dotted_name(base).is_some_and(|path| {
-            matches!(
-                path.as_str(),
-                "ABC" | "ABCMeta" | "abc.ABC" | "abc.ABCMeta"
-            ) || path.ends_with(".ABC")
+            matches!(path.as_str(), "ABC" | "ABCMeta" | "abc.ABC" | "abc.ABCMeta")
+                || path.ends_with(".ABC")
                 || path.ends_with(".ABCMeta")
         })
     })
@@ -307,15 +342,12 @@ fn is_django_middleware_method(file_ctx: &FileContext, name_range: TextRange, na
     let Some(owner) = find_owner_class(file_ctx, name_range) else {
         return false;
     };
-    owner
-        .arguments
-        .as_deref()
-        .is_some_and(|arguments| {
-            arguments.args.iter().any(|base| {
-                crate::support::dotted_name(base)
-                    .is_some_and(|path| path == "MiddlewareMixin" || path.ends_with(".MiddlewareMixin"))
-            })
+    owner.arguments.as_deref().is_some_and(|arguments| {
+        arguments.args.iter().any(|base| {
+            crate::support::dotted_name(base)
+                .is_some_and(|path| path == "MiddlewareMixin" || path.ends_with(".MiddlewareMixin"))
         })
+    })
 }
 
 /// The reference's interface-method shape: every top-level statement is
@@ -473,9 +505,8 @@ mod tests {
         // Methods of classes with unresolvable bases may override the base
         // contract; builtin bases like `Exception` resolve through typeshed
         // and do not exempt members they lack.
-        let overridable = scan(
-            "class Handler(SomeBase):\n    def handle(self, payload):\n        return None\n",
-        );
+        let overridable =
+            scan("class Handler(SomeBase):\n    def handle(self, payload):\n        return None\n");
         assert!(findings(&overridable, "python:S1172").is_empty());
 
         // Sonar exempts test functions and test files.

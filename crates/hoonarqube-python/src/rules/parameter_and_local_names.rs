@@ -52,17 +52,20 @@ pub(crate) fn check_parameter_and_local_names(
         &mut |function, _| {
             let mut seen = HashSet::new();
             let owner = owner_class(&classes, function.name.range());
-            for (position, name) in function_all_parameters(function)
-                .into_iter()
-                .enumerate()
-            {
+            for (position, name) in function_all_parameters(function).into_iter().enumerate() {
                 if !seen.insert(name.as_str().to_string()) {
                     continue;
                 }
                 if matches_snake_case(name.as_str())
                     || ML_VARIABLE_NAMES.contains(&name.as_str())
                     || parameter_is_type_like(function, name.as_str())
-                    || parameter_matches_overridden(&classes, owner, function, name.as_str(), position)
+                    || parameter_matches_overridden(
+                        &classes,
+                        owner,
+                        function,
+                        name.as_str(),
+                        position,
+                    )
                 {
                     continue;
                 }
@@ -78,14 +81,7 @@ pub(crate) fn check_parameter_and_local_names(
                 ));
             }
             for_each_stmt_in_scope(&function.body, &mut |stmt| {
-                check_binding_statement(
-                    stmt,
-                    &classes,
-                    &mut seen,
-                    &mut issues,
-                    index,
-                    source,
-                );
+                check_binding_statement(stmt, &classes, &mut seen, &mut issues, index, source);
                 if let Stmt::Try(try_stmt) = stmt {
                     for handler in &try_stmt.handlers {
                         let ExceptHandler::ExceptHandler(inner) = handler;
@@ -166,9 +162,7 @@ fn check_binding_statement(
     for target in targets {
         if let Expr::Name(name) = target {
             let exempt = match kind {
-                LocalKind::Assignment => {
-                    is_constant_name(name.id.as_str()) || type_assigned
-                }
+                LocalKind::Assignment => is_constant_name(name.id.as_str()) || type_assigned,
                 LocalKind::LoopTarget => name.id.len() <= 1,
             };
             if !exempt {
@@ -224,8 +218,15 @@ fn is_type_assignment(value: &Expr, classes: &[&StmtClassDef]) -> bool {
             matches!(
                 callee,
                 Some(
-                    "type" | "TypeVar" | "NewType" | "namedtuple" | "NamedTuple" | "Enum"
-                        | "IntEnum" | "Flag" | "IntFlag"
+                    "type"
+                        | "TypeVar"
+                        | "NewType"
+                        | "namedtuple"
+                        | "NamedTuple"
+                        | "Enum"
+                        | "IntEnum"
+                        | "Flag"
+                        | "IntFlag"
                 )
             ) || matches!(
                 path.as_deref(),
@@ -248,7 +249,10 @@ fn is_type_assignment(value: &Expr, classes: &[&StmtClassDef]) -> bool {
             )
         }),
         Expr::Name(name) => {
-            name.id.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            name.id
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_uppercase())
                 || classes
                     .iter()
                     .any(|class| class.name.as_str() == name.id.as_str())
@@ -294,9 +298,11 @@ fn annotation_is_type(annotation: &Expr) -> bool {
     match annotation {
         Expr::Subscript(subscript) => annotation_is_type(&subscript.value),
         Expr::Name(name) => matches!(name.id.as_str(), "type" | "Type" | "TypeVar"),
-        Expr::Attribute(attribute) => dotted_name(annotation).is_some_and(|path| {
-            path.starts_with("typing.") || path == "builtins.type"
-        }) || matches!(attribute.attr.as_str(), "Type" | "TypeVar"),
+        Expr::Attribute(attribute) => {
+            dotted_name(annotation)
+                .is_some_and(|path| path.starts_with("typing.") || path == "builtins.type")
+                || matches!(attribute.attr.as_str(), "Type" | "TypeVar")
+        }
         _ => false,
     }
 }
@@ -345,7 +351,10 @@ fn parameter_matches_overridden(
                 .iter()
                 .map(|parameter| parameter.name.as_str())
                 .collect();
-            if overridden_names.get(position).is_some_and(|other| *other == name) {
+            if overridden_names
+                .get(position)
+                .is_some_and(|other| *other == name)
+            {
                 return true;
             }
         }

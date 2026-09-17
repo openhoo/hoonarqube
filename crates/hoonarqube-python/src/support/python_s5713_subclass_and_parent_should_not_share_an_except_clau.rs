@@ -197,10 +197,7 @@ pub(crate) fn count_own_returns(stmts: &[Stmt]) -> usize {
         .map(|stmt| match stmt {
             Stmt::Return(_) => 1,
             Stmt::Expr(expr)
-                if matches!(
-                    expr.value.as_ref(),
-                    Expr::Yield(_) | Expr::YieldFrom(_)
-                ) =>
+                if matches!(expr.value.as_ref(), Expr::Yield(_) | Expr::YieldFrom(_)) =>
             {
                 1
             }
