@@ -1,6 +1,6 @@
 // --- python:S7487 / S7493 / S7499 / S7501 / S7488 / S7489 — blocking calls
 
-pub(crate) const SYNC_FILE_CALLS: [&str; 10] = [
+pub(crate) const SYNC_FILE_CALLS: [&str; 20] = [
     "open",
     "io.open",
     "os.open",
@@ -11,6 +11,18 @@ pub(crate) const SYNC_FILE_CALLS: [&str; 10] = [
     "os.listdir",
     "os.makedirs",
     "os.mkdir",
+    // Reference SYNC_FILE_FUNCTIONS additions: fdopen/popen, tempfile
+    // constructors, compressed-stream openers, and Path.open.
+    "os.fdopen",
+    "os.popen",
+    "tempfile.TemporaryFile",
+    "tempfile.NamedTemporaryFile",
+    "tempfile.SpooledTemporaryFile",
+    "gzip.open",
+    "bz2.open",
+    "lzma.open",
+    "pathlib.Path.open",
+    "codecs.open",
 ];
 
 pub(crate) const ASYNC_FILE_METHODS: [&str; 4] =

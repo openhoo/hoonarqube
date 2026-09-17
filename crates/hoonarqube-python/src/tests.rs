@@ -419,11 +419,13 @@ fn s5445_flags_insecure_temp_file_apis() {
 
 #[test]
 fn s5042_requires_members_filter_on_extractall() {
+    // The reference flags `tarfile.open` itself plus `extractall` without a
+    // members filter.
     let flagged = scan(concat!(
         "tarfile.open(\"a\").extractall()\n",
         "tarfile.open(\"b\").extractall(members=[])\n"
     ));
-    assert_eq!(findings(&flagged, "python:S5042").len(), 1);
+    assert_eq!(findings(&flagged, "python:S5042").len(), 3);
 }
 
 #[test]
