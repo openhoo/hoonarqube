@@ -37,8 +37,8 @@ pub(crate) fn check_cognitive_complexity(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    flag_functions(parsed, |function, cognitive, _cyclomatic| {
-        if cognitive > options.maximum_cognitive_complexity {
+    flag_functions(parsed, |function, cognitive, _cyclomatic, nested| {
+        if !nested && cognitive > options.maximum_cognitive_complexity {
             issues.push(issue_at(
                 "python:S3776",
                 &format!(
@@ -61,7 +61,7 @@ pub(crate) fn check_function_complexity(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    flag_functions(parsed, |function, _cognitive, cyclomatic| {
+    flag_functions(parsed, |function, _cognitive, cyclomatic, _nested| {
         let total = cyclomatic + 1;
         if total > options.maximum_function_complexity {
             issues.push(issue_at(
@@ -87,7 +87,7 @@ pub(crate) fn check_file_complexity(
 ) -> Vec<Issue> {
     let mut total = 0u32;
     let mut issues = Vec::new();
-    flag_functions(parsed, |_function, _cognitive, cyclomatic| {
+    flag_functions(parsed, |_function, _cognitive, cyclomatic, _nested| {
         total = total.saturating_add(cyclomatic + 1);
     });
     if total > options.maximum_file_complexity {
@@ -140,13 +140,31 @@ pub(crate) fn check_class_complexity(
 /// measured `(cognitive, cyclomatic)` pair.
 fn flag_functions(
     parsed: &Parsed<ModModule>,
-    mut visit: impl FnMut(&ruff_python_ast::StmtFunctionDef, u32, u32),
+    mut visit: impl FnMut(&ruff_python_ast::StmtFunctionDef, u32, u32, bool),
 ) {
-    let mut sink = |function: &ruff_python_ast::StmtFunctionDef, _in_class_body: bool| {
-        let (cognitive, cyclomatic) = measure_unit(&function.body);
-        visit(function, cognitive, cyclomatic);
-    };
-    for_each_function_def(parsed.syntax().body.as_slice(), false, &mut sink);
+    // Track which functions are nested inside another function: the
+    // reference's cognitive check skips reporting them (their control flow
+    // already rolls into the enclosing score), while the cyclomatic family
+    // still scores them as units of their own.
+    let mut nested_ranges = std::collections::HashSet::new();
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, _| {
+            for_each_function_def(function.body.as_slice(), false, &mut |inner, _| {
+                nested_ranges.insert(inner.name.range());
+            });
+        },
+    );
+    for_each_function_def(
+        parsed.syntax().body.as_slice(),
+        false,
+        &mut |function, _in_class_body| {
+            let (cognitive, cyclomatic) = measure_unit(&function.body);
+            let nested = nested_ranges.contains(&function.name.range());
+            visit(function, cognitive, cyclomatic, nested);
+        },
+    );
 }
 
 /// Visits every class definition in the tree.
@@ -667,14 +685,11 @@ mod tests {
         };
         let report = analyze(PathBuf::from("t.py"), wrapper, &options);
         let found = findings(&report, "python:S3776");
-        assert_eq!(found.len(), 2);
-        // Without the wrapper rule `make` would score 5 (2 + 3); inheriting
-        // the wrapper's level keeps both units at 3.
-        assert!(
-            found
-                .iter()
-                .all(|issue| issue.message.contains("from 3 to the 2 allowed."))
-        );
+        // The reference skips reporting nested functions entirely: only
+        // `make` is flagged, with inner's control flow rolled into its score
+        // at the inherited wrapper level (3 = if(x) 1 + if(a) 2).
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("from 3 to the 2 allowed."));
     }
 
     #[test]
