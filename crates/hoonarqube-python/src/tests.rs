@@ -2968,7 +2968,7 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
         "OTHER = \"pay load\"\n",
         "THIRD = \"pay load\"\n",
         "GATEWAY = \"192.168.1.1\"\n",
-        "ENDPOINT = \"http://unsafe.test/path\"\n",
+        "ENDPOINT = \"http://unsafe.example/path\"\n",
         "\n",
         "def helper():\n",
         "    stale = 1\n",
