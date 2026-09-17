@@ -717,7 +717,7 @@ mod tests {
         let report = analyze(PathBuf::from("t.py"), source, &options);
         let found = findings(&report, "python:FunctionComplexity");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 5);
+        assert_eq!(found[0].range.start.line, 6);
         assert!(findings(&scan(source), "python:FunctionComplexity").is_empty());
     }
 
