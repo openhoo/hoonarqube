@@ -27,12 +27,9 @@ use oxc_syntax::scope::ScopeFlags;
 const MESSAGE: &str = "Missing semicolon.";
 
 pub(crate) fn check(ctx: &AnalysisContext<'_>) -> Vec<Issue> {
-    // Recovery may leave an AST node whose span does not correspond to a real
-    // statement boundary. S1438 is a token-boundary rule, so leave recovery to
-    // S2260 instead of manufacturing a finding from that partial tree.
-    if ctx.has_parse_errors {
-        return Vec::new();
-    }
+    // Parse errors do not suppress the rule: `SonarJS` still reports ASI
+    // findings on the partial tree, so only degenerate zero-width recovery
+    // spans are skipped inside `check_span`.
 
     let mut collector = SemicolonCollector {
         source: ctx.source,
@@ -57,6 +54,9 @@ struct SemicolonCollector<'tokens, 'source, 'index> {
 
 impl SemicolonCollector<'_, '_, '_> {
     fn check_span(&mut self, span: Span) {
+        if span.is_empty() {
+            return;
+        }
         let Some(last_token) = last_token(self.tokens, span) else {
             return;
         };
@@ -360,13 +360,15 @@ mod tests {
     }
 
     #[test]
-    fn invalid_throw_recovery_does_not_emit_s1438() {
+    fn invalid_throw_recovery_still_emits_s1438() {
+        // `SonarJS` reports ASI findings on partial trees; only degenerate
+        // zero-width recovery spans are skipped.
         let report = js("function f() {\n  throw\n  new Error()\n}\n");
         assert!(
             report
                 .issues
                 .iter()
-                .all(|issue| issue.rule_key != "javascript:S1438")
+                .any(|issue| issue.rule_key == "javascript:S1438")
         );
         assert!(
             report

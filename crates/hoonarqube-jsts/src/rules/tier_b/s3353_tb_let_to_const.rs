@@ -21,7 +21,6 @@ pub(crate) fn check_tb_let_to_const(
     for binding in &model.bindings {
         if binding.kind != TbKind::Let
             || !binding.writes.is_empty()
-            || binding.reads.is_empty()
             || collector.excluded.contains(&binding.decl.start)
             || collector.exported.contains(&binding.decl.start)
         {

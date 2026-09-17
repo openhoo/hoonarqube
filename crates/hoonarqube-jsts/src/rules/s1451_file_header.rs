@@ -6,15 +6,28 @@ use crate::engine::pattern_parser::regex_prefix_match;
 use hoonarqube_ir::Issue;
 
 fn check_file_header(source: &str, language: JstsLanguage, rules: &RuleOptions) -> Vec<Issue> {
-    // An empty `headerFormat` disables the rule, mirroring the catalog's
-    // null default.
-    if rules.header_format.is_empty() {
-        return Vec::new();
-    }
     let header_present = if rules.header_is_regular_expression {
+        // An empty `headerFormat` disables the file-header check.
+        if rules.header_format.is_empty() {
+            return Vec::new();
+        }
         regex_prefix_match(&rules.header_format, source)
     } else {
-        source.starts_with(rules.header_format.as_str())
+        // `SonarJS` splits `headerFormat` into expected lines and compares
+        // each physical line exactly. An empty format therefore expects one
+        // empty line and fires whenever line 1 is non-empty.
+        // Java's `split('\n')` drops trailing empty strings, so a trailing
+        // newline in the format does not add an expected empty line.
+        let mut expected: Vec<&str> = rules.header_format.split('\n').collect();
+        while expected.last().is_some_and(|line| line.is_empty()) && expected.len() > 1 {
+            expected.pop();
+        }
+        let mut lines = source.lines();
+        expected.iter().all(|expected_line| {
+            lines
+                .next()
+                .is_some_and(|line| line.trim_end_matches('\r') == *expected_line)
+        })
     };
     if header_present {
         return Vec::new();
@@ -43,7 +56,7 @@ mod tests {
     #[test]
     fn file_header_requires_configured_prefix() {
         let mut rules = RuleOptions {
-            header_format: "// Copyright\n".to_string(),
+            header_format: "// Copyright".to_string(),
             ..RuleOptions::default()
         };
         let missing = crate::analyze_with_rules(
@@ -91,17 +104,21 @@ mod tests {
         );
     }
     #[test]
-    fn file_header_rule_disabled_without_configured_format() {
+    fn file_header_empty_format_fires_on_nonempty_first_line() {
         let rules = RuleOptions::default();
         assert!(rules.header_format.is_empty());
+        // `SonarJS` treats an empty `headerFormat` as one expected empty
+        // line, so any file whose first line is non-empty is flagged.
         let findings = keys_with_rules("let a = 1;\n", &rules);
-        assert_eq!(count_key(&findings, "javascript:S1451"), 0);
+        assert_eq!(count_key(&findings, "javascript:S1451"), 1);
+        let blank_first = keys_with_rules("\nlet a = 1;\n", &rules);
+        assert_eq!(count_key(&blank_first, "javascript:S1451"), 0);
     }
 
     #[test]
     fn file_header_must_appear_at_the_very_start() {
         let rules = RuleOptions {
-            header_format: "// License\n".to_string(),
+            header_format: "// License".to_string(),
             ..RuleOptions::default()
         };
         let late = keys_with_rules("let a = 1;\n// License\n", &rules);
