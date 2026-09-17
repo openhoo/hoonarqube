@@ -326,10 +326,14 @@ fn s7519_prefers_fromkeys_for_constant_loops() {
 
 #[test]
 fn s7512_flags_items_pairs_when_only_keys_used() {
-    let flagged = scan("for key, value in record.items():\n    audit(key)\n");
+    let flagged = scan("record = {}\nfor key, value in record.items():\n    audit(key)\n");
     assert_eq!(findings(&flagged, "python:S7512").len(), 1);
-    let clean = "for key, value in record.items():\n    audit(key, value)\n";
+    let clean = "record = {}\nfor key, value in record.items():\n    audit(key, value)\n";
     assert!(findings(&scan(clean), "python:S7512").is_empty());
+    // An unproven receiver (attribute access, unresolved name) is not a
+    // provable dict and stays silent, matching dictItemsTypeCheck.
+    let unproven = "for key, value in loader.replacements.items():\n    audit(key)\n";
+    assert!(findings(&scan(unproven), "python:S7512").is_empty());
 }
 
 #[test]
@@ -1258,8 +1262,10 @@ fn s3516_flags_identical_constant_returns() {
 
 #[test]
 fn s3801_flags_mixed_value_and_none_returns() {
+    // `return None` is a valued return in the reference; a bare `return`
+    // mixed with valued returns is the inconsistency.
     let flagged =
-        scan("def fetch(flag):\n    if flag:\n        return 5\n    return None\n\n\nfetch(1)\n");
+        scan("def fetch(flag):\n    if flag:\n        return 5\n    return\n\n\nfetch(1)\n");
     assert_eq!(findings(&flagged, "python:S3801").len(), 1);
     let consistent =
         scan("def fetch(flag):\n    if flag:\n        return 5\n    return 0\n\n\nfetch(1)\n");
