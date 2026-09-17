@@ -48,7 +48,7 @@ use crate::rules::defaultdict_keyword_factory::check_defaultdict_keyword_factory
 use crate::rules::deprecated_numpy_aliases::check_deprecated_numpy_aliases;
 use crate::rules::deprecated_utc_helpers::check_deprecated_utc_helpers;
 use crate::rules::disclosed_secret_keys::check_disclosed_secret_keys;
-use crate::rules::django_model_str::check_django_model_str;
+pub(crate) use crate::rules::django_model_str::check_django_model_str;
 use crate::rules::django_string_field_null::check_django_string_field_null;
 use crate::rules::doubled_prefix_operators::check_doubled_prefix_operators;
 use crate::rules::dunder_all_strings::check_dunder_all_strings;
@@ -492,7 +492,6 @@ fn tier_a2_web_async_typing_checks(
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(check_django_string_field_null(index, source, file_ctx));
-    issues.extend(check_django_model_str(index, source, file_ctx));
     issues.extend(check_render_locals(index, source, file_ctx));
     issues.extend(check_modelform_meta_fields(index, source, file_ctx));
     issues.extend(check_json_response_safe_flag(index, source, file_ctx));

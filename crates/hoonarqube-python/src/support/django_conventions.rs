@@ -9,12 +9,6 @@ use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-pub(crate) fn class_defines_method(class: &ruff_python_ast::StmtClassDef, name: &str) -> bool {
-    class
-        .body
-        .iter()
-        .any(|stmt| matches!(stmt, Stmt::FunctionDef(function) if function.name.as_str() == name))
-}
 
 pub(crate) fn is_locals_call(expr: &Expr) -> bool {
     matches!(expr, Expr::Call(call) if called_name(&call.func) == Some("locals"))
