@@ -1,5 +1,7 @@
 use crate::engine::file_context::FileContext;
-use crate::support::{binding_stmt_targets, child_bodies, is_true_literal, issue_at, keyword_value};
+use crate::support::{
+    binding_stmt_targets, child_bodies, is_true_literal, issue_at, keyword_value,
+};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, Stmt, StmtClassDef};
 use ruff_source_file::LineIndex;
@@ -47,7 +49,9 @@ fn imported_name(path: &str) -> Option<DjangoName> {
         "django.db" => Some(DjangoName::Db),
         "django.db.models" => Some(DjangoName::Models),
         "django.db.models.Model" | "django.db.models.base.Model" => Some(DjangoName::Model),
-        "django.db.models.CharField" | "django.db.models.TextField" => Some(DjangoName::StringField),
+        "django.db.models.CharField" | "django.db.models.TextField" => {
+            Some(DjangoName::StringField)
+        }
         _ => None,
     }
 }
@@ -56,7 +60,10 @@ fn resolve(expr: &Expr, bindings: &Bindings<'_>) -> Option<DjangoName> {
     match expr {
         Expr::Name(name) => bindings.get(name.id.as_str()).copied(),
         Expr::Attribute(attribute) => {
-            match (resolve(&attribute.value, bindings)?, attribute.attr.as_str()) {
+            match (
+                resolve(&attribute.value, bindings)?,
+                attribute.attr.as_str(),
+            ) {
                 (DjangoName::Django, "db") => Some(DjangoName::Db),
                 (DjangoName::Db, "models") => Some(DjangoName::Models),
                 (DjangoName::Models, "Model") => Some(DjangoName::Model),
@@ -100,7 +107,11 @@ fn unmanaged(class: &StmtClassDef) -> bool {
     })
 }
 
-fn inspect_field(value: &Expr, bindings: &Bindings<'_>, report: &mut impl FnMut(&ruff_python_ast::ExprCall)) {
+fn inspect_field(
+    value: &Expr,
+    bindings: &Bindings<'_>,
+    report: &mut impl FnMut(&ruff_python_ast::ExprCall),
+) {
     let Expr::Call(call) = value else {
         return;
     };
@@ -138,13 +149,7 @@ fn inspect_suite<'a>(
                 if model_body {
                     inspect_field(&assign.value, bindings, report);
                 }
-                let value = resolve(&assign.value, bindings);
-                for target in &assign.targets {
-                    invalidate_target(target, bindings);
-                    if let Expr::Name(name) = target {
-                        bind(bindings, name.id.as_str(), value);
-                    }
-                }
+                record_assignment(assign, bindings);
             }
             Stmt::ClassDef(class) => {
                 let model = is_model(class, bindings);
@@ -152,13 +157,33 @@ fn inspect_suite<'a>(
                 // namespace, although their base expressions can use it.
                 let enclosing = globals.unwrap_or(bindings);
                 let mut members = enclosing.clone();
-                inspect_suite(&class.body, &mut members, Some(enclosing), model && !unmanaged(class), report);
-                bind(bindings, class.name.as_str(), model.then_some(DjangoName::Model));
+                inspect_suite(
+                    &class.body,
+                    &mut members,
+                    Some(enclosing),
+                    model && !unmanaged(class),
+                    report,
+                );
+                bind(
+                    bindings,
+                    class.name.as_str(),
+                    model.then_some(DjangoName::Model),
+                );
             }
             Stmt::FunctionDef(function) => {
                 bind(bindings, function.name.as_str(), None);
             }
             _ => invalidate_statement(stmt, bindings),
+        }
+    }
+}
+
+fn record_assignment<'a>(assign: &'a ruff_python_ast::StmtAssign, bindings: &mut Bindings<'a>) {
+    let value = resolve(&assign.value, bindings);
+    for target in &assign.targets {
+        invalidate_target(target, bindings);
+        if let Expr::Name(name) = target {
+            bind(bindings, name.id.as_str(), value);
         }
     }
 }
@@ -179,9 +204,13 @@ fn record_import<'a>(stmt: &'a Stmt, bindings: &mut Bindings<'a>) {
         Stmt::ImportFrom(import) => {
             for alias in &import.names {
                 let name = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                let value = import.module.as_ref().filter(|_| import.level == 0).and_then(|module| {
-                    imported_name(&format!("{}.{}", module.as_str(), alias.name.as_str()))
-                });
+                let value = import
+                    .module
+                    .as_ref()
+                    .filter(|_| import.level == 0)
+                    .and_then(|module| {
+                        imported_name(&format!("{}.{}", module.as_str(), alias.name.as_str()))
+                    });
                 if name == "*" {
                     bindings.clear();
                 } else {
@@ -195,7 +224,9 @@ fn record_import<'a>(stmt: &'a Stmt, bindings: &mut Bindings<'a>) {
 
 fn invalidate_target(target: &Expr, bindings: &mut Bindings<'_>) {
     match target {
-        Expr::Name(name) => { bindings.remove(name.id.as_str()); }
+        Expr::Name(name) => {
+            bindings.remove(name.id.as_str());
+        }
         Expr::Attribute(attribute) => invalidate_target(&attribute.value, bindings),
         Expr::Subscript(subscript) => invalidate_target(&subscript.value, bindings),
         Expr::Tuple(tuple) => {
@@ -230,9 +261,15 @@ fn invalidate_statement<'a>(stmt: &'a Stmt, bindings: &mut Bindings<'a>) {
         Stmt::AnnAssign(assign) => invalidate_target(&assign.target, bindings),
         Stmt::AugAssign(assign) => invalidate_target(&assign.target, bindings),
         Stmt::Try(_) => bindings.clear(),
-        Stmt::Import(_) | Stmt::ImportFrom(_) | Stmt::Delete(_) | Stmt::Match(_) => bindings.clear(),
-        Stmt::FunctionDef(function) => { bindings.remove(function.name.as_str()); }
-        Stmt::ClassDef(class) => { bindings.remove(class.name.as_str()); }
+        Stmt::Import(_) | Stmt::ImportFrom(_) | Stmt::Delete(_) | Stmt::Match(_) => {
+            bindings.clear();
+        }
+        Stmt::FunctionDef(function) => {
+            bindings.remove(function.name.as_str());
+        }
+        Stmt::ClassDef(class) => {
+            bindings.remove(class.name.as_str());
+        }
         _ => {
             for body in child_bodies(stmt) {
                 for member in body {
@@ -260,9 +297,17 @@ mod tests {
             "    number = models.IntegerField(null=True)\n",
         );
         let report = scan(source);
-        let actual: Vec<_> = findings(&report, "python:S6553").iter().map(|issue| {
-            (issue.range.start.line, issue.range.start.column, issue.range.end.line, issue.range.end.column)
-        }).collect();
+        let actual: Vec<_> = findings(&report, "python:S6553")
+            .iter()
+            .map(|issue| {
+                (
+                    issue.range.start.line,
+                    issue.range.start.column,
+                    issue.range.end.line,
+                    issue.range.end.column,
+                )
+            })
+            .collect();
         assert_eq!(actual, [(3, 12, 3, 39), (4, 11, 4, 50), (5, 13, 5, 53)]);
     }
 
@@ -312,7 +357,10 @@ mod tests {
             "class Unknown(db.Model):\n",
             "    text = db.CharField(null=True)\n",
         ));
-        let locations: Vec<_> = findings(&report, "python:S6553").iter().map(|issue| issue.range.start.line).collect();
+        let locations: Vec<_> = findings(&report, "python:S6553")
+            .iter()
+            .map(|issue| issue.range.start.line)
+            .collect();
         assert_eq!(locations, [5, 7]);
     }
 

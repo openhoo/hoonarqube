@@ -9,9 +9,6 @@ use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-pub(crate) const DJANGO_STRING_FIELDS: [&str; 4] =
-    ["CharField", "TextField", "SlugField", "EmailField"];
-
 pub(crate) fn class_defines_method(class: &ruff_python_ast::StmtClassDef, name: &str) -> bool {
     class
         .body
