@@ -14,13 +14,21 @@ pub(crate) fn check_percent_argument_counts(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for expr in &file_ctx.exprs {
-        let Some((format_text, arguments, right_operand, _range)) = percent_format_parts(expr)
-        else {
-            continue;
-        };
-        let Some(conversions) = percent_conversions(&format_text) else {
-            continue;
-        };
+        check_percent_call(expr, index, source, &mut issues);
+    }
+    issues
+}
+
+/// Flags one `%` formatting call whose argument count or shape contradicts
+/// the format string's conversions.
+fn check_percent_call(expr: &Expr, index: &LineIndex, source: &str, issues: &mut Vec<Issue>) {
+    let Some((format_text, arguments, right_operand, _range)) = percent_format_parts(expr) else {
+        return;
+    };
+    let Some(conversions) = percent_conversions(&format_text) else {
+        return;
+    };
+    {
         if matches!(right_operand, Expr::Dict(_)) {
             if conversions.len() == 1
                 && matches!(
@@ -50,7 +58,7 @@ pub(crate) fn check_percent_argument_counts(
                     source,
                 ));
             }
-            continue;
+            return;
         }
         // The reference only verifies literal argument collections: a
         // non-literal right operand (name, call, ...) is unverifiable.
@@ -77,7 +85,7 @@ pub(crate) fn check_percent_argument_counts(
                     source,
                 ));
             }
-            continue;
+            return;
         }
         if conversions.len() != arguments.len() {
             let message = if conversions.len() > arguments.len() {
@@ -100,5 +108,4 @@ pub(crate) fn check_percent_argument_counts(
             ));
         }
     }
-    issues
 }
