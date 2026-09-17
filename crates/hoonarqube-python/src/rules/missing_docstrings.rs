@@ -57,12 +57,9 @@ pub(crate) fn check_missing_docstrings(
         if in_class_body {
             return;
         }
-        // Sonar flags private functions too — only dunder protocol
-        // methods are exempt.
-        if function.name.id.as_str().starts_with("__") && function.name.id.as_str().ends_with("__")
-        {
-            return;
-        }
+        // Sonar exempts only methods (class-body definitions); every
+        // non-method function is flagged regardless of its name, including
+        // module-level and nested dunder functions like `__getattr__`.
         let documented = function.body.first().is_some_and(is_standalone_string_stmt);
         if !documented {
             issues.push(issue_at(
@@ -103,6 +100,28 @@ mod tests {
         // Private functions are flagged — Sonar does not exempt them.
         let private = "\"\"\"Docs.\"\"\"\ndef _helper():\n    return 1\n";
         assert_eq!(findings(&scan(private), "python:S1720").len(), 1);
+    }
+
+    #[test]
+    fn s1720_flags_dunder_named_functions_outside_class_bodies() {
+        // Sonar exempts only methods; module-level and nested dunder
+        // functions still require a docstring (pinned Django sites:
+        // __getattr__, __reduce__, __new__, __wrapper__).
+        let source = concat!(
+            "\"\"\"Docs.\"\"\"\n",
+            "def __getattr__(name):\n",
+            "    return name\n",
+            "def outer():\n",
+            "    \"\"\"Docs.\"\"\"\n",
+            "    def __wrapper__(self, *args):\n",
+            "        return args\n",
+            "    return __wrapper__\n",
+        );
+        let report = scan(source);
+        let hits = findings(&report, "python:S1720");
+        assert_eq!(hits.len(), 2, "{source}");
+        let lines: Vec<_> = hits.iter().map(|issue| issue.range.start.line).collect();
+        assert_eq!(lines, vec![2, 6]);
     }
 
     #[test]
