@@ -4751,7 +4751,10 @@ fn s9073_distinguishes_pytest_files_and_unittest_contexts() {
             .iter()
             .map(|issue| (issue.range.start, issue.range.end))
             .collect();
-        assert_eq!(ranges, vec![(pos(8, 8), pos(8, 22)), (pos(10, 12), pos(10, 26))]);
+        assert_eq!(
+            ranges,
+            vec![(pos(8, 8), pos(8, 22)), (pos(10, 12), pos(10, 26))]
+        );
     }
     for path in ["tests/test_checks.py", "src/checks_test.py"] {
         let report = scan_at(PathBuf::from(path), source);
