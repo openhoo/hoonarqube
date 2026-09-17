@@ -282,62 +282,56 @@ impl<'a> FlowBuilder<'a> {
                 current = None;
                 continue;
             }
-            match stmt {
-                Stmt::If(if_stmt) => {
-                    let (exit, branch_terminals) = self.build_if(if_stmt, block);
-                    current = exit;
-                    terminals.extend(branch_terminals);
-                }
-                Stmt::While(while_stmt) => {
-                    let (exit, loop_terminals) = self.build_loop(
-                        |builder, header| builder.expr_events(header, &while_stmt.test),
-                        &while_stmt.body,
-                        &while_stmt.orelse,
-                        block,
-                    );
-                    current = exit;
-                    terminals.extend(loop_terminals);
-                }
-                Stmt::For(for_stmt) => {
-                    let (exit, loop_terminals) = self.build_loop(
-                        |builder, header| {
-                            builder.expr_events(header, &for_stmt.iter);
-                            builder.store_target_events(header, &for_stmt.target);
-                        },
-                        &for_stmt.body,
-                        &for_stmt.orelse,
-                        block,
-                    );
-                    current = exit;
-                    terminals.extend(loop_terminals);
-                }
-                Stmt::With(with_stmt) => {
-                    for item in &with_stmt.items {
-                        self.expr_events(block, &item.context_expr);
-                        if let Some(vars) = item.optional_vars.as_deref() {
-                            self.store_target_events(block, vars);
-                        }
-                    }
-                    let result = self.build_suite(&with_stmt.body, block);
-                    current = result.exit;
-                    terminals.extend(result.terminals);
-                }
-                Stmt::Match(match_stmt) => {
-                    let (exit, case_terminals) = self.build_match(match_stmt, block);
-                    current = exit;
-                    terminals.extend(case_terminals);
-                }
-                Stmt::Try(try_stmt) => {
-                    let (exit, try_terminals) = self.build_try(try_stmt, block);
-                    current = exit;
-                    terminals.extend(try_terminals);
-                }
-                _ => self.simple_statement_events(stmt, block),
-            }
+            let (exit, branch_terminals) = self.compound_statement_events(stmt, block);
+            current = exit;
+            terminals.extend(branch_terminals);
         }
         SuiteExit {
             exit: current,
             terminals,
+        }
+    }
+
+    /// Compound statements produce a successor block plus any branch
+    /// terminals; plain statements emit events in place.
+    fn compound_statement_events(
+        &mut self,
+        stmt: &Stmt,
+        block: usize,
+    ) -> (Option<usize>, Vec<(usize, Term)>) {
+        match stmt {
+            Stmt::If(if_stmt) => self.build_if(if_stmt, block),
+            Stmt::While(while_stmt) => self.build_loop(
+                |builder, header| builder.expr_events(header, &while_stmt.test),
+                &while_stmt.body,
+                &while_stmt.orelse,
+                block,
+            ),
+            Stmt::For(for_stmt) => self.build_loop(
+                |builder, header| {
+                    builder.expr_events(header, &for_stmt.iter);
+                    builder.store_target_events(header, &for_stmt.target);
+                },
+                &for_stmt.body,
+                &for_stmt.orelse,
+                block,
+            ),
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    self.expr_events(block, &item.context_expr);
+                    if let Some(vars) = item.optional_vars.as_deref() {
+                        self.store_target_events(block, vars);
+                    }
+                }
+                let result = self.build_suite(&with_stmt.body, block);
+                (result.exit, result.terminals)
+            }
+            Stmt::Match(match_stmt) => self.build_match(match_stmt, block),
+            Stmt::Try(try_stmt) => self.build_try(try_stmt, block),
+            _ => {
+                self.simple_statement_events(stmt, block);
+                (Some(block), Vec::new())
+            }
         }
     }
 
