@@ -284,15 +284,25 @@ impl<'a> GraphqlResolver<'a> {
     }
 
     pub(crate) fn django_model_str_facts(&self, at: TextSize) -> (bool, bool) {
-        let Some(symbol) = self.current.symbols.iter().position(|symbol| {
-            matches!(symbol, SymbolFact::Class { at: start, .. } if *start == at)
-        }) else {
+        let Some(symbol) = self.current.symbols.iter().position(
+            |symbol| matches!(symbol, SymbolFact::Class { at: start, .. } if *start == at),
+        ) else {
             return (false, false);
         };
         let mut visited = Vec::new();
         (
-            self.django_class_property(self.current, symbol, DjangoClassProperty::Model, &mut visited),
-            self.django_class_property(self.current, symbol, DjangoClassProperty::StrMethod, &mut visited),
+            self.django_class_property(
+                self.current,
+                symbol,
+                DjangoClassProperty::Model,
+                &mut visited,
+            ),
+            self.django_class_property(
+                self.current,
+                symbol,
+                DjangoClassProperty::StrMethod,
+                &mut visited,
+            ),
         )
     }
 
@@ -303,10 +313,19 @@ impl<'a> GraphqlResolver<'a> {
         property: DjangoClassProperty,
         visited: &mut Vec<(String, usize)>,
     ) -> bool {
-        let Some(SymbolFact::Class { bases, scope, at, str_method, .. }) = module.symbols.get(symbol) else {
+        let Some(SymbolFact::Class {
+            bases,
+            scope,
+            at,
+            str_method,
+            ..
+        }) = module.symbols.get(symbol)
+        else {
             return false;
         };
-        if property == DjangoClassProperty::StrMethod && let Some(method) = str_method {
+        if property == DjangoClassProperty::StrMethod
+            && let Some(method) = str_method
+        {
             return *method;
         }
         let marker = (module.name.clone(), symbol);
@@ -341,21 +360,36 @@ impl<'a> GraphqlResolver<'a> {
                 let Some((scope, _)) = module.lookup_binding_with_scope(scope, name, at) else {
                     return false;
                 };
-                let Some(binding) = module.scopes[scope].bindings.iter().rev()
-                    .find(|binding| binding.name == *name && binding.at <= at) else {
+                let Some(binding) = module.scopes[scope]
+                    .bindings
+                    .iter()
+                    .rev()
+                    .find(|binding| binding.name == *name && binding.at <= at)
+                else {
                     return false;
                 };
-                let marker = (format!("\0django:{}:{scope}:{name}", module.name), u32::from(binding.at) as usize);
+                let marker = (
+                    format!("\0django:{}:{scope}:{name}", module.name),
+                    u32::from(binding.at) as usize,
+                );
                 if visited.contains(&marker) {
                     return false;
                 }
                 visited.push(marker);
-                let result = self.django_value_property(module, scope, binding.at, &binding.value, property, visited);
+                let result = self.django_value_property(
+                    module,
+                    scope,
+                    binding.at,
+                    &binding.value,
+                    property,
+                    visited,
+                );
                 visited.pop();
                 result
             }
             RefExpr::Attribute(base, member) => {
-                let Some(name) = self.resolve_module_reference(module, scope, at, base, visited) else {
+                let Some(name) = self.resolve_module_reference(module, scope, at, base, visited)
+                else {
                     return false;
                 };
                 self.django_member_property(&name, member, property, visited)
@@ -373,19 +407,29 @@ impl<'a> GraphqlResolver<'a> {
     ) -> bool {
         // Django's default Model.__str__ does not fulfill S6554. GIS exports
         // the same Model through its public models package.
-        if member == "Model" && matches!(module_name,
-            "django.db.models" | "django.db.models.base" | "django.contrib.gis.db.models") {
+        if member == "Model"
+            && matches!(
+                module_name,
+                "django.db.models" | "django.db.models.base" | "django.contrib.gis.db.models"
+            )
+        {
             return property == DjangoClassProperty::Model;
         }
         let Some(target) = self.module(module_name) else {
             return false;
         };
-        let marker = (format!("\0django-member:{module_name}:{member}"), usize::MAX);
+        let marker = (
+            format!("\0django-member:{module_name}:{member}"),
+            usize::MAX,
+        );
         if visited.contains(&marker) {
             return false;
         }
         visited.push(marker);
-        let result = target.scopes[0].bindings.iter().rev()
+        let result = target.scopes[0]
+            .bindings
+            .iter()
+            .rev()
             .find(|binding| binding.name == member)
             .is_some_and(|binding| {
                 self.django_value_property(target, 0, binding.at, &binding.value, property, visited)
@@ -404,9 +448,16 @@ impl<'a> GraphqlResolver<'a> {
         visited: &mut Vec<(String, usize)>,
     ) -> bool {
         match value {
-            ValueFact::Symbol(symbol) => self.django_class_property(module, *symbol, property, visited),
+            ValueFact::Symbol(symbol) => {
+                self.django_class_property(module, *symbol, property, visited)
+            }
             ValueFact::Reference(reference) => self.django_reference_property(
-                module, scope, TextSize::new(u32::from(at).saturating_sub(1)), reference, property, visited,
+                module,
+                scope,
+                TextSize::new(u32::from(at).saturating_sub(1)),
+                reference,
+                property,
+                visited,
             ),
             _ => false,
         }
@@ -847,7 +898,13 @@ impl<'a> GraphqlResolver<'a> {
             .chain(GRAPHQL_DEPTH_VALIDATOR_FQNS.iter())
             .chain(SQLALCHEMY_FQNS.iter())
             .chain(SAFE_VALIDATION_RULE_FQNS.iter())
-            .chain(["django.db.models.base.Model", "django.contrib.gis.db.models.Model"].iter())
+            .chain(
+                [
+                    "django.db.models.base.Model",
+                    "django.contrib.gis.db.models.Model",
+                ]
+                .iter(),
+            )
             .any(|fqn| *fqn == name || fqn.starts_with(&format!("{name}.")))
     }
 
@@ -1083,15 +1140,20 @@ fn class_str_method(class: &ruff_python_ast::StmtClassDef) -> Option<bool> {
     let mut method = None;
     for statement in &class.body {
         match statement {
-            Stmt::FunctionDef(function) if function.name.as_str() == "__str__" => method = Some(true),
-            _ => crate::support::for_each_stmt_in_scope(std::slice::from_ref(statement), &mut |statement| {
-                if crate::support::binding_stmt_targets(statement).iter().any(|target| {
+            Stmt::FunctionDef(function) if function.name.as_str() == "__str__" => {
+                method = Some(true)
+            }
+            _ => crate::support::for_each_stmt_in_scope(
+                std::slice::from_ref(statement),
+                &mut |statement| {
+                    if crate::support::binding_stmt_targets(statement).iter().any(|target| {
                     matches!(target, Expr::Name(name) if name.id.as_str() == "__str__")
                 }) || matches!(statement, Stmt::FunctionDef(function) if function.name.as_str() == "__str__")
                     || matches!(statement, Stmt::ClassDef(class) if class.name.as_str() == "__str__") {
                     method = Some(false);
                 }
-            }),
+                },
+            ),
         }
     }
     method

@@ -481,7 +481,12 @@ fn add_web_security_batteries(
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(crate::rules::check_django_model_str(
-        parsed, index, source, file_ctx, module_name, project,
+        parsed,
+        index,
+        source,
+        file_ctx,
+        module_name,
+        project,
     ));
     issues.extend(check_tier_c_security_battery(
         parsed,

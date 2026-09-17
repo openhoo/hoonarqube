@@ -9,7 +9,6 @@ use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-
 pub(crate) fn is_locals_call(expr: &Expr) -> bool {
     matches!(expr, Expr::Call(call) if called_name(&call.func) == Some("locals"))
 }

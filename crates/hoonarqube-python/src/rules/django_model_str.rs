@@ -76,12 +76,15 @@ mod tests {
     #[test]
     fn s6554_inherits_str_from_project_mixins_and_reexports() {
         let mut project = PythonProjectContext::new();
-        project.add_module("app.base", concat!(
-            "class Representation:\n",
-            "    def __str__(self): return str(self.value)\n",
-            "class Intermediate(Representation): pass\n",
-            "class Missing: pass\n",
-        ));
+        project.add_module(
+            "app.base",
+            concat!(
+                "class Representation:\n",
+                "    def __str__(self): return str(self.value)\n",
+                "class Intermediate(Representation): pass\n",
+                "class Missing: pass\n",
+            ),
+        );
         project.add_module("app.exports", "from .base import Intermediate as Label\n");
         let source = concat!(
             "from django.db import models\n",
@@ -93,8 +96,13 @@ mod tests {
             "class Unresolved(models.Model, External): pass\n",
         );
         let report = scan_in_project(&project, PathBuf::from("app/models.py"), source);
-        assert_eq!(findings(&report, "python:S6554").iter()
-            .map(|issue| issue.range.start.line).collect::<Vec<_>>(), vec![6, 7]);
+        assert_eq!(
+            findings(&report, "python:S6554")
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![6, 7]
+        );
         // Without dependency source an imported mixin is not evidence of __str__.
         assert_eq!(findings(&scan(source), "python:S6554").len(), 3);
     }
@@ -114,8 +122,13 @@ mod tests {
             "    class Meta: abstract = False\n",
         );
         let report = scan(source);
-        assert_eq!(findings(&report, "python:S6554").iter()
-            .map(|issue| issue.range.start.line).collect::<Vec<_>>(), vec![4, 8, 9]);
+        assert_eq!(
+            findings(&report, "python:S6554")
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![4, 8, 9]
+        );
     }
 
     #[test]
@@ -139,8 +152,13 @@ mod tests {
             "class StillMissing(Model, Display): pass\n",
         );
         let report = scan(source);
-        assert_eq!(findings(&report, "python:S6554").iter()
-            .map(|issue| issue.range.start.line).collect::<Vec<_>>(), vec![6, 8, 9, 16]);
+        assert_eq!(
+            findings(&report, "python:S6554")
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![6, 8, 9, 16]
+        );
     }
 
     #[test]
@@ -156,14 +174,22 @@ mod tests {
             "class MissingNested(models.Model, Nested): pass\n",
             "class MissingOverwritten(models.Model, Overwritten): pass\n",
         ));
-        assert_eq!(findings(&report, "python:S6554").iter()
-            .map(|issue| issue.range.start.line).collect::<Vec<_>>(), vec![8, 9]);
+        assert_eq!(
+            findings(&report, "python:S6554")
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![8, 9]
+        );
     }
 
     #[test]
     fn s6554_gis_model_identity_requires_a_real_inherited_method() {
         let mut project = PythonProjectContext::new();
-        project.add_module("app.base", "class Display:\n    def __str__(self): return 'GIS'\n");
+        project.add_module(
+            "app.base",
+            "class Display:\n    def __str__(self): return 'GIS'\n",
+        );
         project.add_module("app.cycle_a", "from app.cycle_b import Display\n");
         project.add_module("app.cycle_b", "from app.cycle_a import Display\n");
         let source = concat!(
@@ -175,7 +201,12 @@ mod tests {
             "class Unresolved(models.Model, Cyclic): pass\n",
         );
         let report = scan_in_project(&project, PathBuf::from("app/models.py"), source);
-        assert_eq!(findings(&report, "python:S6554").iter()
-            .map(|issue| issue.range.start.line).collect::<Vec<_>>(), vec![5, 6]);
+        assert_eq!(
+            findings(&report, "python:S6554")
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![5, 6]
+        );
     }
 }
