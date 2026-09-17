@@ -11,8 +11,8 @@ use ruff_text_size::Ranged;
 
 // --- python:S2612 — world/group-writable file modes -----------------------------
 
-/// stat constants granting any "other" permission; the reference's
-/// SENSITIVE_CONSTANTS list.
+/// `stat` constants granting any "other" permission; the reference's
+/// `SENSITIVE_CONSTANTS` list.
 const SENSITIVE_CONSTANTS: [&str; 4] = [
     "stat.S_IRWXO",
     "stat.S_IROTH",

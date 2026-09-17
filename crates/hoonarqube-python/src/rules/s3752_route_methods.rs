@@ -74,7 +74,7 @@ fn is_unrestricted_django_view(function: &StmtFunctionDef, file_ctx: &FileContex
 }
 
 /// Whether `name` appears as the view argument of a `path()`/`re_path()`
-/// call in this file (the reference's DjangoViewsVisitor registration).
+/// call in this file (the reference's `DjangoViewsVisitor` registration).
 fn path_call_registers(file_ctx: &FileContext, name: &str) -> bool {
     file_ctx.calls.iter().any(|call| {
         let is_route = matches!(
@@ -176,18 +176,16 @@ fn has_non_django_decorator(function: &StmtFunctionDef, file_ctx: &FileContext) 
             Expr::Call(call) => crate::support::dotted_name(&call.func),
             other => crate::support::dotted_name(other),
         };
-        match path {
-            Some(path) => !path.starts_with("django") && !path.contains("require_"),
-            // Bare names imported from django.* are django decorators; other
-            // bare names are treated as non-django.
-            None => {
-                let name = match expression {
-                    Expr::Call(call) => called_name(&call.func),
-                    other => called_name(other),
-                };
-                !name.is_some_and(|name| is_django_import(file_ctx, name))
-            }
+        if let Some(path) = path {
+            return !path.starts_with("django") && !path.contains("require_");
         }
+        // Bare names imported from django.* are django decorators; other
+        // bare names are treated as non-django.
+        let name = match expression {
+            Expr::Call(call) => called_name(&call.func),
+            other => called_name(other),
+        };
+        !name.is_some_and(|name| is_django_import(file_ctx, name))
     })
 }
 
