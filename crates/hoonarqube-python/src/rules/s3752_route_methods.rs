@@ -79,9 +79,16 @@ fn path_call_registers(file_ctx: &FileContext, name: &str) -> bool {
     file_ctx.calls.iter().any(|call| {
         let is_route = matches!(
             crate::support::dotted_name(&call.func).as_deref(),
-            Some("path" | "re_path" | "django.urls.path" | "django.urls.re_path"
-                | "django.urls.conf.path" | "django.urls.conf.re_path"
-                | "urls.path" | "urls.re_path")
+            Some(
+                "path"
+                    | "re_path"
+                    | "django.urls.path"
+                    | "django.urls.re_path"
+                    | "django.urls.conf.path"
+                    | "django.urls.conf.re_path"
+                    | "urls.path"
+                    | "urls.re_path"
+            )
         ) || matches!(called_name(&call.func), Some("path" | "re_path"));
         if !is_route {
             return false;
@@ -193,9 +200,10 @@ fn is_django_import(file_ctx: &FileContext, name: &str) -> bool {
         from.module
             .as_deref()
             .is_some_and(|module| module.starts_with("django"))
-            && from.names.iter().any(|alias| {
-                alias.asname.as_deref().unwrap_or(alias.name.as_str()) == name
-            })
+            && from
+                .names
+                .iter()
+                .any(|alias| alias.asname.as_deref().unwrap_or(alias.name.as_str()) == name)
     })
 }
 

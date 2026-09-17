@@ -95,9 +95,10 @@ pub(crate) fn django_view_names(module_body: &[Stmt]) -> std::collections::HashS
         let Stmt::Assign(assign) = stmt else {
             continue;
         };
-        let is_urlpatterns = assign.targets.iter().any(|target| {
-            matches!(target, Expr::Name(name) if name.id.as_str() == "urlpatterns")
-        });
+        let is_urlpatterns = assign
+            .targets
+            .iter()
+            .any(|target| matches!(target, Expr::Name(name) if name.id.as_str() == "urlpatterns"));
         if !is_urlpatterns {
             continue;
         }

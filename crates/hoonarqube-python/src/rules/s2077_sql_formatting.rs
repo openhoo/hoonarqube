@@ -96,13 +96,13 @@ fn is_s2077_execute_sink(call: &ExprCall, file_ctx: &FileContext) -> bool {
 
 fn query_argument(call: &ExprCall) -> Option<&Expr> {
     call.arguments.args.first().or_else(|| {
-        call.arguments
-            .keywords
-            .iter()
-            .find_map(|keyword| {
-                matches!(keyword.arg.as_deref(), Some("sql" | "select" | "where" | "tables"))
-                    .then_some(&keyword.value)
-            })
+        call.arguments.keywords.iter().find_map(|keyword| {
+            matches!(
+                keyword.arg.as_deref(),
+                Some("sql" | "select" | "where" | "tables")
+            )
+            .then_some(&keyword.value)
+        })
     })
 }
 

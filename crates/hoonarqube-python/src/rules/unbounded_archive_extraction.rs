@@ -45,10 +45,7 @@ pub(crate) fn check_unbounded_archive_extraction(
                     return false;
                 };
                 from.module.as_deref() == Some("tarfile")
-                    && from
-                        .names
-                        .iter()
-                        .any(|alias| alias.name.as_str() == "open")
+                    && from.names.iter().any(|alias| alias.name.as_str() == "open")
             }))
         {
             issues.push(issue_at(
