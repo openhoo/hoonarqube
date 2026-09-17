@@ -50,61 +50,62 @@ fn walk_suite(suite: &[Stmt], tail: Tail, in_try: bool, flag: &mut dyn FnMut(&St
     for (position, stmt) in suite.iter().enumerate() {
         let is_last = position + 1 == suite.len();
         let child_tail = if is_last { tail } else { Tail::None };
-        match stmt {
-            Stmt::Return(return_stmt) => {
-                if !in_try
-                    && tail == Tail::Function
-                    && is_last
-                    && suite.len() > 1
-                    && return_stmt.value.is_none()
-                {
-                    flag(stmt);
-                }
+        if !in_try && is_last && suite.len() > 1 {
+            let redundant = match stmt {
+                Stmt::Return(return_stmt) => tail == Tail::Function && return_stmt.value.is_none(),
+                Stmt::Continue(_) => tail == Tail::Loop,
+                _ => false,
+            };
+            if redundant {
+                flag(stmt);
             }
-            Stmt::Continue(_) => {
-                if !in_try && tail == Tail::Loop && is_last && suite.len() > 1 {
-                    flag(stmt);
-                }
-            }
-            Stmt::FunctionDef(function) => {
-                walk_suite(&function.body, Tail::Function, in_try, flag);
-            }
-            Stmt::ClassDef(class) => {
-                walk_suite(&class.body, Tail::None, in_try, flag);
-            }
-            Stmt::If(if_stmt) => {
-                walk_suite(&if_stmt.body, child_tail, in_try, flag);
-                for clause in &if_stmt.elif_else_clauses {
-                    walk_suite(&clause.body, child_tail, in_try, flag);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                walk_suite(&for_stmt.body, Tail::Loop, in_try, flag);
-                walk_suite(&for_stmt.orelse, child_tail, in_try, flag);
-            }
-            Stmt::While(while_stmt) => {
-                walk_suite(&while_stmt.body, Tail::Loop, in_try, flag);
-                walk_suite(&while_stmt.orelse, child_tail, in_try, flag);
-            }
-            Stmt::With(with_stmt) => {
-                walk_suite(&with_stmt.body, child_tail, in_try, flag);
-            }
-            Stmt::Match(match_stmt) => {
-                for case in &match_stmt.cases {
-                    walk_suite(&case.body, child_tail, in_try, flag);
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                walk_suite(&try_stmt.body, Tail::None, true, flag);
-                walk_suite(&try_stmt.orelse, Tail::None, true, flag);
-                walk_suite(&try_stmt.finalbody, Tail::None, true, flag);
-                for handler in &try_stmt.handlers {
-                    let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
-                    walk_suite(&handler.body, Tail::None, true, flag);
-                }
-            }
-            _ => {}
         }
+        walk_children(stmt, child_tail, in_try, flag);
+    }
+}
+
+/// Recurses into the nested suites of `stmt`, propagating `child_tail` to
+/// suites that end at the same boundary and marking every `try` descendant.
+fn walk_children(stmt: &Stmt, child_tail: Tail, in_try: bool, flag: &mut dyn FnMut(&Stmt)) {
+    match stmt {
+        Stmt::FunctionDef(function) => {
+            walk_suite(&function.body, Tail::Function, in_try, flag);
+        }
+        Stmt::ClassDef(class) => {
+            walk_suite(&class.body, Tail::None, in_try, flag);
+        }
+        Stmt::If(if_stmt) => {
+            walk_suite(&if_stmt.body, child_tail, in_try, flag);
+            for clause in &if_stmt.elif_else_clauses {
+                walk_suite(&clause.body, child_tail, in_try, flag);
+            }
+        }
+        Stmt::For(for_stmt) => {
+            walk_suite(&for_stmt.body, Tail::Loop, in_try, flag);
+            walk_suite(&for_stmt.orelse, child_tail, in_try, flag);
+        }
+        Stmt::While(while_stmt) => {
+            walk_suite(&while_stmt.body, Tail::Loop, in_try, flag);
+            walk_suite(&while_stmt.orelse, child_tail, in_try, flag);
+        }
+        Stmt::With(with_stmt) => {
+            walk_suite(&with_stmt.body, child_tail, in_try, flag);
+        }
+        Stmt::Match(match_stmt) => {
+            for case in &match_stmt.cases {
+                walk_suite(&case.body, child_tail, in_try, flag);
+            }
+        }
+        Stmt::Try(try_stmt) => {
+            walk_suite(&try_stmt.body, Tail::None, true, flag);
+            walk_suite(&try_stmt.orelse, Tail::None, true, flag);
+            walk_suite(&try_stmt.finalbody, Tail::None, true, flag);
+            for handler in &try_stmt.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                walk_suite(&handler.body, Tail::None, true, flag);
+            }
+        }
+        _ => {}
     }
 }
 
