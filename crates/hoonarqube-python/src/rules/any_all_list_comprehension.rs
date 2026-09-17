@@ -22,7 +22,7 @@ pub(crate) fn check_any_all_list_comprehension(
             issues.push(issue_at(
                 "python:S7492",
                 "Pass a generator expression instead of a materialized list.",
-                only.range(),
+                call.range(),
                 index,
                 source,
             ));

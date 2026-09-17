@@ -2,7 +2,6 @@ use crate::support::call_parts;
 use crate::support::called_name;
 use crate::support::for_each_expr;
 use crate::support::for_each_stmt;
-use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use hoonarqube_ir::Issue;
@@ -65,19 +64,44 @@ pub(crate) fn is_nursery_block(with_stmt: &ruff_python_ast::StmtWith) -> bool {
 const NURSERY_START_CALLS: [&str; 4] = ["start_soon", "start_soon_nursery", "spawn", "create_task"];
 
 fn nursery_started_tasks(with_stmt: &ruff_python_ast::StmtWith) -> usize {
+    // Sonar counts tasks actually spawned: a start call inside a loop
+    // spawns one task per iteration, so it never reads as "one task".
+    count_spawn_calls(with_stmt.body.as_slice(), false)
+}
+
+fn count_spawn_calls(stmts: &[Stmt], in_loop: bool) -> usize {
     let mut count = 0;
-    for_each_stmt_in_scope(with_stmt.body.as_slice(), &mut |stmt| {
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                if let Expr::Call(call) = expr
-                    && called_name(&call.func)
-                        .is_some_and(|name| NURSERY_START_CALLS.contains(&name))
-                {
-                    count += 1;
+    for stmt in stmts {
+        match stmt {
+            Stmt::For(inner) => {
+                count += count_spawn_calls(&inner.body, true);
+                count += count_spawn_calls(&inner.orelse, in_loop);
+            }
+            Stmt::While(inner) => {
+                count += count_spawn_calls(&inner.body, true);
+                count += count_spawn_calls(&inner.orelse, in_loop);
+            }
+            // Nested functions/classes spawn their tasks at call time, not
+            // when the nursery block runs.
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => {
+                for expr in stmt_exprs(stmt) {
+                    for_each_expr(expr, &mut |expr| {
+                        if let Expr::Call(call) = expr
+                            && !in_loop
+                            && called_name(&call.func)
+                                .is_some_and(|name| NURSERY_START_CALLS.contains(&name))
+                        {
+                            count += 1;
+                        }
+                    });
                 }
-            });
+                for body in crate::support::child_bodies(stmt) {
+                    count += count_spawn_calls(body, in_loop);
+                }
+            }
         }
-    });
+    }
     count
 }
 

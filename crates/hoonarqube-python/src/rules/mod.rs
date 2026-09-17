@@ -1028,7 +1028,7 @@ pub(crate) fn check_structural_battery(
     let mut issues = Vec::new();
     issues.extend(check_collapsible_ifs(parsed, index, source));
     issues.extend(check_empty_functions(parsed, index, source));
-    issues.extend(check_missing_docstrings(parsed, index, source));
+    issues.extend(check_missing_docstrings(parsed, index, source, path));
     issues.extend(check_similar_names_scope(parsed, index, source));
     issues.extend(check_empty_blocks(parsed, index, source));
     issues.extend(check_member_name_matches_class(parsed, index, source));

@@ -46,7 +46,13 @@ pub(crate) fn check_s8786_super_linear_regex(
             continue;
         };
         if has_super_linear_pair(&parsed.root, site.match_type) {
-            issues.push(issue_at(RULE_KEY, MESSAGE, site.pattern_range, index, source));
+            issues.push(issue_at(
+                RULE_KEY,
+                MESSAGE,
+                site.pattern_range,
+                index,
+                source,
+            ));
         }
     }
     issues
@@ -179,9 +185,12 @@ fn node_has_end_anchor(atom: &RxAtom) -> bool {
 fn node_body_has_end_anchor(node: &RxNode) -> bool {
     match node {
         RxNode::Seq(seq) => seq.items.iter().any(|item| node_has_end_anchor(&item.atom)),
-        RxNode::Alternation(branches) => branches
-            .iter()
-            .all(|branch| branch.items.iter().any(|item| node_has_end_anchor(&item.atom))),
+        RxNode::Alternation(branches) => branches.iter().all(|branch| {
+            branch
+                .items
+                .iter()
+                .any(|item| node_has_end_anchor(&item.atom))
+        }),
     }
 }
 
@@ -315,7 +324,11 @@ fn gap_item_skippable(item: &RxItem) -> bool {
 /// need two or more characters can only intersect a group element;
 /// otherwise first-set intersection approximates it.
 fn intersects_element_language(elem: &RxAtom, gap: &[&RxItem]) -> bool {
-    let mandatory: Vec<&RxItem> = gap.iter().copied().filter(|item| item_is_mandatory(item)).collect();
+    let mandatory: Vec<&RxItem> = gap
+        .iter()
+        .copied()
+        .filter(|item| item_is_mandatory(item))
+        .collect();
     let min_len: u32 = mandatory.iter().map(|item| item_min_len(item)).sum();
     let Some(gap_first) = gap_first_set(gap) else {
         return true;
@@ -360,8 +373,7 @@ fn atoms_intersect(left: &RxAtom, right: &RxAtom) -> bool {
 }
 
 fn item_is_nullable(item: &RxItem) -> bool {
-    rx_atom_nullable(&item.atom)
-        || item.quant.as_ref().is_some_and(|quant| quant.min == 0)
+    rx_atom_nullable(&item.atom) || item.quant.as_ref().is_some_and(|quant| quant.min == 0)
 }
 
 fn item_is_mandatory(item: &RxItem) -> bool {

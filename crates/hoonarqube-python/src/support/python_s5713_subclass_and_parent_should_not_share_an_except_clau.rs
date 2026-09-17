@@ -254,10 +254,13 @@ pub(crate) fn walk_nesting_depth(
     for stmt in stmts {
         match stmt {
             Stmt::FunctionDef(function) => {
-                walk_nesting_depth(&function.body, 0, options, issues, index, source);
+                // Sonar's NestedControlFlowDepthCheck does not reset depth
+                // at nested definitions — a `def` inside an `if` continues
+                // the enclosing depth.
+                walk_nesting_depth(&function.body, depth, options, issues, index, source);
             }
             Stmt::ClassDef(class) => {
-                walk_nesting_depth(&class.body, 0, options, issues, index, source);
+                walk_nesting_depth(&class.body, depth, options, issues, index, source);
             }
             Stmt::If(if_stmt) => {
                 flag_excess_nesting(stmt, depth + 1, options, issues, index, source);

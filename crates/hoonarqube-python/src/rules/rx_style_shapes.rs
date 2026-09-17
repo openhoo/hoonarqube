@@ -154,9 +154,8 @@ fn negated_class_for(
     {
         return None;
     }
-    let negated_base = base.and_then(|class| {
-        negate_esc_class(class).map(|letter| format!("\\{letter}"))
-    });
+    let negated_base =
+        base.and_then(|class| negate_esc_class(class).map(|letter| format!("\\{letter}")));
     match &last.atom {
         RxAtom::Literal(ch) => Some(format!(
             "[^{}{}]",

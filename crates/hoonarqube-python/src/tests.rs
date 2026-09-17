@@ -429,7 +429,9 @@ fn s5042_requires_members_filter_on_extractall() {
 #[test]
 fn s4507_flags_debug_hooks_and_debug_flags() {
     let flagged = scan("breakpoint()\npdb.set_trace()\nrun(app, debug=True)\n");
-    assert_eq!(findings(&flagged, "python:S4507").len(), 3);
+    // Sonar's DebugModeCheck only inspects specific framework debug entry
+    // points — a generic `debug=True` kwarg is not a finding.
+    assert_eq!(findings(&flagged, "python:S4507").len(), 2);
 }
 
 #[test]
@@ -710,17 +712,19 @@ fn s5717_flags_mutated_defaults() {
 
 #[test]
 fn s5797_flags_constant_conditions_but_not_while_true() {
+    // Sonar's ConstantConditionCheck only inspects if/elif/conditional-
+    // expression/comprehension conditions — `while` is never checked.
     let flagged = scan(
         "if True:\n    pass\nwhile False:\n    pass\nwhile True:\n    pass\nif flag:\n    pass\n",
     );
     let found = findings(&flagged, "python:S5797");
-    assert_eq!(found.len(), 2);
+    assert_eq!(found.len(), 1);
     assert_eq!(
         found
             .iter()
             .map(|issue| issue.range.start.line)
             .collect::<Vec<_>>(),
-        vec![1, 3]
+        vec![1]
     );
 }
 
@@ -1960,11 +1964,13 @@ fn s2092_requires_secure_cookie_flag() {
 
 #[test]
 fn s3330_requires_httponly_cookie_flag() {
-    let flagged = "resp.set_cookie(\"k\", \"v\")\nresp.set_cookie(\"k\", \"v\", httponly=False)\n";
-    assert_eq!(findings(&scan(flagged), "python:S3330").len(), 2);
+    // Sonar treats any present httponly kwarg as compliant — the value
+    // need not be a literal True.
+    let flagged = "resp.set_cookie(\"k\", \"v\")\n";
+    assert_eq!(findings(&scan(flagged), "python:S3330").len(), 1);
     assert!(
         findings(
-            &scan("resp.set_cookie(\"k\", \"v\", httponly=True)\n"),
+            &scan("resp.set_cookie(\"k\", \"v\", httponly=False)\n"),
             "python:S3330"
         )
         .is_empty()
@@ -4636,7 +4642,13 @@ fn s9073_flags_composite_assertions() {
             "    assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
         ),
     );
+    // Test-scoped file: silenced by the central MAIN-scope gate.
     assert!(findings(&in_tests, "python:S9073").is_empty());
+    let non_test = scan_at(
+        PathBuf::from("src/app.py"),
+        "def check(x):\n    assert x and x.ok\n",
+    );
+    assert!(findings(&non_test, "python:S9073").is_empty());
 }
 
 #[test]

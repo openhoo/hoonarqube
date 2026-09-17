@@ -608,7 +608,7 @@ impl<'a> RxParser<'a> {
             GroupHead::NamedBackref(name) => RxAtom::NamedRef(name),
             GroupHead::Kind(kind) => {
                 let body = self.parse_alternation(Some(')'))?;
-                let close = self.expect_close()?;
+                let close = self.expect_close(')')?;
                 RxAtom::Group(RxGroup {
                     kind,
                     body,
@@ -627,7 +627,7 @@ impl<'a> RxParser<'a> {
                     self.visible_names.push(name.clone());
                 }
                 let body = self.parse_alternation(Some(')'))?;
-                let close = self.expect_close()?;
+                let close = self.expect_close(')')?;
                 RxAtom::Group(RxGroup {
                     kind: RxGroupKind::Capture,
                     body,
@@ -687,6 +687,19 @@ impl<'a> RxParser<'a> {
         self.bump();
         let named_reference = next.ch == '=';
         let terminator = if named_reference { ')' } else { '>' };
+        let name = self.read_group_name(terminator, marker)?;
+        if named_reference {
+            // `(?P=name)` is a complete atom including its closing paren.
+            self.expect_close(')')?;
+            let span = TextRange::new(marker.at, self.consumed_end(marker.at));
+            self.record_backref(Some(name.clone()), None, span);
+            return Ok(GroupHead::NamedBackref(name));
+        }
+        self.expect_close('>')?;
+        Ok(GroupHead::Capture(Some(name)))
+    }
+
+    fn read_group_name(&mut self, terminator: char, _marker: RxUnit) -> RxResult<String> {
         let mut name = String::new();
         while let Some(unit) = self.peek() {
             if unit.ch == terminator {
@@ -706,23 +719,7 @@ impl<'a> RxParser<'a> {
         {
             return Err(self.err_at(self.peek()));
         }
-        if named_reference {
-            // `(?P=name)` is a complete atom including its closing paren.
-            let close = self.bump();
-            match close {
-                Some(unit) if unit.ch == ')' => {}
-                other => return Err(self.err_at(other)),
-            }
-            let span = TextRange::new(marker.at, self.consumed_end(marker.at));
-            self.record_backref(Some(name.clone()), None, span);
-            return Ok(GroupHead::NamedBackref(name));
-        }
-        let close = self.bump();
-        match close {
-            Some(unit) if unit.ch == '>' => {}
-            other => return Err(self.err_at(other)),
-        }
-        Ok(GroupHead::Capture(Some(name)))
+        Ok(name)
     }
 
     /// `(?(1)yes|no)` conditional: consume the condition up to its `)`.
@@ -770,10 +767,10 @@ impl<'a> RxParser<'a> {
         }
     }
 
-    fn expect_close(&mut self) -> RxResult<TextSize> {
+    fn expect_close(&mut self, ch: char) -> RxResult<TextSize> {
         let close = self.bump();
         match close {
-            Some(unit) if unit.ch == ')' => Ok(unit.at + TextSize::from(to_u32(')'.len_utf8()))),
+            Some(unit) if unit.ch == ch => Ok(unit.at + TextSize::from(to_u32(ch.len_utf8()))),
             other => Err(self.err_at(other)),
         }
     }
@@ -1134,7 +1131,6 @@ pub(crate) struct RegexLiteral {
     pub(crate) range: TextRange,
 }
 
-
 /// How a `re` call site consumes its pattern, mirroring Sonar's
 /// `MatchType`: `fullmatch` is full-only, the partial methods allow a
 /// trailing implicit `.*`, and `re.compile` resolves through the bound
@@ -1305,30 +1301,25 @@ pub(crate) fn for_each_rx_seq_deep<'a>(node: &'a RxNode, visit: &mut impl FnMut(
 }
 
 /// Visits every alternation node, including ones nested inside groups.
-pub(crate) fn for_each_rx_alternation<'a>(
-    node: &'a RxNode,
-    visit: &mut impl FnMut(&'a [RxSeq]),
-) {
+pub(crate) fn for_each_rx_alternation<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a [RxSeq])) {
     let mut pending = vec![node];
     while let Some(current) = pending.pop() {
         match current {
             RxNode::Alternation(branches) => {
                 visit(branches);
                 for branch in branches {
-                    for item in &branch.items {
-                        if let RxAtom::Group(group) = &item.atom {
-                            pending.push(&group.body);
-                        }
-                    }
+                    collect_group_bodies(&branch.items, &mut pending);
                 }
             }
-            RxNode::Seq(seq) => {
-                for item in &seq.items {
-                    if let RxAtom::Group(group) = &item.atom {
-                        pending.push(&group.body);
-                    }
-                }
-            }
+            RxNode::Seq(seq) => collect_group_bodies(&seq.items, &mut pending),
+        }
+    }
+}
+
+fn collect_group_bodies<'a>(items: &'a [RxItem], pending: &mut Vec<&'a RxNode>) {
+    for item in items {
+        if let RxAtom::Group(group) = &item.atom {
+            pending.push(&group.body);
         }
     }
 }
@@ -1610,7 +1601,6 @@ pub(crate) fn rx_sets_intersect(a: &RxSet, b: &RxSet) -> bool {
     }
 }
 
-
 pub(crate) fn rx_lookahead_body(atom: &RxAtom) -> Option<&RxNode> {
     match atom {
         RxAtom::Group(group)
@@ -1763,7 +1753,6 @@ pub(crate) fn rx_item_nullable_pub(item: &RxItem) -> bool {
         None => rx_atom_nullable(&item.atom),
     }
 }
-
 
 pub(crate) fn for_each_class<'a>(node: &'a RxNode, visit: &mut impl FnMut(&'a RxClass)) {
     for_each_rx_item(node, &mut |item| {

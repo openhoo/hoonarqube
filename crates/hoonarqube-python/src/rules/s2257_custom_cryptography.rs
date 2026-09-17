@@ -1,7 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::{
-    child_bodies, collect_target_names, for_each_stmt_expr, for_each_stmt_in_scope, issue_at,
-    stmt_store_names,
+    child_bodies, collect_target_names, for_each_stmt_in_scope, issue_at, stmt_store_names,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, Stmt, StmtFunctionDef};
@@ -23,27 +22,9 @@ pub(crate) fn check_s2257_custom_cryptography(
         source,
         &mut issues,
     );
-    for function in &file_ctx.functions {
-        let crypto_named = function
-            .name
-            .as_str()
-            .to_lowercase()
-            .split('_')
-            .any(|word| {
-                CUSTOM_CRYPTO_NAME_WORDS
-                    .iter()
-                    .any(|candidate| word.contains(candidate))
-            });
-        if crypto_named && contains_bitwise_xor(function.body.as_slice()) {
-            issues.push(issue_at(
-                "python:S2257",
-                MESSAGE,
-                function.range(),
-                index,
-                source,
-            ));
-        }
-    }
+    // Sonar's CustomCryptographyCheck only flags classdefs extending
+    // BasePasswordHasher — the name+xor function heuristic is not part of
+    // the reference rule.
     issues
 }
 
@@ -234,23 +215,7 @@ fn identity_of_expr(expr: &Expr, bindings: &ScopeBindings) -> HasherIdentity {
     }
 }
 
-fn contains_bitwise_xor(suite: &[Stmt]) -> bool {
-    let mut found = false;
-    for_each_stmt_expr(suite, &mut |expr| {
-        if let Expr::BinOp(binop) = expr
-            && matches!(binop.op, ruff_python_ast::Operator::BitXor)
-        {
-            found = true;
-        }
-    });
-    found
-}
-
-// --- python:S2257 — custom cryptographic algorithms -----------------------------
-
 const MESSAGE: &str = "Make sure using a non-standard cryptographic algorithm is safe here.";
-const CUSTOM_CRYPTO_NAME_WORDS: [&str; 7] =
-    ["encrypt", "decrypt", "cipher", "xor", "crypt", "rc4", "des"];
 
 #[cfg(test)]
 mod tests {
@@ -313,13 +278,13 @@ mod tests {
     }
 
     #[test]
-    fn s2257_retains_hand_rolled_cipher_function_detection() {
-        let flagged = concat!(
+    fn s2257_does_not_flag_name_xor_functions() {
+        // Sonar only flags BasePasswordHasher subclasses — a bare function
+        // with a crypto-sounding name and a `^` is not a finding.
+        let clean = concat!(
             "def xor_encrypt(data, key):\n",
             "    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))\n"
         );
-        assert_eq!(findings(&scan(flagged), "python:S2257").len(), 1);
-        let clean = "def hash_password(pw):\n    return sha256(pw).hexdigest()\n";
         assert!(findings(&scan(clean), "python:S2257").is_empty());
     }
 }

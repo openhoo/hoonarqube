@@ -59,15 +59,21 @@ pub(crate) fn check_rx_alternation_shapes(
 /// `isAnchored` inspects the first/last non-flag-setter item of a branch
 /// sequence and accepts any `^`, `$`, `\A`, `\Z`, or `\z` boundary.
 fn anchored_at_beginning(branches: &[crate::engine::rx::RxSeq]) -> bool {
-    branches.first().is_some_and(|branch| branch_is_anchored(branch, true))
+    branches
+        .first()
+        .is_some_and(|branch| branch_is_anchored(branch, true))
 }
 
 fn anchored_at_end(branches: &[crate::engine::rx::RxSeq]) -> bool {
-    branches.last().is_some_and(|branch| branch_is_anchored(branch, false))
+    branches
+        .last()
+        .is_some_and(|branch| branch_is_anchored(branch, false))
 }
 
 fn not_anchored_elsewhere(branches: &[crate::engine::rx::RxSeq]) -> bool {
-    if branches.first().is_some_and(|branch| branch_is_anchored(branch, false))
+    if branches
+        .first()
+        .is_some_and(|branch| branch_is_anchored(branch, false))
         || branches
             .last()
             .is_some_and(|branch| branch_is_anchored(branch, true))
@@ -88,7 +94,11 @@ fn branch_is_anchored(branch: &crate::engine::rx::RxSeq, beginning: bool) -> boo
     if items.is_empty() {
         return false;
     }
-    let edge = if beginning { items[0] } else { items[items.len() - 1] };
+    let edge = if beginning {
+        items[0]
+    } else {
+        items[items.len() - 1]
+    };
     edge.quant.is_none() && matches!(edge.atom, crate::engine::rx::RxAtom::Anchor(_))
 }
 

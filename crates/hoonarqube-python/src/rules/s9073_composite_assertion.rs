@@ -23,24 +23,34 @@ pub(crate) fn check_s9073_composite_assertion(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    // Sonar's CompositeAssertionCheck targets test-context asserts — only
+    // asserts inside functions named `test_*` or TestCase methods fire.
     for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        let Stmt::Assert(assert) = stmt else {
-            return;
-        };
-        let composite = match assert.test.as_ref() {
-            Expr::BoolOp(bool_op) => bool_op.op == BoolOp::And,
-            Expr::UnaryOp(unary_op) => {
-                unary_op.op == UnaryOp::Not
-                    && matches!(
-                        unary_op.operand.as_ref(),
-                        Expr::BoolOp(operand) if operand.op == BoolOp::Or
-                    )
-            }
-            _ => false,
-        };
-        if composite {
-            issues.push(issue_at(RULE_KEY, MESSAGE, assert.range(), index, source));
+        if let Stmt::FunctionDef(function) = stmt {
+            let is_test_fn = function.name.as_str().starts_with("test");
+            for_each_stmt(&function.body, &mut |inner| {
+                if let Stmt::Assert(assert) = inner
+                    && is_test_fn
+                    && is_composite_assert(assert)
+                {
+                    issues.push(issue_at(RULE_KEY, MESSAGE, assert.range(), index, source));
+                }
+            });
         }
     });
     issues
+}
+
+fn is_composite_assert(assert: &ruff_python_ast::StmtAssert) -> bool {
+    match assert.test.as_ref() {
+        Expr::BoolOp(bool_op) => bool_op.op == BoolOp::And,
+        Expr::UnaryOp(unary_op) => {
+            unary_op.op == UnaryOp::Not
+                && matches!(
+                    unary_op.operand.as_ref(),
+                    Expr::BoolOp(operand) if operand.op == BoolOp::Or
+                )
+        }
+        _ => false,
+    }
 }

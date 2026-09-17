@@ -19,7 +19,25 @@ pub(crate) fn check_django_model_str(
             let django_model = class_base_paths(class)
                 .iter()
                 .any(|base| base.as_str() == "models.Model" || base_tail_is(base, "Model"));
-            if django_model && !class_defines_method(class, "__str__") {
+            // Sonar's DjangoModelStrMethodCheck skips abstract models via
+            // getMetaClass — `class Meta: abstract = True` is exempt.
+            let is_abstract = class.body.iter().any(|member| {
+                let Stmt::ClassDef(meta) = member else {
+                    return false;
+                };
+                if meta.name.as_str() != "Meta" {
+                    return false;
+                }
+                meta.body.iter().any(|m| {
+                    let Stmt::Assign(assign) = m else {
+                        return false;
+                    };
+                    assign.targets.iter().any(|t| {
+                        matches!(t, ruff_python_ast::Expr::Name(n) if n.id.as_str() == "abstract")
+                    }) && matches!(assign.value.as_ref(), ruff_python_ast::Expr::BooleanLiteral(b) if b.value)
+                })
+            });
+            if django_model && !is_abstract && !class_defines_method(class, "__str__") {
                 issues.push(issue_at(
                     "python:S6554",
                     "Define __str__ on this Django model.",

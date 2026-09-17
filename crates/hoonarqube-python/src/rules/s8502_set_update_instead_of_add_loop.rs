@@ -25,9 +25,12 @@ pub(crate) fn check_s8502_set_update_instead_of_add_loop(
 }
 
 fn walk_s8502(stmts: &[Stmt], index: &LineIndex, source: &str, issues: &mut Vec<Issue>) {
+    // Sonar fires only when the receiver is provably a set — a name bound
+    // to a set literal, set comprehension, or set() call in this scope.
+    let set_names = collect_set_names(stmts);
     for stmt in stmts {
         if let Stmt::For(for_stmt) = stmt {
-            check_for_loop(for_stmt, index, source, issues);
+            check_for_loop(for_stmt, &set_names, index, source, issues);
         }
         for body in child_bodies(stmt) {
             walk_s8502(body, index, source, issues);
@@ -35,12 +38,46 @@ fn walk_s8502(stmts: &[Stmt], index: &LineIndex, source: &str, issues: &mut Vec<
     }
 }
 
+/// Names bound to a provable set value (`set()`, `{x, y}`, `{x for …}`)
+/// anywhere in `stmts`.
+fn collect_set_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for stmt in stmts {
+        let Stmt::Assign(assign) = stmt else {
+            continue;
+        };
+        let is_set = match assign.value.as_ref() {
+            Expr::Set(_) | Expr::SetComp(_) => true,
+            Expr::Call(call) => matches!(
+                call.func.as_ref(),
+                Expr::Name(name) if name.id.as_str() == "set"
+            ),
+            _ => false,
+        };
+        if !is_set {
+            continue;
+        }
+        for target in &assign.targets {
+            if let Expr::Name(name) = target {
+                names.insert(name.id.to_string());
+            }
+        }
+    }
+    names
+}
+
 /// Flags `for item in iterable: receiver.add(item)` with a plain-name
 /// target and receiver, one body statement, and no `else` clause. The
 /// anchor covers `receiver.add` (the `.add()` call callee). Async loops
 /// iterate asynchronous iterators, which `update()` cannot consume, and
 /// stay silent.
-fn check_for_loop(for_stmt: &StmtFor, index: &LineIndex, source: &str, issues: &mut Vec<Issue>) {
+fn check_for_loop(
+    for_stmt: &StmtFor,
+    set_names: &std::collections::HashSet<String>,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
     if !for_stmt.orelse.is_empty() || for_stmt.body.len() != 1 {
         return;
     }
@@ -62,9 +99,13 @@ fn check_for_loop(for_stmt: &StmtFor, index: &LineIndex, source: &str, issues: &
     {
         return;
     }
-    let Expr::Name(_) = method.value.as_ref() else {
+    let Expr::Name(receiver) = method.value.as_ref() else {
         return;
     };
+    // The receiver must be provably a set in this scope.
+    if !set_names.contains(receiver.id.as_str()) {
+        return;
+    }
     let Expr::Name(added) = &call.arguments.args[0] else {
         return;
     };

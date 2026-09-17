@@ -16,13 +16,19 @@ pub(crate) fn check_missing_docstrings(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    path: &std::path::Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    if !parsed
-        .syntax()
-        .body
-        .first()
-        .is_some_and(is_standalone_string_stmt)
+    // Sonar's MissingDocstringCheck does not flag empty __init__.py
+    // modules — the file itself is the package marker.
+    let is_empty_init = path.file_name().and_then(|n| n.to_str()) == Some("__init__.py")
+        && parsed.syntax().body.is_empty();
+    if !is_empty_init
+        && !parsed
+            .syntax()
+            .body
+            .first()
+            .is_some_and(is_standalone_string_stmt)
     {
         issues.push(Issue::new(
             "python:S1720",
@@ -51,9 +57,10 @@ pub(crate) fn check_missing_docstrings(
         if in_class_body {
             return;
         }
-        // Underscore-prefixed names are private by convention and exempt,
-        // which also covers dunder protocol methods like `__init__`.
-        if function.name.id.as_str().starts_with('_') {
+        // Sonar flags private functions too — only dunder protocol
+        // methods are exempt.
+        if function.name.id.as_str().starts_with("__") && function.name.id.as_str().ends_with("__")
+        {
             return;
         }
         let documented = function.body.first().is_some_and(is_standalone_string_stmt);
@@ -85,14 +92,17 @@ mod tests {
     #[test]
     fn s1720_spares_private_and_documented_functions() {
         for clean in [
-            // Underscore-prefixed names are private; dunders are exempt too.
-            "\"\"\"Docs.\"\"\"\ndef _helper():\n    return 1\nclass C:\n    \"\"\"Docs.\"\"\"\n    def __init__(self):\n        self.x = 1\n",
+            // Dunder protocol methods are exempt; private functions are not.
+            "\"\"\"Docs.\"\"\"\nclass C:\n    \"\"\"Docs.\"\"\"\n    def __init__(self):\n        self.x = 1\n",
             // A docstring fills the contract.
             "\"\"\"Docs.\"\"\"\ndef documented():\n    \"\"\"Docs.\"\"\"\n",
             "\"\"\"Docs.\"\"\"\nclass C:\n    \"\"\"Docs.\"\"\"\n    def method(self):\n        \"\"\"Docs.\"\"\"\n",
         ] {
             assert!(findings(&scan(clean), "python:S1720").is_empty());
         }
+        // Private functions are flagged — Sonar does not exempt them.
+        let private = "\"\"\"Docs.\"\"\"\ndef _helper():\n    return 1\n";
+        assert_eq!(findings(&scan(private), "python:S1720").len(), 1);
     }
 
     #[test]

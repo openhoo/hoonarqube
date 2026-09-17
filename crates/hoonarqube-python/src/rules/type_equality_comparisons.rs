@@ -18,13 +18,12 @@ pub(crate) fn check_type_equality_comparisons(
         let Expr::Compare(compare) = expr else {
             continue;
         };
+        // Sonar's DirectTypeComparisonCheck only handles ==/!= — `is`/`is
+        // not` identity comparisons stay silent.
         if !compare.ops.iter().any(|op| {
             matches!(
                 op,
-                ruff_python_ast::CmpOp::Eq
-                    | ruff_python_ast::CmpOp::NotEq
-                    | ruff_python_ast::CmpOp::Is
-                    | ruff_python_ast::CmpOp::IsNot
+                ruff_python_ast::CmpOp::Eq | ruff_python_ast::CmpOp::NotEq
             )
         }) {
             continue;
@@ -59,9 +58,11 @@ mod tests {
     #[test]
     fn s6660_prefers_isinstance_over_type_equality() {
         assert_eq!(
-            findings(&scan("exact = type(x) is int\n"), "python:S6660").len(),
+            findings(&scan("exact = type(x) == int\n"), "python:S6660").len(),
             1
         );
+        // `is`/`is not` identity comparisons stay silent.
+        assert!(findings(&scan("exact = type(x) is int\n"), "python:S6660").is_empty());
         assert!(findings(&scan("safe = isinstance(x, int)\n"), "python:S6660").is_empty());
     }
 }

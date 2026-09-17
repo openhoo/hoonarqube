@@ -18,6 +18,9 @@ pub(crate) fn check_exit_signatures(
         if let Stmt::FunctionDef(function) = stmt
             && function.name.as_str() == "__exit__"
             && positional_parameters(&function.parameters).len() < 4
+            // `*args`/`**kwargs` accept the exc_type/value/traceback triple.
+            && function.parameters.vararg.is_none()
+            && function.parameters.kwarg.is_none()
         {
             issues.push(issue_at(
                 "python:S2733",

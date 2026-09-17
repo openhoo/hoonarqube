@@ -223,6 +223,9 @@ fn report_clause(
     // pair is the node range itself; every other expression carries its
     // grouping parens just outside its range.
     let clause_pair = match clause {
+        // A one-element tuple's parens are its syntax, not grouping — Sonar
+        // sees `(x,)` as a Tuple, never a PARENTHESIZED expression.
+        Expr::Tuple(tuple) if tuple.parenthesized && tuple.elts.len() == 1 => None,
         Expr::Tuple(tuple) if tuple.parenthesized => Some(tuple.range()),
         Expr::Generator(generator) if generator.parenthesized => Some(generator.range()),
         clause => parenthesized_range(clause.into(), parent, ctx.tokens),

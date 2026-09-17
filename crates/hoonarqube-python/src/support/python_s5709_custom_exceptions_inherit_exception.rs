@@ -3,7 +3,8 @@
 use crate::context::FlowState;
 use crate::engine::scope::RaiseContext;
 use crate::support::{
-    child_bodies, for_each_expr, for_each_stmt_expr, issue_at, loads_any_name, stmt_exprs,
+    child_bodies, for_each_expr, for_each_stmt, for_each_stmt_expr, issue_at, loads_any_name,
+    stmt_exprs,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ExceptHandler;
@@ -16,9 +17,51 @@ pub(crate) fn looks_like_exception_name(name: &str) -> bool {
     name.ends_with("Error") || name.ends_with("Warning") || name.ends_with("Exception")
 }
 
+/// Names of functions called inside an `except` or `finally` body —
+/// Sonar's RaiseOutsideExceptCheck exempts their bare `raise`s.
+pub(crate) type ExceptCalledFns = std::collections::HashSet<String>;
+
+/// Collects the names of every function called inside an `except` or
+/// `finally` body anywhere in `suite`.
+pub(crate) fn collect_except_called_fns(suite: &[Stmt]) -> ExceptCalledFns {
+    let mut names = ExceptCalledFns::new();
+    for_each_stmt(suite, &mut |stmt| {
+        if let Stmt::Try(try_stmt) = stmt {
+            let mut collect = |body: &[Stmt]| {
+                for_each_stmt_expr(body, &mut |expr| {
+                    if let Expr::Call(call) = expr
+                        && let Expr::Name(name) = call.func.as_ref()
+                    {
+                        names.insert(name.id.to_string());
+                    }
+                });
+            };
+            for handler in &try_stmt.handlers {
+                let ExceptHandler::ExceptHandler(inner) = handler;
+                collect(&inner.body);
+            }
+            collect(&try_stmt.finalbody);
+        }
+    });
+    names
+}
+
 pub(crate) fn scan_flow_statements(
     suite: &[Stmt],
     state: FlowState,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let exempt = collect_except_called_fns(suite);
+    scan_flow_statements_in(suite, state, None, &exempt, issues, index, source);
+}
+
+fn scan_flow_statements_in(
+    suite: &[Stmt],
+    state: FlowState,
+    current_fn: Option<&str>,
+    exempt_fns: &ExceptCalledFns,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
@@ -39,8 +82,12 @@ pub(crate) fn scan_flow_statements(
                     ));
                 }
             }
-            Stmt::Raise(raised) => flag_flow_raise(raised, state, issues, index, source),
-            _ => scan_flow_nested_bodies(stmt, state, issues, index, source),
+            Stmt::Raise(raised) => {
+                flag_flow_raise(raised, state, current_fn, exempt_fns, issues, index, source)
+            }
+            _ => {
+                scan_flow_nested_bodies(stmt, state, current_fn, exempt_fns, issues, index, source)
+            }
         }
     }
 }
@@ -86,11 +133,18 @@ fn flag_flow_jump(
 fn flag_flow_raise(
     raised: &ruff_python_ast::StmtRaise,
     state: FlowState,
+    current_fn: Option<&str>,
+    exempt_fns: &ExceptCalledFns,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
 ) {
     if raised.exc.is_some() || raised.cause.is_some() || state.context == RaiseContext::InExcept {
+        return;
+    }
+    // Sonar exempts functions called inside an except/finally body — their
+    // bare raise re-raises the handled exception.
+    if current_fn.is_some_and(|name| exempt_fns.contains(name)) {
         return;
     }
     let (key, message) = if state.context == RaiseContext::InFinally {
@@ -110,62 +164,145 @@ fn flag_flow_raise(
 fn scan_flow_nested_bodies(
     stmt: &Stmt,
     state: FlowState,
+    current_fn: Option<&str>,
+    exempt_fns: &ExceptCalledFns,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
 ) {
     match stmt {
         Stmt::For(loop_stmt) => {
-            scan_flow_statements(&loop_stmt.body, state.with_loop(), issues, index, source);
-            scan_flow_statements(&loop_stmt.orelse, state, issues, index, source);
+            scan_flow_statements_in(
+                &loop_stmt.body,
+                state.with_loop(),
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
+            scan_flow_statements_in(
+                &loop_stmt.orelse,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
         }
         Stmt::While(loop_stmt) => {
-            scan_flow_statements(&loop_stmt.body, state.with_loop(), issues, index, source);
-            scan_flow_statements(&loop_stmt.orelse, state, issues, index, source);
+            scan_flow_statements_in(
+                &loop_stmt.body,
+                state.with_loop(),
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
+            scan_flow_statements_in(
+                &loop_stmt.orelse,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
         }
         Stmt::Try(try_stmt) => {
-            scan_flow_statements(&try_stmt.body, state, issues, index, source);
+            scan_flow_statements_in(
+                &try_stmt.body,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
             for handler in &try_stmt.handlers {
                 let ExceptHandler::ExceptHandler(inner) = handler;
-                scan_flow_statements(
+                scan_flow_statements_in(
                     &inner.body,
                     FlowState {
                         context: RaiseContext::InExcept,
                         ..state
                     },
+                    current_fn,
+                    exempt_fns,
                     issues,
                     index,
                     source,
                 );
             }
-            scan_flow_statements(&try_stmt.orelse, state, issues, index, source);
-            scan_flow_statements(
+            scan_flow_statements_in(
+                &try_stmt.orelse,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
+            scan_flow_statements_in(
                 &try_stmt.finalbody,
                 state.in_finally(),
+                current_fn,
+                exempt_fns,
                 issues,
                 index,
                 source,
             );
         }
         Stmt::With(with_stmt) => {
-            scan_flow_statements(&with_stmt.body, state, issues, index, source);
+            scan_flow_statements_in(
+                &with_stmt.body,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
         }
         Stmt::If(if_stmt) => {
-            scan_flow_statements(&if_stmt.body, state, issues, index, source);
+            scan_flow_statements_in(
+                &if_stmt.body,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
             for clause in &if_stmt.elif_else_clauses {
-                scan_flow_statements(&clause.body, state, issues, index, source);
+                scan_flow_statements_in(
+                    &clause.body,
+                    state,
+                    current_fn,
+                    exempt_fns,
+                    issues,
+                    index,
+                    source,
+                );
             }
         }
         Stmt::Match(match_stmt) => {
             for case in &match_stmt.cases {
-                scan_flow_statements(&case.body, state, issues, index, source);
+                scan_flow_statements_in(
+                    &case.body, state, current_fn, exempt_fns, issues, index, source,
+                );
             }
         }
-        // Jumps bind within the innermost function scope; reset the state.
+        // Jumps bind within the innermost function scope; reset the state
+        // and remember the function name for the except-called exemption.
         Stmt::FunctionDef(function) => {
-            scan_flow_statements(
+            scan_flow_statements_in(
                 &function.body,
                 FlowState::fresh_scope(),
+                Some(function.name.as_str()),
+                exempt_fns,
                 issues,
                 index,
                 source,
