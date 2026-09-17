@@ -17,8 +17,16 @@ pub(crate) fn check_invariant_returns(
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         if let Stmt::FunctionDef(function) = stmt {
+            // The reference requires every exit path to return the same
+            // value: at least two returns, no implicit fall-off-the-end, and
+            // identical non-None constant expressions.
             let returns = direct_constant_return_texts(&function.body, source);
-            let identical = returns.len() >= 2 && returns.windows(2).all(|pair| pair[0] == pair[1]);
+            let all_returns = count_returns(&function.body);
+            let falls_off = !function.body.last().is_some_and(stmt_always_exits);
+            let identical = returns.len() >= 2
+                && returns.len() == all_returns
+                && !falls_off
+                && returns.windows(2).all(|pair| pair[0] == pair[1]);
             if identical {
                 issues.push(issue_at(
                     "python:S3516",
@@ -34,6 +42,54 @@ pub(crate) fn check_invariant_returns(
 }
 
 // --- python:S3516 — invariant function returns --------------------------------
+
+fn count_returns(suite: &[Stmt]) -> usize {
+    let mut count = 0;
+    for_each_stmt_in_scope(suite, &mut |stmt| {
+        if matches!(stmt, Stmt::Return(_)) {
+            count += 1;
+        }
+    });
+    count
+}
+
+/// Whether control provably leaves `stmt` via return/raise on every path.
+fn stmt_always_exits(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(_) | Stmt::Raise(_) => true,
+        Stmt::If(if_stmt) => {
+            if_stmt
+                .elif_else_clauses
+                .last()
+                .is_some_and(|clause| clause.test.is_none())
+                && if_stmt.body.last().is_some_and(stmt_always_exits)
+                && if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .all(|clause| clause.body.last().is_some_and(stmt_always_exits))
+        }
+        Stmt::Try(try_stmt) => {
+            try_stmt.body.last().is_some_and(stmt_always_exits)
+                && try_stmt.handlers.iter().all(|handler| match handler {
+                    ruff_python_ast::ExceptHandler::ExceptHandler(handler) => {
+                        handler.body.last().is_some_and(stmt_always_exits)
+                    }
+                })
+        }
+        Stmt::Match(match_stmt) => {
+            !match_stmt.cases.is_empty()
+                && match_stmt
+                    .cases
+                    .iter()
+                    .all(|case| case.body.last().is_some_and(stmt_always_exits))
+                && match_stmt
+                    .cases
+                    .last()
+                    .is_some_and(|case| case.guard.is_none() && case.pattern.is_irrefutable())
+        }
+        _ => false,
+    }
+}
 
 /// Normalized texts of direct non-None constant `return` values.
 fn direct_constant_return_texts(suite: &[Stmt], source: &str) -> Vec<String> {

@@ -46,7 +46,9 @@ pub(crate) fn check_dead_stores(
     for (scope_idx, suite) in scope_regions(parsed, table) {
         let flow = FlowBuilder::new(table, scope_idx).build(suite);
         for (name, range) in flow.dead_stores() {
-            if is_reportable(table, scope_idx, &name, range, options) {
+            if is_reportable(table, scope_idx, &name, range, options)
+                && !is_sentinel_assignment(suite, range)
+            {
                 let issue = issue_at(
                     "python:S1854",
                     &format!("Remove this useless assignment to local variable '{name}'."),
@@ -111,6 +113,34 @@ fn is_reportable(
             .resolved_loads
             .iter()
             .any(|load| load.target == Some(scope_idx) && load.name == name)
+        && !table.resolved_loads.iter().any(|load| {
+            // A load from a nested function scope keeps the store live:
+            // the reference's isUsedInSubFunction exemption.
+            load.target == Some(scope_idx) && load.name == name && load.scope != scope_idx
+        })
+}
+
+/// The reference exempts assignments of falsy literals, `True`, `1`, and
+/// `-1` (sentinel initializations like `y = None` before a `try`).
+fn is_sentinel_assignment(suite: &[Stmt], range: TextRange) -> bool {
+    let mut found = false;
+    crate::support::for_each_stmt(suite, &mut |stmt| {
+        let value: Option<&Expr> = match stmt {
+            Stmt::Assign(assign) if assign.targets.iter().any(|target| target.range() == range) => {
+                Some(assign.value.as_ref())
+            }
+            Stmt::AnnAssign(assign) if assign.target.range() == range => assign.value.as_deref(),
+            _ => None,
+        };
+        if let Some(value) = value {
+            found |= crate::support::constant_truth(value) == Some(false)
+                || matches!(value, Expr::Name(name) if name.id.as_str() == "True")
+                || matches!(value, Expr::NumberLiteral(n) if matches!(&n.value, ruff_python_ast::Number::Int(i) if i.as_i64() == Some(1)))
+                || matches!(value, Expr::UnaryOp(u) if u.op == ruff_python_ast::UnaryOp::USub
+                    && matches!(u.operand.as_ref(), Expr::NumberLiteral(n) if matches!(&n.value, ruff_python_ast::Number::Int(i) if i.as_i64() == Some(1))));
+        }
+    });
+    found
 }
 
 /// Pairs every module/function scope with its own statement suite.
@@ -120,13 +150,13 @@ fn scope_regions<'a>(
 ) -> Vec<(usize, &'a [Stmt])> {
     let mut body_ranges: HashMap<TextRange, usize> = HashMap::new();
     for (idx, scope) in table.scopes.iter().enumerate() {
-        if matches!(scope.kind, ScopeKind::Module | ScopeKind::Function)
+        if matches!(scope.kind, ScopeKind::Function)
             && let Some(range) = scope.body_range
         {
             body_ranges.insert(range, idx);
         }
     }
-    let mut found = vec![(0usize, parsed.syntax().body.as_slice())];
+    let mut found = Vec::new();
     collect_regions(parsed.syntax().body.as_slice(), &body_ranges, &mut found);
     found
 }
@@ -227,71 +257,81 @@ impl<'a> FlowBuilder<'a> {
     }
 
     fn build_suite(&mut self, suite: &[Stmt], entry: usize) -> SuiteExit {
+        self.build_suite_inner(suite, entry, false)
+    }
+
+    /// Per-statement blocks: used for `try` bodies so the exception edge
+    /// leaves before each statement's stores (a statement that raises never
+    /// performs its store, so earlier stores stay live into handlers).
+    fn build_suite_atomic(&mut self, suite: &[Stmt], entry: usize) -> SuiteExit {
+        self.build_suite_inner(suite, entry, true)
+    }
+
+    fn build_suite_inner(&mut self, suite: &[Stmt], entry: usize, atomic: bool) -> SuiteExit {
         let mut current = Some(entry);
         let mut terminals = Vec::new();
         for stmt in suite {
+            if atomic && let Some(block) = current {
+                let fresh = self.new_block();
+                self.edge(block, fresh);
+                current = Some(fresh);
+            }
             let Some(block) = current else { break };
             if let Some(term) = self.terminator_events(stmt, block) {
                 terminals.push((block, term));
                 current = None;
                 continue;
             }
-            match stmt {
-                Stmt::If(if_stmt) => {
-                    let (exit, branch_terminals) = self.build_if(if_stmt, block);
-                    current = exit;
-                    terminals.extend(branch_terminals);
-                }
-                Stmt::While(while_stmt) => {
-                    let (exit, loop_terminals) = self.build_loop(
-                        |builder, header| builder.expr_events(header, &while_stmt.test),
-                        &while_stmt.body,
-                        &while_stmt.orelse,
-                        block,
-                    );
-                    current = exit;
-                    terminals.extend(loop_terminals);
-                }
-                Stmt::For(for_stmt) => {
-                    let (exit, loop_terminals) = self.build_loop(
-                        |builder, header| {
-                            builder.expr_events(header, &for_stmt.iter);
-                            builder.store_target_events(header, &for_stmt.target);
-                        },
-                        &for_stmt.body,
-                        &for_stmt.orelse,
-                        block,
-                    );
-                    current = exit;
-                    terminals.extend(loop_terminals);
-                }
-                Stmt::With(with_stmt) => {
-                    for item in &with_stmt.items {
-                        self.expr_events(block, &item.context_expr);
-                        if let Some(vars) = item.optional_vars.as_deref() {
-                            self.store_target_events(block, vars);
-                        }
-                    }
-                    let result = self.build_suite(&with_stmt.body, block);
-                    current = result.exit;
-                    terminals.extend(result.terminals);
-                }
-                Stmt::Match(match_stmt) => {
-                    let (exit, case_terminals) = self.build_match(match_stmt, block);
-                    current = exit;
-                    terminals.extend(case_terminals);
-                }
-                Stmt::Try(try_stmt) => {
-                    let (exit, try_terminals) = self.build_try(try_stmt, block);
-                    current = exit;
-                    terminals.extend(try_terminals);
-                }
-                _ => self.simple_statement_events(stmt, block),
-            }
+            let (exit, branch_terminals) = self.compound_statement_events(stmt, block);
+            current = exit;
+            terminals.extend(branch_terminals);
         }
         SuiteExit {
             exit: current,
             terminals,
+        }
+    }
+
+    /// Compound statements produce a successor block plus any branch
+    /// terminals; plain statements emit events in place.
+    fn compound_statement_events(
+        &mut self,
+        stmt: &Stmt,
+        block: usize,
+    ) -> (Option<usize>, Vec<(usize, Term)>) {
+        match stmt {
+            Stmt::If(if_stmt) => self.build_if(if_stmt, block),
+            Stmt::While(while_stmt) => self.build_loop(
+                |builder, header| builder.expr_events(header, &while_stmt.test),
+                &while_stmt.body,
+                &while_stmt.orelse,
+                block,
+            ),
+            Stmt::For(for_stmt) => self.build_loop(
+                |builder, header| {
+                    builder.expr_events(header, &for_stmt.iter);
+                    builder.store_target_events(header, &for_stmt.target);
+                },
+                &for_stmt.body,
+                &for_stmt.orelse,
+                block,
+            ),
+            Stmt::With(with_stmt) => {
+                for item in &with_stmt.items {
+                    self.expr_events(block, &item.context_expr);
+                    if let Some(vars) = item.optional_vars.as_deref() {
+                        self.store_target_events(block, vars);
+                    }
+                }
+                let result = self.build_suite(&with_stmt.body, block);
+                (result.exit, result.terminals)
+            }
+            Stmt::Match(match_stmt) => self.build_match(match_stmt, block),
+            Stmt::Try(try_stmt) => self.build_try(try_stmt, block),
+            _ => {
+                self.simple_statement_events(stmt, block);
+                (Some(block), Vec::new())
+            }
         }
     }
 
@@ -375,9 +415,29 @@ impl<'a> FlowBuilder<'a> {
             exits.push(exit);
         }
         terminals.extend(then_exit.terminals);
+        let (else_exits, else_terminals, has_else) =
+            self.build_elif_else_chain(&if_stmt.elif_else_clauses, block);
+        exits.extend(else_exits);
+        terminals.extend(else_terminals);
+        if !has_else {
+            exits.push(block);
+        }
+        (self.join(exits), terminals)
+    }
+
+    /// Builds the `elif`/`else` chain: each clause gets a test block (elif)
+    /// or a direct body edge (else). Returns the clause exits, their
+    /// terminals, and whether an `else` clause was present.
+    fn build_elif_else_chain(
+        &mut self,
+        clauses: &[ruff_python_ast::ElifElseClause],
+        block: usize,
+    ) -> (Vec<usize>, Vec<(usize, Term)>, bool) {
+        let mut exits = Vec::new();
+        let mut terminals = Vec::new();
         let mut false_chain = block;
         let mut has_else = false;
-        for clause in &if_stmt.elif_else_clauses {
+        for clause in clauses {
             let clause_entry = self.new_block();
             if let Some(test) = clause.test.as_ref() {
                 self.edge(false_chain, clause_entry);
@@ -400,10 +460,7 @@ impl<'a> FlowBuilder<'a> {
                 terminals.extend(body_exit.terminals);
             }
         }
-        if !has_else {
-            exits.push(false_chain);
-        }
-        (self.join(exits), terminals)
+        (exits, terminals, has_else)
     }
 
     fn build_loop(
@@ -493,7 +550,7 @@ impl<'a> FlowBuilder<'a> {
         let body_entry = self.new_block();
         self.edge(block, body_entry);
         let watermark = self.blocks.len();
-        let body_result = self.build_suite(&try_stmt.body, body_entry);
+        let body_result = self.build_suite_atomic(&try_stmt.body, body_entry);
         let body_region: Vec<usize> = (watermark..self.blocks.len()).collect();
 
         let (orelse_region, mut pre_finally_exits, mut pre_finally_terminals) =
