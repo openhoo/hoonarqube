@@ -4212,23 +4212,24 @@ fn compact_code(node: Node<'_>, source: &str) -> String {
 }
 
 fn spans_multiple_lines(node: Node<'_>) -> bool {
-    if node.kind() == "block" {
-        let Some(statement_list) = named_children(node)
+    let statement_list = match node.kind() {
+        "block" => named_children(node)
             .into_iter()
-            .find(|child| child.kind() == "statement_list")
-        else {
-            return false;
-        };
-        let mut statements = named_children(statement_list)
-            .into_iter()
-            .filter(|child| child.kind() != "comment");
-        let Some(first) = statements.next() else {
-            return false;
-        };
-        let last = statements.next_back().unwrap_or(first);
-        return first.start_position().row != last.end_position().row;
-    }
-    node.start_position().row < node.end_position().row
+            .find(|child| child.kind() == "statement_list"),
+        "statement_list" => Some(node),
+        _ => return node.start_position().row < node.end_position().row,
+    };
+    let Some(statement_list) = statement_list else {
+        return false;
+    };
+    let mut statements = named_children(statement_list)
+        .into_iter()
+        .filter(|child| child.kind() != "comment");
+    let Some(first) = statements.next() else {
+        return false;
+    };
+    let last = statements.next_back().unwrap_or(first);
+    first.start_position().row != last.end_position().row
 }
 
 fn duplicate_branch<'tree>(
@@ -6018,6 +6019,104 @@ mod tests {
             found.iter().any(|key| key == "go:S1871"),
             "identical case bodies must be flagged: {found:?}"
         );
+    }
+
+    #[test]
+    fn s1871_gin_switch_controls_preserve_multiline_duplicate_range() {
+        let source = concat!(
+            "// Gin exploration header\n",
+            "package probe\n",
+            "func shortDuplicate(n int) int {\n",
+            " switch {\n",
+            " case n < 0: return 1\n",
+            " case n > 10: return 1\n",
+            " default: return 0\n",
+            " }\n",
+            "}\n",
+            "func longDuplicate(n int) int {\n",
+            " switch {\n",
+            " case n < 0:\n",
+            "  n += 2\n",
+            "  return n\n",
+            " case n > 10:\n",
+            "  n += 2\n",
+            "  return n\n",
+            " default: return 0\n",
+            " }\n",
+            "}\n",
+            "func shortDifferent(n int) int {\n",
+            " switch {\n",
+            " case n < 0: return 1\n",
+            " case n > 10: return 2\n",
+            " default: return 0\n",
+            " }\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("s1871.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let duplicates: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S1871")
+            .collect();
+        assert_eq!(duplicates.len(), 1, "{report:?}");
+        let range = &duplicates[0].range;
+        assert_eq!(
+            (
+                range.start.line,
+                range.start.column,
+                range.end.line,
+                range.end.column
+            ),
+            (16, 2, 18, 0),
+        );
+    }
+
+    #[test]
+    fn s1871_switch_single_line_exemption_ignores_trailing_trivia() {
+        for (switch, first, second) in
+            [("switch n", "1", "2"), ("switch n.(type)", "int", "string")]
+        {
+            let source = format!(
+                "package p\nfunc f(n any) {{\n {switch} {{\n case {first}:\n  println(1); println(2)\n case {second}:\n  println(1); println(2) // trailing comment\n\n  /* trailing\n     block comment */\n default:\n  println(1); println(2)\n\n  // trailing default comment\n }}\n}}\n"
+            );
+            let found = keys(&source);
+            assert!(
+                !found.iter().any(|key| key == "go:S2260"),
+                "the clean control must parse successfully in {switch}: {found:?}"
+            );
+            assert!(
+                !found.iter().any(|key| key == "go:S1871"),
+                "one executable line, even with multiple statements or trailing trivia, is exempt in {switch}: {found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn s1871_switch_multiline_single_statement_is_not_exempt() {
+        for (switch, first, second) in
+            [("switch n", "1", "2"), ("switch n.(type)", "int", "string")]
+        {
+            let source = format!(
+                "package p\nfunc f(n any) {{\n {switch} {{\n case {first}:\n  println(\n   1,\n  )\n case {second}:\n  println(\n   1,\n  )\n default:\n  println(2)\n }}\n}}\n"
+            );
+            let report = analyze(
+                PathBuf::from("multiline_switch.go"),
+                &source,
+                &AnalyzerOptions::default(),
+            );
+            let duplicates: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "go:S1871")
+                .collect();
+            assert_eq!(duplicates.len(), 1, "{switch}: {report:?}");
+            assert_eq!(duplicates[0].range.start.line, 9);
+            assert_eq!(duplicates[0].range.start.column, 2);
+        }
     }
 
     #[test]
