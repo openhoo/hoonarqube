@@ -306,6 +306,11 @@ Project/compiler contexts use these existing flags:
   `--csharp-project`.
 - `--python-project PATH` supplies a project root/module namespace for the
   source-snapshot cross-file rules; it does not execute Python code.
+  For `python:S6554`, include the model and its imported base-class sources in
+  the scan to recognize inherited `__str__` implementations. File-only scans
+  resolve local inheritance; unknown external bases do not establish an
+  inherited method. Django's default `Model.__str__` does not satisfy this rule,
+  and abstract models remain exempt.
 
 These options apply to both `analyze` and `fix`. Missing configuration, runtimes,
 references, or compiler facts remain diagnostics and never become fabricated
