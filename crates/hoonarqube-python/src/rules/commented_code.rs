@@ -174,9 +174,21 @@ pub(crate) fn check_commented_code(
     let mut group: Vec<(usize, &str)> = Vec::new();
     let mut anchor: Option<TextRange> = None;
     let mut previous_line: usize = 0;
+    let mut previous_had_code = false;
     for token in comment_tokens(parsed) {
         let line = index.line_column(token.range().start(), source).line.get();
-        if !group.is_empty() && previous_line + 1 != line {
+        // The reference groups only consecutive comment lines attached to
+        // the same following token: a comment on a line that already holds
+        // code always starts a fresh group, so trailing comments on
+        // consecutive code lines never merge into one program.
+        let offset = usize::from(token.range().start());
+        let line_start = source[..offset].rfind('\n').map_or(0, |pos| pos + 1);
+        let has_code_before = !source[line_start..offset].trim().is_empty();
+        // A comment-only line continues the group only when the previous
+        // comment was also comment-only (both attach to the same following
+        // token). A comment after code is always a singleton group.
+        let continues = previous_line + 1 == line && !has_code_before && !previous_had_code;
+        if !group.is_empty() && !continues {
             if let Some(issue) = evaluate_group(&group, anchor, index, source) {
                 issues.push(issue);
             }
@@ -187,6 +199,7 @@ pub(crate) fn check_commented_code(
         }
         group.push((line, &source[token.range()]));
         previous_line = line;
+        previous_had_code = has_code_before;
     }
     if let Some(issue) = evaluate_group(&group, anchor, index, source) {
         issues.push(issue);
