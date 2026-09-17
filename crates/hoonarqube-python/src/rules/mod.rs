@@ -879,6 +879,7 @@ pub(crate) fn check_tier_c_semantic_battery(
         index,
         source,
         &signatures,
+        file_ctx,
     ));
     issues.extend(check_s2876_iter_returns(index, source, file_ctx));
     issues.extend(check_s2638_override_contracts(parsed, index, source));
