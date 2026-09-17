@@ -75,18 +75,26 @@ pub(crate) fn binop_literal_invalid(
 /// invalid. `%` with a string or bytes literal on the left and a tuple on
 /// the right is printf-style formatting (issue #113): valid whenever the
 /// format conversions accept the tuple arguments.
+/// `str % value`/`bytes % value` is printf-style formatting: the right
+/// operand may be a tuple, mapping, or any single value, so `%` with a
+/// string/bytes left operand is never an incompatible-operands pair.
+fn is_printf_format_operation(
+    op: ruff_python_ast::Operator,
+    left: &Expr,
+) -> bool {
+    op == ruff_python_ast::Operator::Mod
+        && matches!(literal_kind(left), Some("string" | "bytes"))
+}
+
 pub(crate) fn binop_literals_invalid(
     op: ruff_python_ast::Operator,
     left: &Expr,
-    right: &Expr,
+    _right: &Expr,
     left_kind: &str,
     right_kind: &str,
 ) -> bool {
-    if matches!(op, ruff_python_ast::Operator::Mod)
-        && matches!(left_kind, "string" | "bytes")
-        && right_kind == "tuple"
-    {
-        return printf_tuple_invalid(left, right);
+    if is_printf_format_operation(op, left) {
+        return false;
     }
     binop_literal_invalid(op, left_kind, right_kind)
 }
