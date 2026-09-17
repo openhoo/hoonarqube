@@ -1,6 +1,7 @@
 use crate::AnalyzerOptions;
 use crate::support::child_bodies;
 use crate::support::child_exprs;
+use crate::support::for_each_expr;
 use crate::support::for_each_function_def;
 use crate::support::for_each_stmt;
 use crate::support::issue_at;
@@ -18,12 +19,12 @@ use ruff_text_size::Ranged;
 
 // --- python:FunctionComplexity / ClassComplexity / FileComplexity / S3776 ------
 //
-// One shared unit measurer drives the whole family. Cyclomatic counts follow
-// the catalog decision-point enumeration (if/elif, loops, except handlers,
-// boolean operator chains, comprehension filters, match cases) with a +1
-// baseline per function; nested definitions are units of their own and never
-// inflate the enclosing cyclomatic count. Cognitive weights follow the
-// SonarPython CognitiveComplexityVisitor: `if` costs `1 + nesting`, `elif`
+// FunctionComplexity follows SonarPython's ComplexityVisitor independently of
+// the legacy class/file totals: non-elif `if`, loops, conditional expressions,
+// boolean operators and comprehension filters, plus one per function. Nested
+// functions are separate units, but nested class bodies belong to their parent.
+// The shared measurer below retains class/file cyclomatic behavior and cognitive
+// weights from the SonarPython CognitiveComplexityVisitor: `if` costs `1 + nesting`, `elif`
 // links and plain `else` branches cost one flat point, control structures
 // nest their contents one level deeper, logical-operator chains count once
 // per consecutive run of the same operator, and the control flow inside
@@ -61,8 +62,11 @@ pub(crate) fn check_function_complexity(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    flag_functions(parsed, |function, _cognitive, cyclomatic, _nested| {
-        let total = cyclomatic + 1;
+    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+        let Stmt::FunctionDef(function) = stmt else {
+            return;
+        };
+        let total = measure_function(stmt);
         if total > options.maximum_function_complexity {
             issues.push(issue_at(
                 "python:FunctionComplexity",
@@ -77,6 +81,71 @@ pub(crate) fn check_function_complexity(
         }
     });
     issues
+}
+
+/// Function-specific traversal mirroring the upstream reference visitor:
+/// include the root's header, skip nested functions entirely, and walk classes.
+fn measure_function(root: &Stmt) -> u32 {
+    let mut total = 1;
+    let mut pending = vec![root];
+    while let Some(stmt) = pending.pop() {
+        if matches!(stmt, Stmt::FunctionDef(_)) && !std::ptr::eq(stmt, root) {
+            continue;
+        }
+        if matches!(stmt, Stmt::If(_) | Stmt::For(_) | Stmt::While(_)) {
+            total += 1;
+        }
+        for expr in stmt_exprs(stmt) {
+            for_each_expr(expr, &mut |expr| total += expression_decisions(expr));
+        }
+        total += type_parameter_decisions(stmt);
+        for body in child_bodies(stmt) {
+            pending.extend(body);
+        }
+    }
+    total
+}
+
+fn type_parameter_decisions(stmt: &Stmt) -> u32 {
+    let parameters = match stmt {
+        Stmt::FunctionDef(function) => function.type_params.as_deref(),
+        Stmt::ClassDef(class) => class.type_params.as_deref(),
+        _ => None,
+    };
+    let Some(parameters) = parameters else {
+        return 0;
+    };
+    let mut total = 0;
+    for parameter in &parameters.type_params {
+        use ruff_python_ast::TypeParam;
+        let (bound, default) = match parameter {
+            TypeParam::TypeVar(param) => (param.bound.as_deref(), param.default.as_deref()),
+            TypeParam::TypeVarTuple(param) => (None, param.default.as_deref()),
+            TypeParam::ParamSpec(param) => (None, param.default.as_deref()),
+        };
+        for expr in [bound, default].into_iter().flatten() {
+            for_each_expr(expr, &mut |expr| total += expression_decisions(expr));
+        }
+    }
+    total
+}
+
+fn expression_decisions(expr: &Expr) -> u32 {
+    let generators = match expr {
+        Expr::If(_) => return 1,
+        Expr::BoolOp(boolean) => {
+            return u32::try_from(boolean.values.len().saturating_sub(1)).unwrap_or(u32::MAX);
+        }
+        Expr::ListComp(comp) => &comp.generators,
+        Expr::SetComp(comp) => &comp.generators,
+        Expr::DictComp(comp) => &comp.generators,
+        Expr::Generator(comp) => &comp.generators,
+        _ => return 0,
+    };
+    generators
+        .iter()
+        .map(|generator| u32::try_from(generator.ifs.len()).unwrap_or(u32::MAX))
+        .sum()
 }
 
 pub(crate) fn check_file_complexity(
@@ -555,6 +624,7 @@ mod tests {
         };
         let report = analyze(PathBuf::from("t.py"), source, &options);
         assert_eq!(findings(&report, "python:S3776").len(), 1);
+        assert_function_complexity(source, 2);
 
         let bool_source =
             "def choose(values):\n    return [value > 0 and value < 10 for value in values]\n";
@@ -564,8 +634,8 @@ mod tests {
 
     #[test]
     fn function_complexity_flags_past_threshold_with_baseline() {
-        // if(1) + elif(1) + for(1) + while(1) + boolop values-1(1) + baseline(1)
-        // = 6, which exceeds the lowered threshold of 4.
+        // if(1) + for(1) + while(1) + boolean operator(1) + baseline(1) = 5.
+        // The elif itself is not a decision point in the reference visitor.
         let source = concat!(
             "def f(a, b, c):\n",
             "    if a:\n",
@@ -578,13 +648,7 @@ mod tests {
             "        while c or a:\n",
             "            pass\n",
         );
-        let options = AnalyzerOptions {
-            maximum_function_complexity: 4,
-            ..AnalyzerOptions::default()
-        };
-        // if(1) + elif(1) + for(1) + while(1) + boolop values-1(1) + baseline(1) = 6
-        let report = analyze(PathBuf::from("t.py"), source, &options);
-        assert_eq!(findings(&report, "python:FunctionComplexity").len(), 1);
+        assert_function_complexity(source, 5);
     }
 
     #[test]
@@ -632,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn complexity_units_exclude_nested_definitions_and_count_match_cases() {
+    fn complexity_units_exclude_nested_functions_and_match_cases() {
         let source = concat!(
             "def outer(v):\n",
             "    match v:\n",
@@ -644,16 +708,104 @@ mod tests {
             "                    pass\n",
             "                return [y for y in v if y]\n",
         );
-        // outer: match cases(2) + baseline(1) = 3; the comprehension filter
-        // and the `if` belong to inner's own unit, which also scores 3.
+        // Match cases add nothing: outer scores 1. The filter and if are
+        // owned by inner's separate unit, which scores 3.
         let options = AnalyzerOptions {
             maximum_function_complexity: 2,
             ..AnalyzerOptions::default()
         };
         let report = analyze(PathBuf::from("t.py"), source, &options);
-        assert_eq!(findings(&report, "python:FunctionComplexity").len(), 2);
+        let found = findings(&report, "python:FunctionComplexity");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 6);
         assert!(findings(&scan(source), "python:FunctionComplexity").is_empty());
     }
+
+    fn assert_function_complexity(source: &str, expected: u32) {
+        // Both sides of the threshold pin the numeric score without coupling
+        // the regression to diagnostic wording.
+        for (maximum, count) in [(expected - 1, 1), (expected, 0)] {
+            let options = AnalyzerOptions {
+                maximum_function_complexity: maximum,
+                ..AnalyzerOptions::default()
+            };
+            let report = analyze(PathBuf::from("t.py"), source, &options);
+            assert_eq!(findings(&report, "python:FunctionComplexity").len(), count);
+        }
+    }
+
+    #[test]
+    fn function_complexity_matches_pinned_django_counts() {
+        // SonarQube Community 26.8.0.126808, Django
+        // 8cbdd4a814397f81adf0129288f32b615bd1f94f; issue #671.
+        // AppConfig.create: native 24 -> reference 19 (four handlers, one elif).
+        assert_function_complexity(
+            include_str!("../../../../tests/fixtures/function-complexity/django_app_config.py"),
+            19,
+        );
+        // ModelAdmin._changeform_view: native 39 -> reference 40
+        // (one elif removed, two conditional expressions added).
+        assert_function_complexity(
+            include_str!("../../../../tests/fixtures/function-complexity/django_changeform.py"),
+            40,
+        );
+    }
+
+    #[test]
+    fn function_complexity_walks_unscored_branches_and_boolean_chains() {
+        let source = concat!(
+            "def f(a, b, c):\n",
+            "    try:\n",
+            "        if a:\n",
+            "            pass\n",
+            "        elif a and b and c:\n",
+            "            pass\n",
+            "    except (ValueError if a else TypeError):\n",
+            "        match a or b:\n",
+            "            case 1 if a and b:\n",
+            "                return a if b else c\n",
+            "            case _:\n",
+            "                return [x for x in c if a if b or c]\n",
+        );
+        // baseline + if + two ands + handler conditional + match-subject or
+        // + guard and + return conditional + two filters + filter or = 11.
+        assert_function_complexity(source, 11);
+    }
+
+    #[test]
+    fn function_complexity_includes_headers_classes_and_lambdas() {
+        let source = concat!(
+            "@(decorate if flag else identity)\n",
+            "def outer(arg: A if flag else B = left or right) -> A if flag else B:\n",
+            "    @decorate(left or right)\n",
+            "    class Local(Base if flag else Other):\n",
+            "        if flag:\n",
+            "            value = lambda: left if flag else right\n",
+            "        def method(arg=left or right):\n",
+            "            return left if flag else right\n",
+            "    def inner(arg=left or right):\n",
+            "        return left if flag else right\n",
+            "    return Local\n",
+        );
+        // Root header (4), class header (2), class if + lambda conditional (2),
+        // baseline (1). Inner function headers and bodies belong only to them.
+        assert_function_complexity(source, 9);
+    }
+
+    #[test]
+    fn function_complexity_includes_generic_bounds() {
+        let source = concat!(
+            "def outer[T: (A if flag else B)]():\n",
+            "    class Local[U: (A if flag else B)]:\n",
+            "        pass\n",
+            "    def inner[V: (A if flag else B)]():\n",
+            "        pass\n",
+            "    return Local\n",
+        );
+        // Root and class bounds count; the nested function's bound does not.
+        assert_function_complexity(source, 3);
+    }
+
     #[test]
     fn s3776_rolls_nested_definitions_into_the_parent_score() {
         // SonarPython keeps counting control flow inside nested definitions
