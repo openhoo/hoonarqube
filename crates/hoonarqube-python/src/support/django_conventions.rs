@@ -110,3 +110,8 @@ pub(crate) fn django_view_names(module_body: &[Stmt]) -> std::collections::HashS
     }
     names
 }
+
+/// Whether `name` is registered as a view in this module's `urlpatterns`.
+pub(crate) fn is_django_view(module_body: &[Stmt], name: &str) -> bool {
+    django_view_names(module_body).contains(name)
+}
