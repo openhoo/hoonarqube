@@ -68,6 +68,8 @@ use crate::rules::trailing_whitespace::check_trailing_whitespace;
 /// detection). The remaining rules declare scope `ALL` (or `TEST`) and still
 /// apply; documentation trees such as `docs/` stay MAIN scope because the
 /// reference keeps reporting MAIN rules there.
+/// S9073 overrides its catalog MAIN scope with ALL at runtime and applies its
+/// own pytest-file or unittest-function eligibility check.
 const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:BackticksUsage",
     "python:ClassComplexity",
@@ -201,7 +203,6 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S7503",
     "python:S7632",
     "python:S905",
-    "python:S9073",
     "python:S930",
 ];
 use crate::support::file_metrics;
