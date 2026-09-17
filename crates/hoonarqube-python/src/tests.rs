@@ -4670,10 +4670,10 @@ fn s9073_flags_composite_assertions() {
     // `assert e.value.args and "session is unavailable" in
     // e.value.args[0]` (statement columns 8-75) joins two facts in one
     // assert. `and` chains and De Morgan `not (a or b)` are reported;
-    // the statement anchors the finding. Catalog scope MAIN: the same
-    // content on a test-scoped path stays silent.
+    // the statement anchors the finding. Runtime scope ALL keeps real
+    // pytest test files eligible despite catalog metadata saying MAIN.
     let flagged = scan_at(
-        PathBuf::from("src/flask_app.py"),
+        PathBuf::from("tests/test_basic.py"),
         concat!(
             "def test_missing_session(app):\n",
             "    def expect_exception(f, *args, **kwargs):\n",
@@ -4687,10 +4687,6 @@ fn s9073_flags_composite_assertions() {
     );
     let found = findings(&flagged, "python:S9073");
     assert_eq!(found.len(), 3);
-    assert_eq!(
-        found[0].message,
-        "Split this composite assertion into separate assertions."
-    );
     assert_eq!(found[0].range.start, pos(4, 8));
     assert_eq!(found[0].range.end, pos(4, 75));
     assert_eq!(found[1].range.start, pos(7, 4));
@@ -4705,8 +4701,11 @@ fn s9073_flags_composite_assertions() {
             "    assert e.value.args and \"session is unavailable\" in e.value.args[0]\n",
         ),
     );
-    // Test-scoped file: silenced by the central MAIN-scope gate.
-    assert!(findings(&in_tests, "python:S9073").is_empty());
+    let test_findings: Vec<_> = findings(&in_tests, "python:S9073")
+        .iter()
+        .map(|issue| (issue.range.start, issue.range.end))
+        .collect();
+    assert_eq!(test_findings, vec![(pos(2, 4), pos(2, 71))]);
     let non_test = scan_at(
         PathBuf::from("src/app.py"),
         "def check(x):\n    assert x and x.ok\n",
@@ -4715,12 +4714,75 @@ fn s9073_flags_composite_assertions() {
 }
 
 #[test]
+fn s9073_accepts_django_release_production_assertion() {
+    // django/django scripts/do_django_release.py:152-154 at
+    // 8cbdd4a814397f81adf0129288f32b615bd1f94f, reduced without changing the assert.
+    let source = concat!(
+        "import os\n",
+        "def main():\n",
+        "    assert dest_folder and os.path.exists(\n",
+        "        dest_folder\n",
+        "    ), \"Missing DEST_FOLDER: Set this env var to the path to place the artifacts.\"\n",
+    );
+    let report = scan_at(PathBuf::from("scripts/do_django_release.py"), source);
+    assert!(findings(&report, "python:S9073").is_empty());
+}
+
+#[test]
+fn s9073_distinguishes_pytest_files_and_unittest_contexts() {
+    let source = concat!(
+        "import unittest\n",
+        "assert a and b\n",
+        "def test_plain():\n",
+        "    assert a and b\n",
+        "class Checks(unittest.TestCase):\n",
+        "    assert a and b\n",
+        "    def helper(self):\n",
+        "        assert a and b\n",
+        "        def test_nested():\n",
+        "            assert a and b\n",
+        "        class Ordinary:\n",
+        "            def test_method(self):\n",
+        "                assert a and b\n",
+    );
+    for path in ["src/checks.py", "tests/checks.py"] {
+        let report = scan_at(PathBuf::from(path), source);
+        let ranges: Vec<_> = findings(&report, "python:S9073")
+            .iter()
+            .map(|issue| (issue.range.start, issue.range.end))
+            .collect();
+        assert_eq!(
+            ranges,
+            vec![(pos(8, 8), pos(8, 22)), (pos(10, 12), pos(10, 26))]
+        );
+    }
+    for path in ["tests/test_checks.py", "src/checks_test.py"] {
+        let report = scan_at(PathBuf::from(path), source);
+        let ranges: Vec<_> = findings(&report, "python:S9073")
+            .iter()
+            .map(|issue| (issue.range.start, issue.range.end))
+            .collect();
+        assert_eq!(
+            ranges,
+            vec![
+                (pos(2, 0), pos(2, 14)),
+                (pos(4, 4), pos(4, 18)),
+                (pos(6, 4), pos(6, 18)),
+                (pos(8, 8), pos(8, 22)),
+                (pos(10, 12), pos(10, 26)),
+                (pos(13, 16), pos(13, 30)),
+            ]
+        );
+    }
+}
+
+#[test]
 fn s9073_accepts_single_condition_assertions() {
     // Controls: single conditions, plain `or` (splitting would change
     // the meaning), negated single operands, and a top-level `or` with a
-    // nested `and` stay silent on a production path.
+    // nested `and` stay silent in an eligible pytest file.
     let clean = scan_at(
-        PathBuf::from("src/checks.py"),
+        PathBuf::from("tests/test_checks.py"),
         concat!(
             "def check_single(user, axis, cond):\n",
             "    assert user.is_active\n",
