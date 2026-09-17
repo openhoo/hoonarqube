@@ -46,7 +46,9 @@ pub(crate) fn check_dead_stores(
     for (scope_idx, suite) in scope_regions(parsed, table) {
         let flow = FlowBuilder::new(table, scope_idx).build(suite);
         for (name, range) in flow.dead_stores() {
-            if is_reportable(table, scope_idx, &name, range, options) {
+            if is_reportable(table, scope_idx, &name, range, options)
+                && !is_sentinel_assignment(suite, range)
+            {
                 let issue = issue_at(
                     "python:S1854",
                     &format!("Remove this useless assignment to local variable '{name}'."),
@@ -111,6 +113,40 @@ fn is_reportable(
             .resolved_loads
             .iter()
             .any(|load| load.target == Some(scope_idx) && load.name == name)
+        && !table.resolved_loads.iter().any(|load| {
+            // A load from a nested function scope keeps the store live:
+            // the reference's isUsedInSubFunction exemption.
+            load.target == Some(scope_idx) && load.name == name && load.scope != scope_idx
+        })
+}
+
+/// The reference exempts assignments of falsy literals, `True`, `1`, and
+/// `-1` (sentinel initializations like `y = None` before a `try`).
+fn is_sentinel_assignment(suite: &[Stmt], range: TextRange) -> bool {
+    let mut found = false;
+    crate::support::for_each_stmt(suite, &mut |stmt| {
+        let value: Option<&Expr> = match stmt {
+            Stmt::Assign(assign) if assign
+                .targets
+                .iter()
+                .any(|target| target.range() == range) =>
+            {
+                Some(assign.value.as_ref())
+            }
+            Stmt::AnnAssign(assign) if assign.target.range() == range => {
+                assign.value.as_deref()
+            }
+            _ => None,
+        };
+        if let Some(value) = value {
+            found |= crate::support::constant_truth(value) == Some(false)
+                || matches!(value, Expr::Name(name) if name.id.as_str() == "True")
+                || matches!(value, Expr::NumberLiteral(n) if matches!(&n.value, ruff_python_ast::Number::Int(i) if i.as_i64() == Some(1)))
+                || matches!(value, Expr::UnaryOp(u) if u.op == ruff_python_ast::UnaryOp::USub
+                    && matches!(u.operand.as_ref(), Expr::NumberLiteral(n) if matches!(&n.value, ruff_python_ast::Number::Int(i) if i.as_i64() == Some(1))));
+        }
+    });
+    found
 }
 
 /// Pairs every module/function scope with its own statement suite.
@@ -120,13 +156,13 @@ fn scope_regions<'a>(
 ) -> Vec<(usize, &'a [Stmt])> {
     let mut body_ranges: HashMap<TextRange, usize> = HashMap::new();
     for (idx, scope) in table.scopes.iter().enumerate() {
-        if matches!(scope.kind, ScopeKind::Module | ScopeKind::Function)
+        if matches!(scope.kind, ScopeKind::Function)
             && let Some(range) = scope.body_range
         {
             body_ranges.insert(range, idx);
         }
     }
-    let mut found = vec![(0usize, parsed.syntax().body.as_slice())];
+    let mut found = Vec::new();
     collect_regions(parsed.syntax().body.as_slice(), &body_ranges, &mut found);
     found
 }
@@ -227,9 +263,25 @@ impl<'a> FlowBuilder<'a> {
     }
 
     fn build_suite(&mut self, suite: &[Stmt], entry: usize) -> SuiteExit {
+        self.build_suite_inner(suite, entry, false)
+    }
+
+    /// Per-statement blocks: used for `try` bodies so the exception edge
+    /// leaves before each statement's stores (a statement that raises never
+    /// performs its store, so earlier stores stay live into handlers).
+    fn build_suite_atomic(&mut self, suite: &[Stmt], entry: usize) -> SuiteExit {
+        self.build_suite_inner(suite, entry, true)
+    }
+
+    fn build_suite_inner(&mut self, suite: &[Stmt], entry: usize, atomic: bool) -> SuiteExit {
         let mut current = Some(entry);
         let mut terminals = Vec::new();
         for stmt in suite {
+            if atomic && let Some(block) = current {
+                let fresh = self.new_block();
+                self.edge(block, fresh);
+                current = Some(fresh);
+            }
             let Some(block) = current else { break };
             if let Some(term) = self.terminator_events(stmt, block) {
                 terminals.push((block, term));
@@ -493,7 +545,7 @@ impl<'a> FlowBuilder<'a> {
         let body_entry = self.new_block();
         self.edge(block, body_entry);
         let watermark = self.blocks.len();
-        let body_result = self.build_suite(&try_stmt.body, body_entry);
+        let body_result = self.build_suite_atomic(&try_stmt.body, body_entry);
         let body_region: Vec<usize> = (watermark..self.blocks.len()).collect();
 
         let (orelse_region, mut pre_finally_exits, mut pre_finally_terminals) =

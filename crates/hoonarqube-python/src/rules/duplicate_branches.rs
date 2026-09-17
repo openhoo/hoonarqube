@@ -48,14 +48,20 @@ mod tests {
 
     #[test]
     fn s1871_flags_duplicate_branch_bodies() {
+        // Single-line duplicate branches are exempt in the reference.
         let chain = scan("if a == 1:\n    do(x)\nelif a == 2:\n    do(x)\n");
-        let found = findings(&chain, "python:S1871");
+        assert!(findings(&chain, "python:S1871").is_empty());
+        let multi_line = scan(
+            "if a == 1:\n    do(x)\n    do(y)\nelif a == 2:\n    do(x)\n    do(y)\n",
+        );
+        let found = findings(&multi_line, "python:S1871");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].range.start.line, 4);
-        let handlers =
-            scan("try:\n    risky()\nexcept A:\n    handle()\nexcept B:\n    handle()\n");
+        assert_eq!(found[0].range.start.line, 5);
+        let handlers = scan(
+            "try:\n    risky()\nexcept A:\n    handle()\n    log()\nexcept B:\n    handle()\n    log()\n",
+        );
         assert_eq!(findings(&handlers, "python:S1871").len(), 1);
-        let clean = "if a == 1:\n    do(x)\nelif a == 2:\n    do(y)\n";
+        let clean = "if a == 1:\n    do(x)\n    do(y)\nelif a == 2:\n    do(x)\n    do(z)\n";
         assert!(findings(&scan(clean), "python:S1871").is_empty());
     }
 }
