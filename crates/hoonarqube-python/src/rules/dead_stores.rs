@@ -415,9 +415,29 @@ impl<'a> FlowBuilder<'a> {
             exits.push(exit);
         }
         terminals.extend(then_exit.terminals);
+        let (else_exits, else_terminals, has_else) =
+            self.build_elif_else_chain(&if_stmt.elif_else_clauses, block);
+        exits.extend(else_exits);
+        terminals.extend(else_terminals);
+        if !has_else {
+            exits.push(block);
+        }
+        (self.join(exits), terminals)
+    }
+
+    /// Builds the `elif`/`else` chain: each clause gets a test block (elif)
+    /// or a direct body edge (else). Returns the clause exits, their
+    /// terminals, and whether an `else` clause was present.
+    fn build_elif_else_chain(
+        &mut self,
+        clauses: &[ruff_python_ast::ElifElseClause],
+        block: usize,
+    ) -> (Vec<usize>, Vec<(usize, Term)>, bool) {
+        let mut exits = Vec::new();
+        let mut terminals = Vec::new();
         let mut false_chain = block;
         let mut has_else = false;
-        for clause in &if_stmt.elif_else_clauses {
+        for clause in clauses {
             let clause_entry = self.new_block();
             if let Some(test) = clause.test.as_ref() {
                 self.edge(false_chain, clause_entry);
@@ -440,10 +460,7 @@ impl<'a> FlowBuilder<'a> {
                 terminals.extend(body_exit.terminals);
             }
         }
-        if !has_else {
-            exits.push(false_chain);
-        }
-        (self.join(exits), terminals)
+        (exits, terminals, has_else)
     }
 
     fn build_loop(
