@@ -70,4 +70,14 @@ mod tests {
         );
         assert!(findings(&scan(clean), "python:S5344").is_empty());
     }
+
+    #[test]
+    fn s5344_ignores_credential_named_sql_template_literal() {
+        // Issue #643: django/django assigns a SQL ALTER USER template to
+        // a credential-named variable. Sonar's FastHashingOrPlainTextCheck
+        // only inspects PASSWORD_HASHERS list literals and known fast-hash
+        // calls, so the template assignment is not a finding.
+        let source = "set_password = 'ALTER USER %(user)s IDENTIFIED BY \"%(password)s\"'\n";
+        assert!(findings(&scan(source), "python:S5344").is_empty());
+    }
 }
