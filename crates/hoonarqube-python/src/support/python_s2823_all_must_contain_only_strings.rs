@@ -46,17 +46,6 @@ pub(crate) fn is_jump_terminator(stmt: &Stmt) -> bool {
     )
 }
 
-/// RSPEC exempts trivially true identities over numeric literals — Sonar
-/// treats every number-literal pair as an intentional constant expression
-/// (`60 * 60 * 24 * 7 * 2` style), not just `0`/`1`.
-pub(crate) fn excluded_identical_pair(left: &Expr, right: &Expr) -> bool {
-    is_numeric_literal(left) && is_numeric_literal(right)
-}
-
-fn is_numeric_literal(expr: &Expr) -> bool {
-    matches!(expr, Expr::NumberLiteral(_))
-}
-
 pub(crate) fn flag_duplicate_branches(
     branches: &[&[Stmt]],
     rule_key: &str,
