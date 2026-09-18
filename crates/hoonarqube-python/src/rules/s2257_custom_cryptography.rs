@@ -287,4 +287,25 @@ mod tests {
         );
         assert!(findings(&scan(clean), "python:S2257").is_empty());
     }
+
+    #[test]
+    fn s2257_does_not_flag_bitwise_xor_helpers() {
+        // Issue #634 pinned shapes: Sonar's check only flags classdefs whose
+        // base resolves to django.contrib.auth.hashers.BasePasswordHasher, so
+        // ordinary bitwise-XOR helpers stay clean even when their name
+        // contains "xor" and the body uses `^`.
+        let module_helper = concat!(
+            "def _sqlite_bitxor(x, y):\n",
+            "    if x is None or y is None:\n",
+            "        return None\n",
+            "    return x ^ y\n"
+        );
+        assert!(findings(&scan(module_helper), "python:S2257").is_empty());
+        let dunder_method = concat!(
+            "class Combinable:\n",
+            "    def __xor__(self, other):\n",
+            "        return Q(self) ^ Q(other)\n"
+        );
+        assert!(findings(&scan(dunder_method), "python:S2257").is_empty());
+    }
 }
