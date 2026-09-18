@@ -434,11 +434,12 @@ fn s5042_requires_members_filter_on_extractall() {
 }
 
 #[test]
-fn s4507_flags_debug_hooks_and_debug_flags() {
+fn s4507_ignores_debug_hooks_and_generic_debug_kwargs() {
     let flagged = scan("breakpoint()\npdb.set_trace()\nrun(app, debug=True)\n");
     // Sonar's DebugModeCheck only inspects specific framework debug entry
-    // points — a generic `debug=True` kwarg is not a finding.
-    assert_eq!(findings(&flagged, "python:S4507").len(), 2);
+    // points — debugger hooks and a generic `debug=True` kwarg are not
+    // findings (issue #641).
+    assert!(findings(&flagged, "python:S4507").is_empty());
 }
 
 #[test]

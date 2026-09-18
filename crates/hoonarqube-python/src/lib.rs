@@ -354,7 +354,7 @@ fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
         parsed, index, source, options, file_ctx, path,
     ));
     issues.extend(check_tier_a_battery_2(
-        parsed, index, source, options, file_ctx,
+        parsed, index, source, options, file_ctx, path,
     ));
     issues.extend(check_naming_convention_battery(
         parsed, index, source, file_ctx,
