@@ -56,6 +56,7 @@ pub(crate) fn check_self_assignment(
                 if let Some(value) = annotated.value.as_deref()
                     && is_assignable_shape(&annotated.target)
                     && exprs_textually_equal(&annotated.target, value, source)
+                    && !is_exempt_name(&annotated.target, file_ctx)
                 {
                     issues.push(issue_at(
                         "python:S1656",
@@ -118,5 +119,55 @@ mod tests {
         assert_eq!(findings(&scan("x = x\n"), "python:S1656").len(), 1);
         assert_eq!(findings(&scan("x.y = x.y\n"), "python:S1656").len(), 1);
         assert!(findings(&scan("x = y\n"), "python:S1656").is_empty());
+    }
+
+    #[test]
+    fn s1656_exempts_class_body_and_imported_or_builtin_names() {
+        // Issue #628: Sonar exempts self-assignments directly inside a class
+        // body (the `Database = Database` re-export idiom) and self-assignments
+        // of imported or builtin names; genuine self-assignments stay flagged.
+        let report = scan(concat!(
+            "import sqlite3 as Database\n",
+            "\n",
+            "class DatabaseWrapper:\n",
+            "    Database = Database\n",
+            "\n",
+            "def f(field):\n",
+            "    if field:\n",
+            "        field = field.clone()\n",
+            "    else:\n",
+            "        field = field\n",
+        ));
+        let found = findings(&report, "python:S1656");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 10);
+        assert_eq!(found[0].range.start.column, 14);
+
+        // Class-body self-assignment is exempt even for unimported names.
+        assert!(findings(&scan("class C:\n    x = x\n"), "python:S1656").is_empty());
+        // Module-level self-assignment of an imported name is exempt.
+        assert!(findings(&scan("import os\nos = os\n"), "python:S1656").is_empty());
+        assert!(
+            findings(
+                &scan("from m import thing\nthing = thing\n"),
+                "python:S1656"
+            )
+            .is_empty()
+        );
+        // ... and of a builtin name.
+        assert!(findings(&scan("len = len\n"), "python:S1656").is_empty());
+        // Annotated self-assignment of an imported name is exempt too.
+        assert!(findings(&scan("import os\nos: int = os\n"), "python:S1656").is_empty());
+        // Module-level self-assignment of an ordinary name stays flagged.
+        assert_eq!(findings(&scan("x = x\n"), "python:S1656").len(), 1);
+        // Self-assignment inside a method is not a class-body statement.
+        assert_eq!(
+            findings(
+                &scan("class C:\n    def m(self, x):\n        x = x\n"),
+                "python:S1656"
+            )
+            .len(),
+            1
+        );
     }
 }
