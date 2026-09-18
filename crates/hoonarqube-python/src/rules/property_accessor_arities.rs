@@ -86,4 +86,26 @@ mod tests {
             assert!(findings(&scan(clean), "python:S5724").is_empty(), "{clean}");
         }
     }
+
+    #[test]
+    fn s5724_ignores_optional_and_star_parameters_on_getters() {
+        // Issue #623: Sonar's countRequiredParameters counts only parameters
+        // without a default value or a star marker, so an optional parameter
+        // does not make a property getter non-compliant (django/django
+        // `num_feat(self, force=1)` repro: hq 3 vs sonar 0).
+        for clean in [
+            "class L:\n    @property\n    def num_feat(self, force=1):\n        return 1\n",
+            "class L:\n    @property\n    def num_feat(self, *args):\n        return 1\n",
+            "class L:\n    @property\n    def num_feat(self, **kwargs):\n        return 1\n",
+            "class L:\n    @property\n    def num_feat(self, *, key=1):\n        return 1\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S5724").is_empty(), "{clean}");
+        }
+        // A required extra parameter still makes the getter non-compliant even
+        // when optional parameters are also present.
+        let flagged = scan(
+            "class L:\n    @property\n    def num_feat(self, extra, force=1):\n        return 1\n",
+        );
+        assert_eq!(findings(&flagged, "python:S5724").len(), 1);
+    }
 }
