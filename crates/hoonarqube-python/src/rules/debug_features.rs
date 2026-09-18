@@ -101,64 +101,86 @@ fn visit_statement_expressions(
             let Expr::Call(call) = expression else {
                 return;
             };
-            // Sonar only inspects qualified callees (`x.y(...)`) with at
-            // least one argument; bare names and empty calls never match.
-            if !matches!(call.func.as_ref(), Expr::Attribute(_))
-                || (call.arguments.args.is_empty() && call.arguments.keywords.is_empty())
-            {
-                return;
-            }
-            match identity_of_expr(&call.func, bindings) {
-                Binding::DjangoConfigure => {
-                    for setting in DEBUG_PROPERTIES {
-                        if keyword_value(&call.arguments, setting).is_some_and(is_debug_value)
-                            && let Some(range) = keyword_range(&call.arguments, setting)
-                        {
-                            issues.push(issue_at(
-                                "python:S4507",
-                                SONAR_MESSAGE,
-                                range,
-                                index,
-                                source,
-                            ));
-                        }
-                    }
-                }
-                Binding::FlaskRun => {
-                    // `flask.app.Flask.run`: the `debug` keyword or the third
-                    // positional argument (Sonar `nthArgumentOrKeyword(2, …)`).
-                    if let Some((range, value)) =
-                        nth_argument_or_keyword(&call.arguments, 2, "debug")
-                        && is_debug_value(value)
-                    {
-                        issues.push(issue_at(
-                            "python:S4507",
-                            SONAR_MESSAGE,
-                            range,
-                            index,
-                            source,
-                        ));
-                    }
-                }
-                Binding::GraphqlAsView => {
-                    // `flask_graphql.GraphQLView.as_view`: keyword-only
-                    // `graphiql` (Sonar `nthArgumentOrKeyword(-1, …)`).
-                    if let Some((range, value)) =
-                        nth_argument_or_keyword(&call.arguments, usize::MAX, "graphiql")
-                        && is_debug_value(value)
-                    {
-                        issues.push(issue_at(
-                            "python:S4507",
-                            SONAR_MESSAGE,
-                            range,
-                            index,
-                            source,
-                        ));
-                    }
-                }
-                _ => {}
-            }
+            check_debug_call(call, bindings, index, source, issues);
         });
+    }
+}
+
+/// Inspects one call against Sonar's `DebugModeCheck` call consumer: only
+/// qualified callees (`x.y(...)`) with at least one argument can match.
+fn check_debug_call(
+    call: &ruff_python_ast::ExprCall,
+    bindings: &ScopeBindings,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    if !matches!(call.func.as_ref(), Expr::Attribute(_))
+        || (call.arguments.args.is_empty() && call.arguments.keywords.is_empty())
+    {
+        return;
+    }
+    match identity_of_expr(&call.func, bindings) {
+        Binding::DjangoConfigure => {
+            check_django_configure_call(call, index, source, issues);
+        }
+        Binding::FlaskRun => {
+            // `flask.app.Flask.run`: the `debug` keyword or the third
+            // positional argument (Sonar `nthArgumentOrKeyword(2, …)`).
+            flag_debug_argument(call, 2, "debug", index, source, issues);
+        }
+        Binding::GraphqlAsView => {
+            // `flask_graphql.GraphQLView.as_view`: keyword-only `graphiql`
+            // (Sonar `nthArgumentOrKeyword(-1, …)`).
+            flag_debug_argument(call, usize::MAX, "graphiql", index, source, issues);
+        }
+        _ => {}
+    }
+}
+
+/// Flags each `DEBUG`/`DEBUG_PROPAGATE_EXCEPTIONS` keyword argument on a
+/// `django.conf.settings.configure(...)` call whose value is truthy.
+fn check_django_configure_call(
+    call: &ruff_python_ast::ExprCall,
+    index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    for setting in DEBUG_PROPERTIES {
+        if keyword_value(&call.arguments, setting).is_some_and(is_debug_value)
+            && let Some(range) = keyword_range(&call.arguments, setting)
+        {
+            issues.push(issue_at(
+                "python:S4507",
+                SONAR_MESSAGE,
+                range,
+                index,
+                source,
+            ));
+        }
+    }
+}
+
+/// Flags the `name` keyword argument — or the positional argument at `index`
+/// when it precedes every keyword — when its value is truthy.
+fn flag_debug_argument(
+    call: &ruff_python_ast::ExprCall,
+    index: usize,
+    name: &str,
+    line_index: &LineIndex,
+    source: &str,
+    issues: &mut Vec<Issue>,
+) {
+    if let Some((range, value)) = nth_argument_or_keyword(&call.arguments, index, name)
+        && is_debug_value(value)
+    {
+        issues.push(issue_at(
+            "python:S4507",
+            SONAR_MESSAGE,
+            range,
+            line_index,
+            source,
+        ));
     }
 }
 
@@ -316,102 +338,66 @@ fn child_scope(
         locals.extend(stmt_store_names(statement));
     });
     if let Some(function) = function {
-        for parameter in function
-            .parameters
-            .posonlyargs
-            .iter()
-            .chain(&function.parameters.args)
-            .chain(&function.parameters.kwonlyargs)
-        {
-            locals.insert(parameter.parameter.name.as_str().to_string());
-        }
-        if let Some(parameter) = function.parameters.vararg.as_deref() {
-            locals.insert(parameter.name.as_str().to_string());
-        }
-        if let Some(parameter) = function.parameters.kwarg.as_deref() {
-            locals.insert(parameter.name.as_str().to_string());
-        }
+        locals.extend(parameter_names(function));
     }
     for local in locals {
         child.values.insert(local, Binding::Unknown);
     }
-    // Parameter annotations carry framework identity (`def serve(app: Flask)`).
     if let Some(function) = function {
-        for parameter in function
-            .parameters
-            .posonlyargs
-            .iter()
-            .chain(&function.parameters.args)
-            .chain(&function.parameters.kwonlyargs)
-        {
-            if let Some(annotation) = parameter.parameter.annotation.as_deref() {
-                let binding = identity_of_expr(annotation, parent);
-                if binding != Binding::Unknown {
-                    child
-                        .values
-                        .insert(parameter.parameter.name.as_str().to_string(), binding);
-                }
-            }
-        }
+        bind_parameter_annotations(function, parent, &mut child);
     }
     child
 }
 
+/// Names bound by a function's parameter list, including `*args`/`**kwargs`.
+fn parameter_names(function: &StmtFunctionDef) -> Vec<String> {
+    let mut names = Vec::new();
+    for parameter in function
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&function.parameters.args)
+        .chain(&function.parameters.kwonlyargs)
+    {
+        names.push(parameter.parameter.name.as_str().to_string());
+    }
+    if let Some(parameter) = function.parameters.vararg.as_deref() {
+        names.push(parameter.name.as_str().to_string());
+    }
+    if let Some(parameter) = function.parameters.kwarg.as_deref() {
+        names.push(parameter.name.as_str().to_string());
+    }
+    names
+}
+
+/// Parameter annotations carry framework identity (`def serve(app: Flask)`).
+fn bind_parameter_annotations(
+    function: &StmtFunctionDef,
+    parent: &ScopeBindings,
+    child: &mut ScopeBindings,
+) {
+    for parameter in function
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&function.parameters.args)
+        .chain(&function.parameters.kwonlyargs)
+    {
+        if let Some(annotation) = parameter.parameter.annotation.as_deref() {
+            let binding = identity_of_expr(annotation, parent);
+            if binding != Binding::Unknown {
+                child
+                    .values
+                    .insert(parameter.parameter.name.as_str().to_string(), binding);
+            }
+        }
+    }
+}
+
 fn bind_statement(statement: &Stmt, bindings: &mut ScopeBindings) {
     match statement {
-        Stmt::Import(import) => {
-            for alias in &import.names {
-                let local = alias.asname.as_deref().map_or_else(
-                    || {
-                        alias
-                            .name
-                            .as_str()
-                            .split('.')
-                            .next()
-                            .unwrap_or("")
-                            .to_string()
-                    },
-                    str::to_string,
-                );
-                let binding = match (alias.name.as_str(), alias.asname.is_some()) {
-                    ("django", _) | ("django.conf", false) => Binding::Django,
-                    ("django.conf", true) => Binding::DjangoConf,
-                    ("django.conf.settings", _) => Binding::DjangoSettings,
-                    ("flask", _) | ("flask.app", false) => Binding::FlaskModule,
-                    ("flask.app", true) => Binding::FlaskAppModule,
-                    ("flask_graphql", _) => Binding::GraphqlModule,
-                    ("graphql_server", _) | ("graphql_server.flask", false) => {
-                        Binding::GraphqlServerModule
-                    }
-                    ("graphql_server.flask", true) => Binding::GraphqlServerFlaskModule,
-                    _ => Binding::Unknown,
-                };
-                bindings.values.insert(local, binding);
-            }
-        }
-        Stmt::ImportFrom(import) => {
-            let module = import
-                .module
-                .as_ref()
-                .map(ruff_python_ast::Identifier::as_str);
-            for alias in &import.names {
-                let local = alias
-                    .asname
-                    .as_deref()
-                    .map_or_else(|| alias.name.as_str().to_string(), str::to_string);
-                let binding = match (module, alias.name.as_str()) {
-                    (Some("django"), "conf") => Binding::DjangoConf,
-                    (Some("django.conf"), "settings") => Binding::DjangoSettings,
-                    (Some("flask"), "app") => Binding::FlaskAppModule,
-                    (Some("flask" | "flask.app"), "Flask") => Binding::FlaskClass,
-                    (Some("flask_graphql" | "graphql_server.flask"), "GraphQLView") => {
-                        Binding::GraphqlView
-                    }
-                    _ => Binding::Unknown,
-                };
-                bindings.values.insert(local, binding);
-            }
-        }
+        Stmt::Import(import) => bind_plain_import(import, bindings),
+        Stmt::ImportFrom(import) => bind_from_import(import, bindings),
         Stmt::Assign(assign) => {
             for target in &assign.targets {
                 bind_name_target(target, &assign.value, bindings);
@@ -429,23 +415,80 @@ fn bind_statement(statement: &Stmt, bindings: &mut ScopeBindings) {
             };
             bind_target_as(&assign.target, binding, bindings);
         }
-        Stmt::ClassDef(class) => {
-            let binding = class
-                .bases()
-                .iter()
-                .map(|base| identity_of_expr(base, bindings))
-                .find(|binding| *binding != Binding::Unknown)
-                .unwrap_or(Binding::Unknown);
-            bindings
-                .values
-                .insert(class.name.as_str().to_string(), binding);
-        }
+        Stmt::ClassDef(class) => bind_class_def(class, bindings),
         _ => {
             for name in stmt_store_names(statement) {
                 bindings.values.insert(name, Binding::Unknown);
             }
         }
     }
+}
+
+/// Maps `import x[.y][ as z]` aliases to framework module bindings.
+fn bind_plain_import(import: &ruff_python_ast::StmtImport, bindings: &mut ScopeBindings) {
+    for alias in &import.names {
+        let local = alias.asname.as_deref().map_or_else(
+            || {
+                alias
+                    .name
+                    .as_str()
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            },
+            str::to_string,
+        );
+        let binding = match (alias.name.as_str(), alias.asname.is_some()) {
+            ("django", _) | ("django.conf", false) => Binding::Django,
+            ("django.conf", true) => Binding::DjangoConf,
+            ("django.conf.settings", _) => Binding::DjangoSettings,
+            ("flask", _) | ("flask.app", false) => Binding::FlaskModule,
+            ("flask.app", true) => Binding::FlaskAppModule,
+            ("flask_graphql", _) => Binding::GraphqlModule,
+            ("graphql_server", _) | ("graphql_server.flask", false) => Binding::GraphqlServerModule,
+            ("graphql_server.flask", true) => Binding::GraphqlServerFlaskModule,
+            _ => Binding::Unknown,
+        };
+        bindings.values.insert(local, binding);
+    }
+}
+
+/// Maps `from x import y[ as z]` aliases to framework bindings.
+fn bind_from_import(import: &ruff_python_ast::StmtImportFrom, bindings: &mut ScopeBindings) {
+    let module = import
+        .module
+        .as_ref()
+        .map(ruff_python_ast::Identifier::as_str);
+    for alias in &import.names {
+        let local = alias
+            .asname
+            .as_deref()
+            .map_or_else(|| alias.name.as_str().to_string(), str::to_string);
+        let binding = match (module, alias.name.as_str()) {
+            (Some("django"), "conf") => Binding::DjangoConf,
+            (Some("django.conf"), "settings") => Binding::DjangoSettings,
+            (Some("flask"), "app") => Binding::FlaskAppModule,
+            (Some("flask" | "flask.app"), "Flask") => Binding::FlaskClass,
+            (Some("flask_graphql" | "graphql_server.flask"), "GraphQLView") => Binding::GraphqlView,
+            _ => Binding::Unknown,
+        };
+        bindings.values.insert(local, binding);
+    }
+}
+
+/// A class extending a tracked framework base inherits its identity
+/// (`class MyApp(Flask)`, `class MyView(GraphQLView)`).
+fn bind_class_def(class: &ruff_python_ast::StmtClassDef, bindings: &mut ScopeBindings) {
+    let binding = class
+        .bases()
+        .iter()
+        .map(|base| identity_of_expr(base, bindings))
+        .find(|binding| *binding != Binding::Unknown)
+        .unwrap_or(Binding::Unknown);
+    bindings
+        .values
+        .insert(class.name.as_str().to_string(), binding);
 }
 
 /// Binds a plain-assignment target to the value's framework identity. Sequence
