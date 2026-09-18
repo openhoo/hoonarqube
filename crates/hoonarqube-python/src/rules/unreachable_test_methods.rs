@@ -31,32 +31,40 @@ pub(crate) fn check_unreachable_test_methods(
         if !class.bases().iter().any(is_test_case_base) {
             continue;
         }
-        let method_ranges: Vec<_> = class
-            .body
-            .iter()
-            .filter_map(|member| match member {
-                Stmt::FunctionDef(function) => Some(function.range()),
-                _ => None,
-            })
-            .collect();
-        let used = referenced_attributes(file_ctx, &method_ranges, class.name.as_str());
-        for member in &class.body {
-            if let Stmt::FunctionDef(function) = member {
-                let name = function.name.as_str();
-                if name.contains("test")
-                    && !name.starts_with("test")
-                    && is_sonar_helper(function, &fixtures)
-                    && !used.contains(name)
-                {
-                    issues.push(issue_at(
-                        "python:S5899",
-                        "Rename this method so that it starts with \"test\" or remove this unused helper.",
-                        function.name.range(),
-                        index,
-                        source,
-                    ));
-                }
-            }
+        let used = referenced_attributes(file_ctx, class);
+        issues.extend(class_method_issues(class, &used, &fixtures, index, source));
+    }
+    issues
+}
+
+/// Flags each suspicious method (name contains `test` but does not start
+/// with it, no decorators, only `self`/`cls`/fixture parameters) that is not
+/// referenced inside the class's own method definitions.
+fn class_method_issues(
+    class: &ruff_python_ast::StmtClassDef,
+    used: &std::collections::HashSet<&str>,
+    fixtures: &std::collections::HashSet<String>,
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for member in &class.body {
+        let Stmt::FunctionDef(function) = member else {
+            continue;
+        };
+        let name = function.name.as_str();
+        if name.contains("test")
+            && !name.starts_with("test")
+            && is_sonar_helper(function, fixtures)
+            && !used.contains(name)
+        {
+            issues.push(issue_at(
+                "python:S5899",
+                "Rename this method so that it starts with \"test\" or remove this unused helper.",
+                function.name.range(),
+                index,
+                source,
+            ));
         }
     }
     issues
@@ -90,9 +98,17 @@ fn is_sonar_helper(
 /// file (module level, other classes, subclasses) do not exempt it.
 fn referenced_attributes<'a>(
     file_ctx: &'a FileContext<'a>,
-    method_ranges: &[ruff_text_size::TextRange],
-    class_name: &str,
+    class: &'a ruff_python_ast::StmtClassDef,
 ) -> std::collections::HashSet<&'a str> {
+    let method_ranges: Vec<_> = class
+        .body
+        .iter()
+        .filter_map(|member| match member {
+            Stmt::FunctionDef(function) => Some(function.range()),
+            _ => None,
+        })
+        .collect();
+    let class_name = class.name.as_str();
     let mut used = std::collections::HashSet::new();
     for expr in &file_ctx.exprs {
         let Expr::Attribute(attribute) = expr else {
