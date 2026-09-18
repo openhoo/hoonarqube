@@ -90,6 +90,28 @@ mod tests {
     }
 
     #[test]
+    fn s5719_varargs_satisfies_parameter_requirement_issue_644() {
+        // Issue #644: Sonar counts `*args` as a positional parameter, so a
+        // method whose only parameter is `*args` must not be flagged.
+        let repro =
+            scan("class QuietWSGIRequestHandler:\n    def log_message(*args):\n        pass\n");
+        assert!(findings(&repro, "python:S5719").is_empty());
+
+        let init_varargs = scan("class C:\n    def __init__(self, *args):\n        pass\n");
+        assert!(findings(&init_varargs, "python:S5719").is_empty());
+
+        let init_varargs_only = scan("class C:\n    def __init__(*args):\n        pass\n");
+        assert!(findings(&init_varargs_only, "python:S5719").is_empty());
+
+        // Positive controls: parameterless and `**kwargs`-only signatures
+        // still flag.
+        let init_empty = scan("class C:\n    def __init__():\n        pass\n");
+        assert_eq!(findings(&init_empty, "python:S5719").len(), 1);
+        let kwargs_only = scan("class C:\n    def forward(**kwargs):\n        pass\n");
+        assert_eq!(findings(&kwargs_only, "python:S5719").len(), 1);
+    }
+
+    #[test]
     fn s5719_ignores_module_level_functions() {
         let free_function = scan("def helper():\n    return 1\n");
         assert!(findings(&free_function, "python:S5719").is_empty());
