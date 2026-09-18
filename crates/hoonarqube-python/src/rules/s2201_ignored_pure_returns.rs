@@ -162,3 +162,53 @@ fn is_pure_string_expression(expr: &Expr) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    /// Issue #675: Sonar's `IgnoredPureOperationsCheck` allowlist contains
+    /// `type` (plus `set`/`dict`/`min`/`max`/`sum`/`isinstance`/`super`)
+    /// but NOT `len`/`hash`/`chr`. On the pinned campaign repro the bare
+    /// `type(...)` call must fire while `hash`/`len` stay clean.
+    #[test]
+    fn s2201_matches_sonar_allowlist_on_campaign_repro() {
+        let source = concat!(
+            "def f(model, body_copy):\n",
+            "    type(model._meta.object_name, model.__bases__, body_copy)\n",
+            "    hash(body_copy)\n",
+            "    len(body_copy)\n",
+        );
+        let report = scan(source);
+        let found = findings(&report, "python:S2201");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].message,
+            "The return value of \"type\" must be used."
+        );
+        assert_eq!(found[0].range.start.line, 2);
+        assert_eq!(found[0].range.start.column, 4);
+        assert_eq!(found[0].range.end.column, 8);
+    }
+
+    /// Every remaining Sonar-listed free function must fire; the invented
+    /// entries (`chr`, `hash`, `len`) must not.
+    #[test]
+    fn s2201_flags_only_sonar_listed_pure_calls() {
+        let flagged = concat!(
+            "set(items)\n",
+            "dict(pairs)\n",
+            "min(values)\n",
+            "max(values)\n",
+            "sum(values)\n",
+            "isinstance(item, Model)\n",
+            "super()\n",
+        );
+        let report = scan(flagged);
+        assert_eq!(findings(&report, "python:S2201").len(), 7);
+
+        let clean = concat!("chr(code)\n", "hash(item)\n", "len(items)\n");
+        let report = scan(clean);
+        assert!(findings(&report, "python:S2201").is_empty());
+    }
+}
