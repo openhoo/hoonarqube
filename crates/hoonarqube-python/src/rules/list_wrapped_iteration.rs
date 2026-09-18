@@ -130,42 +130,36 @@ fn loop_mutates_collection(
 ) -> bool {
     let mut mutated = false;
     let mut visit = |stmt: &Stmt| {
-        if subscripts_count {
-            match stmt {
-                Stmt::Delete(del) => {
-                    for target in &del.targets {
-                        if subscript_of(target, collection) {
-                            mutated = true;
-                        }
-                    }
-                }
-                Stmt::Assign(assign) => {
-                    for target in &assign.targets {
-                        if assignment_target_mutates(target, collection) {
-                            mutated = true;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+        mutated |= subscripts_count && stmt_mutates_collection(stmt, collection);
         crate::support::for_each_stmt_expr(std::slice::from_ref(stmt), &mut |expr| {
-            if mutating_method_call(expr, collection, methods) {
-                mutated = true;
-            }
+            mutated |= mutating_method_call(expr, collection, methods);
         });
     };
     crate::support::for_each_stmt(&for_stmt.body, &mut visit);
     crate::support::for_each_stmt(&for_stmt.orelse, &mut visit);
     // Sonar's visitor also sees the loop header expressions.
     let mut check_header = |expr: &Expr| {
-        if mutating_method_call(expr, collection, methods) {
-            mutated = true;
-        }
+        mutated |= mutating_method_call(expr, collection, methods);
     };
     crate::support::for_each_expr(for_stmt.iter.as_ref(), &mut check_header);
     crate::support::for_each_expr(for_stmt.target.as_ref(), &mut check_header);
     mutated
+}
+
+/// `del d[k]` or `d[k] = v` inside the loop — counted for dict-view
+/// arguments only.
+fn stmt_mutates_collection(stmt: &Stmt, collection: &str) -> bool {
+    match stmt {
+        Stmt::Delete(del) => del
+            .targets
+            .iter()
+            .any(|target| subscript_of(target, collection)),
+        Stmt::Assign(assign) => assign
+            .targets
+            .iter()
+            .any(|target| assignment_target_mutates(target, collection)),
+        _ => false,
+    }
 }
 
 /// `name.method(...)` where `method` is in the mutating set.
