@@ -411,9 +411,10 @@ pub(crate) fn check_tier_a_battery_2(
     source: &str,
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
+    path: &Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    tier_a2_general_checks(parsed, index, source, options, file_ctx, &mut issues);
+    tier_a2_general_checks(parsed, index, source, options, file_ctx, path, &mut issues);
     tier_a2_web_async_typing_checks(parsed, index, source, options, file_ctx, &mut issues);
     tier_a2_data_science_checks(parsed, index, source, file_ctx, &mut issues);
     issues
@@ -426,6 +427,7 @@ fn tier_a2_general_checks(
     source: &str,
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
+    path: &Path,
     issues: &mut Vec<Issue>,
 ) {
     issues.extend(check_duplicated_string_literals(
@@ -435,7 +437,7 @@ fn tier_a2_general_checks(
     issues.extend(check_weak_hashing(index, source, file_ctx));
     issues.extend(check_insecure_temp_files(index, source, file_ctx));
     issues.extend(check_unbounded_archive_extraction(index, source, file_ctx));
-    issues.extend(check_debug_features(index, source, file_ctx));
+    issues.extend(check_debug_features(index, source, file_ctx, path));
     issues.extend(check_literal_re_sub_patterns(index, source, file_ctx));
     issues.extend(check_world_writable_modes(index, source, file_ctx));
     issues.extend(check_deprecated_utc_helpers(index, source, file_ctx));
