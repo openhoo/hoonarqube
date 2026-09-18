@@ -136,4 +136,31 @@ mod tests {
         ));
         assert_eq!(findings(&flagged, "python:S7513").len(), 1);
     }
+
+    #[test]
+    fn s7513_counts_spawned_tasks_not_create_task_call_sites() {
+        // Issue #650: a single `create_task` call site inside a loop spawns
+        // one task per iteration, so the group is not a single-task nursery.
+        let loop_spawned = scan(concat!(
+            "import asyncio\n",
+            "async def run_all(coros):\n",
+            "    async with asyncio.TaskGroup() as tg:\n",
+            "        for coro in coros:\n",
+            "            tg.create_task(coro)\n",
+            "async def retry(jobs):\n",
+            "    async with asyncio.TaskGroup() as tg:\n",
+            "        while jobs:\n",
+            "            tg.create_task(jobs.pop())\n"
+        ));
+        assert_eq!(findings(&loop_spawned, "python:S7513").len(), 0);
+
+        // A group that only ever spawns one task is still flagged.
+        let single = scan(concat!(
+            "import asyncio\n",
+            "async def one(job):\n",
+            "    async with asyncio.TaskGroup() as tg:\n",
+            "        tg.create_task(job)\n"
+        ));
+        assert_eq!(findings(&single, "python:S7513").len(), 1);
+    }
 }
