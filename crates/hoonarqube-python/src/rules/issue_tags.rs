@@ -225,4 +225,68 @@ mod tests {
             ]
         );
     }
+    #[test]
+    fn person_reference_anywhere_in_tail_exempts_s1707() {
+        // python:S1707 — Sonar's NoPersonReferenceInTodoCheck applies the
+        // person-reference pattern `[ ]*\([ _a-zA-Z0-9@.]+\)` with unanchored
+        // find() to the comment tail, so a parenthesized group anywhere after
+        // the tag exempts the citation finding (issue #632). A group whose
+        // body falls outside that character class does not exempt.
+        let report = analyze(
+            PathBuf::from("t.py"),
+            "x = 1\n# TODO: Add support for `diminfo` column (type MDSYS.SDO_DIM_ARRAY).\ny = 2\n# TODO: this should be handled by some parameter.\nz = 3\n# FIXME later (ops team)\n# TODO (a-b) later\n",
+            &AnalyzerOptions::default(),
+        );
+        let issues: Vec<_> = report
+            .issues
+            .into_iter()
+            .filter(|finding| {
+                matches!(
+                    finding.rule_key.as_str(),
+                    "python:S1134" | "python:S1135" | "python:S1707"
+                )
+            })
+            .collect();
+        assert_eq!(
+            issues,
+            vec![
+                issue(
+                    "python:S1135",
+                    "Complete the task associated to this \"TODO\" comment.",
+                    (2, 0),
+                    (2, 68),
+                ),
+                issue(
+                    "python:S1135",
+                    "Complete the task associated to this \"TODO\" comment.",
+                    (4, 0),
+                    (4, 49),
+                ),
+                issue(
+                    "python:S1707",
+                    "Add a citation of the person who can best explain this comment.",
+                    (4, 0),
+                    (4, 49),
+                ),
+                issue(
+                    "python:S1134",
+                    "Take the required action to fix the issue indicated by this \"FIXME\" comment.",
+                    (6, 0),
+                    (6, 24),
+                ),
+                issue(
+                    "python:S1135",
+                    "Complete the task associated to this \"TODO\" comment.",
+                    (7, 0),
+                    (7, 18),
+                ),
+                issue(
+                    "python:S1707",
+                    "Add a citation of the person who can best explain this comment.",
+                    (7, 0),
+                    (7, 18),
+                ),
+            ]
+        );
+    }
 }
