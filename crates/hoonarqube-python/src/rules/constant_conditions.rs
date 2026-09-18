@@ -462,3 +462,49 @@ fn record_import_name<'a>(
         visit(name, NameEventKind::OtherBinding);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5797_exempts_literal_while_conditions() {
+        // Issue #645: Sonar's ConstantConditionCheck never inspects `while`
+        // tests (no WhileStatement visit — only if/elif, conditional
+        // expressions, comprehension conditions, and and/or operands), so
+        // every literal `while` condition is exempt: `while 1:`/`while True:`
+        // are the intentional infinite-loop idiom and `while 0:`/`while
+        // False:` are intentional dead loops (django/core/files/images.py
+        // `while 1:` shape).
+        let repro = scan(concat!(
+            "def read_all(file):\n",
+            "    while 1:\n",
+            "        data = file.read(1024)\n",
+            "        if not data:\n",
+            "            break\n",
+        ));
+        assert!(findings(&repro, "python:S5797").is_empty());
+        for source in [
+            "while True:\n    break\n",
+            "while False:\n    pass\n",
+            "while 0:\n    pass\n",
+            "while 2:\n    break\n",
+            "while 'x':\n    break\n",
+        ] {
+            assert!(
+                findings(&scan(source), "python:S5797").is_empty(),
+                "literal while condition must stay exempt: {source:?}"
+            );
+        }
+        // Constant `if` conditions stay in scope.
+        let flagged = scan("if True:\n    pass\n");
+        assert_eq!(findings(&flagged, "python:S5797").len(), 1);
+        // A `while` condition constant only through one propagated binding
+        // is not the literal idiom and stays flagged.
+        let propagated = scan("def spin():\n    entdig = None\n    while entdig:\n        break\n");
+        assert_eq!(findings(&propagated, "python:S5797").len(), 1);
+        // A genuinely variable `while` condition is not a finding either.
+        let clean = scan("def spin(items):\n    while items:\n        items.pop()\n");
+        assert!(findings(&clean, "python:S5797").is_empty());
+    }
+}
