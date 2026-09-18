@@ -1,1 +1,1 @@
-total = count * count
+total = count - count
