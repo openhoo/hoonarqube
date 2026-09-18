@@ -45,6 +45,29 @@ mod tests {
     }
 
     #[test]
+    fn s5747_exempts_bare_raise_in_functions_called_from_except_or_finally() {
+        // Issue #637 — Sonar's RaiseOutsideExceptCheck exempts a bare
+        // `raise` inside a function whose symbol is called within an
+        // except/finally clause: the raise re-throws the handled error.
+        let called_from_except = scan(
+            "def handle_uncaught(request, exc_info):\n    if True:\n        raise\n\ndef outer():\n    try:\n        risky()\n    except Exception:\n        handle_uncaught(req, info)\n",
+        );
+        assert!(findings(&called_from_except, "python:S5747").is_empty());
+        let called_from_finally = scan(
+            "def reraise():\n    raise\n\ndef outer():\n    try:\n        risky()\n    finally:\n        reraise()\n",
+        );
+        assert!(findings(&called_from_finally, "python:S5747").is_empty());
+        // A bare raise in a function never called from an except/finally
+        // clause stays flagged, even alongside an exempted function.
+        let not_called = scan(
+            "def handle_uncaught(request, exc_info):\n    raise\n\ndef other():\n    raise\n\ndef outer():\n    try:\n        risky()\n    except Exception:\n        handle_uncaught(req, info)\n",
+        );
+        let hits = findings(&not_called, "python:S5747");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].range.start.line, 5);
+    }
+
+    #[test]
     fn s1143_flags_jump_statements_inside_finally() {
         let flagged = scan("def f():\n    try:\n        load()\n    finally:\n        return 1\n");
         assert_eq!(findings(&flagged, "python:S1143").len(), 1);
