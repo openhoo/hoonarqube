@@ -28,10 +28,22 @@ pub(crate) fn check_closure_captures_loop_variable(
             continue;
         }
         for_each_stmt_expr(&for_stmt.body, &mut |expr| {
-            if let Expr::Lambda(lambda) = expr
-                && loads_any_name(&lambda.body, &targets)
-            {
-                report_lambda_capture(&lambda.body, &targets, index, source, &mut issues);
+            if let Expr::Lambda(lambda) = expr {
+                // A loop variable bound as a parameter is the rule's own
+                // recommended fix, not a capture.
+                let free_targets: Vec<String> = targets
+                    .iter()
+                    .filter(|target| {
+                        !lambda
+                            .parameters
+                            .as_deref()
+                            .is_some_and(|parameters| parameters_include(parameters, target))
+                    })
+                    .cloned()
+                    .collect();
+                if loads_any_name(&lambda.body, &free_targets) {
+                    report_lambda_capture(&lambda.body, &free_targets, index, source, &mut issues);
+                }
             }
         });
         for_each_stmt(&for_stmt.body, &mut |nested| {
@@ -40,7 +52,7 @@ pub(crate) fn check_closure_captures_loop_variable(
                 // recommended fix, not a capture.
                 let free_targets: Vec<String> = targets
                     .iter()
-                    .filter(|target| !function_takes_parameter(function, target))
+                    .filter(|target| !parameters_include(&function.parameters, target))
                     .cloned()
                     .collect();
                 if !free_targets.is_empty() && stmts_load_any_name(&function.body, &free_targets) {
@@ -94,10 +106,9 @@ fn report_lambda_capture(
     });
 }
 
-/// Whether `function` declares `name` as any parameter (positional,
+/// Whether `parameters` declares `name` as any parameter (positional,
 /// keyword-only, `*args`, or `**kwargs`).
-fn function_takes_parameter(function: &ruff_python_ast::StmtFunctionDef, name: &str) -> bool {
-    let parameters = &function.parameters;
+fn parameters_include(parameters: &ruff_python_ast::Parameters, name: &str) -> bool {
     parameters
         .posonlyargs
         .iter()
@@ -127,5 +138,36 @@ mod tests {
         assert_eq!(found[0].range.start.line, 3);
         let clean = "callbacks = []\nfor i in range(3):\n    callbacks.append(lambda v: v)\n";
         assert!(findings(&scan(clean), "python:S1515").is_empty());
+    }
+
+    #[test]
+    fn s1515_exempts_functions_taking_the_loop_variable_as_parameter() {
+        // Issue #633: a parameter binding the loop variable is the rule's own
+        // recommended fix, not a capture (Sonar reports 0 on this shape).
+        let source = "def build(transforms):\n    final_transformer = None\n    for name in transforms:\n        def transform(field, alias, *, name, previous):\n            return previous(field, alias) + name\n        import functools\n        final_transformer = functools.partial(transform, name=name, previous=final_transformer)\n    return final_transformer\n";
+        assert!(findings(&scan(source), "python:S1515").is_empty());
+        // A sibling function that still closes over the loop variable stays
+        // flagged while the parameterized one remains exempt.
+        let flagged = "for item in items:\n    def helper(item=item):\n        return item\n    def capture():\n        return item\n";
+        let flagged_report = scan(flagged);
+        let found = findings(&flagged_report, "python:S1515");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 4);
+    }
+
+    #[test]
+    fn s1515_exempts_lambdas_taking_the_loop_variable_as_parameter() {
+        // Sonar's documented compliant shape: the parameter shadows the
+        // capture, so `lambda i=i: i` is not flagged.
+        let source = "callbacks = []\nfor i in range(3):\n    callbacks.append(lambda i=i: i)\n";
+        assert!(findings(&scan(source), "python:S1515").is_empty());
+        // A lambda that still loads the loop variable from the enclosing scope
+        // is flagged even when another parameter exists.
+        let flagged =
+            "callbacks = []\nfor i in range(3):\n    callbacks.append(lambda x=i: x + i)\n";
+        let flagged_report = scan(flagged);
+        let found = findings(&flagged_report, "python:S1515");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start.line, 3);
     }
 }
