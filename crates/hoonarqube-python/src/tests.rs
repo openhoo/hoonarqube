@@ -108,6 +108,8 @@ fn s5899_flags_test_methods_runners_cannot_discover() {
     for clean in [
         "class T(TestCase):\n    def test_it(self):\n        pass\n",
         "class U:\n    def my_test(self):\n        pass\n",
+        // Sonar exempts helpers referenced inside the class's own methods.
+        "class T(TestCase):\n    def my_test(self):\n        pass\n    def test_it(self):\n        self.my_test()\n",
     ] {
         assert!(findings(&scan(clean), "python:S5899").is_empty(), "{clean}");
     }
