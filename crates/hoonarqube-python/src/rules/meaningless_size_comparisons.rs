@@ -79,4 +79,31 @@ mod tests {
         let chained = scan("if 0 <= len(xs) < 10:\n    show()\n");
         assert_eq!(findings(&chained, "python:S3981").len(), 1);
     }
+
+    #[test]
+    fn s3981_chained_comparison_pairs_adjacent_operands() {
+        // Issue #636: in `0 < value <= len(choices)` the second pair is
+        // `value <= len(choices)`, not `0 <= len(choices)` — Sonar emits
+        // nothing because no adjacent pair compares a length against zero.
+        for clean in [
+            "def f(choices, value):\n    if 0 < value <= len(choices):\n        return value\n",
+            "def f(source, start, end):\n    if 0 <= start <= end <= len(source):\n        return source[start:end]\n",
+            "if a < b < c:\n    show()\n",
+            "if len(a) == len(b):\n    show()\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S3981").is_empty(), "{clean}");
+        }
+        // A meaningless len-vs-zero pair inside a chain is still flagged.
+        for flagged in [
+            "if 0 <= len(xs) < 10:\n    show()\n",
+            "if 5 > len(xs) >= 0:\n    show()\n",
+            "if len(xs) >= 0 and check():\n    show()\n",
+        ] {
+            assert_eq!(
+                findings(&scan(flagged), "python:S3981").len(),
+                1,
+                "{flagged}"
+            );
+        }
+    }
 }
