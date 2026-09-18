@@ -774,4 +774,25 @@ mod tests {
         ));
         assert!(findings(&report, "python:S6709").is_empty());
     }
+
+    #[test]
+    fn stdlib_random_calls_are_not_seed_violations() {
+        // Issue #620: Sonar's RandomSeedCheck only inspects NumPy generator
+        // construction and sklearn random_state parameters. Stdlib `random`
+        // calls are never S6709 findings (S2245 covers PRNG sensitivity), so
+        // the file-level "no seed() call" heuristic must not return.
+        let report = scan(concat!(
+            "import random\n",
+            "import random as rnd\n",
+            "from random import randint\n",
+            "x = random.random()\n",
+            "y = rnd.randint(1, 10)\n",
+            "z = randint(1, 10)\n",
+            "random.choice([1, 2, 3])\n",
+            "random.shuffle([1, 2, 3])\n",
+        ));
+        assert!(findings(&report, "python:S6709").is_empty());
+        let seeded = scan("import random\nrandom.seed(7)\nx = random.random()\n");
+        assert!(findings(&seeded, "python:S6709").is_empty());
+    }
 }
