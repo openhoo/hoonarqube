@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use hoonarqube_ir::Issue;
-use ruff_python_ast::{Expr, ModModule, Stmt, StmtFor, StmtFunctionDef};
+use ruff_python_ast::{Expr, ModModule, Stmt, StmtAnnAssign, StmtAssign, StmtFor, StmtFunctionDef};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
@@ -71,31 +71,36 @@ fn collect_set_names(stmts: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::new();
     for stmt in stmts {
         match stmt {
-            Stmt::Assign(assign) => {
-                if !is_set_expression(&assign.value) {
-                    continue;
-                }
-                for target in &assign.targets {
-                    if let Expr::Name(name) = target {
-                        names.insert(name.id.to_string());
-                    }
-                }
-            }
-            Stmt::AnnAssign(assign) => {
-                // The declared type is the proof: `s: set` counts with or
-                // without a value, while a non-set annotation leaves the
-                // name unknown even over a set literal.
-                if !is_set_annotation(&assign.annotation) {
-                    continue;
-                }
-                if let Expr::Name(name) = assign.target.as_ref() {
-                    names.insert(name.id.to_string());
-                }
-            }
+            Stmt::Assign(assign) => collect_assign_set_names(assign, &mut names),
+            Stmt::AnnAssign(assign) => collect_ann_assign_set_name(assign, &mut names),
             _ => {}
         }
     }
     names
+}
+
+/// Plain `name = <provable set>` assignment targets.
+fn collect_assign_set_names(assign: &StmtAssign, names: &mut HashSet<String>) {
+    if !is_set_expression(&assign.value) {
+        return;
+    }
+    for target in &assign.targets {
+        if let Expr::Name(name) = target {
+            names.insert(name.id.to_string());
+        }
+    }
+}
+
+/// `name: set` (optionally `= value`): the declared type is the proof —
+/// `s: set` counts with or without a value, while a non-set annotation
+/// leaves the name unknown even over a set literal.
+fn collect_ann_assign_set_name(assign: &StmtAnnAssign, names: &mut HashSet<String>) {
+    if !is_set_annotation(&assign.annotation) {
+        return;
+    }
+    if let Expr::Name(name) = assign.target.as_ref() {
+        names.insert(name.id.to_string());
+    }
 }
 
 /// A provable set value: `set()`, `{x, y}`, or `{x for …}`.
