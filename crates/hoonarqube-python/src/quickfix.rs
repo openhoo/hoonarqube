@@ -2528,4 +2528,25 @@ mod tests {
         assert!(!projected_source.contains("unused_value"));
         assert_same_runtime(local, &projected_source);
     }
+
+    #[test]
+    fn s1940_rewrites_single_comparison_but_refuses_chains() {
+        let single = "a = 1\nb = 2\nok = not (a == b)\nprint(ok)\n";
+        let projected_source = projected(single, "python:S1940", "s1940-use-opposite-operator")
+            .expect("single-comparison inversion expected");
+        assert!(projected_source.contains("a != b"));
+        assert_same_runtime(single, &projected_source);
+
+        // Chained comparisons are `and`-ed, so inverting only the outer
+        // operator would not negate the chain; the finding stays but the
+        // rewrite is withheld rather than emit a wrong fix.
+        for chain in [
+            "ok = not (a in b in c)\n",
+            "ok = not (a is b is c)\n",
+            "ok = not (a in b < c)\n",
+            "ok = not (a < b in c)\n",
+        ] {
+            assert_refused(chain, "python:S1940", "s1940-use-opposite-operator");
+        }
+    }
 }
