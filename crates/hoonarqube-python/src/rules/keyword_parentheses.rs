@@ -17,12 +17,14 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 /// hugs the whole clause expression: `return ((a))` reports one finding for
 /// `return`, `del (x), (y)` only for the first target, and `for (i) in (1, 2)`
 /// reports both the `for` and the `in` keyword.  Tuples keep their finding —
-/// `return (1, 2)` unparenthesizes to the equivalent `return 1, 2` — while
-/// parentheses that removal would break or repurpose stay silent: precedence
-/// (`return (a or b) and b`), conditionals (`return (a) if a else (b)`),
-/// generator expressions, empty tuples (`return ()`), walrus conditions, and
-/// except tuples (`except (A, B):`).  `raise` keeps reporting tuples because
-/// the reference analyzer reports them regardless (`raise (ValueError, TypeError)`).
+/// `return (1, 2)` unparenthesizes to the equivalent `return 1, 2` — except a
+/// one-element tuple, whose parentheses are its syntax rather than grouping
+/// (`return (x,)` stays silent), while parentheses that removal would break
+/// or repurpose stay silent: precedence (`return (a or b) and b`),
+/// conditionals (`return (a) if a else (b)`), generator expressions, empty
+/// tuples (`return ()`), walrus conditions, and except tuples (`except (A,
+/// B):`).  `raise` keeps reporting tuples because the reference analyzer
+/// reports them regardless (`raise (ValueError, TypeError)`).
 pub(crate) fn check_keyword_parentheses(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -482,6 +484,27 @@ mod tests {
             findings_in("def f(p):\n    for (a, b) in p:\n        pass\n").len(),
             1
         );
+    }
+
+    #[test]
+    fn s1721_stays_silent_on_single_element_tuples() {
+        // Issue #630: a one-element tuple's parentheses are its syntax, not
+        // grouping — Sonar sees `(x,)` as a Tuple, never a PARENTHESIZED
+        // expression, so `return (x,)`/`yield (x,)` stay silent while
+        // multi-element tuples and grouped single expressions keep their
+        // findings.
+        assert!(findings_in("def f(self):\n    return (self.get_username(),)\n").is_empty());
+        assert!(findings_in("def f(a):\n    yield (a,)\n").is_empty());
+        assert!(findings_in("def f():\n    for i in (1,):\n        pass\n").is_empty());
+        // Multi-element tuples remain findings.
+        assert_eq!(
+            findings_in("def f(self):\n    return (self.a, self.b)\n").len(),
+            1
+        );
+        assert_eq!(findings_in("def f(a):\n    yield (a, 2)\n").len(), 1);
+        // Grouping parentheses around a single expression still flag.
+        assert_eq!(findings_in("def f(a):\n    return (a)\n").len(), 1);
+        assert_eq!(findings_in("def f(a):\n    yield (a)\n").len(), 1);
     }
 
     #[test]
