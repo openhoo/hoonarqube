@@ -47,4 +47,17 @@ mod tests {
         let clean = "class C:\n    def __exit__(self, kind, value, trace):\n        return False\n";
         assert!(findings(&scan(clean), "python:S2733").is_empty());
     }
+
+    #[test]
+    fn s2733_accepts_varargs_exit_signature() {
+        // Issue #640: `*args`/`**kwargs` accept the exc_type/value/traceback
+        // triple, so Sonar treats the varargs form as compliant.
+        let varargs_kwargs =
+            "class C:\n    def __exit__(self, *args, **kwargs):\n        return False\n";
+        assert!(findings(&scan(varargs_kwargs), "python:S2733").is_empty());
+        let varargs = "class C:\n    def __exit__(self, *args):\n        return False\n";
+        assert!(findings(&scan(varargs), "python:S2733").is_empty());
+        let kwargs = "class C:\n    def __exit__(self, **kwargs):\n        return False\n";
+        assert!(findings(&scan(kwargs), "python:S2733").is_empty());
+    }
 }
