@@ -20,18 +20,30 @@ pub(crate) fn check_member_name_matches_class(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    visit_suite(parsed.syntax().body.as_slice(), &mut issues, index, source);
+    visit_suite(
+        parsed.syntax().body.as_slice(),
+        &mut issues,
+        parsed,
+        index,
+        source,
+    );
     issues
 }
 
-fn visit_suite(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, source: &str) {
+fn visit_suite(
+    suite: &[Stmt],
+    issues: &mut Vec<Issue>,
+    parsed: &Parsed<ModModule>,
+    index: &LineIndex,
+    source: &str,
+) {
     for stmt in suite {
         if let Stmt::ClassDef(class) = stmt {
-            flag_matching_members(class, issues, index, source);
-            visit_suite(&class.body, issues, index, source);
+            flag_matching_members(class, issues, parsed, index, source);
+            visit_suite(&class.body, issues, parsed, index, source);
         } else {
             for body in child_bodies(stmt) {
-                visit_suite(body, issues, index, source);
+                visit_suite(body, issues, parsed, index, source);
             }
         }
     }
@@ -40,12 +52,16 @@ fn visit_suite(suite: &[Stmt], issues: &mut Vec<Issue>, index: &LineIndex, sourc
 fn flag_matching_members(
     class: &StmtClassDef,
     issues: &mut Vec<Issue>,
+    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
 ) {
-    // Sonar's FieldDuplicatesClassNameCheck returns early when the class
-    // has any base — a same-named field may intentionally shadow a base.
-    if !class.bases().is_empty() {
+    // Sonar's FieldDuplicatesClassNameCheck returns early when
+    // CheckUtils.classHasInheritance holds: the class argument list is
+    // non-empty and its single argument is not exactly `object`. Keyword
+    // arguments such as `metaclass=` count as inheritance; a sole `object`
+    // base does not, so `class Foo(object)` stays checked.
+    if class_has_inheritance(class, parsed, source) {
         return;
     }
     let lowered_class = class.name.id.to_lowercase();
@@ -86,6 +102,49 @@ fn flag_matching_members(
             flag_matching_instance_attributes(&function.body, instance, &lowered_class, &mut push);
         }
     }
+}
+
+/// Mirrors Sonar's `CheckUtils.classHasInheritance`: any class argument
+/// counts as inheritance except a single argument whose first token is
+/// exactly `object`.
+fn class_has_inheritance(class: &StmtClassDef, parsed: &Parsed<ModModule>, source: &str) -> bool {
+    let Some(arguments) = class.arguments.as_deref() else {
+        return false;
+    };
+    let count = arguments.args.len() + arguments.keywords.len();
+    if count == 0 {
+        return false;
+    }
+    count != 1 || !first_argument_token_is_object(arguments, parsed, source)
+}
+
+/// Whether the first token of the first class argument is exactly `object`,
+/// matching Sonar's `arguments.get(0).firstToken()` check. The token after
+/// the argument list's opening parenthesis is the first argument's first
+/// token, so `class Foo((object))` and `class Foo(*object)` still count as
+/// inheritance while `class Foo(object)` does not.
+fn first_argument_token_is_object(
+    arguments: &ruff_python_ast::Arguments,
+    parsed: &Parsed<ModModule>,
+    source: &str,
+) -> bool {
+    let mut tokens = parsed
+        .tokens()
+        .iter()
+        .filter(|token| !token.kind().is_trivia())
+        .filter(|token| arguments.range().contains_range(token.range()));
+    let Some(opening) = tokens.next() else {
+        return false;
+    };
+    let candidate = if opening.kind() == ruff_python_ast::token::TokenKind::Lpar {
+        tokens.next()
+    } else {
+        Some(opening)
+    };
+    candidate.is_some_and(|token| {
+        source.get(token.range().start().to_usize()..token.range().end().to_usize())
+            == Some("object")
+    })
 }
 
 /// Flags `instance.<name>` assignment targets inside `__init__` whose
@@ -174,5 +233,47 @@ mod tests {
         let unrelated_attribute =
             scan("class Editor:\n    def __init__(self):\n        self.env = {}\n");
         assert!(findings(&unrelated_attribute, "python:S1700").is_empty());
+    }
+
+    #[test]
+    fn s1700_inheritance_exemption_matches_sonar_argument_semantics() {
+        // Sonar's CheckUtils.classHasInheritance skips the check whenever the
+        // class argument list is non-empty — unless the single argument's
+        // first token is exactly `object`. Keyword arguments such as
+        // `metaclass=` count as inheritance; a sole `object` base does not.
+        let flagged = scan(concat!(
+            "class Table(Reference):\n",
+            "    def __init__(self, table):\n",
+            "        self.table = table\n",
+            "class Meta(metaclass=ABCMeta):\n",
+            "    meta = 1\n",
+            "class ObjectBase(object):\n",
+            "    objectbase = 1\n",
+            "class Empty():\n",
+            "    empty = 1\n",
+            "class Plain:\n",
+            "    plain = 1\n",
+        ));
+        let found = findings(&flagged, "python:S1700");
+        assert_eq!(found.len(), 3);
+        assert_eq!(found[0].range.start.line, 7);
+        assert_eq!(found[1].range.start.line, 9);
+        assert_eq!(found[2].range.start.line, 11);
+    }
+
+    #[test]
+    fn s1700_object_exemption_is_lexical_not_semantic() {
+        // Only a bare first token `object` escapes the exemption; a
+        // parenthesized or starred `object` still counts as inheritance.
+        for clean in [
+            "class Paren((object)):\n    paren = 1\n",
+            "class Star(*object):\n    star = 1\n",
+        ] {
+            assert!(findings(&scan(clean), "python:S1700").is_empty());
+        }
+        // `object` as a keyword name is still the first token, so the class
+        // is treated as having no inheritance and stays flagged.
+        let keyword = scan("class Kw(object=Base):\n    kw = 1\n");
+        assert_eq!(findings(&keyword, "python:S1700").len(), 1);
     }
 }
