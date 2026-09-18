@@ -35,11 +35,38 @@ pub(crate) fn check_any_type_hints(
 #[cfg(test)]
 mod tests {
 
-    use crate::test_support::{findings, scan};
+    use crate::test_support::{findings, pos, scan};
 
     #[test]
     fn s6542_flags_any_type_hints() {
         let flagged = scan("def f(x: Any) -> int:\n    return 1\n");
         assert_eq!(findings(&flagged, "python:S6542").len(), 1);
+    }
+
+    // Issue #621: Sonar's isTypeAny only matches annotations that are
+    // exactly `typing.Any`; `Any` nested inside a generic subscription
+    // stays silent.
+    #[test]
+    fn s6542_ignores_any_nested_in_generics() {
+        let clean =
+            scan("from typing import Any\ndef f(x: list[Any]) -> dict[str, Any]:\n    return {}\n");
+        assert!(findings(&clean, "python:S6542").is_empty());
+    }
+
+    #[test]
+    fn s6542_ignores_any_nested_in_annotated_assignment() {
+        let clean = scan("from typing import Any\nitems: list[Any] = []\n");
+        assert!(findings(&clean, "python:S6542").is_empty());
+    }
+
+    #[test]
+    fn s6542_still_flags_bare_any_annotations() {
+        let flagged =
+            scan("from typing import Any\ndef f(x: Any) -> Any:\n    y: Any = x\n    return y\n");
+        let found = findings(&flagged, "python:S6542");
+        assert_eq!(found.len(), 3);
+        assert_eq!(found[0].range.start, pos(2, 9));
+        assert_eq!(found[1].range.start, pos(2, 17));
+        assert_eq!(found[2].range.start, pos(3, 7));
     }
 }
