@@ -244,11 +244,17 @@ use crate::rules::s6463_unrestricted_egress::check_s6463_unrestricted_egress;
 use crate::rules::s6662_unhashable_collection_literals::check_s6662_unhashable_collection_literals;
 use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
+use crate::rules::s8396_optional_field_defaults::check_s8396_optional_field_defaults;
 use crate::rules::s8502_set_update_instead_of_add_loop::check_s8502_set_update_instead_of_add_loop;
 use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_shadows_outer;
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
+use crate::rules::s8953_config_dict_validation_options::check_s8953_config_dict_validation_options;
+use crate::rules::s8963_multiple_inheritance_config::check_s8963_multiple_inheritance_config;
+use crate::rules::s8966_serialization_fallback::check_s8966_serialization_fallback;
+use crate::rules::s8971_skip_validation_constraints::check_s8971_skip_validation_constraints;
+use crate::rules::s8973_double_underscore_private_attributes::check_s8973_double_underscore_private_attributes;
 use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
 use crate::rules::s8994_pytest_fixture_single_yield::check_s8994_pytest_fixture_single_yield;
 use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
@@ -973,12 +979,14 @@ pub(crate) fn check_test_assertion_battery(
     issues
 }
 
-/// Aggregates the future-reference detectors (python:S8492,
+/// Aggregates the future-reference detectors (python:S8396, python:S8492,
 /// python:S8495, python:S8500, python:S8502, python:S8507, python:S8509,
 /// python:S8510, python:S8512, python:S8513, python:S8514,
 /// python:S8517–S8521, python:S8554, python:S8572, python:S8714,
-/// python:S8786) added ahead of their catalog entries; S8786 reads the
-/// shared call inventory.
+/// python:S8786, python:S8953, python:S8963, python:S8966, python:S8971,
+/// python:S8973) added ahead of their catalog entries; S8786 reads the
+/// shared call inventory and the Pydantic detectors read the shared import,
+/// class, and single-assignment context.
 pub(crate) fn check_future_reference_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -1025,6 +1033,24 @@ pub(crate) fn check_future_reference_battery(
     issues.extend(check_logging_exception_in_handlers(index, source, file_ctx));
     issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
     issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
+    issues.extend(check_s8396_optional_field_defaults(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8953_config_dict_validation_options(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8963_multiple_inheritance_config(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8966_serialization_fallback(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8971_skip_validation_constraints(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8973_double_underscore_private_attributes(
+        parsed, index, source, file_ctx,
+    ));
     issues
 }
 
@@ -1653,6 +1679,8 @@ mod s6663_sequence_index_type;
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
 
+mod s8396_optional_field_defaults;
+
 mod s8502_set_update_instead_of_add_loop;
 
 mod s8510_loop_variable_shadows_outer;
@@ -1662,6 +1690,16 @@ mod s8513_chained_startswith_calls;
 mod s8714_pytest_raises_try_except;
 
 mod s8786_super_linear_regex;
+
+mod s8953_config_dict_validation_options;
+
+mod s8963_multiple_inheritance_config;
+
+mod s8966_serialization_fallback;
+
+mod s8971_skip_validation_constraints;
+
+mod s8973_double_underscore_private_attributes;
 
 mod s8992_autouse_fixture_params;
 
