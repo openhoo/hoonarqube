@@ -28,10 +28,10 @@ pub(crate) enum NameResolution<'a> {
 
 /// Per-file framework binding facts; build once, share across web rules.
 pub(crate) struct WebFrameworkFacts<'a> {
-    functions: Vec<&'a StmtFunctionDef>,
+    pub(crate) functions: Vec<&'a StmtFunctionDef>,
     classes: Vec<&'a StmtClassDef>,
     lambdas: Vec<&'a ruff_python_ast::ExprLambda>,
-    stmts: Vec<&'a Stmt>,
+    pub(crate) stmts: Vec<&'a Stmt>,
     stmt_scope: Vec<Option<TextRange>>,
 }
 
@@ -87,7 +87,7 @@ impl<'a> WebFrameworkFacts<'a> {
     }
 
     /// Enclosing scopes of `at`, innermost first, module (`None`) last.
-    fn enclosing_chain(&self, at: TextRange) -> Vec<Option<TextRange>> {
+    pub(crate) fn enclosing_chain(&self, at: TextRange) -> Vec<Option<TextRange>> {
         let mut scopes: Vec<TextRange> = self
             .functions
             .iter()
@@ -638,7 +638,21 @@ fn plain_import_fqn(import: &ruff_python_ast::StmtImport, name: &str) -> Option<
             );
             local == name
         })
-        .map(|alias| alias.name.as_str().to_string())
+        .map(|alias| {
+            // `import a.b` binds `a` to the top-level package; only an
+            // `as`-alias binds the submodule itself.
+            if alias.asname.is_some() {
+                alias.name.as_str().to_string()
+            } else {
+                alias
+                    .name
+                    .as_str()
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            }
+        })
 }
 
 fn from_import_fqn(import: &ruff_python_ast::StmtImportFrom, name: &str) -> Option<String> {
