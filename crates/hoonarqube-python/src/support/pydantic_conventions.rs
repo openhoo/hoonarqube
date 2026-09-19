@@ -358,6 +358,42 @@ impl<'a> NameResolver<'a> {
             .get(&binding.range)
             .map_or(NameValue::Ambiguous, |value| NameValue::Single(value))
     }
+
+    /// Resolves `expr` (a `Name`) to every expression its assignment
+    /// bindings recorded — the `valuesAtLocation` shape the reference's
+    /// reaching-definitions analysis produces for names with several
+    /// candidate values (for example both branches of a conditional).
+    /// Empty when the name is unbound, dynamically bound, or bound by
+    /// anything but plain assignments; callers treat an empty result as
+    /// "no provable values", never as "provably none".
+    pub(crate) fn resolve_all(&self, expr: &'a Expr) -> Vec<&'a Expr> {
+        let Expr::Name(name) = expr else {
+            return Vec::new();
+        };
+        if self.dynamic {
+            return Vec::new();
+        }
+        let Some((scope, _)) = self.loads.get(&name.range()) else {
+            return Vec::new();
+        };
+        let Some(bindings) = self.table.scopes[*scope].bindings.get(name.id.as_str()) else {
+            return Vec::new();
+        };
+        if bindings
+            .iter()
+            .any(|binding| binding.kind != BindingKind::Assignment)
+        {
+            return Vec::new();
+        }
+        // A binding without a recorded value (tuple/loop targets, bare
+        // annotations) means the name's values are not fully provable —
+        // the `Option` collect vetoes the whole resolution.
+        bindings
+            .iter()
+            .map(|binding| self.values.get(&binding.range).copied())
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default()
+    }
 }
 
 /// Maps each single-`Name` assignment target range to its value expression.
