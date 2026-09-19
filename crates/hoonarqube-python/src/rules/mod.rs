@@ -26,12 +26,14 @@ use crate::rules::class_names::check_class_names;
 use crate::rules::classmethod_parameter_names::check_classmethod_parameter_names;
 use crate::rules::closure_captures_loop_variable::check_closure_captures_loop_variable;
 use crate::rules::collapsible_ifs::check_collapsible_ifs;
+use crate::rules::complete_comparison_methods::check_complete_comparison_methods;
 use crate::rules::complexity::check_class_complexity;
 use crate::rules::complexity::check_cognitive_complexity;
 use crate::rules::complexity::check_file_complexity;
 use crate::rules::complexity::check_function_complexity;
 use crate::rules::confusing_type_checks::check_confusing_type_checks;
 use crate::rules::confusing_walrus_placement::check_confusing_walrus_placement;
+use crate::rules::consistent_return_tuple_lengths::check_consistent_return_tuple_lengths;
 use crate::rules::constant_conditions::check_constant_conditions;
 use crate::rules::constant_dict_comprehension_values::check_constant_dict_comprehension_values;
 use crate::rules::constant_none_comparisons::check_constant_none_comparisons;
@@ -39,6 +41,7 @@ use crate::rules::constant_populated_dict_loop::check_constant_populated_dict_lo
 use crate::rules::control_flow_in_nurseries::check_control_flow_in_nurseries;
 use crate::rules::cookie_flag::check_cookie_flag;
 use crate::rules::copy_only_comprehensions::check_copy_only_comprehensions;
+use crate::rules::dataclass_annotated_attributes::check_dataclass_annotated_attributes;
 use crate::rules::dataframe_values_attribute::check_dataframe_values_attribute;
 use crate::rules::dataloader_workers::check_dataloader_workers;
 use crate::rules::datetime_component_ranges::check_datetime_component_ranges;
@@ -127,6 +130,8 @@ use crate::rules::nested_estimator_parameters::check_nested_estimator_parameters
 use crate::rules::nested_identical_constructors::check_nested_identical_constructors;
 use crate::rules::nesting_depths::check_nesting_depths;
 use crate::rules::nn_module_super_init::check_nn_module_super_init;
+use crate::rules::no_duplicate_base_classes::check_no_duplicate_base_classes;
+use crate::rules::no_duplicate_class_fields::check_no_duplicate_class_fields;
 use crate::rules::no_effect_statements::check_no_effect_statements;
 use crate::rules::notimplemented_raises::check_notimplemented_raises;
 use crate::rules::np_array_generator::check_np_array_generator;
@@ -246,6 +251,7 @@ use crate::rules::s9075_specific_warning_assertion::check_s9075_specific_warning
 use crate::rules::s9078_duplicate_parametrize_cases::check_s9078_duplicate_parametrize_cases;
 use crate::rules::s9083_pytest_decorator_parentheses::check_s9083_pytest_decorator_parentheses;
 use crate::rules::self_assignment::check_self_assignment;
+use crate::rules::set_discard_instead_of_membership_removal::check_set_discard_instead_of_membership_removal;
 use crate::rules::shadowed_builtins::check_shadowed_builtins;
 use crate::rules::similar_names_scope::check_similar_names_scope;
 use crate::rules::single_arg_np_where::check_single_arg_np_where;
@@ -276,6 +282,7 @@ use crate::rules::tuple_assertions::check_tuple_assertions;
 use crate::rules::type_equality_comparisons::check_type_equality_comparisons;
 use crate::rules::typealias_assignments::check_typealias_assignments;
 use crate::rules::typevar_annotated_functions::check_typevar_annotated_functions;
+use crate::rules::typevar_names_match_variables::check_typevar_names_match_variables;
 use crate::rules::typing_alias_hints::check_typing_alias_hints;
 use crate::rules::typing_union_hints::check_typing_union_hints;
 use crate::rules::unbounded_archive_extraction::check_unbounded_archive_extraction;
@@ -952,9 +959,11 @@ pub(crate) fn check_test_assertion_battery(
     issues
 }
 
-/// Aggregates the future-reference detectors (python:S8502,
-/// python:S8510, python:S8513, python:S8714, python:S8786) added ahead
-/// of their catalog entries; S8786 reads the shared call inventory.
+/// Aggregates the future-reference detectors (python:S8492,
+/// python:S8495, python:S8500, python:S8502, python:S8507, python:S8509,
+/// python:S8510, python:S8512, python:S8513, python:S8514, python:S8714,
+/// python:S8786) added ahead of their catalog entries; S8786 reads the
+/// shared call inventory.
 pub(crate) fn check_future_reference_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -962,13 +971,34 @@ pub(crate) fn check_future_reference_battery(
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    issues.extend(check_set_discard_instead_of_membership_removal(
+        parsed, index, source,
+    ));
+    issues.extend(check_consistent_return_tuple_lengths(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_complete_comparison_methods(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8502_set_update_instead_of_add_loop(
         parsed, index, source,
+    ));
+    issues.extend(check_typevar_names_match_variables(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_no_duplicate_base_classes(
+        parsed, index, source, file_ctx,
     ));
     issues.extend(check_s8510_loop_variable_shadows_outer(
         parsed, index, source,
     ));
+    issues.extend(check_no_duplicate_class_fields(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8513_chained_startswith_calls(parsed, index, source));
+    issues.extend(check_dataclass_annotated_attributes(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
     issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
     issues
@@ -1096,6 +1126,7 @@ mod classmethod_parameter_names;
 pub(crate) mod cleartext_protocols;
 
 mod closure_captures_loop_variable;
+mod complete_comparison_methods;
 
 pub(crate) mod complexity;
 
@@ -1104,6 +1135,7 @@ pub(crate) mod commented_code;
 mod confusing_type_checks;
 
 mod confusing_walrus_placement;
+mod consistent_return_tuple_lengths;
 
 mod constant_conditions;
 
@@ -1120,6 +1152,7 @@ mod cookie_flag;
 mod copy_only_comprehensions;
 
 mod curly_quantifier;
+mod dataclass_annotated_attributes;
 
 mod dataframe_values_attribute;
 
@@ -1316,6 +1349,8 @@ mod nested_identical_constructors;
 mod nesting_depths;
 
 mod nn_module_super_init;
+mod no_duplicate_base_classes;
+mod no_duplicate_class_fields;
 
 mod no_effect_statements;
 
@@ -1595,6 +1630,7 @@ mod s930_arity_mismatches;
 mod s935_bare_returns;
 
 mod self_assignment;
+mod set_discard_instead_of_membership_removal;
 
 mod shadowed_builtins;
 
@@ -1657,6 +1693,7 @@ mod type_equality_comparisons;
 mod typealias_assignments;
 
 mod typevar_annotated_functions;
+mod typevar_names_match_variables;
 
 mod typing_alias_hints;
 
