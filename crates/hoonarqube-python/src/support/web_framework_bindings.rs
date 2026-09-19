@@ -1,4 +1,3 @@
-//! Lexical binding facts for `FastAPI`, `Starlette`, and `Flask`.
 //!
 //! Sonar resolves web-framework receivers through type matchers
 //! (`fastapi.applications.FastAPI.include_router`,
@@ -10,8 +9,9 @@
 
 use crate::engine::file_context::FileContext;
 use crate::support::stmt_store_names;
-use ruff_python_ast::{Expr, ExprCall, Stmt, StmtFunctionDef};
+use ruff_python_ast::{Expr, ExprCall, Stmt, StmtClassDef, StmtFunctionDef};
 use ruff_text_size::{Ranged, TextRange};
+use std::collections::HashSet;
 
 /// How a bare name is bound at a read site.
 pub(crate) enum NameResolution<'a> {
@@ -29,6 +29,7 @@ pub(crate) enum NameResolution<'a> {
 /// Per-file framework binding facts; build once, share across web rules.
 pub(crate) struct WebFrameworkFacts<'a> {
     functions: Vec<&'a StmtFunctionDef>,
+    classes: Vec<&'a StmtClassDef>,
     lambdas: Vec<&'a ruff_python_ast::ExprLambda>,
     stmts: Vec<&'a Stmt>,
     stmt_scope: Vec<Option<TextRange>>,
@@ -46,6 +47,7 @@ impl<'a> WebFrameworkFacts<'a> {
             .collect();
         let mut facts = WebFrameworkFacts {
             functions: file_ctx.functions.clone(),
+            classes: file_ctx.classes.clone(),
             lambdas,
             stmts: file_ctx.stmts.clone(),
             stmt_scope: Vec::new(),
@@ -141,6 +143,95 @@ impl<'a> WebFrameworkFacts<'a> {
         }
     }
 
+    /// The single assigned value of `name` at `at` plus the binding
+    /// statement's range, restricted to Sonar's
+    /// `Expressions.singleAssignedValue` shape: the name must be bound by
+    /// exactly one plain `name = value` (or `name: T = value`) assignment
+    /// in the nearest scope. Tuple unpacking, attribute/subscript
+    /// targets, augmented assignments, imports, parameters, and any
+    /// second binding disqualify the name.
+    pub(crate) fn strict_single_assignment(
+        &self,
+        name: &str,
+        at: TextRange,
+    ) -> Option<(&'a Expr, TextRange)> {
+        for scope in self.enclosing_chain(at) {
+            let bindings: Vec<&Stmt> = self
+                .stmts
+                .iter()
+                .zip(&self.stmt_scope)
+                .filter(|(stmt, stmt_scope)| {
+                    **stmt_scope == scope && stmt_store_names(stmt).iter().any(|n| n == name)
+                })
+                .map(|(stmt, _)| *stmt)
+                .collect();
+            if bindings.is_empty() {
+                if scope_has_parameter(self, scope, name) {
+                    return None;
+                }
+                continue;
+            }
+            if bindings.len() != 1 {
+                return None;
+            }
+            return match bindings[0] {
+                Stmt::Assign(assign)
+                    if assign
+                        .targets
+                        .iter()
+                        .all(|target| matches!(target, Expr::Name(_))) =>
+                {
+                    Some((assign.value.as_ref(), assign.range()))
+                }
+                Stmt::AnnAssign(assign) if matches!(assign.target.as_ref(), Expr::Name(_)) => {
+                    assign.value.as_deref().map(|value| (value, assign.range()))
+                }
+                _ => None,
+            };
+        }
+        None
+    }
+
+    /// A top-level method `name` of `class`, including methods nested in
+    /// compound statements (`if`, `try`, …) but not inside nested
+    /// classes, functions, or lambdas — Sonar's
+    /// `TreeUtils.topLevelFunctionDefs`. First definition wins.
+    pub(crate) fn top_level_method(
+        &self,
+        class: &StmtClassDef,
+        name: &str,
+    ) -> Option<&'a StmtFunctionDef> {
+        self.functions
+            .iter()
+            .filter(|function| function.name.as_str() == name)
+            .filter(|function| class.range().contains_range(function.range()))
+            .filter(|function| {
+                !self
+                    .functions
+                    .iter()
+                    .map(Ranged::range)
+                    .chain(self.classes.iter().map(Ranged::range))
+                    .chain(self.lambdas.iter().map(Ranged::range))
+                    .any(|container| {
+                        container != function.range()
+                            && container != class.range()
+                            && container.contains_range(function.range())
+                            && class.range().contains_range(container)
+                    })
+            })
+            .min_by_key(|function| function.range().start().to_u32())
+            .copied()
+    }
+
+    /// The innermost class definition enclosing `at`, if any.
+    pub(crate) fn enclosing_class(&self, at: TextRange) -> Option<&'a StmtClassDef> {
+        self.classes
+            .iter()
+            .filter(|class| class.range().contains_range(at))
+            .min_by_key(|class| class.range().len().to_u32())
+            .copied()
+    }
+
     /// Canonical FQN of `expr`: import aliases resolve to their module path
     /// (with FastAPI/Flask re-exports canonicalized to their defining
     /// module), names assigned a recognized constructor call resolve to the
@@ -171,27 +262,120 @@ impl<'a> WebFrameworkFacts<'a> {
     /// Resolves a call's target to a same-file function definition visible
     /// from the call site (nearest binding scope wins, latest def on ties).
     pub(crate) fn resolve_function(&self, call: &ExprCall) -> Option<&'a StmtFunctionDef> {
-        let Expr::Name(name) = call.func.as_ref() else {
-            return None;
-        };
-        for scope in self.enclosing_chain(call.range()) {
-            let candidate = self
-                .functions
-                .iter()
-                .filter(|function| function.name.as_str() == name.id.as_str())
-                .filter(|function| {
-                    self.enclosing_chain(function.range())
-                        .get(1)
-                        .copied()
-                        .unwrap_or(None)
-                        == scope
+        self.resolve_function_def(&call.func, call.range())
+    }
+
+    /// Resolves `expr` to a same-file function definition: a bare name
+    /// resolves through the scope chain like a call target, and an
+    /// attribute resolves to a same-named top-level method of the class
+    /// the qualifier resolves to (`Depends(Deps.get_item)`).
+    pub(crate) fn resolve_function_def(
+        &self,
+        expr: &Expr,
+        at: TextRange,
+    ) -> Option<&'a StmtFunctionDef> {
+        match expr {
+            Expr::Name(name) => {
+                for scope in self.enclosing_chain(at) {
+                    let candidate = self
+                        .functions
+                        .iter()
+                        .filter(|function| function.name.as_str() == name.id.as_str())
+                        .filter(|function| self.strict_parent_scope(function.range()) == scope)
+                        .max_by_key(|function| function.range().start().to_u32());
+                    if let Some(function) = candidate {
+                        return Some(*function);
+                    }
+                }
+                None
+            }
+            Expr::Attribute(attribute) => {
+                let owner = self.resolve_local_alias_chain(&attribute.value);
+                let class = self.resolve_class_def(owner, at)?;
+                class.body.iter().find_map(|stmt| match stmt {
+                    Stmt::FunctionDef(function)
+                        if function.name.as_str() == attribute.attr.as_str() =>
+                    {
+                        Some(function)
+                    }
+                    _ => None,
                 })
-                .max_by_key(|function| function.range().start().to_u32());
-            if let Some(function) = candidate {
-                return Some(*function);
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolves `expr` to a same-file class definition: a bare name through
+    /// the scope chain, an attribute to a nested class of the resolved
+    /// qualifier class.
+    pub(crate) fn resolve_class_def(&self, expr: &Expr, at: TextRange) -> Option<&'a StmtClassDef> {
+        match expr {
+            Expr::Name(name) => {
+                for scope in self.enclosing_chain(at) {
+                    let candidate = self
+                        .classes
+                        .iter()
+                        .filter(|class| class.name.as_str() == name.id.as_str())
+                        .filter(|class| self.strict_parent_scope(class.range()) == scope)
+                        .max_by_key(|class| class.range().start().to_u32());
+                    if let Some(class) = candidate {
+                        return Some(*class);
+                    }
+                }
+                None
+            }
+            Expr::Attribute(attribute) => {
+                let owner = self.resolve_local_alias_chain(&attribute.value);
+                let class = self.resolve_class_def(owner, at)?;
+                class.body.iter().find_map(|stmt| match stmt {
+                    Stmt::ClassDef(nested) if nested.name.as_str() == attribute.attr.as_str() => {
+                        Some(nested)
+                    }
+                    _ => None,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Follows `name = value` alias chains from `expr`, each hop resolved
+    /// at the name's own site, and returns the final expression. When the
+    /// chain cycles or the name is not provably bound to one assignment,
+    /// the name at which resolution stalls is returned.
+    pub(crate) fn resolve_local_alias_chain<'b>(&self, mut expr: &'b Expr) -> &'b Expr
+    where
+        'a: 'b,
+    {
+        let mut visited: HashSet<TextRange> = HashSet::new();
+        while let Expr::Name(name) = expr {
+            let Some(value) = self.single_assigned_value(name.id.as_str(), name.range()) else {
+                break;
+            };
+            if !visited.insert(value.range()) {
+                break;
+            }
+            expr = value;
+        }
+        expr
+    }
+
+    /// The nearest function/lambda scope strictly enclosing `range`
+    /// (the parent scope of a def whose own range is `range`).
+    fn strict_parent_scope(&self, range: TextRange) -> Option<TextRange> {
+        let mut best: Option<TextRange> = None;
+        let mut best_len = u32::MAX;
+        for scope in self
+            .functions
+            .iter()
+            .map(Ranged::range)
+            .chain(self.lambdas.iter().map(Ranged::range))
+        {
+            if scope.contains_range(range) && scope != range && scope.len().to_u32() < best_len {
+                best = Some(scope);
+                best_len = scope.len().to_u32();
             }
         }
-        None
+        best
     }
 
     /// Lambda expressions in the file (nested-scope boundaries for rules
