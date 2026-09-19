@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::has_lambda_handler_signature;
+use crate::support::AwsLambdaFacts;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::StmtFunctionDef;
@@ -58,9 +58,10 @@ pub(crate) fn check_s7614_async_lambda_handler(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
+    let lambda = AwsLambdaFacts::build(file_ctx);
     let mut issues = Vec::new();
     for function in &file_ctx.functions {
-        if !function.is_async || !has_lambda_handler_signature(function) {
+        if !function.is_async || !lambda.is_only_lambda_handler(function) {
             continue;
         }
         if let Some(range) = async_keyword_range(function, source) {

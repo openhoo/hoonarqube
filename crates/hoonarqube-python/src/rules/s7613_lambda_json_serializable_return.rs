@@ -1,9 +1,8 @@
 use crate::engine::file_context::FileContext;
-use crate::support::enclosing_function;
 use crate::support::flow_location;
-use crate::support::has_lambda_handler_signature;
+use crate::support::innermost_function;
 use crate::support::issue_at;
-use crate::support::{NameResolution, WebFrameworkFacts};
+use crate::support::{AwsLambdaFacts, NameResolution, WebFrameworkFacts};
 use hoonarqube_ir::{Issue, IssueFlow};
 use ruff_python_ast::{Expr, ExprCall, Stmt, StmtClassDef};
 use ruff_source_file::LineIndex;
@@ -74,7 +73,8 @@ pub(crate) fn check_s7613_lambda_json_serializable_return(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    let facts = WebFrameworkFacts::build(file_ctx);
+    let lambda = AwsLambdaFacts::build(file_ctx);
+    let facts = &lambda.facts;
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         let Stmt::Return(return_stmt) = *stmt else {
@@ -83,13 +83,13 @@ pub(crate) fn check_s7613_lambda_json_serializable_return(
         let Some(value) = return_stmt.value.as_deref() else {
             continue;
         };
-        let Some(function) = enclosing_function(&facts, file_ctx, stmt.range()) else {
+        let Some(function) = innermost_function(file_ctx, stmt.range()) else {
             continue;
         };
-        if !has_lambda_handler_signature(function) {
+        if !lambda.is_only_lambda_handler(function) {
             continue;
         }
-        for flagged in collect_non_serializable(&facts, file_ctx, value, 0) {
+        for flagged in collect_non_serializable(facts, file_ctx, value, 0) {
             let mut issue = issue_at(RULE_KEY, MESSAGE, flagged.main, index, source);
             if let Some(secondary) = flagged.secondary {
                 issue.flows.push(IssueFlow {

@@ -1,9 +1,8 @@
 use crate::engine::file_context::FileContext;
-use crate::support::WebFrameworkFacts;
-use crate::support::enclosing_function;
+use crate::support::innermost_function;
 use crate::support::issue_at;
-use crate::support::lambda_related_function_ranges;
 use crate::support::string_literal_text;
+use crate::support::{AwsLambdaFacts, WebFrameworkFacts};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, Stmt};
 use ruff_source_file::LineIndex;
@@ -63,20 +62,20 @@ pub(crate) fn check_s7617_lambda_reserved_env_vars(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    let facts = WebFrameworkFacts::build(file_ctx);
-    let lambda_ranges = lambda_related_function_ranges(&facts, file_ctx);
-    if lambda_ranges.is_empty() {
+    let lambda = AwsLambdaFacts::build(file_ctx);
+    if !lambda.has_handler() {
         return Vec::new();
     }
+    let facts = &lambda.facts;
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         let Stmt::Assign(assign) = *stmt else {
             continue;
         };
-        let Some(function) = enclosing_function(&facts, file_ctx, stmt.range()) else {
+        let Some(function) = innermost_function(file_ctx, stmt.range()) else {
             continue;
         };
-        if !lambda_ranges.contains(&function.range()) {
+        if !lambda.is_lambda_handler(function) {
             continue;
         }
         // Sonar inspects only `lhsExpressions().get(0)` — the first target
@@ -95,7 +94,7 @@ pub(crate) fn check_s7617_lambda_reserved_env_vars(
             if facts.expr_fqn(&subscript.value).as_deref() != Some("os.environ") {
                 continue;
             }
-            let Some(key_expr) = reserved_subscript_name(&facts, &subscript.slice) else {
+            let Some(key_expr) = reserved_subscript_name(facts, &subscript.slice) else {
                 continue;
             };
             if string_literal_text(key_expr)
