@@ -79,47 +79,51 @@ fn collect_ordering_definitions<'a>(
     definitions: &mut BTreeMap<&'a str, TextRange>,
 ) {
     for stmt in stmts {
-        match stmt {
-            Stmt::FunctionDef(function) => {
-                let name = function.name.as_str();
-                if ORDERING_METHODS.contains(&name) {
-                    definitions
-                        .entry(name)
-                        .or_insert_with(|| function.name.range());
-                }
-            }
-            Stmt::ClassDef(_) => {}
-            Stmt::Assign(assign) => {
-                if let [Expr::Name(target)] = assign.targets.as_slice()
-                    && ORDERING_METHODS.contains(&target.id.as_str())
-                {
-                    definitions
-                        .entry(target.id.as_str())
-                        .or_insert_with(|| target.range());
-                }
-                for body in child_bodies(stmt) {
-                    collect_ordering_definitions(body, definitions);
-                }
-            }
-            Stmt::AnnAssign(assign) => {
-                if assign.value.is_some()
-                    && let Expr::Name(target) = assign.target.as_ref()
-                    && ORDERING_METHODS.contains(&target.id.as_str())
-                {
-                    definitions
-                        .entry(target.id.as_str())
-                        .or_insert_with(|| target.range());
-                }
-                for body in child_bodies(stmt) {
-                    collect_ordering_definitions(body, definitions);
-                }
-            }
-            _ => {
-                for body in child_bodies(stmt) {
-                    collect_ordering_definitions(body, definitions);
-                }
+        collect_statement_definition(stmt, definitions);
+        if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            continue;
+        }
+        for body in child_bodies(stmt) {
+            collect_ordering_definitions(body, definitions);
+        }
+    }
+}
+
+/// Records one statement's ordering-method definition, if any: a `def`
+/// name, a single-name `x = ...` target, or a valued `x: T = ...` target.
+fn collect_statement_definition<'a>(
+    stmt: &'a Stmt,
+    definitions: &mut BTreeMap<&'a str, TextRange>,
+) {
+    match stmt {
+        Stmt::FunctionDef(function) => {
+            let name = function.name.as_str();
+            if ORDERING_METHODS.contains(&name) {
+                definitions
+                    .entry(name)
+                    .or_insert_with(|| function.name.range());
             }
         }
+        Stmt::Assign(assign) => {
+            if let [Expr::Name(target)] = assign.targets.as_slice()
+                && ORDERING_METHODS.contains(&target.id.as_str())
+            {
+                definitions
+                    .entry(target.id.as_str())
+                    .or_insert_with(|| target.range());
+            }
+        }
+        Stmt::AnnAssign(assign) => {
+            if assign.value.is_some()
+                && let Expr::Name(target) = assign.target.as_ref()
+                && ORDERING_METHODS.contains(&target.id.as_str())
+            {
+                definitions
+                    .entry(target.id.as_str())
+                    .or_insert_with(|| target.range());
+            }
+        }
+        _ => {}
     }
 }
 
@@ -145,37 +149,46 @@ fn total_ordering_bindings(file_ctx: &FileContext) -> Vec<String> {
     let mut names = Vec::new();
     for import in &file_ctx.imports {
         match import {
-            AnyImport::From(import) if import.level == 0 => {
-                let module = import.module.as_ref().map_or("", |m| m.as_str());
-                if module != "functools" {
-                    continue;
-                }
-                for alias in &import.names {
-                    if matches!(alias.name.as_str(), "total_ordering" | "*") {
-                        names.push(
-                            alias
-                                .asname
-                                .as_ref()
-                                .map_or("total_ordering", |a| a.as_str())
-                                .to_string(),
-                        );
-                    }
-                }
-            }
-            AnyImport::Plain(import) => {
-                for alias in &import.names {
-                    if alias.name.as_str() == "functools" {
-                        names.push(format!(
-                            "{}.total_ordering",
-                            alias.asname.as_ref().map_or("functools", |a| a.as_str())
-                        ));
-                    }
-                }
-            }
-            AnyImport::From(_) => {}
+            AnyImport::From(import) => collect_total_ordering_from_import(import, &mut names),
+            AnyImport::Plain(import) => collect_functools_module_alias(import, &mut names),
         }
     }
     names
+}
+
+/// `from functools import total_ordering [as x]` (and star imports)
+/// bind the decorator under a local name.
+fn collect_total_ordering_from_import(
+    import: &ruff_python_ast::StmtImportFrom,
+    names: &mut Vec<String>,
+) {
+    if import.level != 0 || import.module.as_ref().map_or("", |m| m.as_str()) != "functools" {
+        return;
+    }
+    for alias in &import.names {
+        if matches!(alias.name.as_str(), "total_ordering" | "*") {
+            names.push(
+                alias
+                    .asname
+                    .as_ref()
+                    .map_or("total_ordering", |a| a.as_str())
+                    .to_string(),
+            );
+        }
+    }
+}
+
+/// `import functools [as f]` binds `functools.total_ordering` under the
+/// module's local name.
+fn collect_functools_module_alias(import: &ruff_python_ast::StmtImport, names: &mut Vec<String>) {
+    for alias in &import.names {
+        if alias.name.as_str() == "functools" {
+            names.push(format!(
+                "{}.total_ordering",
+                alias.asname.as_ref().map_or("functools", |a| a.as_str())
+            ));
+        }
+    }
 }
 
 #[cfg(test)]

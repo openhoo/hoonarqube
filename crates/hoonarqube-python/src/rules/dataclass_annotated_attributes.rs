@@ -107,37 +107,46 @@ fn dataclass_bindings(file_ctx: &FileContext) -> Vec<String> {
     let mut names = Vec::new();
     for import in &file_ctx.imports {
         match import {
-            AnyImport::From(import) if import.level == 0 => {
-                let module = import.module.as_ref().map_or("", |m| m.as_str());
-                if module != "dataclasses" {
-                    continue;
-                }
-                for alias in &import.names {
-                    if matches!(alias.name.as_str(), "dataclass" | "*") {
-                        names.push(
-                            alias
-                                .asname
-                                .as_ref()
-                                .map_or("dataclass", |a| a.as_str())
-                                .to_string(),
-                        );
-                    }
-                }
-            }
-            AnyImport::Plain(import) => {
-                for alias in &import.names {
-                    if alias.name.as_str() == "dataclasses" {
-                        names.push(format!(
-                            "{}.dataclass",
-                            alias.asname.as_ref().map_or("dataclasses", |a| a.as_str())
-                        ));
-                    }
-                }
-            }
-            AnyImport::From(_) => {}
+            AnyImport::From(import) => collect_dataclass_from_import(import, &mut names),
+            AnyImport::Plain(import) => collect_dataclasses_module_alias(import, &mut names),
         }
     }
     names
+}
+
+/// `from dataclasses import dataclass [as x]` (and star imports) bind
+/// the decorator under a local name.
+fn collect_dataclass_from_import(
+    import: &ruff_python_ast::StmtImportFrom,
+    names: &mut Vec<String>,
+) {
+    if import.level != 0 || import.module.as_ref().map_or("", |m| m.as_str()) != "dataclasses" {
+        return;
+    }
+    for alias in &import.names {
+        if matches!(alias.name.as_str(), "dataclass" | "*") {
+            names.push(
+                alias
+                    .asname
+                    .as_ref()
+                    .map_or("dataclass", |a| a.as_str())
+                    .to_string(),
+            );
+        }
+    }
+}
+
+/// `import dataclasses [as dc]` binds `dataclasses.dataclass` under the
+/// module's local name.
+fn collect_dataclasses_module_alias(import: &ruff_python_ast::StmtImport, names: &mut Vec<String>) {
+    for alias in &import.names {
+        if alias.name.as_str() == "dataclasses" {
+            names.push(format!(
+                "{}.dataclass",
+                alias.asname.as_ref().map_or("dataclasses", |a| a.as_str())
+            ));
+        }
+    }
 }
 
 #[cfg(test)]

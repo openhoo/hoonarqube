@@ -121,43 +121,54 @@ struct TypingBindings {
 }
 
 fn typing_construct_bindings(file_ctx: &FileContext) -> TypingBindings {
-    let mut names = Vec::new();
-    let mut module_aliases = Vec::new();
+    let mut bindings = TypingBindings {
+        names: Vec::new(),
+        module_aliases: Vec::new(),
+    };
     for import in &file_ctx.imports {
         match import {
-            AnyImport::From(import) if import.level == 0 => {
-                let module = import.module.as_ref().map_or("", |m| m.as_str());
-                if !TYPING_MODULES.contains(&module) {
-                    continue;
-                }
-                for alias in &import.names {
-                    if alias.name.as_str() == "*" {
-                        names.extend(TYPING_MEMBERS.iter().map(ToString::to_string));
-                    } else if TYPING_MEMBERS.contains(&alias.name.as_str()) {
-                        names.push(
-                            alias
-                                .asname
-                                .as_ref()
-                                .map_or_else(|| alias.name.to_string(), |a| a.as_str().to_string()),
-                        );
-                    }
-                }
-            }
+            AnyImport::From(import) => collect_typing_from_import(import, &mut bindings.names),
             AnyImport::Plain(import) => {
-                for alias in &import.names {
-                    if TYPING_MODULES.contains(&alias.name.as_str())
-                        && let Some(asname) = &alias.asname
-                    {
-                        module_aliases.push(asname.as_str().to_string());
-                    }
-                }
+                collect_typing_module_alias(import, &mut bindings.module_aliases);
             }
-            AnyImport::From(_) => {}
         }
     }
-    TypingBindings {
-        names,
-        module_aliases,
+    bindings
+}
+
+/// `from typing|typing_extensions import TypeVar|ParamSpec|NewType
+/// [as x]` (and star imports) bind the constructs under local names.
+fn collect_typing_from_import(import: &ruff_python_ast::StmtImportFrom, names: &mut Vec<String>) {
+    if import.level != 0 {
+        return;
+    }
+    let module = import.module.as_ref().map_or("", |m| m.as_str());
+    if !TYPING_MODULES.contains(&module) {
+        return;
+    }
+    for alias in &import.names {
+        if alias.name.as_str() == "*" {
+            names.extend(TYPING_MEMBERS.iter().map(ToString::to_string));
+        } else if TYPING_MEMBERS.contains(&alias.name.as_str()) {
+            names.push(
+                alias
+                    .asname
+                    .as_ref()
+                    .map_or_else(|| alias.name.to_string(), |a| a.as_str().to_string()),
+            );
+        }
+    }
+}
+
+/// `import typing|typing_extensions as x` binds the module under a
+/// local alias so `x.TypeVar` resolves.
+fn collect_typing_module_alias(import: &ruff_python_ast::StmtImport, aliases: &mut Vec<String>) {
+    for alias in &import.names {
+        if TYPING_MODULES.contains(&alias.name.as_str())
+            && let Some(asname) = &alias.asname
+        {
+            aliases.push(asname.as_str().to_string());
+        }
     }
 }
 
