@@ -225,8 +225,12 @@ use crate::rules::s5886_return_hint_mismatches::check_s5886_return_hint_mismatch
 use crate::rules::s5890_annotated_assignment_kinds::check_s5890_annotated_assignment_kinds;
 use crate::rules::s5958_specific_exception_assertion::check_s5958_specific_exception_assertion;
 use crate::rules::s5976_similar_tests_parameterized::check_s5976_similar_tests_parameterized;
+use crate::rules::s6243_lambda_reusable_resources::check_s6243_lambda_reusable_resources;
 use crate::rules::s6245_s3_encryption_configuration::check_s6245_s3_encryption_configuration;
+use crate::rules::s6246_lambda_cross_call::check_s6246_lambda_cross_call;
+use crate::rules::s6249_s3_https_only::check_s6249_s3_https_only;
 use crate::rules::s6252_s3_versioning::check_s6252_s3_versioning;
+use crate::rules::s6262_hardcoded_aws_region::check_s6262_hardcoded_aws_region;
 use crate::rules::s6265_s3_public_acl::check_s6265_s3_public_acl;
 use crate::rules::s6270_public_resource_policy::check_s6270_public_resource_policy;
 use crate::rules::s6275_ebs_encryption::check_s6275_ebs_encryption;
@@ -260,6 +264,7 @@ use crate::rules::s7619_client_error_handling::check_s7619_client_error_handling
 use crate::rules::s7620_lambda_tmp_cleanup::check_s7620_lambda_tmp_cleanup;
 use crate::rules::s7621_aws_waiters::check_s7621_aws_waiters;
 use crate::rules::s7622_boto3_pagination::check_s7622_boto3_pagination;
+use crate::rules::s7625_aws_long_term_access_keys::check_s7625_aws_long_term_access_keys;
 use crate::rules::s8370_flask_post_query_params::check_s8370_flask_post_query_params;
 use crate::rules::s8371_flask_headers_subscript::check_s8371_flask_headers_subscript;
 use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators;
@@ -910,10 +915,16 @@ fn tier_c_cloud_data_checks(
         module_name,
         project,
     ));
+    issues.extend(check_s6243_lambda_reusable_resources(
+        index, source, file_ctx,
+    ));
     issues.extend(check_s6245_s3_encryption_configuration(
         index, source, file_ctx,
     ));
+    issues.extend(check_s6246_lambda_cross_call(index, source, file_ctx));
+    issues.extend(check_s6249_s3_https_only(index, source, file_ctx));
     issues.extend(check_s6252_s3_versioning(index, source, file_ctx));
+    issues.extend(check_s6262_hardcoded_aws_region(index, source, file_ctx));
     issues.extend(check_s6265_s3_public_acl(index, source, file_ctx));
     issues.extend(check_s6270_public_resource_policy(
         parsed, index, source, file_ctx,
@@ -982,6 +993,9 @@ fn tier_c_cloud_data_checks(
     issues.extend(check_s5632_raising_non_exceptions(index, source, file_ctx));
     issues.extend(check_s5708_excepting_non_exceptions(
         parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s7625_aws_long_term_access_keys(
+        index, source, file_ctx,
     ));
 }
 
@@ -1766,10 +1780,17 @@ mod s5886_return_hint_mismatches;
 mod s5890_annotated_assignment_kinds;
 
 mod s5976_similar_tests_parameterized;
+mod s6243_lambda_reusable_resources;
 
 mod s6245_s3_encryption_configuration;
 
+mod s6246_lambda_cross_call;
+
+mod s6249_s3_https_only;
+
 mod s6252_s3_versioning;
+
+mod s6262_hardcoded_aws_region;
 
 mod s6265_s3_public_acl;
 
@@ -1824,6 +1845,9 @@ mod s7619_client_error_handling;
 mod s7620_lambda_tmp_cleanup;
 mod s7621_aws_waiters;
 mod s7622_boto3_pagination;
+
+mod s7625_aws_long_term_access_keys;
+
 mod s8389_file_upload_form;
 
 mod s8396_optional_field_defaults;
