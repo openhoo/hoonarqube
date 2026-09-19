@@ -249,6 +249,11 @@ use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
 use crate::rules::s6863_flask_error_handler_status::check_s6863_flask_error_handler_status;
 use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
+use crate::rules::s7608_s3_expected_bucket_owner::check_s7608_s3_expected_bucket_owner;
+use crate::rules::s7609_cloudwatch_metric_namespace::check_s7609_cloudwatch_metric_namespace;
+use crate::rules::s7613_lambda_json_serializable_return::check_s7613_lambda_json_serializable_return;
+use crate::rules::s7614_async_lambda_handler::check_s7614_async_lambda_handler;
+use crate::rules::s7617_lambda_reserved_env_vars::check_s7617_lambda_reserved_env_vars;
 use crate::rules::s7618_lambda_network_timeouts::check_s7618_lambda_network_timeouts;
 use crate::rules::s7619_client_error_handling::check_s7619_client_error_handling;
 use crate::rules::s7620_lambda_tmp_cleanup::check_s7620_lambda_tmp_cleanup;
@@ -924,6 +929,19 @@ fn tier_c_cloud_data_checks(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_s6319_sagemaker_encryption(index, source, file_ctx));
+    issues.extend(check_s7608_s3_expected_bucket_owner(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s7609_cloudwatch_metric_namespace(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s7613_lambda_json_serializable_return(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s7614_async_lambda_handler(index, source, file_ctx));
+    issues.extend(check_s7617_lambda_reserved_env_vars(
+        index, source, file_ctx,
+    ));
     issues.extend(check_s6321_admin_ports_open_world(index, source, file_ctx));
     issues.extend(check_s6327_sns_encryption(index, source, file_ctx));
     issues.extend(check_s6329_public_network_access(index, source, file_ctx));
@@ -1782,12 +1800,16 @@ mod s6663_sequence_index_type;
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
 mod s6965_flask_route_methods;
+mod s7608_s3_expected_bucket_owner;
+mod s7609_cloudwatch_metric_namespace;
+mod s7613_lambda_json_serializable_return;
+mod s7614_async_lambda_handler;
+mod s7617_lambda_reserved_env_vars;
 mod s7618_lambda_network_timeouts;
 mod s7619_client_error_handling;
 mod s7620_lambda_tmp_cleanup;
 mod s7621_aws_waiters;
 mod s7622_boto3_pagination;
-
 mod s8389_file_upload_form;
 
 mod s8396_optional_field_defaults;

@@ -205,3 +205,37 @@ pub(crate) fn grants_to_all_principals(expr: &Expr) -> bool {
         _ => is_wildcard_string(expr),
     }
 }
+
+// --- boto3/aiobotocore client helpers ----------------------------------------
+//
+// SonarPython types every `boto3.client(...)`/`boto3.Session().client(...)`
+// result as `botocore.client.BaseClient` and every
+// `aiobotocore.session.get_session().create_client(...)` result as
+// `aiobotocore.client.AioBaseClient`, so the AWS rules only need to know that
+// a receiver was produced by one of those factories — the service argument is
+// irrelevant. `expr_fqn` already resolves `name = <factory call>` bindings
+// and direct `boto3.client("s3").method()` chains to the factory's FQN.
+
+/// Whether `expr` resolves to a boto3/botocore/aiobotocore client factory
+/// call (`boto3.client`, `boto3.Session().client`,
+/// `aiobotocore.session.get_session().create_client`, …). `with ... as`
+/// bindings intentionally stay unresolved, matching Sonar's
+/// `inferSingleAssignedExpressionType` blind spot. Unlike
+/// `is_boto3_client_receiver` this also covers aiobotocore/botocore
+/// factories, which the S7608/S7609 upstream checks type against
+/// `AioBaseClient`.
+pub(crate) fn resolves_to_aws_client(facts: &WebFrameworkFacts<'_>, expr: &Expr) -> bool {
+    let Some(fqn) = facts.expr_fqn(expr) else {
+        return false;
+    };
+    let Some((base, factory)) = fqn.rsplit_once('.') else {
+        return false;
+    };
+    matches!(factory, "client" | "create_client")
+        && (base == "boto3"
+            || base.starts_with("boto3.")
+            || base == "botocore"
+            || base.starts_with("botocore.")
+            || base == "aiobotocore"
+            || base.starts_with("aiobotocore."))
+}
