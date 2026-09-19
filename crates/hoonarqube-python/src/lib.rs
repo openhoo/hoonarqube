@@ -203,6 +203,8 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S6965",
     "python:S7498",
     "python:S7503",
+    "python:S7608",
+    "python:S7614",
     "python:S7632",
     "python:S7941",
     "python:S7943",
