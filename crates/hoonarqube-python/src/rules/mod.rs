@@ -50,6 +50,7 @@ use crate::rules::debug_features::check_debug_features;
 use crate::rules::defaultdict_keyword_factory::check_defaultdict_keyword_factory;
 use crate::rules::deprecated_numpy_aliases::check_deprecated_numpy_aliases;
 use crate::rules::deprecated_utc_helpers::check_deprecated_utc_helpers;
+use crate::rules::dict_membership_without_keys::check_dict_membership_without_keys;
 use crate::rules::disclosed_secret_keys::check_disclosed_secret_keys;
 pub(crate) use crate::rules::django_model_str::check_django_model_str;
 use crate::rules::django_string_field_null::check_django_string_field_null;
@@ -65,6 +66,7 @@ use crate::rules::einops_patterns::check_einops_patterns;
 use crate::rules::empty_blocks::check_empty_blocks;
 use crate::rules::empty_collection_constructors::check_empty_collection_constructors;
 use crate::rules::empty_functions::check_empty_functions;
+use crate::rules::enumerate_unpacking::check_enumerate_unpacking;
 use crate::rules::estimator_hyperparameters::check_estimator_hyperparameters;
 use crate::rules::except_star_groups::check_except_star_groups;
 use crate::rules::exception_inheritance::check_exception_inheritance;
@@ -106,6 +108,8 @@ use crate::rules::lambda_assignments::check_lambda_assignments;
 use crate::rules::lines_of_code::check_lines_of_code;
 use crate::rules::list_wrapped_iteration::check_list_wrapped_iteration;
 use crate::rules::literal_re_sub_patterns::check_literal_re_sub_patterns;
+use crate::rules::logging_best_practices::check_logging_best_practices;
+use crate::rules::logging_exception_in_handlers::check_logging_exception_in_handlers;
 use crate::rules::long_dataframe_chains::check_long_dataframe_chains;
 use crate::rules::long_sleeps::check_long_sleeps;
 use crate::rules::loop_else_without_break::check_loop_else_without_break;
@@ -133,6 +137,9 @@ use crate::rules::nn_module_super_init::check_nn_module_super_init;
 use crate::rules::no_duplicate_base_classes::check_no_duplicate_base_classes;
 use crate::rules::no_duplicate_class_fields::check_no_duplicate_class_fields;
 use crate::rules::no_effect_statements::check_no_effect_statements;
+use crate::rules::no_list_index_first_element::check_no_list_index_first_element;
+use crate::rules::no_sorted_indexing_for_extremes::check_no_sorted_indexing_for_extremes;
+use crate::rules::no_sum_empty_list_concat::check_no_sum_empty_list_concat;
 use crate::rules::notimplemented_raises::check_notimplemented_raises;
 use crate::rules::np_array_generator::check_np_array_generator;
 use crate::rules::old_style_classes::check_old_style_classes;
@@ -968,7 +975,8 @@ pub(crate) fn check_test_assertion_battery(
 
 /// Aggregates the future-reference detectors (python:S8492,
 /// python:S8495, python:S8500, python:S8502, python:S8507, python:S8509,
-/// python:S8510, python:S8512, python:S8513, python:S8514, python:S8714,
+/// python:S8510, python:S8512, python:S8513, python:S8514,
+/// python:S8517–S8521, python:S8554, python:S8572, python:S8714,
 /// python:S8786) added ahead of their catalog entries; S8786 reads the
 /// shared call inventory.
 pub(crate) fn check_future_reference_battery(
@@ -1006,6 +1014,15 @@ pub(crate) fn check_future_reference_battery(
     issues.extend(check_dataclass_annotated_attributes(
         parsed, index, source, file_ctx,
     ));
+    issues.extend(check_enumerate_unpacking(parsed, index, source));
+    issues.extend(check_no_sorted_indexing_for_extremes(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_no_list_index_first_element(index, source, file_ctx));
+    issues.extend(check_no_sum_empty_list_concat(index, source, file_ctx));
+    issues.extend(check_dict_membership_without_keys(index, source, file_ctx));
+    issues.extend(check_logging_best_practices(index, source, file_ctx));
+    issues.extend(check_logging_exception_in_handlers(index, source, file_ctx));
     issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
     issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
     issues
@@ -1193,6 +1210,8 @@ mod deprecated_numpy_aliases;
 
 mod deprecated_utc_helpers;
 
+mod dict_membership_without_keys;
+
 mod disclosed_secret_keys;
 
 mod django_model_str;
@@ -1222,6 +1241,8 @@ mod empty_collection_constructors;
 mod empty_functions;
 
 pub(crate) mod ends_with_newline;
+
+mod enumerate_unpacking;
 
 mod estimator_hyperparameters;
 
@@ -1320,6 +1341,10 @@ mod literal_re_sub_patterns;
 
 mod long_dataframe_chains;
 
+mod logging_best_practices;
+
+mod logging_exception_in_handlers;
+
 mod long_sleeps;
 
 mod loop_else_without_break;
@@ -1377,7 +1402,13 @@ mod no_duplicate_class_fields;
 
 mod no_effect_statements;
 
+mod no_list_index_first_element;
+
 pub(crate) mod no_sonar;
+
+mod no_sorted_indexing_for_extremes;
+
+mod no_sum_empty_list_concat;
 
 pub(crate) mod noqa_comments;
 
