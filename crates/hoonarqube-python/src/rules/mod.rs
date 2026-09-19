@@ -31,6 +31,7 @@ use crate::rules::complexity::check_class_complexity;
 use crate::rules::complexity::check_cognitive_complexity;
 use crate::rules::complexity::check_file_complexity;
 use crate::rules::complexity::check_function_complexity;
+use crate::rules::compression_namespace_imports::check_compression_namespace_imports;
 use crate::rules::confusing_type_checks::check_confusing_type_checks;
 use crate::rules::confusing_walrus_placement::check_confusing_walrus_placement;
 use crate::rules::consistent_return_tuple_lengths::check_consistent_return_tuple_lengths;
@@ -134,12 +135,14 @@ use crate::rules::nested_estimator_parameters::check_nested_estimator_parameters
 use crate::rules::nested_identical_constructors::check_nested_identical_constructors;
 use crate::rules::nesting_depths::check_nesting_depths;
 use crate::rules::nn_module_super_init::check_nn_module_super_init;
+use crate::rules::no_dataclass_on_enums::check_no_dataclass_on_enums;
 use crate::rules::no_duplicate_base_classes::check_no_duplicate_base_classes;
 use crate::rules::no_duplicate_class_fields::check_no_duplicate_class_fields;
 use crate::rules::no_effect_statements::check_no_effect_statements;
 use crate::rules::no_list_index_first_element::check_no_list_index_first_element;
 use crate::rules::no_sorted_indexing_for_extremes::check_no_sorted_indexing_for_extremes;
 use crate::rules::no_sum_empty_list_concat::check_no_sum_empty_list_concat;
+use crate::rules::notimplemented_boolean_contexts::check_notimplemented_boolean_contexts;
 use crate::rules::notimplemented_raises::check_notimplemented_raises;
 use crate::rules::np_array_generator::check_np_array_generator;
 use crate::rules::old_style_classes::check_old_style_classes;
@@ -280,9 +283,11 @@ use crate::rules::single_task_nurseries::check_single_task_nurseries;
 use crate::rules::skip_without_reason::check_skip_without_reason;
 use crate::rules::sleep_in_async_loop::check_sleep_in_async_loop;
 use crate::rules::sleep_zero_checkpoint::check_sleep_zero_checkpoint;
+use crate::rules::slots_declared_attributes::check_slots_declared_attributes;
 use crate::rules::sorted_reversed_shapes::check_sorted_reversed_shapes;
 use crate::rules::special_method_arities::check_special_method_arities;
 use crate::rules::static_candidates::check_static_candidates;
+use crate::rules::stopiteration_in_generators::check_stopiteration_in_generators;
 use crate::rules::strftime_hour_markers::check_strftime_hour_markers;
 use crate::rules::swallowed_cancellations::check_swallowed_cancellations;
 use crate::rules::swallowed_system_exit::check_swallowed_system_exit;
@@ -291,6 +296,9 @@ use crate::rules::sync_http_in_async::check_sync_http_in_async;
 use crate::rules::sync_open_without_async_with::check_sync_open_without_async_with;
 use crate::rules::sync_os_calls_in_async::check_sync_os_calls_in_async;
 use crate::rules::sync_subprocess_in_async::check_sync_subprocess_in_async;
+use crate::rules::template_pattern_matching::check_template_pattern_matching;
+use crate::rules::template_str_concatenation::check_template_str_concatenation;
+use crate::rules::template_strings_processing::check_template_strings_processing;
 use crate::rules::tf_function_global_captures::check_tf_function_global_captures;
 use crate::rules::tf_function_recursion::check_tf_function_recursion;
 use crate::rules::tf_function_side_effects::check_tf_function_side_effects;
@@ -1045,6 +1053,16 @@ pub(crate) fn check_future_reference_battery(
     issues.extend(check_logging_exception_in_handlers(index, source, file_ctx));
     issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
     issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
+    issues.extend(check_notimplemented_boolean_contexts(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_compression_namespace_imports(index, source, file_ctx));
+    issues.extend(check_template_strings_processing(index, source, file_ctx));
+    issues.extend(check_template_str_concatenation(index, source, file_ctx));
+    issues.extend(check_template_pattern_matching(index, source, file_ctx));
+    issues.extend(check_no_dataclass_on_enums(index, source, file_ctx));
+    issues.extend(check_stopiteration_in_generators(index, source, file_ctx));
+    issues.extend(check_slots_declared_attributes(index, source, file_ctx));
     issues
 }
 
@@ -1191,6 +1209,8 @@ mod complete_comparison_methods;
 pub(crate) mod complexity;
 
 pub(crate) mod commented_code;
+
+mod compression_namespace_imports;
 
 mod confusing_type_checks;
 
@@ -1420,6 +1440,8 @@ mod nn_module_super_init;
 mod no_duplicate_base_classes;
 mod no_duplicate_class_fields;
 
+mod no_dataclass_on_enums;
+
 mod no_effect_statements;
 
 mod no_list_index_first_element;
@@ -1431,6 +1453,8 @@ mod no_sorted_indexing_for_extremes;
 mod no_sum_empty_list_concat;
 
 pub(crate) mod noqa_comments;
+
+mod notimplemented_boolean_contexts;
 
 mod notimplemented_raises;
 
@@ -1728,6 +1752,8 @@ mod s930_arity_mismatches;
 
 mod s935_bare_returns;
 
+mod scope_values;
+
 mod self_assignment;
 mod set_discard_instead_of_membership_removal;
 
@@ -1745,11 +1771,15 @@ mod sleep_in_async_loop;
 
 mod sleep_zero_checkpoint;
 
+mod slots_declared_attributes;
+
 mod sorted_reversed_shapes;
 
 mod special_method_arities;
 
 mod static_candidates;
+
+mod stopiteration_in_generators;
 
 mod strftime_hour_markers;
 
@@ -1768,6 +1798,12 @@ mod sync_open_without_async_with;
 mod sync_os_calls_in_async;
 
 mod sync_subprocess_in_async;
+
+mod template_pattern_matching;
+
+mod template_str_concatenation;
+
+mod template_strings_processing;
 
 mod tf_function_global_captures;
 
