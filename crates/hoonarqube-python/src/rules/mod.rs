@@ -26,6 +26,7 @@ use crate::rules::class_names::check_class_names;
 use crate::rules::classmethod_parameter_names::check_classmethod_parameter_names;
 use crate::rules::closure_captures_loop_variable::check_closure_captures_loop_variable;
 use crate::rules::collapsible_ifs::check_collapsible_ifs;
+use crate::rules::complete_comparison_methods::check_complete_comparison_methods;
 use crate::rules::complexity::check_class_complexity;
 use crate::rules::complexity::check_cognitive_complexity;
 use crate::rules::complexity::check_file_complexity;
@@ -33,6 +34,7 @@ use crate::rules::complexity::check_function_complexity;
 use crate::rules::compression_namespace_imports::check_compression_namespace_imports;
 use crate::rules::confusing_type_checks::check_confusing_type_checks;
 use crate::rules::confusing_walrus_placement::check_confusing_walrus_placement;
+use crate::rules::consistent_return_tuple_lengths::check_consistent_return_tuple_lengths;
 use crate::rules::constant_conditions::check_constant_conditions;
 use crate::rules::constant_dict_comprehension_values::check_constant_dict_comprehension_values;
 use crate::rules::constant_none_comparisons::check_constant_none_comparisons;
@@ -40,6 +42,7 @@ use crate::rules::constant_populated_dict_loop::check_constant_populated_dict_lo
 use crate::rules::control_flow_in_nurseries::check_control_flow_in_nurseries;
 use crate::rules::cookie_flag::check_cookie_flag;
 use crate::rules::copy_only_comprehensions::check_copy_only_comprehensions;
+use crate::rules::dataclass_annotated_attributes::check_dataclass_annotated_attributes;
 use crate::rules::dataframe_values_attribute::check_dataframe_values_attribute;
 use crate::rules::dataloader_workers::check_dataloader_workers;
 use crate::rules::datetime_component_ranges::check_datetime_component_ranges;
@@ -129,6 +132,8 @@ use crate::rules::nested_identical_constructors::check_nested_identical_construc
 use crate::rules::nesting_depths::check_nesting_depths;
 use crate::rules::nn_module_super_init::check_nn_module_super_init;
 use crate::rules::no_dataclass_on_enums::check_no_dataclass_on_enums;
+use crate::rules::no_duplicate_base_classes::check_no_duplicate_base_classes;
+use crate::rules::no_duplicate_class_fields::check_no_duplicate_class_fields;
 use crate::rules::no_effect_statements::check_no_effect_statements;
 use crate::rules::notimplemented_boolean_contexts::check_notimplemented_boolean_contexts;
 use crate::rules::notimplemented_raises::check_notimplemented_raises;
@@ -241,14 +246,22 @@ use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
 use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
+use crate::rules::s8994_pytest_fixture_single_yield::check_s8994_pytest_fixture_single_yield;
 use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
+use crate::rules::s8998_pytest_parametrize_nonempty::check_s8998_pytest_parametrize_nonempty;
 use crate::rules::s9000_raises_context_manager::check_s9000_raises_context_manager;
 use crate::rules::s9001_xfail_reason::check_s9001_xfail_reason;
 use crate::rules::s9073_composite_assertion::check_s9073_composite_assertion;
+use crate::rules::s9074_pytest_useless_marks::check_s9074_pytest_useless_marks;
 use crate::rules::s9075_specific_warning_assertion::check_s9075_specific_warning_assertion;
+use crate::rules::s9076_pytest_yield_fixture_deprecated::check_s9076_pytest_yield_fixture_deprecated;
+use crate::rules::s9077_pytest_fail_with_message::check_s9077_pytest_fail_with_message;
 use crate::rules::s9078_duplicate_parametrize_cases::check_s9078_duplicate_parametrize_cases;
 use crate::rules::s9083_pytest_decorator_parentheses::check_s9083_pytest_decorator_parentheses;
+use crate::rules::s9084_pytest_module_import::check_s9084_pytest_module_import;
+use crate::rules::s9116_pytest_fixture_keyword_args::check_s9116_pytest_fixture_keyword_args;
 use crate::rules::self_assignment::check_self_assignment;
+use crate::rules::set_discard_instead_of_membership_removal::check_set_discard_instead_of_membership_removal;
 use crate::rules::shadowed_builtins::check_shadowed_builtins;
 use crate::rules::similar_names_scope::check_similar_names_scope;
 use crate::rules::single_arg_np_where::check_single_arg_np_where;
@@ -284,6 +297,7 @@ use crate::rules::tuple_assertions::check_tuple_assertions;
 use crate::rules::type_equality_comparisons::check_type_equality_comparisons;
 use crate::rules::typealias_assignments::check_typealias_assignments;
 use crate::rules::typevar_annotated_functions::check_typevar_annotated_functions;
+use crate::rules::typevar_names_match_variables::check_typevar_names_match_variables;
 use crate::rules::typing_alias_hints::check_typing_alias_hints;
 use crate::rules::typing_union_hints::check_typing_union_hints;
 use crate::rules::unbounded_archive_extraction::check_unbounded_archive_extraction;
@@ -960,9 +974,11 @@ pub(crate) fn check_test_assertion_battery(
     issues
 }
 
-/// Aggregates the future-reference detectors (python:S8502,
-/// python:S8510, python:S8513, python:S8714, python:S8786) added ahead
-/// of their catalog entries; S8786 reads the shared call inventory.
+/// Aggregates the future-reference detectors (python:S8492,
+/// python:S8495, python:S8500, python:S8502, python:S8507, python:S8509,
+/// python:S8510, python:S8512, python:S8513, python:S8514, python:S8714,
+/// python:S8786) added ahead of their catalog entries; S8786 reads the
+/// shared call inventory.
 pub(crate) fn check_future_reference_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -970,13 +986,34 @@ pub(crate) fn check_future_reference_battery(
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    issues.extend(check_set_discard_instead_of_membership_removal(
+        parsed, index, source,
+    ));
+    issues.extend(check_consistent_return_tuple_lengths(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_complete_comparison_methods(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8502_set_update_instead_of_add_loop(
         parsed, index, source,
+    ));
+    issues.extend(check_typevar_names_match_variables(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_no_duplicate_base_classes(
+        parsed, index, source, file_ctx,
     ));
     issues.extend(check_s8510_loop_variable_shadows_outer(
         parsed, index, source,
     ));
+    issues.extend(check_no_duplicate_class_fields(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8513_chained_startswith_calls(parsed, index, source));
+    issues.extend(check_dataclass_annotated_attributes(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
     issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
     issues.extend(check_notimplemented_boolean_contexts(
@@ -1015,10 +1052,11 @@ pub(crate) fn check_pytest_contract_battery(
     issues
 }
 
-/// Aggregates the future test-suite detectors (python:S9075,
-/// python:S9078, python:S9083) added ahead of their catalog entries. All
-/// three mirror reference checks whose scope is every file, so unlike the
-/// pytest-contract battery they do not gate on the pytest file name, and
+/// Aggregates the future test-suite detectors (python:S8994, python:S8998,
+/// python:S9074, python:S9075, python:S9076, python:S9077, python:S9078,
+/// python:S9083, python:S9084, python:S9116) added ahead of their catalog
+/// entries. All mirror reference checks whose scope is every file, so unlike
+/// the pytest-contract battery they do not gate on the pytest file name, and
 /// S9083 reads the `requireParentheses` parameter.
 pub(crate) fn check_future_test_contract_battery(
     parsed: &Parsed<ModModule>,
@@ -1027,9 +1065,20 @@ pub(crate) fn check_future_test_contract_battery(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    issues.extend(check_s8994_pytest_fixture_single_yield(
+        parsed, index, source,
+    ));
+    issues.extend(check_s8998_pytest_parametrize_nonempty(
+        parsed, index, source,
+    ));
+    issues.extend(check_s9074_pytest_useless_marks(parsed, index, source));
     issues.extend(check_s9075_specific_warning_assertion(
         parsed, index, source,
     ));
+    issues.extend(check_s9076_pytest_yield_fixture_deprecated(
+        parsed, index, source,
+    ));
+    issues.extend(check_s9077_pytest_fail_with_message(parsed, index, source));
     issues.extend(check_s9078_duplicate_parametrize_cases(
         parsed, index, source,
     ));
@@ -1038,6 +1087,10 @@ pub(crate) fn check_future_test_contract_battery(
         index,
         source,
         options.require_pytest_decorator_parentheses,
+    ));
+    issues.extend(check_s9084_pytest_module_import(parsed, index, source));
+    issues.extend(check_s9116_pytest_fixture_keyword_args(
+        parsed, index, source,
     ));
     issues
 }
@@ -1114,6 +1167,7 @@ mod classmethod_parameter_names;
 pub(crate) mod cleartext_protocols;
 
 mod closure_captures_loop_variable;
+mod complete_comparison_methods;
 
 pub(crate) mod complexity;
 
@@ -1124,6 +1178,7 @@ mod compression_namespace_imports;
 mod confusing_type_checks;
 
 mod confusing_walrus_placement;
+mod consistent_return_tuple_lengths;
 
 mod constant_conditions;
 
@@ -1140,6 +1195,7 @@ mod cookie_flag;
 mod copy_only_comprehensions;
 
 mod curly_quantifier;
+mod dataclass_annotated_attributes;
 
 mod dataframe_values_attribute;
 
@@ -1336,6 +1392,8 @@ mod nested_identical_constructors;
 mod nesting_depths;
 
 mod nn_module_super_init;
+mod no_duplicate_base_classes;
+mod no_duplicate_class_fields;
 
 mod no_dataclass_on_enums;
 
@@ -1600,7 +1658,11 @@ mod s8786_super_linear_regex;
 
 mod s8992_autouse_fixture_params;
 
+mod s8994_pytest_fixture_single_yield;
+
 mod s8997_monkeypatch_global_state;
+
+mod s8998_pytest_parametrize_nonempty;
 
 mod s9000_raises_context_manager;
 
@@ -1608,11 +1670,21 @@ mod s9001_xfail_reason;
 
 mod s9073_composite_assertion;
 
+mod s9074_pytest_useless_marks;
+
 mod s9075_specific_warning_assertion;
+
+mod s9076_pytest_yield_fixture_deprecated;
+
+mod s9077_pytest_fail_with_message;
 
 mod s9078_duplicate_parametrize_cases;
 
 mod s9083_pytest_decorator_parentheses;
+
+mod s9084_pytest_module_import;
+
+mod s9116_pytest_fixture_keyword_args;
 
 mod s930_arity_mismatches;
 
@@ -1621,6 +1693,7 @@ mod s935_bare_returns;
 mod scope_values;
 
 mod self_assignment;
+mod set_discard_instead_of_membership_removal;
 
 mod shadowed_builtins;
 
@@ -1693,6 +1766,7 @@ mod type_equality_comparisons;
 mod typealias_assignments;
 
 mod typevar_annotated_functions;
+mod typevar_names_match_variables;
 
 mod typing_alias_hints;
 
