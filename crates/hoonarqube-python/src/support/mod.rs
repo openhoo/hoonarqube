@@ -3,6 +3,7 @@
 mod aws_call_shape_helpers;
 mod django_conventions;
 mod effect_effect_retention_tracking;
+mod flask_conventions;
 mod literal_kind_classification_for_operator_rules;
 mod literal_kind_helpers_for_the_operator_exception_family;
 mod pandas_heuristics;
@@ -46,6 +47,7 @@ mod web_framework_bindings;
 pub(crate) use aws_call_shape_helpers::*;
 pub(crate) use django_conventions::*;
 pub(crate) use effect_effect_retention_tracking::*;
+pub(crate) use flask_conventions::*;
 pub(crate) use literal_kind_classification_for_operator_rules::*;
 pub(crate) use literal_kind_helpers_for_the_operator_exception_family::*;
 pub(crate) use pandas_heuristics::*;

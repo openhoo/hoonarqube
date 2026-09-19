@@ -247,8 +247,15 @@ use crate::rules::s6463_unrestricted_egress::check_s6463_unrestricted_egress;
 use crate::rules::s6662_unhashable_collection_literals::check_s6662_unhashable_collection_literals;
 use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
+use crate::rules::s6863_flask_error_handler_status::check_s6863_flask_error_handler_status;
 use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
+use crate::rules::s8370_flask_post_query_params::check_s8370_flask_post_query_params;
+use crate::rules::s8371_flask_headers_subscript::check_s8371_flask_headers_subscript;
+use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators;
+use crate::rules::s8375_flask_preprocess_request::check_s8375_flask_preprocess_request;
+use crate::rules::s8385_flask_send_file_mimetype::check_s8385_flask_send_file_mimetype;
 use crate::rules::s8396_optional_field_defaults::check_s8396_optional_field_defaults;
+use crate::rules::s8400_fastapi_no_content_body::check_s8400_fastapi_no_content_body;
 use crate::rules::s8401_child_router_before_parent::check_s8401_child_router_before_parent;
 use crate::rules::s8412_generic_route_decorator::check_s8412_generic_route_decorator;
 use crate::rules::s8413_router_prefix_in_include::check_s8413_router_prefix_in_include;
@@ -539,7 +546,20 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_modelform_meta_fields(index, source, file_ctx));
     issues.extend(check_json_response_safe_flag(index, source, file_ctx));
     issues.extend(check_route_decorator_ordering(index, source, file_ctx));
+    issues.extend(check_s6863_flask_error_handler_status(
+        index, source, file_ctx,
+    ));
     issues.extend(check_s6965_flask_route_methods(index, source, file_ctx));
+    issues.extend(check_s8370_flask_post_query_params(index, source, file_ctx));
+    issues.extend(check_s8371_flask_headers_subscript(index, source, file_ctx));
+    issues.extend(check_s8374_flask_view_decorators(index, source, file_ctx));
+    issues.extend(check_s8375_flask_preprocess_request(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8385_flask_send_file_mimetype(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8400_fastapi_no_content_body(index, source, file_ctx));
     issues.extend(check_s8401_child_router_before_parent(
         index, source, file_ctx,
     ));
@@ -1735,6 +1755,20 @@ mod s8414_cors_middleware_ordering;
 mod s8415_http_exception_documented;
 
 mod s8396_optional_field_defaults;
+
+mod s6863_flask_error_handler_status;
+
+mod s8370_flask_post_query_params;
+
+mod s8371_flask_headers_subscript;
+
+mod s8374_flask_view_decorators;
+
+mod s8375_flask_preprocess_request;
+
+mod s8385_flask_send_file_mimetype;
+
+mod s8400_fastapi_no_content_body;
 
 mod s8502_set_update_instead_of_add_loop;
 

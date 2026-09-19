@@ -60,6 +60,10 @@ pub(crate) struct FileContext<'a> {
     /// Lexical identities for standard-library APIs whose rule semantics
     /// depend on binding provenance rather than a method's final spelling.
     pub(crate) known_bindings: KnownBindings,
+    /// Flask/FastAPI provenance for the web-framework rule family
+    /// (application instances, the `flask.request` proxy, view/response
+    /// classes, file-like objects).
+    pub(crate) web_bindings: crate::support::WebBindings,
 }
 impl<'a> FileContext<'a> {
     /// Builds every inventory in one combined pass over the module.
@@ -75,6 +79,7 @@ impl<'a> FileContext<'a> {
             imports: Vec::new(),
             has_aws_cdk_import: false,
             known_bindings: KnownBindings::build(parsed),
+            web_bindings: crate::support::WebBindings::build(parsed),
         };
         collect_all(parsed.syntax().body.as_slice(), &mut ctx);
         ctx.has_aws_cdk_import = ctx.imports.iter().any(|entry| match entry {
