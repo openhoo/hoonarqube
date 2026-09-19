@@ -54,10 +54,11 @@ pub(crate) fn check_items_only_keys_needed(
     issues
 }
 
-/// Whether the `.items()` receiver provably holds a dict: a dict literal, a
-/// `dict(...)` call, or a name whose single assignment in the file is one of
-/// those. Attribute receivers and unresolvable names are not provable.
-fn receiver_is_known_dict(receiver: &Expr, file_ctx: &FileContext) -> bool {
+/// Whether the `.items()`/`.keys()` receiver provably holds a dict: a dict
+/// literal, a `dict(...)` call, or a name whose single assignment in the
+/// file is one of those. Attribute receivers and unresolvable names are not
+/// provable.
+pub(crate) fn receiver_is_known_dict(receiver: &Expr, file_ctx: &FileContext) -> bool {
     let name = match receiver {
         Expr::Dict(_) => return true,
         Expr::Call(call) => {
