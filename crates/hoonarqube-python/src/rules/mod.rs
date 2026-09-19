@@ -224,8 +224,12 @@ use crate::rules::s5863_identical_assertion_arguments::check_s5863_identical_ass
 use crate::rules::s5886_return_hint_mismatches::check_s5886_return_hint_mismatches;
 use crate::rules::s5890_annotated_assignment_kinds::check_s5890_annotated_assignment_kinds;
 use crate::rules::s5958_specific_exception_assertion::check_s5958_specific_exception_assertion;
+use crate::rules::s6243_lambda_reusable_resources::check_s6243_lambda_reusable_resources;
 use crate::rules::s6245_s3_encryption_configuration::check_s6245_s3_encryption_configuration;
+use crate::rules::s6246_lambda_cross_call::check_s6246_lambda_cross_call;
+use crate::rules::s6249_s3_https_only::check_s6249_s3_https_only;
 use crate::rules::s6252_s3_versioning::check_s6252_s3_versioning;
+use crate::rules::s6262_hardcoded_aws_region::check_s6262_hardcoded_aws_region;
 use crate::rules::s6265_s3_public_acl::check_s6265_s3_public_acl;
 use crate::rules::s6270_public_resource_policy::check_s6270_public_resource_policy;
 use crate::rules::s6275_ebs_encryption::check_s6275_ebs_encryption;
@@ -249,6 +253,7 @@ use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
 use crate::rules::s6863_flask_error_handler_status::check_s6863_flask_error_handler_status;
 use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
+use crate::rules::s7625_aws_long_term_access_keys::check_s7625_aws_long_term_access_keys;
 use crate::rules::s8370_flask_post_query_params::check_s8370_flask_post_query_params;
 use crate::rules::s8371_flask_headers_subscript::check_s8371_flask_headers_subscript;
 use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators;
@@ -887,10 +892,16 @@ fn tier_c_cloud_data_checks(
         module_name,
         project,
     ));
+    issues.extend(check_s6243_lambda_reusable_resources(
+        index, source, file_ctx,
+    ));
     issues.extend(check_s6245_s3_encryption_configuration(
         index, source, file_ctx,
     ));
+    issues.extend(check_s6246_lambda_cross_call(index, source, file_ctx));
+    issues.extend(check_s6249_s3_https_only(index, source, file_ctx));
     issues.extend(check_s6252_s3_versioning(index, source, file_ctx));
+    issues.extend(check_s6262_hardcoded_aws_region(index, source, file_ctx));
     issues.extend(check_s6265_s3_public_acl(index, source, file_ctx));
     issues.extend(check_s6270_public_resource_policy(
         parsed, index, source, file_ctx,
@@ -941,6 +952,9 @@ fn tier_c_cloud_data_checks(
     issues.extend(check_s5632_raising_non_exceptions(index, source, file_ctx));
     issues.extend(check_s5708_excepting_non_exceptions(
         parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s7625_aws_long_term_access_keys(
+        index, source, file_ctx,
     ));
 }
 
@@ -1714,9 +1728,17 @@ mod s5886_return_hint_mismatches;
 
 mod s5890_annotated_assignment_kinds;
 
+mod s6243_lambda_reusable_resources;
+
 mod s6245_s3_encryption_configuration;
 
+mod s6246_lambda_cross_call;
+
+mod s6249_s3_https_only;
+
 mod s6252_s3_versioning;
+
+mod s6262_hardcoded_aws_region;
 
 mod s6265_s3_public_acl;
 
@@ -1761,6 +1783,8 @@ mod s6663_sequence_index_type;
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
 mod s6965_flask_route_methods;
+
+mod s7625_aws_long_term_access_keys;
 
 mod s8389_file_upload_form;
 
