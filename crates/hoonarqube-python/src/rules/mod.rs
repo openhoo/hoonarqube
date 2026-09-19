@@ -253,6 +253,11 @@ use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
 use crate::rules::s6863_flask_error_handler_status::check_s6863_flask_error_handler_status;
 use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
+use crate::rules::s7608_s3_expected_bucket_owner::check_s7608_s3_expected_bucket_owner;
+use crate::rules::s7609_cloudwatch_metric_namespace::check_s7609_cloudwatch_metric_namespace;
+use crate::rules::s7613_lambda_json_serializable_return::check_s7613_lambda_json_serializable_return;
+use crate::rules::s7614_async_lambda_handler::check_s7614_async_lambda_handler;
+use crate::rules::s7617_lambda_reserved_env_vars::check_s7617_lambda_reserved_env_vars;
 use crate::rules::s7618_lambda_network_timeouts::check_s7618_lambda_network_timeouts;
 use crate::rules::s7619_client_error_handling::check_s7619_client_error_handling;
 use crate::rules::s7620_lambda_tmp_cleanup::check_s7620_lambda_tmp_cleanup;
@@ -282,6 +287,11 @@ use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_s
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
+use crate::rules::s8900_deprecated_names::check_s8900_deprecated_names;
+use crate::rules::s8903_raw_html_insertion::check_s8903_raw_html_insertion;
+use crate::rules::s8904_element_none_check::check_s8904_element_none_check;
+use crate::rules::s8905_beautifulsoup_parser::check_s8905_beautifulsoup_parser;
+use crate::rules::s8906_class_list_selector::check_s8906_class_list_selector;
 use crate::rules::s8953_config_dict_validation_options::check_s8953_config_dict_validation_options;
 use crate::rules::s8963_multiple_inheritance_config::check_s8963_multiple_inheritance_config;
 use crate::rules::s8966_serialization_fallback::check_s8966_serialization_fallback;
@@ -601,6 +611,11 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_s8415_http_exception_documented(
         index, source, file_ctx,
     ));
+    issues.extend(check_s8900_deprecated_names(index, source, file_ctx));
+    issues.extend(check_s8903_raw_html_insertion(index, source, file_ctx));
+    issues.extend(check_s8904_element_none_check(index, source, file_ctx));
+    issues.extend(check_s8905_beautifulsoup_parser(index, source, file_ctx));
+    issues.extend(check_s8906_class_list_selector(index, source, file_ctx));
     issues.extend(check_async_timeout_parameters(index, source, file_ctx));
     issues.extend(check_sleep_in_async_loop(parsed, index, source));
     issues.extend(check_long_sleeps(index, source, file_ctx));
@@ -925,6 +940,19 @@ fn tier_c_cloud_data_checks(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_s6319_sagemaker_encryption(index, source, file_ctx));
+    issues.extend(check_s7608_s3_expected_bucket_owner(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s7609_cloudwatch_metric_namespace(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s7613_lambda_json_serializable_return(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s7614_async_lambda_handler(index, source, file_ctx));
+    issues.extend(check_s7617_lambda_reserved_env_vars(
+        index, source, file_ctx,
+    ));
     issues.extend(check_s6321_admin_ports_open_world(index, source, file_ctx));
     issues.extend(check_s6327_sns_encryption(index, source, file_ctx));
     issues.extend(check_s6329_public_network_access(index, source, file_ctx));
@@ -1278,6 +1306,7 @@ mod blocking_sleep_in_async;
 mod boolean_except_clauses;
 
 mod boundary_slice_comparisons;
+mod bs4_page_elements;
 
 mod cancellation_scope_checkpoints;
 
@@ -1793,6 +1822,11 @@ mod s6663_sequence_index_type;
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
 mod s6965_flask_route_methods;
+mod s7608_s3_expected_bucket_owner;
+mod s7609_cloudwatch_metric_namespace;
+mod s7613_lambda_json_serializable_return;
+mod s7614_async_lambda_handler;
+mod s7617_lambda_reserved_env_vars;
 mod s7618_lambda_network_timeouts;
 mod s7619_client_error_handling;
 mod s7620_lambda_tmp_cleanup;
@@ -1847,6 +1881,16 @@ mod s8513_chained_startswith_calls;
 mod s8714_pytest_raises_try_except;
 
 mod s8786_super_linear_regex;
+
+mod s8900_deprecated_names;
+
+mod s8903_raw_html_insertion;
+
+mod s8904_element_none_check;
+
+mod s8905_beautifulsoup_parser;
+
+mod s8906_class_list_selector;
 
 mod s8953_config_dict_validation_options;
 
