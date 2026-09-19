@@ -31,6 +31,7 @@ use crate::rules::complexity::check_class_complexity;
 use crate::rules::complexity::check_cognitive_complexity;
 use crate::rules::complexity::check_file_complexity;
 use crate::rules::complexity::check_function_complexity;
+use crate::rules::compression_namespace_imports::check_compression_namespace_imports;
 use crate::rules::confusing_type_checks::check_confusing_type_checks;
 use crate::rules::confusing_walrus_placement::check_confusing_walrus_placement;
 use crate::rules::consistent_return_tuple_lengths::check_consistent_return_tuple_lengths;
@@ -134,12 +135,14 @@ use crate::rules::nested_estimator_parameters::check_nested_estimator_parameters
 use crate::rules::nested_identical_constructors::check_nested_identical_constructors;
 use crate::rules::nesting_depths::check_nesting_depths;
 use crate::rules::nn_module_super_init::check_nn_module_super_init;
+use crate::rules::no_dataclass_on_enums::check_no_dataclass_on_enums;
 use crate::rules::no_duplicate_base_classes::check_no_duplicate_base_classes;
 use crate::rules::no_duplicate_class_fields::check_no_duplicate_class_fields;
 use crate::rules::no_effect_statements::check_no_effect_statements;
 use crate::rules::no_list_index_first_element::check_no_list_index_first_element;
 use crate::rules::no_sorted_indexing_for_extremes::check_no_sorted_indexing_for_extremes;
 use crate::rules::no_sum_empty_list_concat::check_no_sum_empty_list_concat;
+use crate::rules::notimplemented_boolean_contexts::check_notimplemented_boolean_contexts;
 use crate::rules::notimplemented_raises::check_notimplemented_raises;
 use crate::rules::np_array_generator::check_np_array_generator;
 use crate::rules::old_style_classes::check_old_style_classes;
@@ -245,17 +248,29 @@ use crate::rules::s6662_unhashable_collection_literals::check_s6662_unhashable_c
 use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
 use crate::rules::s6863_flask_error_handler_status::check_s6863_flask_error_handler_status;
+use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
 use crate::rules::s8370_flask_post_query_params::check_s8370_flask_post_query_params;
 use crate::rules::s8371_flask_headers_subscript::check_s8371_flask_headers_subscript;
 use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators;
 use crate::rules::s8375_flask_preprocess_request::check_s8375_flask_preprocess_request;
 use crate::rules::s8385_flask_send_file_mimetype::check_s8385_flask_send_file_mimetype;
+use crate::rules::s8396_optional_field_defaults::check_s8396_optional_field_defaults;
 use crate::rules::s8400_fastapi_no_content_body::check_s8400_fastapi_no_content_body;
+use crate::rules::s8401_child_router_before_parent::check_s8401_child_router_before_parent;
+use crate::rules::s8412_generic_route_decorator::check_s8412_generic_route_decorator;
+use crate::rules::s8413_router_prefix_in_include::check_s8413_router_prefix_in_include;
+use crate::rules::s8414_cors_middleware_ordering::check_s8414_cors_middleware_ordering;
+use crate::rules::s8415_http_exception_documented::check_s8415_http_exception_documented;
 use crate::rules::s8502_set_update_instead_of_add_loop::check_s8502_set_update_instead_of_add_loop;
 use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_shadows_outer;
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
+use crate::rules::s8953_config_dict_validation_options::check_s8953_config_dict_validation_options;
+use crate::rules::s8963_multiple_inheritance_config::check_s8963_multiple_inheritance_config;
+use crate::rules::s8966_serialization_fallback::check_s8966_serialization_fallback;
+use crate::rules::s8971_skip_validation_constraints::check_s8971_skip_validation_constraints;
+use crate::rules::s8973_double_underscore_private_attributes::check_s8973_double_underscore_private_attributes;
 use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
 use crate::rules::s8994_pytest_fixture_single_yield::check_s8994_pytest_fixture_single_yield;
 use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
@@ -281,9 +296,11 @@ use crate::rules::single_task_nurseries::check_single_task_nurseries;
 use crate::rules::skip_without_reason::check_skip_without_reason;
 use crate::rules::sleep_in_async_loop::check_sleep_in_async_loop;
 use crate::rules::sleep_zero_checkpoint::check_sleep_zero_checkpoint;
+use crate::rules::slots_declared_attributes::check_slots_declared_attributes;
 use crate::rules::sorted_reversed_shapes::check_sorted_reversed_shapes;
 use crate::rules::special_method_arities::check_special_method_arities;
 use crate::rules::static_candidates::check_static_candidates;
+use crate::rules::stopiteration_in_generators::check_stopiteration_in_generators;
 use crate::rules::strftime_hour_markers::check_strftime_hour_markers;
 use crate::rules::swallowed_cancellations::check_swallowed_cancellations;
 use crate::rules::swallowed_system_exit::check_swallowed_system_exit;
@@ -292,6 +309,9 @@ use crate::rules::sync_http_in_async::check_sync_http_in_async;
 use crate::rules::sync_open_without_async_with::check_sync_open_without_async_with;
 use crate::rules::sync_os_calls_in_async::check_sync_os_calls_in_async;
 use crate::rules::sync_subprocess_in_async::check_sync_subprocess_in_async;
+use crate::rules::template_pattern_matching::check_template_pattern_matching;
+use crate::rules::template_str_concatenation::check_template_str_concatenation;
+use crate::rules::template_strings_processing::check_template_strings_processing;
 use crate::rules::tf_function_global_captures::check_tf_function_global_captures;
 use crate::rules::tf_function_recursion::check_tf_function_recursion;
 use crate::rules::tf_function_side_effects::check_tf_function_side_effects;
@@ -529,6 +549,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_s6863_flask_error_handler_status(
         index, source, file_ctx,
     ));
+    issues.extend(check_s6965_flask_route_methods(index, source, file_ctx));
     issues.extend(check_s8370_flask_post_query_params(index, source, file_ctx));
     issues.extend(check_s8371_flask_headers_subscript(index, source, file_ctx));
     issues.extend(check_s8374_flask_view_decorators(index, source, file_ctx));
@@ -539,6 +560,19 @@ fn tier_a2_web_async_typing_checks(
         index, source, file_ctx,
     ));
     issues.extend(check_s8400_fastapi_no_content_body(index, source, file_ctx));
+    issues.extend(check_s8401_child_router_before_parent(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8412_generic_route_decorator(index, source, file_ctx));
+    issues.extend(check_s8413_router_prefix_in_include(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8414_cors_middleware_ordering(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8415_http_exception_documented(
+        index, source, file_ctx,
+    ));
     issues.extend(check_async_timeout_parameters(index, source, file_ctx));
     issues.extend(check_sleep_in_async_loop(parsed, index, source));
     issues.extend(check_long_sleeps(index, source, file_ctx));
@@ -993,12 +1027,14 @@ pub(crate) fn check_test_assertion_battery(
     issues
 }
 
-/// Aggregates the future-reference detectors (python:S8492,
+/// Aggregates the future-reference detectors (python:S8396, python:S8492,
 /// python:S8495, python:S8500, python:S8502, python:S8507, python:S8509,
 /// python:S8510, python:S8512, python:S8513, python:S8514,
 /// python:S8517–S8521, python:S8554, python:S8572, python:S8714,
-/// python:S8786) added ahead of their catalog entries; S8786 reads the
-/// shared call inventory.
+/// python:S8786, python:S8953, python:S8963, python:S8966, python:S8971,
+/// python:S8973) added ahead of their catalog entries; S8786 reads the
+/// shared call inventory and the Pydantic detectors read the shared import,
+/// class, and single-assignment context.
 pub(crate) fn check_future_reference_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -1045,6 +1081,34 @@ pub(crate) fn check_future_reference_battery(
     issues.extend(check_logging_exception_in_handlers(index, source, file_ctx));
     issues.extend(check_s8714_pytest_raises_try_except(parsed, index, source));
     issues.extend(check_s8786_super_linear_regex(index, source, file_ctx));
+    issues.extend(check_s8396_optional_field_defaults(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8953_config_dict_validation_options(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8963_multiple_inheritance_config(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8966_serialization_fallback(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8971_skip_validation_constraints(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8973_double_underscore_private_attributes(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_notimplemented_boolean_contexts(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_compression_namespace_imports(index, source, file_ctx));
+    issues.extend(check_template_strings_processing(index, source, file_ctx));
+    issues.extend(check_template_str_concatenation(index, source, file_ctx));
+    issues.extend(check_template_pattern_matching(index, source, file_ctx));
+    issues.extend(check_no_dataclass_on_enums(index, source, file_ctx));
+    issues.extend(check_stopiteration_in_generators(index, source, file_ctx));
+    issues.extend(check_slots_declared_attributes(index, source, file_ctx));
     issues
 }
 
@@ -1191,6 +1255,8 @@ mod complete_comparison_methods;
 pub(crate) mod complexity;
 
 pub(crate) mod commented_code;
+
+mod compression_namespace_imports;
 
 mod confusing_type_checks;
 
@@ -1420,6 +1486,8 @@ mod nn_module_super_init;
 mod no_duplicate_base_classes;
 mod no_duplicate_class_fields;
 
+mod no_dataclass_on_enums;
+
 mod no_effect_statements;
 
 mod no_list_index_first_element;
@@ -1431,6 +1499,8 @@ mod no_sorted_indexing_for_extremes;
 mod no_sum_empty_list_concat;
 
 pub(crate) mod noqa_comments;
+
+mod notimplemented_boolean_contexts;
 
 mod notimplemented_raises;
 
@@ -1672,6 +1742,19 @@ mod s6663_sequence_index_type;
 
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
+mod s6965_flask_route_methods;
+
+mod s8401_child_router_before_parent;
+
+mod s8412_generic_route_decorator;
+
+mod s8413_router_prefix_in_include;
+
+mod s8414_cors_middleware_ordering;
+
+mod s8415_http_exception_documented;
+
+mod s8396_optional_field_defaults;
 
 mod s6863_flask_error_handler_status;
 
@@ -1696,6 +1779,16 @@ mod s8513_chained_startswith_calls;
 mod s8714_pytest_raises_try_except;
 
 mod s8786_super_linear_regex;
+
+mod s8953_config_dict_validation_options;
+
+mod s8963_multiple_inheritance_config;
+
+mod s8966_serialization_fallback;
+
+mod s8971_skip_validation_constraints;
+
+mod s8973_double_underscore_private_attributes;
 
 mod s8992_autouse_fixture_params;
 
@@ -1731,6 +1824,8 @@ mod s930_arity_mismatches;
 
 mod s935_bare_returns;
 
+mod scope_values;
+
 mod self_assignment;
 mod set_discard_instead_of_membership_removal;
 
@@ -1748,11 +1843,15 @@ mod sleep_in_async_loop;
 
 mod sleep_zero_checkpoint;
 
+mod slots_declared_attributes;
+
 mod sorted_reversed_shapes;
 
 mod special_method_arities;
 
 mod static_candidates;
+
+mod stopiteration_in_generators;
 
 mod strftime_hour_markers;
 
@@ -1771,6 +1870,12 @@ mod sync_open_without_async_with;
 mod sync_os_calls_in_async;
 
 mod sync_subprocess_in_async;
+
+mod template_pattern_matching;
+
+mod template_str_concatenation;
+
+mod template_strings_processing;
 
 mod tf_function_global_captures;
 
