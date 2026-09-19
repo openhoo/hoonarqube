@@ -106,27 +106,7 @@ fn stmt_binds<'a>(
     assigned: &mut Option<&'a Expr>,
 ) -> bool {
     match stmt {
-        Stmt::Assign(assign) => {
-            let binds_here = assign
-                .targets
-                .iter()
-                .any(|target| target_binds(target, name));
-            if !binds_here {
-                return false;
-            }
-            // `name = <expr>` with a single target is a candidate single
-            // binding; every other shape (chained, tuple, or a bare-name
-            // value when those are not accepted) is not.
-            if assign.targets.len() == 1
-                && matches!(assign.targets[0], Expr::Name(_))
-                && (allow_name_value || !matches!(assign.value.as_ref(), Expr::Name(_)))
-                && assigned.is_none()
-            {
-                *assigned = Some(assign.value.as_ref());
-                return false;
-            }
-            true
-        }
+        Stmt::Assign(assign) => assign_binds(assign, name, allow_name_value, assigned),
         Stmt::AugAssign(aug) => target_binds(&aug.target, name),
         Stmt::AnnAssign(ann) => target_binds(&ann.target, name),
         Stmt::FunctionDef(function) => function.name.as_str() == name,
@@ -139,6 +119,47 @@ fn stmt_binds<'a>(
             .targets
             .iter()
             .any(|target| target_binds(target, name)),
+        _ => suite_binds(stmt, name, allow_name_value, assigned),
+    }
+}
+
+/// Records an `Assign` binding: a single `name = <expr>` target with an
+/// acceptable value shape is a candidate single binding; every other shape
+/// binding `name` makes it ambiguous.
+fn assign_binds<'a>(
+    assign: &'a ruff_python_ast::StmtAssign,
+    name: &str,
+    allow_name_value: bool,
+    assigned: &mut Option<&'a Expr>,
+) -> bool {
+    let binds_here = assign
+        .targets
+        .iter()
+        .any(|target| target_binds(target, name));
+    if !binds_here {
+        return false;
+    }
+    if assign.targets.len() == 1
+        && matches!(assign.targets[0], Expr::Name(_))
+        && (allow_name_value || !matches!(assign.value.as_ref(), Expr::Name(_)))
+        && assigned.is_none()
+    {
+        *assigned = Some(assign.value.as_ref());
+        return false;
+    }
+    true
+}
+
+/// Records bindings inside a statement's same-scope suites and expression
+/// walrus targets (nested function/class bodies are separate scopes, but
+/// their names still bind here).
+fn suite_binds<'a>(
+    stmt: &'a Stmt,
+    name: &str,
+    allow_name_value: bool,
+    assigned: &mut Option<&'a Expr>,
+) -> bool {
+    match stmt {
         Stmt::For(for_stmt) => {
             if target_binds(&for_stmt.target, name) {
                 return true;
@@ -190,25 +211,27 @@ fn stmt_binds<'a>(
                     || binds_name(&handler.body, name, allow_name_value, assigned)
             })
         }
-        _ => {
-            // Walrus targets inside any other statement's expressions bind in
-            // the current scope.
-            for expr in crate::support::stmt_exprs(stmt) {
-                let mut found = false;
-                crate::support::for_each_expr(expr, &mut |node| {
-                    if let Expr::Named(named) = node
-                        && target_binds(&named.target, name)
-                    {
-                        found = true;
-                    }
-                });
-                if found {
-                    return true;
-                }
+        _ => walrus_binds(stmt, name),
+    }
+}
+
+/// Walrus targets inside a statement's expressions bind in the current
+/// scope.
+fn walrus_binds(stmt: &Stmt, name: &str) -> bool {
+    for expr in crate::support::stmt_exprs(stmt) {
+        let mut found = false;
+        crate::support::for_each_expr(expr, &mut |node| {
+            if let Expr::Named(named) = node
+                && target_binds(&named.target, name)
+            {
+                found = true;
             }
-            false
+        });
+        if found {
+            return true;
         }
     }
+    false
 }
 
 /// Whether `alias` binds `name` (`import x`, `import x as y`,

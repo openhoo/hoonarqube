@@ -119,35 +119,8 @@ fn check_call<'a>(
     index: &LineIndex,
     source: &str,
 ) {
-    let checks_args = match &call.func.as_ref() {
-        Expr::Name(name) => BUILTIN_CALLEES.contains(&name.id.as_str()),
-        Expr::Attribute(attribute) => {
-            if attribute.attr.as_str() == "format" {
-                is_str_qualifier(&attribute.value)
-            } else if attribute.attr.as_str() == "join" {
-                // `str.join` arguments are not checked as regular arguments;
-                // only list/tuple elements below.
-                false
-            } else {
-                crate::support::dotted_name(&call.func)
-                    .is_some_and(|path| LOGGING_CALLEES.contains(&path.as_str()))
-            }
-        }
-        _ => false,
-    };
-    if checks_args {
-        for arg in &call.arguments.args {
-            if matches!(arg, Expr::Starred(_)) {
-                continue;
-            }
-            report_if_template(issues, arg, scopes, index, source);
-        }
-        for keyword in &call.arguments.keywords {
-            if keyword.arg.is_none() {
-                continue;
-            }
-            report_if_template(issues, &keyword.value, scopes, index, source);
-        }
+    if checks_call_args(call) {
+        check_regular_args(issues, call, scopes, index, source);
     }
     // `str.join` additionally inspects list/tuple argument elements.
     if let Expr::Attribute(attribute) = call.func.as_ref()
@@ -164,6 +137,49 @@ fn check_call<'a>(
                 report_if_template(issues, element, scopes, index, source);
             }
         }
+    }
+}
+
+/// Flags every regular argument and named keyword value of a subscribed
+/// call; starred arguments and `**kwargs` are skipped.
+fn check_regular_args<'a>(
+    issues: &mut Vec<Issue>,
+    call: &'a ruff_python_ast::ExprCall,
+    scopes: &[(&'a [Stmt], &[&'a str], bool)],
+    index: &LineIndex,
+    source: &str,
+) {
+    for arg in &call.arguments.args {
+        if matches!(arg, Expr::Starred(_)) {
+            continue;
+        }
+        report_if_template(issues, arg, scopes, index, source);
+    }
+    for keyword in &call.arguments.keywords {
+        if keyword.arg.is_none() {
+            continue;
+        }
+        report_if_template(issues, &keyword.value, scopes, index, source);
+    }
+}
+
+/// Whether the callee flags its regular arguments: a subscribed builtin or
+/// logging function, or `str.format`. `str.join` arguments are checked as
+/// list/tuple elements instead.
+fn checks_call_args(call: &ruff_python_ast::ExprCall) -> bool {
+    match call.func.as_ref() {
+        Expr::Name(name) => BUILTIN_CALLEES.contains(&name.id.as_str()),
+        Expr::Attribute(attribute) => {
+            if attribute.attr.as_str() == "format" {
+                is_str_qualifier(&attribute.value)
+            } else if attribute.attr.as_str() == "join" {
+                false
+            } else {
+                crate::support::dotted_name(&call.func)
+                    .is_some_and(|path| LOGGING_CALLEES.contains(&path.as_str()))
+            }
+        }
+        _ => false,
     }
 }
 

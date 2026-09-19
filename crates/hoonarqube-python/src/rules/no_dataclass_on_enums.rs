@@ -65,43 +65,49 @@ fn import_aliases(file_ctx: &FileContext) -> HashMap<String, String> {
     let mut aliases = HashMap::new();
     for import in &file_ctx.imports {
         match import {
-            AnyImport::Plain(stmt) => {
-                for alias in &stmt.names {
-                    let bound = alias.asname.as_ref().map_or_else(
-                        || alias.name.as_str().split('.').next().unwrap_or(""),
-                        ruff_python_ast::Identifier::as_str,
-                    );
-                    if !bound.is_empty() {
-                        aliases.insert(bound.to_string(), alias.name.as_str().to_string());
-                    }
-                }
-            }
-            AnyImport::From(stmt) => {
-                let Some(module) = &stmt.module else {
-                    continue;
-                };
-                for alias in &stmt.names {
-                    if alias.name.as_str() == "*" {
-                        for public in wildcard_names(module.as_str()) {
-                            aliases.insert(
-                                public.to_string(),
-                                format!("{}.{public}", module.as_str()),
-                            );
-                        }
-                        continue;
-                    }
-                    let bound = alias.asname.as_ref().unwrap_or(&alias.name);
-                    aliases.insert(
-                        bound.as_str().to_string(),
-                        format!("{}.{}", module.as_str(), alias.name.as_str()),
-                    );
-                }
-            }
+            AnyImport::Plain(stmt) => plain_import_aliases(stmt, &mut aliases),
+            AnyImport::From(stmt) => from_import_aliases(stmt, &mut aliases),
         }
     }
     aliases
 }
 
+/// `import a.b[ as c]` binds `c` (or `a`) to `a.b`.
+fn plain_import_aliases(stmt: &ruff_python_ast::StmtImport, aliases: &mut HashMap<String, String>) {
+    for alias in &stmt.names {
+        let bound = alias.asname.as_ref().map_or_else(
+            || alias.name.as_str().split('.').next().unwrap_or(""),
+            ruff_python_ast::Identifier::as_str,
+        );
+        if !bound.is_empty() {
+            aliases.insert(bound.to_string(), alias.name.as_str().to_string());
+        }
+    }
+}
+
+/// `from m import n[ as b]` binds `b` (or `n`) to `m.n`; `*` binds the
+/// module's public names this rule resolves.
+fn from_import_aliases(
+    stmt: &ruff_python_ast::StmtImportFrom,
+    aliases: &mut HashMap<String, String>,
+) {
+    let Some(module) = &stmt.module else {
+        return;
+    };
+    for alias in &stmt.names {
+        if alias.name.as_str() == "*" {
+            for public in wildcard_names(module.as_str()) {
+                aliases.insert(public.to_string(), format!("{}.{public}", module.as_str()));
+            }
+            continue;
+        }
+        let bound = alias.asname.as_ref().unwrap_or(&alias.name);
+        aliases.insert(
+            bound.as_str().to_string(),
+            format!("{}.{}", module.as_str(), alias.name.as_str()),
+        );
+    }
+}
 /// Public names a wildcard import would bind for the modules this rule
 /// resolves.
 fn wildcard_names(module: &str) -> &'static [&'static str] {

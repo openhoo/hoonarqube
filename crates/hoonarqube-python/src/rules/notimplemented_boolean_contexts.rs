@@ -48,64 +48,71 @@ pub(crate) fn check_notimplemented_boolean_contexts(
         _ => {}
     });
     for_each_expr_scoped(file_ctx.module_body, &mut |expr, scopes| {
-        match expr {
-            Expr::BoolOp(bool_op) if matches!(bool_op.op, BoolOp::And | BoolOp::Or) => {
-                for operand in &bool_op.values {
-                    report_if_notimplemented(&mut issues, operand, scopes, index, source);
-                }
-            }
-            Expr::UnaryOp(unary) if matches!(unary.op, UnaryOp::Not) => {
-                report_if_notimplemented(&mut issues, &unary.operand, scopes, index, source);
-            }
-            Expr::Call(call) => {
-                if is_name(&call.func, "bool")
-                    && call.arguments.args.len() == 1
-                    && call.arguments.keywords.is_empty()
-                    && !matches!(call.arguments.args[0], Expr::Starred(_))
-                {
-                    report_if_notimplemented(
-                        &mut issues,
-                        &call.arguments.args[0],
-                        scopes,
-                        index,
-                        source,
-                    );
-                }
-            }
-            Expr::Compare(compare) => {
-                // `x is <bool>` / `x is not <bool>`: single-operator `is`
-                // comparisons only; chained comparisons are COMPARISON nodes
-                // in the reference grammar and stay silent.
-                if compare.ops.len() == 1
-                    && matches!(compare.ops[0], CmpOp::Is | CmpOp::IsNot)
-                    && (is_boolean_literal(&compare.left)
-                        || compare.comparators.iter().any(is_boolean_literal))
-                {
-                    report_if_notimplemented(&mut issues, &compare.left, scopes, index, source);
-                    for comparator in &compare.comparators {
-                        report_if_notimplemented(&mut issues, comparator, scopes, index, source);
-                    }
-                }
-            }
-            Expr::If(if_expr) => {
-                report_if_notimplemented(&mut issues, &if_expr.test, scopes, index, source);
-            }
-            Expr::ListComp(comp) => {
-                report_comprehension_ifs(&mut issues, &comp.generators, scopes, index, source);
-            }
-            Expr::SetComp(comp) => {
-                report_comprehension_ifs(&mut issues, &comp.generators, scopes, index, source);
-            }
-            Expr::Generator(comp) => {
-                report_comprehension_ifs(&mut issues, &comp.generators, scopes, index, source);
-            }
-            Expr::DictComp(comp) => {
-                report_comprehension_ifs(&mut issues, &comp.generators, scopes, index, source);
-            }
-            _ => {}
-        }
+        check_expr_context(&mut issues, expr, scopes, index, source);
     });
     issues
+}
+
+/// Flags `NotImplemented` in expression-level boolean contexts: `and`/`or`
+/// operands, `not`, `bool(...)`, conditional-expression tests, `is`/`is
+/// not` against boolean literals, and comprehension `if` clauses.
+fn check_expr_context<'a>(
+    issues: &mut Vec<Issue>,
+    expr: &'a Expr,
+    scopes: &[(&'a [Stmt], &[&'a str], bool)],
+    index: &LineIndex,
+    source: &str,
+) {
+    match expr {
+        Expr::BoolOp(bool_op) if matches!(bool_op.op, BoolOp::And | BoolOp::Or) => {
+            for operand in &bool_op.values {
+                report_if_notimplemented(issues, operand, scopes, index, source);
+            }
+        }
+        Expr::UnaryOp(unary) if matches!(unary.op, UnaryOp::Not) => {
+            report_if_notimplemented(issues, &unary.operand, scopes, index, source);
+        }
+        Expr::Call(call) => {
+            if is_name(&call.func, "bool")
+                && call.arguments.args.len() == 1
+                && call.arguments.keywords.is_empty()
+                && !matches!(call.arguments.args[0], Expr::Starred(_))
+            {
+                report_if_notimplemented(issues, &call.arguments.args[0], scopes, index, source);
+            }
+        }
+        Expr::Compare(compare) => {
+            // `x is <bool>` / `x is not <bool>`: single-operator `is`
+            // comparisons only; chained comparisons are COMPARISON nodes
+            // in the reference grammar and stay silent.
+            if compare.ops.len() == 1
+                && matches!(compare.ops[0], CmpOp::Is | CmpOp::IsNot)
+                && (is_boolean_literal(&compare.left)
+                    || compare.comparators.iter().any(is_boolean_literal))
+            {
+                report_if_notimplemented(issues, &compare.left, scopes, index, source);
+                for comparator in &compare.comparators {
+                    report_if_notimplemented(issues, comparator, scopes, index, source);
+                }
+            }
+        }
+        Expr::If(if_expr) => {
+            report_if_notimplemented(issues, &if_expr.test, scopes, index, source);
+        }
+        Expr::ListComp(comp) => {
+            report_comprehension_ifs(issues, &comp.generators, scopes, index, source);
+        }
+        Expr::SetComp(comp) => {
+            report_comprehension_ifs(issues, &comp.generators, scopes, index, source);
+        }
+        Expr::Generator(comp) => {
+            report_comprehension_ifs(issues, &comp.generators, scopes, index, source);
+        }
+        Expr::DictComp(comp) => {
+            report_comprehension_ifs(issues, &comp.generators, scopes, index, source);
+        }
+        _ => {}
+    }
 }
 
 /// Flags comprehension `if` clauses; they resolve against the comprehension

@@ -48,38 +48,7 @@ fn interpolation_names(file_ctx: &FileContext) -> Vec<String> {
     for import in &file_ctx.imports {
         match import {
             crate::engine::file_context::AnyImport::From(stmt) => {
-                let Some(module) = &stmt.module else {
-                    continue;
-                };
-                match module.as_str() {
-                    "string.templatelib" => {
-                        for alias in &stmt.names {
-                            if alias.name.as_str() == "Interpolation" {
-                                names.push(
-                                    alias
-                                        .asname
-                                        .as_ref()
-                                        .unwrap_or(&alias.name)
-                                        .as_str()
-                                        .to_string(),
-                                );
-                            } else if alias.name.as_str() == "*" {
-                                names.push("Interpolation".to_string());
-                            }
-                        }
-                    }
-                    "string" => {
-                        for alias in &stmt.names {
-                            if alias.name.as_str() == "templatelib" {
-                                let bound = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
-                                names.push(format!("{bound}.Interpolation"));
-                            } else if alias.name.as_str() == "*" {
-                                names.push("templatelib.Interpolation".to_string());
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                names_from_import(stmt, &mut names);
             }
             crate::engine::file_context::AnyImport::Plain(stmt) => {
                 for alias in &stmt.names {
@@ -95,6 +64,48 @@ fn interpolation_names(file_ctx: &FileContext) -> Vec<String> {
         }
     }
     names
+}
+
+/// `Interpolation` names bound by one `from <module> import ...` statement.
+fn names_from_import(stmt: &ruff_python_ast::StmtImportFrom, names: &mut Vec<String>) {
+    let Some(module) = &stmt.module else {
+        return;
+    };
+    match module.as_str() {
+        "string.templatelib" => templatelib_names(&stmt.names, names),
+        "string" => string_names(&stmt.names, names),
+        _ => {}
+    }
+}
+
+/// `from string.templatelib import Interpolation[ as x]` / `*` bindings.
+fn templatelib_names(aliases: &[ruff_python_ast::Alias], names: &mut Vec<String>) {
+    for alias in aliases {
+        if alias.name.as_str() == "Interpolation" {
+            names.push(
+                alias
+                    .asname
+                    .as_ref()
+                    .unwrap_or(&alias.name)
+                    .as_str()
+                    .to_string(),
+            );
+        } else if alias.name.as_str() == "*" {
+            names.push("Interpolation".to_string());
+        }
+    }
+}
+
+/// `from string import templatelib[ as x]` / `*` bindings.
+fn string_names(aliases: &[ruff_python_ast::Alias], names: &mut Vec<String>) {
+    for alias in aliases {
+        if alias.name.as_str() == "templatelib" {
+            let bound = alias.asname.as_ref().unwrap_or(&alias.name).as_str();
+            names.push(format!("{bound}.Interpolation"));
+        } else if alias.name.as_str() == "*" {
+            names.push("templatelib.Interpolation".to_string());
+        }
+    }
 }
 
 fn check_for(
