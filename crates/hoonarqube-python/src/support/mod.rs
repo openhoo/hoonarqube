@@ -40,6 +40,7 @@ mod shared_literal_helpers;
 mod style_shapes_s6353_s6396_s6397_s5869_s5868_s5843_s5857;
 mod typing_syntax_rules_168_178;
 mod unittest_misc_remainder_180_192_and_185_189_companions;
+mod web_framework_bindings;
 
 pub(crate) use aws_call_shape_helpers::*;
 pub(crate) use django_conventions::*;
@@ -81,3 +82,4 @@ pub(crate) use shared_literal_helpers::*;
 pub(crate) use style_shapes_s6353_s6396_s6397_s5869_s5868_s5843_s5857::*;
 pub(crate) use typing_syntax_rules_168_178::*;
 pub(crate) use unittest_misc_remainder_180_192_and_185_189_companions::*;
+pub(crate) use web_framework_bindings::*;

@@ -247,6 +247,12 @@ use crate::rules::s6463_unrestricted_egress::check_s6463_unrestricted_egress;
 use crate::rules::s6662_unhashable_collection_literals::check_s6662_unhashable_collection_literals;
 use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
+use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
+use crate::rules::s8401_child_router_before_parent::check_s8401_child_router_before_parent;
+use crate::rules::s8412_generic_route_decorator::check_s8412_generic_route_decorator;
+use crate::rules::s8413_router_prefix_in_include::check_s8413_router_prefix_in_include;
+use crate::rules::s8414_cors_middleware_ordering::check_s8414_cors_middleware_ordering;
+use crate::rules::s8415_http_exception_documented::check_s8415_http_exception_documented;
 use crate::rules::s8502_set_update_instead_of_add_loop::check_s8502_set_update_instead_of_add_loop;
 use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_shadows_outer;
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
@@ -527,6 +533,20 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_modelform_meta_fields(index, source, file_ctx));
     issues.extend(check_json_response_safe_flag(index, source, file_ctx));
     issues.extend(check_route_decorator_ordering(index, source, file_ctx));
+    issues.extend(check_s6965_flask_route_methods(index, source, file_ctx));
+    issues.extend(check_s8401_child_router_before_parent(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8412_generic_route_decorator(index, source, file_ctx));
+    issues.extend(check_s8413_router_prefix_in_include(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8414_cors_middleware_ordering(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8415_http_exception_documented(
+        index, source, file_ctx,
+    ));
     issues.extend(check_async_timeout_parameters(index, source, file_ctx));
     issues.extend(check_sleep_in_async_loop(parsed, index, source));
     issues.extend(check_long_sleeps(index, source, file_ctx));
@@ -1676,6 +1696,17 @@ mod s6663_sequence_index_type;
 
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
+mod s6965_flask_route_methods;
+
+mod s8401_child_router_before_parent;
+
+mod s8412_generic_route_decorator;
+
+mod s8413_router_prefix_in_include;
+
+mod s8414_cors_middleware_ordering;
+
+mod s8415_http_exception_documented;
 
 mod s8502_set_update_instead_of_add_loop;
 
