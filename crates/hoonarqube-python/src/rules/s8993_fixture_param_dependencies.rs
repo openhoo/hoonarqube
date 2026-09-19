@@ -104,33 +104,43 @@ fn pytest_fixture_names(module: &[Stmt]) -> HashSet<String> {
     let mut names = HashSet::from(["pytest.fixture".to_string()]);
     for stmt in module {
         match stmt {
-            Stmt::Import(import) => {
-                for alias in &import.names {
-                    if alias.name.as_str() == "pytest" {
-                        let module_name = alias.asname.as_ref().map_or("pytest", |n| n.as_str());
-                        names.insert(format!("{module_name}.fixture"));
-                    }
-                }
-            }
-            Stmt::ImportFrom(import)
-                if import.level == 0 && import.module.as_deref() == Some("pytest") =>
-            {
-                for alias in &import.names {
-                    if alias.name.as_str() == "fixture" {
-                        names.insert(
-                            alias
-                                .asname
-                                .as_ref()
-                                .map_or("fixture", |n| n.as_str())
-                                .to_string(),
-                        );
-                    }
-                }
-            }
+            Stmt::Import(import) => collect_pytest_import(import, &mut names),
+            Stmt::ImportFrom(import) => collect_pytest_from_import(import, &mut names),
             _ => {}
         }
     }
     names
+}
+
+/// `import pytest [as x]` contributes `<module>.fixture`.
+fn collect_pytest_import(import: &ruff_python_ast::StmtImport, names: &mut HashSet<String>) {
+    for alias in &import.names {
+        if alias.name.as_str() == "pytest" {
+            let module_name = alias.asname.as_ref().map_or("pytest", |n| n.as_str());
+            names.insert(format!("{module_name}.fixture"));
+        }
+    }
+}
+
+/// `from pytest import fixture [as x]` contributes the local name.
+fn collect_pytest_from_import(
+    import: &ruff_python_ast::StmtImportFrom,
+    names: &mut HashSet<String>,
+) {
+    if import.level != 0 || import.module.as_deref() != Some("pytest") {
+        return;
+    }
+    for alias in &import.names {
+        if alias.name.as_str() == "fixture" {
+            names.insert(
+                alias
+                    .asname
+                    .as_ref()
+                    .map_or("fixture", |n| n.as_str())
+                    .to_string(),
+            );
+        }
+    }
 }
 
 /// Flags each `request.getfixturevalue(<static name>)` call in the test's own
@@ -252,31 +262,28 @@ fn resolve_single_assignment<'a>(
 fn scope_binds(stmts: &[Stmt], name: &str) -> bool {
     let mut bound = false;
     for_each_stmt_in_scope(stmts, &mut |stmt| {
-        if bound {
-            return;
-        }
-        match stmt {
-            Stmt::Global(_) | Stmt::Nonlocal(_) => {}
-            Stmt::Match(m) => {
-                for case in &m.cases {
-                    bound = bound || pattern_binds(&case.pattern, name);
-                }
-            }
-            Stmt::Try(t) => {
-                for handler in &t.handlers {
-                    let ExceptHandler::ExceptHandler(handler) = handler;
-                    bound = bound || handler.name.as_deref() == Some(name);
-                }
-            }
-            _ => {
-                bound = bound || stmt_store_names(stmt).iter().any(|n| n == name);
-                for expr in stmt_exprs(stmt) {
-                    bound = bound || expr_binds(expr, name);
-                }
-            }
-        }
+        bound = bound || stmt_binds(stmt, name);
     });
     bound
+}
+
+/// Whether one statement binds `name` in its own scope.
+fn stmt_binds(stmt: &Stmt, name: &str) -> bool {
+    match stmt {
+        Stmt::Global(_) | Stmt::Nonlocal(_) => false,
+        Stmt::Match(m) => m
+            .cases
+            .iter()
+            .any(|case| pattern_binds(&case.pattern, name)),
+        Stmt::Try(t) => t.handlers.iter().any(|handler| {
+            let ExceptHandler::ExceptHandler(handler) = handler;
+            handler.name.as_deref() == Some(name)
+        }),
+        _ => {
+            stmt_store_names(stmt).iter().any(|n| n == name)
+                || stmt_exprs(stmt).iter().any(|expr| expr_binds(expr, name))
+        }
+    }
 }
 
 /// Whether `expr` contains a `name := ...` walrus binding.
