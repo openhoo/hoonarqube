@@ -164,39 +164,51 @@ fn format_exc_paths(file_ctx: &FileContext) -> HashSet<String> {
     let mut paths = HashSet::from(["traceback.format_exc".to_string()]);
     for entry in &file_ctx.imports {
         match entry {
-            AnyImport::Plain(import) => {
-                for alias in &import.names {
-                    if alias.name.as_str() == "traceback" {
-                        let bound = alias
-                            .asname
-                            .as_ref()
-                            .map_or("traceback", |name| name.as_str());
-                        paths.insert(format!("{bound}.format_exc"));
-                    }
-                }
-            }
-            AnyImport::From(import) => {
-                if import.level != 0
-                    || import
-                        .module
-                        .as_ref()
-                        .is_none_or(|module| module.as_str() != "traceback")
-                {
-                    continue;
-                }
-                for alias in &import.names {
-                    if alias.name.as_str() == "format_exc" {
-                        let bound = alias
-                            .asname
-                            .as_ref()
-                            .map_or("format_exc", |name| name.as_str());
-                        paths.insert(bound.to_string());
-                    }
-                }
-            }
+            AnyImport::Plain(import) => collect_plain_traceback_alias(import, &mut paths),
+            AnyImport::From(import) => collect_from_traceback_alias(import, &mut paths),
         }
     }
     paths
+}
+
+/// `import traceback [as x]` binds `<x>.format_exc`.
+fn collect_plain_traceback_alias(
+    import: &ruff_python_ast::StmtImport,
+    paths: &mut HashSet<String>,
+) {
+    for alias in &import.names {
+        if alias.name.as_str() == "traceback" {
+            let bound = alias
+                .asname
+                .as_ref()
+                .map_or("traceback", |name| name.as_str());
+            paths.insert(format!("{bound}.format_exc"));
+        }
+    }
+}
+
+/// `from traceback import format_exc [as x]` binds the local name itself.
+fn collect_from_traceback_alias(
+    import: &ruff_python_ast::StmtImportFrom,
+    paths: &mut HashSet<String>,
+) {
+    if import.level != 0
+        || import
+            .module
+            .as_ref()
+            .is_none_or(|module| module.as_str() != "traceback")
+    {
+        return;
+    }
+    for alias in &import.names {
+        if alias.name.as_str() == "format_exc" {
+            let bound = alias
+                .asname
+                .as_ref()
+                .map_or("format_exc", |name| name.as_str());
+            paths.insert(bound.to_string());
+        }
+    }
 }
 
 /// Literal-level truthiness matching Sonar's `Expressions.isTruthy`.
