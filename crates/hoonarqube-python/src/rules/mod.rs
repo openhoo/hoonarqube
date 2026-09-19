@@ -249,6 +249,11 @@ use crate::rules::s6663_sequence_index_type::check_s6663_sequence_index_type;
 use crate::rules::s6785_graphql_depth_limiting::check_s6785_graphql_depth_limiting;
 use crate::rules::s6863_flask_error_handler_status::check_s6863_flask_error_handler_status;
 use crate::rules::s6965_flask_route_methods::check_s6965_flask_route_methods;
+use crate::rules::s7618_lambda_network_timeouts::check_s7618_lambda_network_timeouts;
+use crate::rules::s7619_client_error_handling::check_s7619_client_error_handling;
+use crate::rules::s7620_lambda_tmp_cleanup::check_s7620_lambda_tmp_cleanup;
+use crate::rules::s7621_aws_waiters::check_s7621_aws_waiters;
+use crate::rules::s7622_boto3_pagination::check_s7622_boto3_pagination;
 use crate::rules::s8370_flask_post_query_params::check_s8370_flask_post_query_params;
 use crate::rules::s8371_flask_headers_subscript::check_s8371_flask_headers_subscript;
 use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators;
@@ -918,6 +923,11 @@ fn tier_c_cloud_data_checks(
         index, source, file_ctx,
     ));
     issues.extend(check_s6463_unrestricted_egress(index, source, file_ctx));
+    issues.extend(check_s7618_lambda_network_timeouts(index, source, file_ctx));
+    issues.extend(check_s7619_client_error_handling(index, source, file_ctx));
+    issues.extend(check_s7620_lambda_tmp_cleanup(index, source, file_ctx));
+    issues.extend(check_s7621_aws_waiters(index, source, file_ctx));
+    issues.extend(check_s7622_boto3_pagination(index, source, file_ctx));
     issues.extend(check_s3752_route_methods(index, source, file_ctx));
     issues.extend(check_s5795_identity_cached_types(
         parsed, index, source, file_ctx,
@@ -1761,6 +1771,11 @@ mod s6663_sequence_index_type;
 mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
 mod s6965_flask_route_methods;
+mod s7618_lambda_network_timeouts;
+mod s7619_client_error_handling;
+mod s7620_lambda_tmp_cleanup;
+mod s7621_aws_waiters;
+mod s7622_boto3_pagination;
 
 mod s8389_file_upload_form;
 
