@@ -1,7 +1,7 @@
 use crate::engine::file_context::FileContext;
 use crate::support::{
-    Boto3Callee, WebFrameworkFacts, boto3_callee, in_lambda_handler, is_client_receiver, issue_at,
-    keyword_value, lambda_handler_ranges, resolved_string_literal,
+    AwsLambdaFacts, Boto3Callee, WebFrameworkFacts, boto3_callee, innermost_function,
+    is_client_receiver, issue_at, keyword_value, resolved_string_literal,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, ExprCall};
@@ -31,24 +31,25 @@ pub(crate) fn check_s6246_lambda_cross_call(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    let facts = WebFrameworkFacts::build(file_ctx);
-    let handlers = lambda_handler_ranges(&facts);
-    if handlers.is_empty() {
+    let lambda = AwsLambdaFacts::build(file_ctx);
+    if !lambda.has_handler() {
         return Vec::new();
     }
+    let facts = &lambda.facts;
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         let Expr::Attribute(attribute) = call.func.as_ref() else {
             continue;
         };
         if attribute.attr.as_str() != "invoke"
-            || !is_boto3_client(&facts, &attribute.value, call)
-            || !in_lambda_handler(&facts, &handlers, call.range())
+            || !is_boto3_client(facts, &attribute.value, call)
+            || !innermost_function(file_ctx, call.range())
+                .is_some_and(|function| lambda.is_lambda_handler(function))
         {
             continue;
         }
         let synchronous = keyword_value(&call.arguments, "InvocationType")
-            .and_then(|value| resolved_string_literal(&facts, value))
+            .and_then(|value| resolved_string_literal(facts, value))
             .is_some_and(|value| value == "RequestResponse");
         if synchronous {
             issues.push(issue_at(

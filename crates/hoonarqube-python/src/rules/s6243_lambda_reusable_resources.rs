@@ -1,7 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::support::{
-    WebFrameworkFacts, aws_fqn, in_lambda_handler, issue_at, lambda_handler_ranges,
-};
+use crate::support::{AwsLambdaFacts, aws_fqn, innermost_function, issue_at};
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
@@ -50,17 +48,19 @@ pub(crate) fn check_s6243_lambda_reusable_resources(
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    let facts = WebFrameworkFacts::build(file_ctx);
-    let handlers = lambda_handler_ranges(&facts);
-    if handlers.is_empty() {
+    let lambda = AwsLambdaFacts::build(file_ctx);
+    if !lambda.has_handler() {
         return Vec::new();
     }
+    let facts = &lambda.facts;
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
-        if !in_lambda_handler(&facts, &handlers, call.range()) {
+        if !innermost_function(file_ctx, call.range())
+            .is_some_and(|function| lambda.is_lambda_handler(function))
+        {
             continue;
         }
-        if let Some(message) = aws_fqn(&facts, &call.func).and_then(|fqn| resource_message(&fqn)) {
+        if let Some(message) = aws_fqn(facts, &call.func).and_then(|fqn| resource_message(&fqn)) {
             issues.push(issue_at(
                 "python:S6243",
                 message,
