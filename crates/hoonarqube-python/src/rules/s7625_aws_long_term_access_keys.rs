@@ -62,14 +62,14 @@ mod tests {
     fn s7625_flags_literal_access_keys_on_boto3_factories() {
         let flagged = concat!(
             "import boto3\n",
-            "boto3.client('s3', aws_access_key_id='AKIAIOSFODNN7EXAMPLE',\n",
-            "    aws_secret_access_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE')\n",
-            "boto3.resource('s3', aws_access_key_id='AKIAIOSFODNN7EXAMPLE')\n",
+            "boto3.client('s3', aws_access_key_id='EXAMPLE-ACCESS-KEY-ID',\n",
+            "    aws_secret_access_key='EXAMPLE-SECRET-ACCESS-KEY')\n",
+            "boto3.resource('s3', aws_access_key_id='EXAMPLE-ACCESS-KEY-ID')\n",
             "boto3.client('s3', None, None, None, None, None,\n",
-            "    'AKIAIOSFODNN7EXAMPLE', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE')\n",
-            "boto3.Session('AKIAIOSFODNN7EXAMPLE', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE')\n",
+            "    'EXAMPLE-ACCESS-KEY-ID', 'EXAMPLE-SECRET-ACCESS-KEY')\n",
+            "boto3.Session('EXAMPLE-ACCESS-KEY-ID', 'EXAMPLE-SECRET-ACCESS-KEY')\n",
             "session = boto3.session.Session()\n",
-            "session.client('ec2', aws_secret_access_key='wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE')\n",
+            "session.client('ec2', aws_secret_access_key='EXAMPLE-SECRET-ACCESS-KEY')\n",
         );
         let found = findings_of(flagged, "python:S7625");
         assert_eq!(found.len(), 5);
@@ -87,7 +87,7 @@ mod tests {
     fn s7625_flags_single_assigned_string_keys() {
         let flagged = concat!(
             "import boto3\n",
-            "access_key = 'AKIAIOSFODNN7EXAMPLE'\n",
+            "access_key = 'EXAMPLE-ACCESS-KEY-ID'\n",
             "boto3.client('lambda', aws_access_key_id=access_key)\n",
         );
         assert_eq!(findings(&scan(flagged), "python:S7625").len(), 1);
