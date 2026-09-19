@@ -219,18 +219,8 @@ fn first_binding<'a>(stmts: &'a [Stmt], name: &str) -> BindingOutcome<'a> {
     for stmt in stmts {
         // Walrus targets bind at evaluation time, ahead of the statement's
         // own binding.
-        for expr in stmt_exprs(stmt) {
-            let mut walrus = false;
-            for_each_expr(expr, &mut |expr| {
-                if matches!(expr, Expr::Named(named)
-                    if target_binds_name(&named.target, name))
-                {
-                    walrus = true;
-                }
-            });
-            if walrus {
-                return BindingOutcome::Other;
-            }
+        if stmt_binds_via_walrus(stmt, name) {
+            return BindingOutcome::Other;
         }
         match statement_binding(stmt, name) {
             BindingOutcome::Unbound => {}
@@ -248,20 +238,25 @@ fn first_binding<'a>(stmts: &'a [Stmt], name: &str) -> BindingOutcome<'a> {
     BindingOutcome::Unbound
 }
 
+/// Whether any expression in `stmt` binds `name` through a walrus target.
+fn stmt_binds_via_walrus(stmt: &Stmt, name: &str) -> bool {
+    stmt_exprs(stmt).iter().any(|expr| {
+        let mut walrus = false;
+        for_each_expr(expr, &mut |expr| {
+            if matches!(expr, Expr::Named(named)
+                if target_binds_name(&named.target, name))
+            {
+                walrus = true;
+            }
+        });
+        walrus
+    })
+}
+
 /// The binding a statement performs on `name`, if any.
 fn statement_binding<'a>(stmt: &'a Stmt, name: &str) -> BindingOutcome<'a> {
     match stmt {
-        Stmt::Assign(assign) => {
-            for target in &assign.targets {
-                if matches!(target, Expr::Name(target_name) if target_name.id.as_str() == name) {
-                    return BindingOutcome::Value(&assign.value);
-                }
-                if target_binds_name(target, name) {
-                    return BindingOutcome::Other;
-                }
-            }
-            BindingOutcome::Unbound
-        }
+        Stmt::Assign(assign) => assign_binding(assign, name),
         Stmt::AnnAssign(assign) => {
             if !target_binds_name(&assign.target, name) {
                 return BindingOutcome::Unbound;
@@ -279,6 +274,20 @@ fn statement_binding<'a>(stmt: &'a Stmt, name: &str) -> BindingOutcome<'a> {
             }
         }
     }
+}
+
+/// The binding a `Stmt::Assign` performs on `name`: a plain `name = value`
+/// target yields the value, any other binding target is `Other`.
+fn assign_binding<'a>(assign: &'a ruff_python_ast::StmtAssign, name: &str) -> BindingOutcome<'a> {
+    for target in &assign.targets {
+        if matches!(target, Expr::Name(target_name) if target_name.id.as_str() == name) {
+            return BindingOutcome::Value(&assign.value);
+        }
+        if target_binds_name(target, name) {
+            return BindingOutcome::Other;
+        }
+    }
+    BindingOutcome::Unbound
 }
 
 /// Whether an assignment target binds `name` (plain name or inside a

@@ -179,32 +179,41 @@ fn validate_response_object(
                 Validation::valid()
             }
         }
-        Expr::Name(name) => {
-            let calls = assigned_call_values(name.id.as_str(), function, module_body);
-            if calls.is_empty() {
-                // A parameter annotated as a Response subclass is a
-                // Response instance like any other.
-                if annotated_response_parameter(name.id.as_str(), function, body) {
-                    return Validation::valid();
-                }
-                return Validation::invalid(Vec::new());
-            }
-            let mut secondaries = Vec::new();
-            for call in calls {
-                if expr_in(&call.func, body) != WebBinding::FastApiResponseClass {
-                    return Validation::invalid(Vec::new());
-                }
-                if is_invalid_response_call(call) {
-                    secondaries.push(call.range());
-                }
-            }
-            if secondaries.is_empty() {
-                Validation::valid()
-            } else {
-                Validation::invalid(secondaries)
-            }
-        }
+        Expr::Name(name) => validate_named_response(name, function, module_body, body),
         _ => Validation::invalid(Vec::new()),
+    }
+}
+
+/// `isValidResponseObject` for a returned name: resolves to its assigned
+/// call values, each checked like a direct `Response(...)` call (invalid
+/// sites become secondary locations). A parameter annotated as a Response
+/// subclass counts as a Response instance; anything unresolvable is invalid.
+fn validate_named_response(
+    name: &ruff_python_ast::ExprName,
+    function: &StmtFunctionDef,
+    module_body: &[Stmt],
+    body: &[&HashMap<String, WebBinding>],
+) -> Validation {
+    let calls = assigned_call_values(name.id.as_str(), function, module_body);
+    if calls.is_empty() {
+        if annotated_response_parameter(name.id.as_str(), function, body) {
+            return Validation::valid();
+        }
+        return Validation::invalid(Vec::new());
+    }
+    let mut secondaries = Vec::new();
+    for call in calls {
+        if expr_in(&call.func, body) != WebBinding::FastApiResponseClass {
+            return Validation::invalid(Vec::new());
+        }
+        if is_invalid_response_call(call) {
+            secondaries.push(call.range());
+        }
+    }
+    if secondaries.is_empty() {
+        Validation::valid()
+    } else {
+        Validation::invalid(secondaries)
     }
 }
 
@@ -277,50 +286,15 @@ struct AssignedValues<'a> {
     bound: bool,
     /// A binding that is not a plain `name = <call>` assignment.
     tainted: bool,
-    /// The call values of plain assignments.
+    /// `name = <call>` call sites in binding order.
     calls: Vec<&'a ExprCall>,
 }
 
 fn collect_assigned_calls<'a>(stmts: &'a [Stmt], name: &str, found: &mut AssignedValues<'a>) {
     for stmt in stmts {
         match stmt {
-            Stmt::Assign(assign) => {
-                let mut binds = false;
-                let mut plain = false;
-                for target in &assign.targets {
-                    if matches!(target, Expr::Name(target_name)
-                        if target_name.id.as_str() == name)
-                    {
-                        plain = true;
-                    }
-                    let mut names = Vec::new();
-                    collect_target_names(target, &mut names);
-                    if names.iter().any(|bound| bound == name) {
-                        binds = true;
-                    }
-                }
-                if binds {
-                    found.bound = true;
-                    if !plain {
-                        found.tainted = true;
-                    } else if let Expr::Call(call) = assign.value.as_ref() {
-                        found.calls.push(call);
-                    } else {
-                        found.tainted = true;
-                    }
-                }
-            }
-            Stmt::AnnAssign(assign) => {
-                let mut names = Vec::new();
-                collect_target_names(&assign.target, &mut names);
-                if names.iter().any(|bound| bound == name) {
-                    found.bound = true;
-                    match assign.value.as_deref() {
-                        Some(Expr::Call(call)) => found.calls.push(call),
-                        _ => found.tainted = true,
-                    }
-                }
-            }
+            Stmt::Assign(assign) => record_assign(assign, name, found),
+            Stmt::AnnAssign(assign) => record_ann_assign(assign, name, found),
             _ => {
                 if stmt_store_names(stmt).iter().any(|bound| bound == name) {
                     found.bound = true;
@@ -329,23 +303,82 @@ fn collect_assigned_calls<'a>(stmts: &'a [Stmt], name: &str, found: &mut Assigne
             }
         }
         // Walrus targets bind the name without a call value.
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, &mut |expr| {
-                if let Expr::Named(named) = expr {
-                    let mut names = Vec::new();
-                    collect_target_names(&named.target, &mut names);
-                    if names.iter().any(|bound| bound == name) {
-                        found.bound = true;
-                        found.tainted = true;
-                    }
-                }
-            });
-        }
+        record_walrus_bindings(stmt, name, found);
         if !matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
             for body in crate::support::child_bodies(stmt) {
                 collect_assigned_calls(body, name, found);
             }
         }
+    }
+}
+
+/// A `name = <call>` target contributes the call; any other binding of
+/// `name` in the assignment taints the resolution.
+fn record_assign<'a>(
+    assign: &'a ruff_python_ast::StmtAssign,
+    name: &str,
+    found: &mut AssignedValues<'a>,
+) {
+    let mut binds = false;
+    let mut plain = false;
+    for target in &assign.targets {
+        if matches!(target, Expr::Name(target_name)
+            if target_name.id.as_str() == name)
+        {
+            plain = true;
+        }
+        let mut names = Vec::new();
+        collect_target_names(target, &mut names);
+        if names.iter().any(|bound| bound == name) {
+            binds = true;
+        }
+    }
+    if !binds {
+        return;
+    }
+    found.bound = true;
+    if !plain {
+        found.tainted = true;
+    } else if let Expr::Call(call) = assign.value.as_ref() {
+        found.calls.push(call);
+    } else {
+        found.tainted = true;
+    }
+}
+
+/// An annotated `name: T = <call>` contributes the call; a bare annotation
+/// or non-call value taints the resolution.
+fn record_ann_assign<'a>(
+    assign: &'a ruff_python_ast::StmtAnnAssign,
+    name: &str,
+    found: &mut AssignedValues<'a>,
+) {
+    let mut names = Vec::new();
+    collect_target_names(&assign.target, &mut names);
+    if !names.iter().any(|bound| bound == name) {
+        return;
+    }
+    found.bound = true;
+    match assign.value.as_deref() {
+        Some(Expr::Call(call)) => found.calls.push(call),
+        _ => found.tainted = true,
+    }
+}
+
+/// Walrus targets anywhere in `stmt`'s expressions bind `name` without a
+/// call value.
+fn record_walrus_bindings(stmt: &Stmt, name: &str, found: &mut AssignedValues<'_>) {
+    for expr in stmt_exprs(stmt) {
+        for_each_expr(expr, &mut |expr| {
+            if let Expr::Named(named) = expr {
+                let mut names = Vec::new();
+                collect_target_names(&named.target, &mut names);
+                if names.iter().any(|bound| bound == name) {
+                    found.bound = true;
+                    found.tainted = true;
+                }
+            }
+        });
     }
 }
 

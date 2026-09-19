@@ -326,42 +326,8 @@ fn record_scope(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Import(import) => {
-                for alias in &import.names {
-                    let local = alias.asname.as_deref().map_or_else(
-                        || {
-                            alias
-                                .name
-                                .as_str()
-                                .split('.')
-                                .next()
-                                .unwrap_or("")
-                                .to_string()
-                        },
-                        str::to_string,
-                    );
-                    let module = if alias.asname.is_some() {
-                        alias.name.as_str()
-                    } else {
-                        alias.name.as_str().split('.').next().unwrap_or("")
-                    };
-                    map.insert(local, module_binding(module));
-                }
-            }
-            Stmt::ImportFrom(import) => {
-                let module = import
-                    .module
-                    .as_ref()
-                    .filter(|_| import.level == 0)
-                    .map(ruff_python_ast::Identifier::as_str);
-                for alias in &import.names {
-                    let local = alias
-                        .asname
-                        .as_deref()
-                        .map_or_else(|| alias.name.as_str().to_string(), str::to_string);
-                    map.insert(local, from_import_binding(module, alias.name.as_str()));
-                }
-            }
+            Stmt::Import(import) => record_import(map, import),
+            Stmt::ImportFrom(import) => record_import_from(map, import),
             Stmt::Assign(assign) => {
                 let value = expr_during_record(&assign.value, map, outers);
                 for target in &assign.targets {
@@ -396,6 +362,49 @@ fn record_scope(
                 }
             }
         }
+    }
+}
+
+/// `import a.b [as c]` binds the local name to its module identity.
+fn record_import(map: &mut HashMap<String, WebBinding>, import: &ruff_python_ast::StmtImport) {
+    for alias in &import.names {
+        let local = alias.asname.as_deref().map_or_else(
+            || {
+                alias
+                    .name
+                    .as_str()
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            },
+            str::to_string,
+        );
+        let module = if alias.asname.is_some() {
+            alias.name.as_str()
+        } else {
+            alias.name.as_str().split('.').next().unwrap_or("")
+        };
+        map.insert(local, module_binding(module));
+    }
+}
+
+/// `from m import x [as y]` binds the local name to its from-import identity.
+fn record_import_from(
+    map: &mut HashMap<String, WebBinding>,
+    import: &ruff_python_ast::StmtImportFrom,
+) {
+    let module = import
+        .module
+        .as_ref()
+        .filter(|_| import.level == 0)
+        .map(ruff_python_ast::Identifier::as_str);
+    for alias in &import.names {
+        let local = alias
+            .asname
+            .as_deref()
+            .map_or_else(|| alias.name.as_str().to_string(), str::to_string);
+        map.insert(local, from_import_binding(module, alias.name.as_str()));
     }
 }
 
