@@ -254,9 +254,15 @@ use crate::rules::s8371_flask_headers_subscript::check_s8371_flask_headers_subsc
 use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators;
 use crate::rules::s8375_flask_preprocess_request::check_s8375_flask_preprocess_request;
 use crate::rules::s8385_flask_send_file_mimetype::check_s8385_flask_send_file_mimetype;
+use crate::rules::s8389_file_upload_form::check_s8389_file_upload_form;
 use crate::rules::s8396_optional_field_defaults::check_s8396_optional_field_defaults;
+use crate::rules::s8397_uvicorn_import_string::check_s8397_uvicorn_import_string;
 use crate::rules::s8400_fastapi_no_content_body::check_s8400_fastapi_no_content_body;
 use crate::rules::s8401_child_router_before_parent::check_s8401_child_router_before_parent;
+use crate::rules::s8405_test_client_content_parameter::check_s8405_test_client_content_parameter;
+use crate::rules::s8409_redundant_response_model::check_s8409_redundant_response_model;
+use crate::rules::s8410_annotated_dependency_hints::check_s8410_annotated_dependency_hints;
+use crate::rules::s8411_path_parameters::check_s8411_path_parameters;
 use crate::rules::s8412_generic_route_decorator::check_s8412_generic_route_decorator;
 use crate::rules::s8413_router_prefix_in_include::check_s8413_router_prefix_in_include;
 use crate::rules::s8414_cors_middleware_ordering::check_s8414_cors_middleware_ordering;
@@ -559,10 +565,22 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_s8385_flask_send_file_mimetype(
         index, source, file_ctx,
     ));
+    issues.extend(check_s8389_file_upload_form(index, source, file_ctx));
+    issues.extend(check_s8397_uvicorn_import_string(index, source, file_ctx));
     issues.extend(check_s8400_fastapi_no_content_body(index, source, file_ctx));
     issues.extend(check_s8401_child_router_before_parent(
         index, source, file_ctx,
     ));
+    issues.extend(check_s8405_test_client_content_parameter(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8409_redundant_response_model(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8410_annotated_dependency_hints(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8411_path_parameters(index, source, file_ctx));
     issues.extend(check_s8412_generic_route_decorator(index, source, file_ctx));
     issues.extend(check_s8413_router_prefix_in_include(
         index, source, file_ctx,
@@ -1744,7 +1762,21 @@ mod s6785_graphql_depth_limiting;
 pub(crate) mod s6786_graphql_introspection;
 mod s6965_flask_route_methods;
 
+mod s8389_file_upload_form;
+
+mod s8396_optional_field_defaults;
+
+mod s8397_uvicorn_import_string;
+
 mod s8401_child_router_before_parent;
+
+mod s8405_test_client_content_parameter;
+
+mod s8409_redundant_response_model;
+
+mod s8410_annotated_dependency_hints;
+
+mod s8411_path_parameters;
 
 mod s8412_generic_route_decorator;
 
@@ -1753,8 +1785,6 @@ mod s8413_router_prefix_in_include;
 mod s8414_cors_middleware_ordering;
 
 mod s8415_http_exception_documented;
-
-mod s8396_optional_field_defaults;
 
 mod s6863_flask_error_handler_status;
 
@@ -1769,7 +1799,6 @@ mod s8375_flask_preprocess_request;
 mod s8385_flask_send_file_mimetype;
 
 mod s8400_fastapi_no_content_body;
-
 mod s8502_set_update_instead_of_add_loop;
 
 mod s8510_loop_variable_shadows_outer;
