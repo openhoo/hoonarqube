@@ -49,6 +49,44 @@ pub enum Language {
     Html,
 }
 
+impl Language {
+    /// Report-surface language identity shared by per-file reports, the CLI
+    /// cache, and duplication groups. C# reports as `csharpsquid`, the
+    /// catalog repository prefix, matching the analyzer-crate file reports.
+    #[must_use]
+    pub fn report_name(self) -> &'static str {
+        match self {
+            Language::Python => "python",
+            Language::JavaScript => "javascript",
+            Language::TypeScript => "typescript",
+            Language::CSharp => "csharpsquid",
+            Language::Go => "go",
+            Language::Java => "java",
+            Language::Rust => "rust",
+            Language::Ruby => "ruby",
+            Language::Html => "web",
+        }
+    }
+
+    /// Inverse of [`Language::report_name`] for cache round-trips; `None`
+    /// when the value is not a report-surface language name.
+    #[must_use]
+    pub fn from_report_name(value: &str) -> Option<Self> {
+        Some(match value {
+            "python" => Language::Python,
+            "javascript" => Language::JavaScript,
+            "typescript" => Language::TypeScript,
+            "csharpsquid" => Language::CSharp,
+            "go" => Language::Go,
+            "java" => Language::Java,
+            "rust" => Language::Rust,
+            "ruby" => Language::Ruby,
+            "web" => Language::Html,
+            _ => return None,
+        })
+    }
+}
+
 /// Deterministic GitHub Code Quality registry grouped by catalog family.
 ///
 /// JavaScript and TypeScript intentionally share one family and one analyzer

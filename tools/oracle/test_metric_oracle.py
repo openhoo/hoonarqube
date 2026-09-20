@@ -361,10 +361,8 @@ class MetricOracleTests(unittest.TestCase):
         self.assertEqual(density["reference"]["state"], "NO_DENOMINATOR")
         self.assertEqual(density["native"]["state"], "NO_DENOMINATOR")
 
-    def test_reference_artifact_requires_server_image_digest_and_rejects_credentials(
-        self,
-    ):
-        artifact = {
+    def _reference_artifact(self, cases):
+        return {
             "schema_version": 1,
             "kind": oracle.REFERENCE_KIND,
             "corpus": {
@@ -386,8 +384,13 @@ class MetricOracleTests(unittest.TestCase):
                 "image_digest": "sha256:" + "b" * 64,
             },
             "metric_keys": list(oracle.METRIC_KEYS),
-            "cases": [],
+            "cases": cases,
         }
+
+    def test_reference_artifact_requires_server_image_digest_and_rejects_credentials(
+        self,
+    ):
+        artifact = self._reference_artifact([{"id": "case", "status": "INCOMPLETE"}])
         oracle.validate_reference_artifact(artifact)
         artifact["scanner"]["sonar.token"] = "must-not-persist"
         with self.assertRaises(ValueError):
@@ -396,6 +399,21 @@ class MetricOracleTests(unittest.TestCase):
         artifact["server"]["image_digest"] = None
         with self.assertRaises(ValueError):
             oracle.validate_reference_artifact(artifact)
+
+    def test_empty_reference_cannot_certify_parity(self):
+        artifact = self._reference_artifact([])
+        with self.assertRaises(ValueError):
+            oracle.validate_reference_artifact(artifact)
+
+        artifact["unsupported"] = [{"id": "u", "reason": "absent rule"}]
+        oracle.validate_reference_artifact(artifact)
+        result = oracle.compare_reference(artifact, {})
+        self.assertEqual(result["status"], "UNVERIFIED")
+
+        populated = self._reference_artifact([{"id": "case", "status": "INCOMPLETE"}])
+        populated["unsupported"] = [{"id": "u", "reason": "absent rule"}]
+        compared = oracle.compare_reference(populated, {})
+        self.assertEqual(compared["status"], "UNVERIFIED")
 
 
 if __name__ == "__main__":
