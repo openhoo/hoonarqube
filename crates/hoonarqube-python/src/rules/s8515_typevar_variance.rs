@@ -84,7 +84,6 @@ fn is_truthy(expr: &Expr, facts: &WebFrameworkFacts<'_>, source: &str) -> bool {
 fn is_truthy_literal(expr: &Expr, source: &str) -> bool {
     match expr {
         Expr::BooleanLiteral(boolean) => boolean.value,
-        Expr::NoneLiteral(_) => false,
         Expr::StringLiteral(string) => !string.value.to_str().is_empty(),
         Expr::NumberLiteral(_) => {
             let text = source[expr.range()].trim();

@@ -153,7 +153,7 @@ pub(crate) fn check_s8511_mro_conflict(
             conflict_index.is_some()
         };
         if conflict {
-            issues.push(mro_issue(class, bases, conflict_index, index, source));
+            issues.push(mro_issue(class, &bases, conflict_index, index, source));
         }
     }
     issues
@@ -170,7 +170,7 @@ fn positional_bases(class: &StmtClassDef) -> Option<Vec<&Expr>> {
 /// earlier base that a later base already inherits, when one exists.
 fn mro_issue(
     class: &StmtClassDef,
-    bases: Vec<&Expr>,
+    bases: &[&Expr],
     conflict_index: Option<usize>,
     index: &LineIndex,
     source: &str,
@@ -199,13 +199,21 @@ fn ancestor_conflict_index(graph: &ClassGraph<'_>, refs: &[BaseRef]) -> Option<u
     })
 }
 
+/// Memoized per-class linearization: `Pending` until computed, then the
+/// resolved result (`None` when the class's own MRO conflicts or cycles).
+#[derive(Clone)]
+enum MroMemo {
+    Pending,
+    Done(Option<Vec<Elem>>),
+}
+
 /// The in-file class graph plus memoized resolution state.
 struct ClassGraph<'a> {
     facts: WebFrameworkFacts<'a>,
     classes: Vec<&'a StmtClassDef>,
     by_def: HashMap<*const StmtClassDef, usize>,
     bases: Vec<Vec<BaseRef>>,
-    mro_memo: Vec<Option<Option<Vec<Elem>>>>,
+    mro_memo: Vec<MroMemo>,
     mro_active: Vec<bool>,
 }
 
@@ -216,7 +224,7 @@ impl<'a> ClassGraph<'a> {
         let by_def = classes
             .iter()
             .enumerate()
-            .map(|(idx, class)| (*class as *const StmtClassDef, idx))
+            .map(|(idx, class)| (std::ptr::from_ref(*class), idx))
             .collect();
         let count = classes.len();
         let mut graph = ClassGraph {
@@ -224,7 +232,7 @@ impl<'a> ClassGraph<'a> {
             classes,
             by_def,
             bases: Vec::new(),
-            mro_memo: vec![None; count],
+            mro_memo: vec![MroMemo::Pending; count],
             mro_active: vec![false; count],
         };
         graph.bases = graph
@@ -246,19 +254,19 @@ impl<'a> ClassGraph<'a> {
     /// (`List[int]` → `list`); calls and other shapes stay unknown.
     fn resolve_base(&self, expr: &Expr) -> BaseRef {
         if let Some(class) = self.facts.resolve_class_def(expr, expr.range())
-            && let Some(&idx) = self.by_def.get(&(class as *const StmtClassDef))
+            && let Some(&idx) = self.by_def.get(&std::ptr::from_ref(class))
         {
             return BaseRef::Local(idx);
         }
         match expr {
             Expr::Subscript(subscript) => self.resolve_base(&subscript.value),
             Expr::Name(name) => match self.facts.resolve_name(name.id.as_str(), name.range()) {
-                NameResolution::Import(fqn) => self.leaf_for_fqn(&fqn, expr.range()),
+                NameResolution::Import(fqn) => Self::leaf_for_fqn(&fqn, expr.range()),
                 NameResolution::Value(value) => self.resolve_base(value),
-                _ => self.leaf_for_name(name.id.as_str(), expr.range()),
+                _ => Self::leaf_for_name(name.id.as_str(), expr.range()),
             },
             Expr::Attribute(_) => match self.facts.expr_fqn(expr) {
-                Some(fqn) => self.leaf_for_fqn(&fqn, expr.range()),
+                Some(fqn) => Self::leaf_for_fqn(&fqn, expr.range()),
                 None => BaseRef::Unknown(unknown_key(expr)),
             },
             _ => BaseRef::Unknown(unknown_key(expr)),
@@ -267,7 +275,7 @@ impl<'a> ClassGraph<'a> {
 
     /// A builtin leaf when the dotted path names a known builtin (with or
     /// without the `builtins.` qualifier); otherwise an opaque unknown.
-    fn leaf_for_fqn(&self, fqn: &str, range: TextRange) -> BaseRef {
+    fn leaf_for_fqn(fqn: &str, range: TextRange) -> BaseRef {
         let bare = fqn.strip_prefix("builtins.").unwrap_or(fqn);
         KNOWN_BUILTIN_BASES
             .iter()
@@ -279,7 +287,7 @@ impl<'a> ClassGraph<'a> {
     }
 
     /// A builtin leaf for an unbound name, or an opaque unknown.
-    fn leaf_for_name(&self, name: &str, range: TextRange) -> BaseRef {
+    fn leaf_for_name(name: &str, range: TextRange) -> BaseRef {
         KNOWN_BUILTIN_BASES
             .iter()
             .find(|builtin| **builtin == name)
@@ -335,7 +343,7 @@ impl<'a> ClassGraph<'a> {
     /// The class's own C3 linearization, memoized; `None` on conflict or
     /// inheritance cycles.
     fn class_mro(&mut self, idx: usize) -> Option<Vec<Elem>> {
-        if let Some(memo) = &self.mro_memo[idx] {
+        if let MroMemo::Done(memo) = &self.mro_memo[idx] {
             return memo.clone();
         }
         if self.mro_active[idx] {
@@ -347,7 +355,7 @@ impl<'a> ClassGraph<'a> {
             .linearization(&bases)
             .map(|tail| std::iter::once(Elem::Local(idx)).chain(tail).collect());
         self.mro_active[idx] = false;
-        self.mro_memo[idx] = Some(result.clone());
+        self.mro_memo[idx] = MroMemo::Done(result.clone());
         result
     }
 
@@ -437,28 +445,27 @@ fn c3_merge(lists: &mut Vec<VecDeque<Elem>>) -> Option<Vec<Elem>> {
         if lists.is_empty() {
             return Some(result);
         }
-        let mut progressed = false;
-        for i in 0..lists.len() {
-            let candidate = lists[i][0];
-            let blocked = lists
-                .iter()
-                .any(|list| list.iter().skip(1).any(|elem| *elem == candidate));
-            if blocked {
-                continue;
+        let candidate = next_unblocked_head(lists)?;
+        for list in lists.iter_mut() {
+            while list.front() == Some(&candidate) {
+                list.pop_front();
             }
-            for list in lists.iter_mut() {
-                while list.front() == Some(&candidate) {
-                    list.pop_front();
-                }
-            }
-            result.push(candidate);
-            progressed = true;
-            break;
         }
-        if !progressed {
-            return None;
-        }
+        result.push(candidate);
     }
+}
+
+/// The first list head that appears in no list's tail — the next element
+/// C3 can take. `None` when every remaining head is blocked.
+fn next_unblocked_head(lists: &[VecDeque<Elem>]) -> Option<Elem> {
+    lists
+        .iter()
+        .filter_map(|list| list.front().copied())
+        .find(|candidate| {
+            !lists
+                .iter()
+                .any(|list| list.iter().skip(1).any(|elem| elem == candidate))
+        })
 }
 
 #[cfg(test)]

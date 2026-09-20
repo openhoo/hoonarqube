@@ -138,7 +138,7 @@ fn has_inherited_test_method(class: &StmtClassDef, facts: &WebFrameworkFacts<'_>
     let mut visited = HashSet::new();
     let mut pending: Vec<&StmtClassDef> = vec![class];
     while let Some(current) = pending.pop() {
-        if !visited.insert(current as *const StmtClassDef) {
+        if !visited.insert(std::ptr::from_ref(current)) {
             continue;
         }
         for base in direct_base_classes(current, facts) {
@@ -222,7 +222,7 @@ fn is_unittest_test_case(
     let mut visited = HashSet::new();
     let mut pending: Vec<&StmtClassDef> = vec![class];
     while let Some(current) = pending.pop() {
-        if !visited.insert(current as *const StmtClassDef) {
+        if !visited.insert(std::ptr::from_ref(current)) {
             continue;
         }
         for base in current.bases() {
@@ -254,7 +254,7 @@ fn has_descendant_with_tests(
         .iter()
         .zip(has_tests)
         .filter(|(class, has)| **has && class.name.range() != candidate.name.range())
-        .any(|(class, _)| extends_class(*class, candidate, facts))
+        .any(|(class, _)| extends_class(class, candidate, facts))
 }
 
 /// Whether `class` transitively extends `ancestor` through same-file bases.
@@ -266,7 +266,7 @@ fn extends_class(
     let mut visited = HashSet::new();
     let mut pending: Vec<&StmtClassDef> = vec![class];
     while let Some(current) = pending.pop() {
-        if !visited.insert(current as *const StmtClassDef) {
+        if !visited.insert(std::ptr::from_ref(current)) {
             continue;
         }
         for base in direct_base_classes(current, facts) {
@@ -311,7 +311,7 @@ fn is_abstract_base(
     let mut visited = HashSet::new();
     let mut pending: Vec<&StmtClassDef> = vec![class];
     while let Some(current) = pending.pop() {
-        if !visited.insert(current as *const StmtClassDef) {
+        if !visited.insert(std::ptr::from_ref(current)) {
             continue;
         }
         for base in current.bases() {

@@ -314,7 +314,7 @@ fn collect_expr_reads<'a>(
                     captured,
                     reads,
                     &mut pending,
-                )
+                );
             }
             _ => pending.extend(child_exprs(expr).into_iter().map(|child| (child, captured))),
         }
