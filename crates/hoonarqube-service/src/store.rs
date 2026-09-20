@@ -638,6 +638,21 @@ impl Store {
 
     pub(crate) fn insert_analysis(&self, input: &IngestData) -> Result<IngestResult, StoreError> {
         let mut connection = self.lock()?;
+        // The project tombstone gates both ingest branches: an idempotent
+        // replay must not acknowledge data into a deleted project.
+        let project_deleted: Option<String> = connection
+            .query_row(
+                "SELECT deleted_at FROM projects WHERE project = ?1",
+                [&input.project],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        if project_deleted.is_some() {
+            return Err(StoreError::Conflict(
+                "the project has been explicitly deleted".to_string(),
+            ));
+        }
         let existing = Self::existing_analysis(&connection, input)?;
         if let Some((id, content_hash, deleted_at, _, _, _, _, _)) = existing {
             if deleted_at.is_some() {
@@ -661,19 +676,6 @@ impl Store {
             return Err(StoreError::Conflict(
                 "a different report already exists for this project, branch, and commit"
                     .to_string(),
-            ));
-        }
-        let project_deleted: Option<String> = connection
-            .query_row(
-                "SELECT deleted_at FROM projects WHERE project = ?1",
-                [&input.project],
-                |row| row.get(0),
-            )
-            .optional()?
-            .flatten();
-        if project_deleted.is_some() {
-            return Err(StoreError::Conflict(
-                "the project has been explicitly deleted".to_string(),
             ));
         }
 
@@ -1676,10 +1678,13 @@ fn analysis_context_compatible(
         )
         .optional()?
         .flatten();
+    // Retention pruning soft-deletes the reviewed analysis while its review
+    // stays persisted and listed, so the context comparison must not require
+    // the reviewed analysis to still be live.
     let reviewed: Option<String> = connection
         .query_row(
             "SELECT assessment_json FROM analyses
-             WHERE id = ?1 AND deleted_at IS NULL",
+             WHERE id = ?1",
             [reviewed_analysis_id],
             |row| row.get(0),
         )
