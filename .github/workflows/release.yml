@@ -148,7 +148,7 @@ jobs:
 
   rebuild-assets:
     name: Rebuild release assets
-    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main' && inputs.tag != ''
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main' && inputs.tag != '' && !inputs.dry_run
     runs-on: ubuntu-latest
     env:
       REBUILD_TAG: ${{ inputs.tag }}
