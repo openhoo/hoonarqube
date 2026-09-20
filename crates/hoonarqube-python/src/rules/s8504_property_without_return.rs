@@ -143,24 +143,31 @@ impl BodyFacts {
                 _ => {}
             }
             for expr in stmt_exprs(stmt) {
-                // A lambda body is its own function scope: `yield` inside it
-                // belongs to the lambda, not the property, so a property
-                // whose body only assigns such a lambda still returns None.
-                let mut pending = vec![expr];
-                while let Some(expr) = pending.pop() {
-                    if matches!(expr, Expr::Lambda(_)) {
-                        continue;
-                    }
-                    if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
-                        facts.has_yield = true;
-                    }
-                    pending.extend(child_exprs(expr).into_iter().rev());
+                if scope_local_expr_has_yield(expr) {
+                    facts.has_yield = true;
                 }
             }
             pending.extend(child_bodies(stmt).into_iter().flat_map(|body| body.iter()));
         }
         facts
     }
+}
+
+/// Whether `expr` contains a `yield` outside lambda bodies: a lambda body
+/// is its own function scope, so `yield` inside it belongs to the lambda
+/// and does not make the enclosing property a generator.
+fn scope_local_expr_has_yield(expr: &Expr) -> bool {
+    let mut pending = vec![expr];
+    while let Some(expr) = pending.pop() {
+        if matches!(expr, Expr::Lambda(_)) {
+            continue;
+        }
+        if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
+            return true;
+        }
+        pending.extend(child_exprs(expr).into_iter().rev());
+    }
+    false
 }
 
 #[cfg(test)]
