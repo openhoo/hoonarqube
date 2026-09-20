@@ -149,8 +149,15 @@ fn check_field(
     }
 }
 
-/// `typing.ClassVar[...]` (subscripted or bare) in any import spelling.
+/// `typing.ClassVar[...]` (subscripted or bare) in any import spelling,
+/// including string-quoted annotations: dataclasses evaluates the quoted
+/// form exactly like the unquoted one.
 fn is_class_var(annotation: &Expr, fqns: &ImportFqns) -> bool {
+    if let Expr::StringLiteral(string) = annotation {
+        let text = string.value.to_str().trim();
+        let base = text.split('[').next().unwrap_or(text).trim();
+        return fqns.is_fqn_name(base, "typing.ClassVar");
+    }
     let target = match annotation {
         Expr::Subscript(subscript) => subscript.value.as_ref(),
         expr => expr,
@@ -247,6 +254,40 @@ mod tests {
             "    tags: list = field(default_factory=list)\n",
         ));
         assert!(findings(&clean, "python:S8685").is_empty());
+    }
+
+    #[test]
+    fn s8685_accepts_string_quoted_classvar_like_unquoted() {
+        let quoted = scan(concat!(
+            "from dataclasses import dataclass\n",
+            "from typing import ClassVar\n",
+            "\n",
+            "@dataclass\n",
+            "class C:\n",
+            "    shared: \"ClassVar[list]\" = []\n",
+        ));
+        assert!(findings(&quoted, "python:S8685").is_empty());
+
+        let unquoted = scan(concat!(
+            "from dataclasses import dataclass\n",
+            "from typing import ClassVar\n",
+            "\n",
+            "@dataclass\n",
+            "class C:\n",
+            "    shared: ClassVar[list] = []\n",
+        ));
+        assert!(findings(&unquoted, "python:S8685").is_empty());
+
+        let not_classvar = scan(concat!(
+            "from dataclasses import dataclass\n",
+            "\n",
+            "@dataclass\n",
+            "class C:\n",
+            "    items: \"list[int]\" = []\n",
+        ));
+        let found = findings(&not_classvar, "python:S8685");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].range.start, pos(5, 25));
     }
 
     #[test]

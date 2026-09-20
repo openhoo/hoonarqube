@@ -5,7 +5,7 @@ use ruff_text_size::Ranged;
 
 use crate::engine::file_context::FileContext;
 use crate::support::{
-    NameResolver, NameValue, WebFrameworkFacts, child_bodies, for_each_expr, issue_at, stmt_exprs,
+    NameResolver, NameValue, WebFrameworkFacts, child_bodies, child_exprs, issue_at, stmt_exprs,
 };
 use hoonarqube_ir::Issue;
 
@@ -143,16 +143,31 @@ impl BodyFacts {
                 _ => {}
             }
             for expr in stmt_exprs(stmt) {
-                for_each_expr(expr, &mut |expr| {
-                    if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
-                        facts.has_yield = true;
-                    }
-                });
+                if scope_local_expr_has_yield(expr) {
+                    facts.has_yield = true;
+                }
             }
             pending.extend(child_bodies(stmt).into_iter().flat_map(|body| body.iter()));
         }
         facts
     }
+}
+
+/// Whether `expr` contains a `yield` outside lambda bodies: a lambda body
+/// is its own function scope, so `yield` inside it belongs to the lambda
+/// and does not make the enclosing property a generator.
+fn scope_local_expr_has_yield(expr: &Expr) -> bool {
+    let mut pending = vec![expr];
+    while let Some(expr) = pending.pop() {
+        if matches!(expr, Expr::Lambda(_)) {
+            continue;
+        }
+        if matches!(expr, Expr::Yield(_) | Expr::YieldFrom(_)) {
+            return true;
+        }
+        pending.extend(child_exprs(expr).into_iter().rev());
+    }
+    false
 }
 
 #[cfg(test)]
@@ -206,6 +221,28 @@ mod tests {
         ));
         assert_eq!(flagged.len(), 3);
         assert_eq!(flagged[2].range.start, pos(13, 8));
+    }
+
+    #[test]
+    fn s8504_flags_property_assigning_yield_lambda() {
+        // The lambda is its own function scope: its `yield` does not make
+        // the property a generator, and the getter still returns None.
+        let flagged = found(concat!(
+            "class C:\n",
+            "    @property\n",
+            "    def value(self):\n",
+            "        self.factory = lambda: (yield 1)\n",
+        ));
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start, pos(3, 8));
+
+        let control = found(concat!(
+            "class C:\n",
+            "    @property\n",
+            "    def value(self):\n",
+            "        self.factory = lambda: 1\n",
+        ));
+        assert_eq!(control.len(), 1);
     }
 
     #[test]
