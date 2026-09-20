@@ -672,7 +672,11 @@ internal static class QuickFixPlanner
                         if (model.GetTypeInfo(declaration.BaseList.Types[priorIndex].Type).Type is INamedTypeSymbol prior
                             && prior.AllInterfaces.Any(candidate => SymbolEqualityComparer.Default.Equals(candidate, inherited)))
                         {
-                            redundant = true;
+                            // Removing the entry is only safe when the class does not
+                            // re-implement a member of the interface: a `new` or
+                            // explicit implementation currently wins the interface
+                            // dispatch that would fall back to the base type.
+                            redundant = !ReimplementsInterfaceMember(owner, prior, inherited);
                             break;
                         }
                     }
@@ -967,7 +971,7 @@ internal static class QuickFixPlanner
             if (branches.Count != 2) continue;
             if (branches.Any(statement => statement is not ReturnStatementSyntax && statement is not ExpressionStatementSyntax)) continue;
             if (branches.Any(statement => statement is ExpressionStatementSyntax expression && model.GetOperation(expression.Expression) is null)) continue;
-            var replacement = ConditionalReplacement(ifStatement);
+            var replacement = ConditionalReplacement(ifStatement, model);
             if (replacement is null) continue;
             AddFact(facts, tree, "csharpsquid:S3240", new TextSpan(ifStatement.SpanStart, 2),
                 Action("csharp.s3240.simplify-condition", "Simplify condition", Edit(tree, ifStatement.Span, replacement.WithoutLeadingTrivia().WithoutTrailingTrivia().ToFullString())));
@@ -1045,7 +1049,9 @@ internal static class QuickFixPlanner
 
             var actions = new List<CompilerQuickFixAction>();
             var plain = RemoveArguments(argumentList, removableWithoutNamed);
-            if (plain is not null && removableWithoutNamed.Count > 0)
+            if (plain is not null
+                && removableWithoutNamed.Count > 0
+                && RemovalPreservesBinding(argumentList, plain, model))
             {
                 actions.Add(new CompilerQuickFixAction
                 {
@@ -1057,7 +1063,7 @@ internal static class QuickFixPlanner
             if (allRedundant.Except(removableWithoutNamed).Any())
             {
                 var named = RemoveArgumentsAndName(argumentList, mappings, allRedundant, model);
-                if (named is not null)
+                if (named is not null && RemovalPreservesBinding(argumentList, named, model))
                 {
                     actions.Add(new CompilerQuickFixAction
                     {
@@ -1190,7 +1196,8 @@ internal static class QuickFixPlanner
             if (condition is not BinaryExpressionSyntax binaryCondition
                 || !binaryCondition.IsKind(SyntaxKind.NotEqualsExpression)
                 || model.GetSymbolInfo(assignment.Left).Symbol is IPropertySymbol
-                || !MatchingAssignment(binaryCondition, assignment, model))
+                || !MatchingAssignment(binaryCondition, assignment, model)
+                || !IsEffectFree(binaryCondition, model))
             {
                 continue;
             }
@@ -1206,7 +1213,8 @@ internal static class QuickFixPlanner
             {
                 parent = parenthesized.Parent;
             }
-            if (parent is not AssignmentExpressionSyntax || switchExpression.Arms.Count != 1)
+            if (parent is not AssignmentExpressionSyntax || switchExpression.Arms.Count != 1
+                || !IsEffectFree(switchExpression.GoverningExpression, model))
             {
                 continue;
             }
@@ -1325,7 +1333,7 @@ internal static class QuickFixPlanner
             if (constructors.Count == 0
                 || containing.Constructors.Any(constructor => constructor.IsPartialDefinition && constructor.PartialImplementationPart is null)
                 || !constructors.All(constructor => models.TryGetValue(constructor.Syntax.SyntaxTree, out var constructorModel)
-                    && IsSymbolFirstSetInCfg(symbol, constructor.Syntax, constructorModel!)))
+                    && IsSymbolFirstSetInCfg(symbol, constructor.Syntax, constructorModel!, models)))
             {
                 continue;
             }
@@ -2066,6 +2074,45 @@ internal static class QuickFixPlanner
         return newBaseList is not null && newBaseList.Types.Count > 0 ? newBaseList.ToFullString() : "";
     }
 
+    private static bool ReimplementsInterfaceMember(INamedTypeSymbol owner, INamedTypeSymbol prior, INamedTypeSymbol contract)
+    {
+        foreach (var member in contract.AllInterfaces.Prepend(contract).SelectMany(iface => iface.GetMembers()))
+        {
+            var implementation = owner.FindImplementationForInterfaceMember(member);
+            if (implementation is null
+                || !SymbolEqualityComparer.Default.Equals(implementation.ContainingType, owner))
+            {
+                continue;
+            }
+            var inherited = prior.FindImplementationForInterfaceMember(member);
+            if (inherited is null || !Overrides(implementation, inherited))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool Overrides(ISymbol implementation, ISymbol inherited)
+    {
+        ISymbol? current = implementation;
+        while (current is not null && current.IsOverride)
+        {
+            current = current switch
+            {
+                IMethodSymbol method => method.OverriddenMethod,
+                IPropertySymbol property => property.OverriddenProperty,
+                IEventSymbol @event => @event.OverriddenEvent,
+                _ => null,
+            };
+            if (SymbolEqualityComparer.Default.Equals(current, inherited))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     private static bool TryGetSingleEditableDeclaration(IFieldSymbol field, SyntaxTree issueTree, IReadOnlyDictionary<SyntaxTree, SemanticModel> models, out FieldDeclarationSyntax declaration)
     {
@@ -2096,7 +2143,7 @@ internal static class QuickFixPlanner
         Unsafe = 4,
     }
 
-    private static bool IsSymbolFirstSetInCfg(IFieldSymbol field, ConstructorDeclarationSyntax declaration, SemanticModel model)
+    private static bool IsSymbolFirstSetInCfg(IFieldSymbol field, ConstructorDeclarationSyntax declaration, SemanticModel model, IReadOnlyDictionary<SyntaxTree, SemanticModel> models)
     {
         if (declaration.Initializer?.ThisOrBaseKeyword.IsKind(SyntaxKind.ThisKeyword) == true)
         {
@@ -2127,6 +2174,7 @@ internal static class QuickFixPlanner
         var incoming = new FieldFlowState[graph.Blocks.Length];
         var outgoing = new FieldFlowState[graph.Blocks.Length];
         incoming[entry.Ordinal] = FieldFlowState.Unassigned;
+        var visited = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
 
         bool changed;
         do
@@ -2146,10 +2194,10 @@ internal static class QuickFixPlanner
                     incoming[block.Ordinal] = state;
                     changed = true;
                 }
-                var next = TransferOperations(block.Operations, state, field);
+                var next = TransferOperations(block.Operations, state, field, models, visited);
                 if (block.BranchValue is not null)
                 {
-                    next = TransferOperation(block.BranchValue, next, field);
+                    next = TransferOperation(block.BranchValue, next, field, models, visited);
                 }
                 if (outgoing[block.Ordinal] != next)
                 {
@@ -2165,16 +2213,16 @@ internal static class QuickFixPlanner
             && (exitState & (FieldFlowState.Unassigned | FieldFlowState.Unsafe)) == 0;
     }
 
-    private static FieldFlowState TransferOperations(IEnumerable<IOperation> operations, FieldFlowState state, IFieldSymbol field)
+    private static FieldFlowState TransferOperations(IEnumerable<IOperation> operations, FieldFlowState state, IFieldSymbol field, IReadOnlyDictionary<SyntaxTree, SemanticModel> models, HashSet<ISymbol> visited)
     {
         foreach (var operation in operations)
         {
-            state = TransferOperation(operation, state, field);
+            state = TransferOperation(operation, state, field, models, visited);
         }
         return state;
     }
 
-    private static FieldFlowState TransferOperation(IOperation operation, FieldFlowState state, IFieldSymbol field)
+    private static FieldFlowState TransferOperation(IOperation operation, FieldFlowState state, IFieldSymbol field, IReadOnlyDictionary<SyntaxTree, SemanticModel> models, HashSet<ISymbol> visited)
     {
         if (operation is IAnonymousFunctionOperation or ILocalFunctionOperation)
         {
@@ -2182,28 +2230,28 @@ internal static class QuickFixPlanner
         }
         if (operation is ISimpleAssignmentOperation simple)
         {
-            state = TransferAssignmentTarget(simple.Target, state, field, read: false, write: false);
-            state = TransferOperation(simple.Value, state, field);
+            state = TransferAssignmentTarget(simple.Target, state, field, read: false, write: false, models, visited);
+            state = TransferOperation(simple.Value, state, field, models, visited);
             return MarkDirectTargetWritten(simple.Target, state, field);
         }
         if (operation is ICompoundAssignmentOperation compound)
         {
-            state = TransferAssignmentTarget(compound.Target, state, field, read: true, write: false);
-            state = TransferOperation(compound.Value, state, field);
+            state = TransferAssignmentTarget(compound.Target, state, field, read: true, write: false, models, visited);
+            state = TransferOperation(compound.Value, state, field, models, visited);
             return MarkDirectTargetWritten(compound.Target, state, field);
         }
         if (operation is IIncrementOrDecrementOperation increment)
         {
-            state = TransferAssignmentTarget(increment.Target, state, field, read: true, write: false);
+            state = TransferAssignmentTarget(increment.Target, state, field, read: true, write: false, models, visited);
             return MarkDirectTargetWritten(increment.Target, state, field);
         }
         if (operation is IArgumentOperation argument)
         {
             if (argument.Parameter?.RefKind == RefKind.Out)
             {
-                return TransferAssignmentTarget(argument.Value, state, field, read: false, write: true);
+                return TransferAssignmentTarget(argument.Value, state, field, read: false, write: true, models, visited);
             }
-            state = TransferOperation(argument.Value, state, field);
+            state = TransferOperation(argument.Value, state, field, models, visited);
             if (argument.Parameter?.RefKind == RefKind.Ref)
             {
                 state = MarkDirectTargetWritten(argument.Value, state, field);
@@ -2212,28 +2260,205 @@ internal static class QuickFixPlanner
         }
         if (operation is IFieldReferenceOperation fieldReference)
         {
-            state = fieldReference.Instance is null ? state : TransferOperation(fieldReference.Instance, state, field);
+            state = fieldReference.Instance is null ? state : TransferOperation(fieldReference.Instance, state, field, models, visited);
             return SymbolEqualityComparer.Default.Equals(fieldReference.Field, field)
                 ? MarkFieldRead(state)
                 : state;
         }
         foreach (var child in operation.ChildOperations)
         {
-            state = TransferOperation(child, state, field);
+            state = TransferOperation(child, state, field, models, visited);
+        }
+        // A member call can observe the field through a body the operation
+        // tree does not inline.  While the field is still unassigned, any
+        // invoked member that reads it (directly or transitively) makes the
+        // initializer observable, so the read must poison the state.
+        if (MemberCallMayReadField(operation, field, models, visited))
+        {
+            state = MarkFieldRead(state);
         }
         return state;
     }
 
-    private static FieldFlowState TransferAssignmentTarget(IOperation target, FieldFlowState state, IFieldSymbol field, bool read, bool write)
+    private static bool MemberCallMayReadField(IOperation operation, IFieldSymbol field, IReadOnlyDictionary<SyntaxTree, SemanticModel> models, HashSet<ISymbol> visited)
+    {
+        foreach (var member in InvokedMembers(operation))
+        {
+            if (member.MethodKind == MethodKind.Constructor
+                && member.Parameters.Length == 0
+                && member.ContainingType?.SpecialType == SpecialType.System_Object)
+            {
+                // The implicit or explicit object..ctor() call cannot observe
+                // instance state.
+                continue;
+            }
+            if (member.IsAbstract || member.IsVirtual || member.MethodKind == MethodKind.DelegateInvoke)
+            {
+                return true;
+            }
+            if (member.IsImplicitlyDeclared
+                && member.MethodKind == MethodKind.Ordinary
+                && SymbolEqualityComparer.Default.Equals(member.ContainingType, field.ContainingType))
+            {
+                // Implicitly declared ordinary members such as record
+                // PrintMembers/ToString read instance state without syntax.
+                return true;
+            }
+            if (member.DeclaringSyntaxReferences.IsEmpty)
+            {
+                if (CallExposesThis(operation))
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (MemberBodyReadsField(member, field, models, visited))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static IEnumerable<IMethodSymbol> InvokedMembers(IOperation operation)
+    {
+        switch (operation)
+        {
+            case IInvocationOperation invocation:
+                yield return invocation.TargetMethod;
+                break;
+            case IObjectCreationOperation creation when creation.Constructor is not null:
+                yield return creation.Constructor;
+                break;
+            case IPropertyReferenceOperation property:
+                var isWrite = operation.Parent is IAssignmentOperation assignment
+                    && assignment.Target == operation;
+                var isRead = !isWrite
+                    || operation.Parent is ICompoundAssignmentOperation
+                    || operation.Parent is IIncrementOrDecrementOperation;
+                if (isRead && property.Property.GetMethod is not null)
+                {
+                    yield return property.Property.GetMethod;
+                }
+                if (isWrite && property.Property.SetMethod is not null)
+                {
+                    yield return property.Property.SetMethod;
+                }
+                break;
+            case IEventReferenceOperation eventReference:
+                foreach (var accessor in new[] { eventReference.Event.AddMethod, eventReference.Event.RemoveMethod })
+                {
+                    if (accessor is not null)
+                    {
+                        yield return accessor;
+                    }
+                }
+                break;
+        }
+    }
+
+    private static bool CallExposesThis(IOperation operation)
+    {
+        IOperation? instance = operation switch
+        {
+            IInvocationOperation invocation => invocation.Instance,
+            IPropertyReferenceOperation property => property.Instance,
+            IEventReferenceOperation eventReference => eventReference.Instance,
+            _ => null,
+        };
+        if (instance is IInstanceReferenceOperation)
+        {
+            return true;
+        }
+        var arguments = operation switch
+        {
+            IInvocationOperation invocation => invocation.Arguments,
+            IObjectCreationOperation creation => creation.Arguments,
+            _ => ImmutableArray<IArgumentOperation>.Empty,
+        };
+        return arguments.Any(argument => ContainsThisReference(argument.Value));
+    }
+
+    private static bool ContainsThisReference(IOperation operation)
+    {
+        if (operation is IInstanceReferenceOperation)
+        {
+            return true;
+        }
+        foreach (var child in operation.ChildOperations)
+        {
+            if (ContainsThisReference(child))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool MemberBodyReadsField(ISymbol member, IFieldSymbol field, IReadOnlyDictionary<SyntaxTree, SemanticModel> models, HashSet<ISymbol> visited)
+    {
+        if (!visited.Add(member))
+        {
+            return false;
+        }
+        foreach (var reference in member.DeclaringSyntaxReferences)
+        {
+            var syntax = reference.GetSyntax();
+            if (!models.TryGetValue(syntax.SyntaxTree, out var memberModel))
+            {
+                return true;
+            }
+            foreach (var node in syntax.DescendantNodes())
+            {
+                if (node is IdentifierNameSyntax identifier
+                    && !IsNameOfOperand(identifier, memberModel)
+                    && memberModel.GetSymbolInfo(identifier).Symbol is IFieldSymbol referenced
+                    && SymbolEqualityComparer.Default.Equals(referenced, field)
+                    && !IsWriteOnlyFieldReference(identifier))
+                {
+                    return true;
+                }
+                if (node is InvocationExpressionSyntax or ObjectCreationExpressionSyntax or MemberAccessExpressionSyntax
+                    && memberModel.GetOperation(node) is { } nested
+                    && MemberCallMayReadField(nested, field, models, visited))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static bool IsNameOfOperand(IdentifierNameSyntax identifier, SemanticModel model) =>
+        identifier.Ancestors().OfType<ArgumentSyntax>().FirstOrDefault()?.Parent?.Parent
+            is InvocationExpressionSyntax invocation
+            && invocation.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" }
+            && model.GetSymbolInfo(invocation.Expression).Symbol is null;
+
+    private static bool IsWriteOnlyFieldReference(IdentifierNameSyntax identifier)
+    {
+        var target = (SyntaxNode)identifier;
+        if (identifier.Parent is MemberAccessExpressionSyntax access && access.Name == identifier)
+        {
+            target = access;
+        }
+        return (target.Parent is AssignmentExpressionSyntax assignment
+            && assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+            && assignment.Left == target)
+            || (target.Parent is ArgumentSyntax argument
+            && argument.RefOrOutKeyword.IsKind(SyntaxKind.OutKeyword));
+    }
+
+    private static FieldFlowState TransferAssignmentTarget(IOperation target, FieldFlowState state, IFieldSymbol field, bool read, bool write, IReadOnlyDictionary<SyntaxTree, SemanticModel> models, HashSet<ISymbol> visited)
     {
         if (target is IFieldReferenceOperation fieldReference && SymbolEqualityComparer.Default.Equals(fieldReference.Field, field))
         {
-            state = fieldReference.Instance is null ? state : TransferOperation(fieldReference.Instance, state, field);
+            state = fieldReference.Instance is null ? state : TransferOperation(fieldReference.Instance, state, field, models, visited);
             if (read) state = MarkFieldRead(state);
             if (write) state = MarkFieldWritten(state);
             return state;
         }
-        return TransferOperation(target, state, field);
+        return TransferOperation(target, state, field, models, visited);
     }
 
     private static FieldFlowState MarkDirectTargetWritten(IOperation target, FieldFlowState state, IFieldSymbol field) =>
@@ -2373,19 +2598,34 @@ internal static class QuickFixPlanner
         return result;
     }
 
-    private static SyntaxNode? ConditionalReplacement(IfStatementSyntax statement)
+    private static SyntaxNode? ConditionalReplacement(IfStatementSyntax statement, SemanticModel model)
     {
         var thenStatement = BranchStatements(statement).First();
         var elseStatement = BranchStatements(statement).Last();
         if (thenStatement is ReturnStatementSyntax { Expression: { } thenExpression }
             && elseStatement is ReturnStatementSyntax { Expression: { } elseExpression }
-            && statement.Condition is { } condition)
+            && statement.Condition is { } condition
+            && SameNaturalType(thenExpression, elseExpression, model))
         {
             return SyntaxFactory.ParseStatement($"return {condition.ToFullString().Trim()} ? {thenExpression.ToFullString().Trim()} : {elseExpression.ToFullString().Trim()};").WithTriviaFrom(statement);
         }
         return null;
     }
 
+    private static bool SameNaturalType(ExpressionSyntax left, ExpressionSyntax right, SemanticModel model)
+    {
+        var leftType = model.GetTypeInfo(left);
+        var rightType = model.GetTypeInfo(right);
+        // A conditional expression computes one common type from both branch
+        // types; when they differ the rewrite can silently change the boxed
+        // result type (for example `int`/`long` branches become `long`).
+        return leftType.Type is not null
+            && rightType.Type is not null
+            && SymbolEqualityComparer.Default.Equals(leftType.Type, rightType.Type)
+            && (leftType.ConvertedType is null
+                || rightType.ConvertedType is null
+                || SymbolEqualityComparer.Default.Equals(leftType.ConvertedType, rightType.ConvertedType));
+    }
     private static bool MatchingAssignment(BinaryExpressionSyntax condition, AssignmentExpressionSyntax assignment, SemanticModel model) =>
         MatchingExpression(condition.Left, assignment.Left, model) && MatchingExpression(condition.Right, assignment.Right, model)
         || MatchingExpression(condition.Left, assignment.Right, model) && MatchingExpression(condition.Right, assignment.Left, model);
@@ -2406,6 +2646,43 @@ internal static class QuickFixPlanner
         var rightConstant = model.GetConstantValue(right);
         return leftConstant.HasValue && rightConstant.HasValue && Equals(leftConstant.Value, rightConstant.Value);
     }
+
+    private static bool IsEffectFree(ExpressionSyntax expression, SemanticModel model)
+    {
+        return model.GetOperation(expression) is { } operation && IsEffectFree(operation);
+    }
+
+    private static bool IsEffectFree(IOperation operation)
+    {
+        var pure = operation switch
+        {
+            ILiteralOperation
+                or ILocalReferenceOperation
+                or IParameterReferenceOperation
+                or IFieldReferenceOperation
+                or IInstanceReferenceOperation
+                or IParenthesizedOperation
+                or IUnaryOperation { OperatorMethod: null }
+                or IIsTypeOperation
+                or IIsPatternOperation
+                or IPatternOperation
+                or IConditionalOperation
+                or ICoalesceOperation
+                or ITupleOperation
+                or INameOfOperation
+                or ITypeOfOperation
+                or IDefaultValueOperation
+                or ISizeOfOperation
+                or IDiscardOperation => true,
+            IBinaryOperation binary => binary.OperatorMethod is null || IsPureFrameworkOperator(binary.OperatorMethod),
+            IConversionOperation conversion => conversion.OperatorMethod is null || IsPureFrameworkOperator(conversion.OperatorMethod),
+            _ => false,
+        };
+        return pure && operation.ChildOperations.All(IsEffectFree);
+    }
+
+    private static bool IsPureFrameworkOperator(IMethodSymbol operatorMethod) =>
+        operatorMethod.ContainingType?.SpecialType is SpecialType.System_String or SpecialType.System_Decimal;
 
     private static ExpressionSyntax UnwrapParentheses(ExpressionSyntax expression)
     {
@@ -2558,6 +2835,27 @@ internal static class QuickFixPlanner
     {
         var rewritten = argumentList.RemoveNodes(remove, SyntaxRemoveOptions.KeepNoTrivia | SyntaxRemoveOptions.AddElasticMarker);
         return rewritten?.ToFullString();
+    }
+
+    private static bool RemovalPreservesBinding(ArgumentListSyntax argumentList, string rewrittenArguments, SemanticModel model)
+    {
+        // Dropping a default-valued argument can silently rebind the call to a
+        // different overload.  Speculatively rebind the rewritten expression
+        // and keep the action only when the same method still resolves.
+        if (argumentList.Parent is not ExpressionSyntax parentExpression
+            || model.GetSymbolInfo(parentExpression).Symbol is not { } original)
+        {
+            return false;
+        }
+        var rewritten = parentExpression.ReplaceNode(
+            argumentList,
+            SyntaxFactory.ParseArgumentList(rewrittenArguments));
+        return model.GetSpeculativeSymbolInfo(
+                parentExpression.SpanStart,
+                rewritten,
+                SpeculativeBindingOption.BindAsExpression).Symbol is { } rebound
+            && (SymbolEqualityComparer.Default.Equals(original, rebound)
+                || SymbolEqualityComparer.Default.Equals(original.OriginalDefinition, rebound.OriginalDefinition));
     }
     private static string FormatArgumentList(ArgumentListSyntax template, IEnumerable<ArgumentSyntax> arguments)
     {

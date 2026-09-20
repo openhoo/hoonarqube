@@ -3468,4 +3468,260 @@ namespace Unsafe
             rewritten_context.diagnostics
         );
     }
+
+    /// Project-semantic quick-fix harness for the delegated planner rules:
+    /// the bundled Roslyn helper must prove each action against the compiled
+    /// project, and applying an offered action must preserve the program's
+    /// observed runtime output.
+    fn project_runtime_fixture(
+        label: &str,
+        source: &str,
+        helper: &HelperCommand,
+    ) -> (RuntimeQuickFixFixture, ProjectSemanticContext) {
+        let fixture = RuntimeQuickFixFixture::new(label, source);
+        let context = ProjectSemanticContext::load(
+            &ProjectSemanticConfig {
+                project: fixture.project.clone(),
+                helper: Some(helper.clone()),
+                trusted_evaluation: true,
+                timeout_ms: 120_000,
+                ..ProjectSemanticConfig::default()
+            },
+            &[SourceSnapshot::new(fixture.source_path.clone(), source)
+                .with_project(fixture.project.clone())],
+        );
+        assert!(
+            context.is_complete(),
+            "quickfix semantic context is incomplete for {label}: {:?}",
+            context.diagnostics
+        );
+        (fixture, context)
+    }
+
+    fn project_report(
+        context: &ProjectSemanticContext,
+        fixture: &RuntimeQuickFixFixture,
+        source: &str,
+    ) -> hoonarqube_ir::FileReport {
+        context.analyze_with_context(
+            fixture.source_path.clone(),
+            source,
+            CsLanguage::CSharp,
+            &AnalyzerOptions::default(),
+        )
+    }
+
+    /// Asserts the delegated planner keeps `expected_findings` diagnostics and
+    /// offers `expected_actions` copies of `action_id`; when an action is
+    /// offered its edits must apply and preserve the program's runtime output.
+    fn assert_project_runtime_contract(
+        label: &str,
+        source: &str,
+        helper: &HelperCommand,
+        key: &str,
+        action_id: &str,
+        expected: (usize, usize),
+        expected_stdout: &str,
+    ) {
+        let (expected_findings, expected_actions) = expected;
+        let (fixture, context) = project_runtime_fixture(label, source, helper);
+        let before = fixture.stdout(source);
+        assert_eq!(
+            before, expected_stdout,
+            "original runtime output for {label}"
+        );
+
+        let report = project_report(&context, &fixture, source);
+        assert_eq!(
+            runtime_rule_count(&report, key),
+            expected_findings,
+            "unexpected {key} findings for {label}: {:?}",
+            report.issues
+        );
+        let projected = project_runtime_action(source, &report, key, action_id, expected_actions);
+        if expected_actions == 0 {
+            assert_eq!(
+                projected.as_bytes(),
+                source.as_bytes(),
+                "unsafe refusal must preserve every source byte for {label}"
+            );
+        } else {
+            assert_ne!(
+                projected.as_bytes(),
+                source.as_bytes(),
+                "safe action must actually change its source for {label}"
+            );
+        }
+        let after = fixture.stdout(&projected);
+        assert_eq!(
+            after, before,
+            "quickfix changed runtime behavior for {label}"
+        );
+    }
+
+    #[test]
+    fn issue759_s3254_refuses_overload_rebind_but_keeps_single_overload_removal() {
+        // Removing `1` from `Pick(1)` rebinds the call to the parameterless
+        // overload, changing the program output from `one` to `zero`.
+        const UNSAFE: &str = r#"class Program { static string Pick()=>"zero"; static string Pick(int x=1)=>"one"; static void Main(){System.Console.WriteLine(Pick(1));} }
+"#;
+        const SAFE: &str = r#"class Program { static string Pick(int x=1)=>"one"; static void Main(){System.Console.WriteLine(Pick(1));} }
+"#;
+        let workspace = OwnedTempDir::new("quickfix-issue759");
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S3254 regression coverage");
+        assert_project_runtime_contract(
+            "issue759-overload-rebind",
+            UNSAFE,
+            &helper,
+            "csharpsquid:S3254",
+            "csharp.s3254.remove-default-argument",
+            (1, 0),
+            "one\n",
+        );
+        assert_project_runtime_contract(
+            "issue759-single-overload",
+            SAFE,
+            &helper,
+            "csharpsquid:S3254",
+            "csharp.s3254.remove-default-argument",
+            (1, 1),
+            "one\n",
+        );
+    }
+
+    #[test]
+    fn issue760_s3240_refuses_mixed_branch_types_but_keeps_same_type() {
+        // `b ? 1 : 2L` computes the common type `long`, boxing `1` as Int64
+        // where the if/else returned Int32.
+        const UNSAFE: &str = r"class Program { static object Pick(bool b){if(b){return 1;}else{return 2L;}} static void Main(){System.Console.WriteLine(Pick(true).GetType().Name);} }
+";
+        const SAFE: &str = r"class Program { static object Pick(bool b){if(b){return 1;}else{return 0;}} static void Main(){System.Console.WriteLine(Pick(true).GetType().Name);} }
+";
+        let workspace = OwnedTempDir::new("quickfix-issue760");
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S3240 regression coverage");
+        assert_project_runtime_contract(
+            "issue760-mixed-branch-types",
+            UNSAFE,
+            &helper,
+            "csharpsquid:S3240",
+            "csharp.s3240.simplify-condition",
+            (1, 0),
+            "Int32\n",
+        );
+        assert_project_runtime_contract(
+            "issue760-same-branch-types",
+            SAFE,
+            &helper,
+            "csharpsquid:S3240",
+            "csharp.s3240.simplify-condition",
+            (1, 1),
+            "Int32\n",
+        );
+    }
+
+    #[test]
+    fn issue761_s3440_refuses_effectful_condition_but_keeps_constant() {
+        // `x != Next()` evaluates `Next()` once; dropping the condition loses
+        // the `++n` side effect, changing `02` to `01`.
+        const UNSAFE: &str = r"class Program { static int n; static int Next()=>++n; static int Pick(){int x=0;System.Console.Write(x);if(x!=Next()){x=Next();}return x;} static void Main(){System.Console.WriteLine(Pick());} }
+";
+        const SAFE: &str = r"class Program { static int Pick(){int x=0;System.Console.Write(x);if(x!=10){x=10;}return x;} static void Main(){System.Console.WriteLine(Pick());} }
+";
+        let workspace = OwnedTempDir::new("quickfix-issue761");
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S3440 regression coverage");
+        assert_project_runtime_contract(
+            "issue761-effectful-condition",
+            UNSAFE,
+            &helper,
+            "csharpsquid:S3440",
+            "csharp.s3440.remove-useless-condition",
+            (1, 0),
+            "02\n",
+        );
+        assert_project_runtime_contract(
+            "issue761-constant-condition",
+            SAFE,
+            &helper,
+            "csharpsquid:S3440",
+            "csharp.s3440.remove-useless-condition",
+            (1, 1),
+            "010\n",
+        );
+    }
+
+    #[test]
+    fn issue762_s3604_refuses_indirect_reads_but_keeps_plain_overwrite() {
+        // `Read()` observes the initializer before `value=9`; removing the
+        // initializer changes the constructor output from `7` to `0`.
+        const INDIRECT: &str = r"class C { private int value=7; public C(){ System.Console.WriteLine(Read()); value=9; } public int Read()=>value; } class Program{ static void Main(){var c=new C();System.Console.WriteLine(c.Read());}}
+";
+        const DIRECT: &str = r"class C { private int value=7; public C(){ System.Console.WriteLine(value); value=9; } public int Read()=>value; } class Program{ static void Main(){var c=new C();System.Console.WriteLine(c.Read());}}
+";
+        const SAFE: &str = r"class C { private int value=7; public C(){ value=9; } public int Read()=>value; } class Program{ static void Main(){var c=new C();System.Console.WriteLine(c.Read());}}
+";
+        let workspace = OwnedTempDir::new("quickfix-issue762");
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S3604 regression coverage");
+        assert_project_runtime_contract(
+            "issue762-indirect-read",
+            INDIRECT,
+            &helper,
+            "csharpsquid:S3604",
+            "csharp.s3604.remove-redundant-initializer",
+            (1, 0),
+            "7\n9\n",
+        );
+        assert_project_runtime_contract(
+            "issue762-direct-read",
+            DIRECT,
+            &helper,
+            "csharpsquid:S3604",
+            "csharp.s3604.remove-redundant-initializer",
+            (1, 0),
+            "7\n9\n",
+        );
+        assert_project_runtime_contract(
+            "issue762-plain-overwrite",
+            SAFE,
+            &helper,
+            "csharpsquid:S3604",
+            "csharp.s3604.remove-redundant-initializer",
+            (1, 1),
+            "9\n",
+        );
+    }
+
+    #[test]
+    fn issue763_s1939_refuses_interface_reimplementation_but_keeps_redundant() {
+        // `D.M()` re-implements `I.M()`; dropping `I` from `D`'s base list
+        // reverts interface dispatch to `B.M()`, printing `B` instead of `D`.
+        const UNSAFE: &str = r#"using System; interface I { void M(); } class B:I { public void M(){Console.WriteLine("B");} } class D:B,I { public new void M(){Console.WriteLine("D");} } class Program{ static void Main(){((I)new D()).M();} }
+"#;
+        const SAFE: &str = r#"using System; interface I { void M(); } class B:I { public void M(){Console.WriteLine("B");} } class D:B,I { public void Other(){} } class Program{ static void Main(){((I)new D()).M();} }
+"#;
+        let workspace = OwnedTempDir::new("quickfix-issue763");
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S1939 regression coverage");
+        assert_project_runtime_contract(
+            "issue763-interface-reimplementation",
+            UNSAFE,
+            &helper,
+            "csharpsquid:S1939",
+            "csharp.s1939.remove-redundant-inheritance-entry",
+            (1, 0),
+            "D\n",
+        );
+        assert_project_runtime_contract(
+            "issue763-redundant-entry",
+            SAFE,
+            &helper,
+            "csharpsquid:S1939",
+            "csharp.s1939.remove-redundant-inheritance-entry",
+            (1, 1),
+            "B\n",
+        );
+    }
 }
