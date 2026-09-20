@@ -97,6 +97,14 @@ impl ImportFqns {
         self.resolve(expr)
             .is_some_and(|fqn| candidates.contains(&fqn.as_str()))
     }
+    /// Whether a bare (possibly dotted) name resolves to `expected` — used
+    /// for string-quoted annotations, where no expression node exists.
+    pub(crate) fn is_fqn_name(&self, name: &str, expected: &str) -> bool {
+        match self.bindings.get(name) {
+            Some(fqn) => fqn == expected,
+            None => name == expected,
+        }
+    }
 }
 
 /// The name an import alias binds: `asname` when present, else the
