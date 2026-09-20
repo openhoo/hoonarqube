@@ -10,6 +10,9 @@ use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
 use crate::support::{NameResolution, WebFrameworkFacts, flow_location};
 
+/// Maximum assignment hops followed while resolving one base expression.
+const MAX_BASE_ALIAS_DEPTH: u8 = 16;
+
 const RULE_KEY: &str = "python:S8511";
 const MESSAGE: &str = "Reorder or remove base classes to fix this MRO conflict.";
 const SECONDARY_MESSAGE: &str =
@@ -253,16 +256,27 @@ impl<'a> ClassGraph<'a> {
     /// leaf, or an opaque unknown. Subscripts resolve through their object
     /// (`List[int]` → `list`); calls and other shapes stay unknown.
     fn resolve_base(&self, expr: &Expr) -> BaseRef {
+        self.resolve_base_bounded(expr, 0)
+    }
+
+    /// Depth-bounded variant: alias chains resolve through assignment
+    /// right-hand sides, so a self-referential alias (`base = base`) would
+    /// otherwise recurse without a base case and overflow the stack. A chain
+    /// that exceeds the bound resolves as an opaque unknown.
+    fn resolve_base_bounded(&self, expr: &Expr, depth: u8) -> BaseRef {
+        if depth > MAX_BASE_ALIAS_DEPTH {
+            return BaseRef::Unknown(unknown_key(expr));
+        }
         if let Some(class) = self.facts.resolve_class_def(expr, expr.range())
             && let Some(&idx) = self.by_def.get(&std::ptr::from_ref(class))
         {
             return BaseRef::Local(idx);
         }
         match expr {
-            Expr::Subscript(subscript) => self.resolve_base(&subscript.value),
+            Expr::Subscript(subscript) => self.resolve_base_bounded(&subscript.value, depth),
             Expr::Name(name) => match self.facts.resolve_name(name.id.as_str(), name.range()) {
                 NameResolution::Import(fqn) => Self::leaf_for_fqn(&fqn, expr.range()),
-                NameResolution::Value(value) => self.resolve_base(value),
+                NameResolution::Value(value) => self.resolve_base_bounded(value, depth + 1),
                 _ => Self::leaf_for_name(name.id.as_str(), expr.range()),
             },
             Expr::Attribute(_) => match self.facts.expr_fqn(expr) {
@@ -507,6 +521,49 @@ mod tests {
             "    pass\n",
         ));
         assert!(findings(&clean, "python:S8511").is_empty());
+    }
+
+    #[test]
+    fn s8511_survives_self_referential_base_alias() {
+        // `base = base` makes alias resolution cycle; the analyzer must
+        // still produce a report with no finding instead of overflowing.
+        let report = scan(concat!(
+            "def make(base):\n",
+            "    base = base\n",
+            "    class Derived(base, object):\n",
+            "        pass\n",
+            "    return Derived\n",
+        ));
+        assert!(findings(&report, "python:S8511").is_empty());
+
+        let control = scan(concat!(
+            "def make(base):\n",
+            "    class Derived(base, object):\n",
+            "        pass\n",
+            "    return Derived\n",
+        ));
+        assert!(findings(&control, "python:S8511").is_empty());
+    }
+
+    #[test]
+    fn s8511_accepts_class_name_rebinding_before_reference() {
+        // `OldChild` inherits the first `Base`; the later rebind must not
+        // manufacture an inheritance cycle for `Combined`.
+        let report = scan(concat!(
+            "class Base: pass\n",
+            "class OldChild(Base): pass\n",
+            "class Base: pass\n",
+            "class Combined(Base, OldChild): pass\n",
+        ));
+        assert!(findings(&report, "python:S8511").is_empty());
+
+        let control = scan(concat!(
+            "class First: pass\n",
+            "class OldChild(First): pass\n",
+            "class Second: pass\n",
+            "class Combined(Second, OldChild): pass\n",
+        ));
+        assert!(findings(&control, "python:S8511").is_empty());
     }
 
     #[test]
