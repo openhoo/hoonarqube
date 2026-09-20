@@ -224,6 +224,7 @@ use crate::rules::s5863_identical_assertion_arguments::check_s5863_identical_ass
 use crate::rules::s5886_return_hint_mismatches::check_s5886_return_hint_mismatches;
 use crate::rules::s5890_annotated_assignment_kinds::check_s5890_annotated_assignment_kinds;
 use crate::rules::s5958_specific_exception_assertion::check_s5958_specific_exception_assertion;
+use crate::rules::s5976_similar_tests_parameterized::check_s5976_similar_tests_parameterized;
 use crate::rules::s6243_lambda_reusable_resources::check_s6243_lambda_reusable_resources;
 use crate::rules::s6245_s3_encryption_configuration::check_s6245_s3_encryption_configuration;
 use crate::rules::s6246_lambda_cross_call::check_s6246_lambda_cross_call;
@@ -305,9 +306,11 @@ use crate::rules::s8973_double_underscore_private_attributes::check_s8973_double
 use crate::rules::s8974_json_schema_input_type_after::check_s8974_json_schema_input_type_after;
 use crate::rules::s8978_pydantic_dataclass_revalidation::check_s8978_pydantic_dataclass_revalidation;
 use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
+use crate::rules::s8993_fixture_param_dependencies::check_s8993_fixture_param_dependencies;
 use crate::rules::s8994_pytest_fixture_single_yield::check_s8994_pytest_fixture_single_yield;
 use crate::rules::s8997_monkeypatch_global_state::check_s8997_monkeypatch_global_state;
 use crate::rules::s8998_pytest_parametrize_nonempty::check_s8998_pytest_parametrize_nonempty;
+use crate::rules::s8999_pytest_plugins_conftest::check_s8999_pytest_plugins_conftest;
 use crate::rules::s9000_raises_context_manager::check_s9000_raises_context_manager;
 use crate::rules::s9001_xfail_reason::check_s9001_xfail_reason;
 use crate::rules::s9073_composite_assertion::check_s9073_composite_assertion;
@@ -1210,10 +1213,11 @@ pub(crate) fn check_future_reference_battery(
     issues
 }
 
-/// Aggregates the pytest-contract detectors (python:S8992,
-/// python:S8997, python:S9000, python:S9001, python:S9073) added ahead
-/// of their catalog entries. S9073 also accepts unittest function contexts;
-/// S8992 does not require a pytest file name.
+/// Aggregates the pytest-contract detectors (python:S5976, python:S8992,
+/// python:S8993, python:S8997, python:S8999, python:S9000, python:S9001,
+/// python:S9073) added ahead of their catalog entries. S5976 and S9073 also
+/// accept unittest class contexts; S8992 and S8999 do not require a pytest
+/// file name.
 pub(crate) fn check_pytest_contract_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -1221,7 +1225,17 @@ pub(crate) fn check_pytest_contract_battery(
     path: &std::path::Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    issues.extend(check_s5976_similar_tests_parameterized(
+        parsed, index, source, path,
+    ));
+    issues.extend(check_s8992_autouse_fixture_params(parsed, index, source));
+    issues.extend(check_s8993_fixture_param_dependencies(
+        parsed, index, source, path,
+    ));
     issues.extend(check_s8997_monkeypatch_global_state(
+        parsed, index, source, path,
+    ));
+    issues.extend(check_s8999_pytest_plugins_conftest(
         parsed, index, source, path,
     ));
     issues.extend(check_s9000_raises_context_manager(
@@ -1229,7 +1243,6 @@ pub(crate) fn check_pytest_contract_battery(
     ));
     issues.extend(check_s9001_xfail_reason(parsed, index, source, path));
     issues.extend(check_s9073_composite_assertion(parsed, index, source, path));
-    issues.extend(check_s8992_autouse_fixture_params(parsed, index, source));
     issues
 }
 
@@ -1785,9 +1798,8 @@ mod s5779_assertion_in_try;
 
 mod s5863_identical_assertion_arguments;
 
-mod s5958_specific_exception_assertion;
-
 mod s5756_non_callable_callees;
+mod s5958_specific_exception_assertion;
 
 mod s5795_identity_cached_types;
 
@@ -1795,6 +1807,7 @@ mod s5886_return_hint_mismatches;
 
 mod s5890_annotated_assignment_kinds;
 
+mod s5976_similar_tests_parameterized;
 mod s6243_lambda_reusable_resources;
 
 mod s6245_s3_encryption_configuration;
@@ -1946,11 +1959,15 @@ mod s8978_pydantic_dataclass_revalidation;
 
 mod s8992_autouse_fixture_params;
 
+mod s8993_fixture_param_dependencies;
+
 mod s8994_pytest_fixture_single_yield;
 
 mod s8997_monkeypatch_global_state;
 
 mod s8998_pytest_parametrize_nonempty;
+
+mod s8999_pytest_plugins_conftest;
 
 mod s9000_raises_context_manager;
 
