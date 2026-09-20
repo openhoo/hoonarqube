@@ -15,7 +15,7 @@ use crate::context::AnalysisContext;
 use crate::project_context::{SemanticQuickfixAction, SemanticSpan};
 use crate::support::to_u32;
 use hoonarqube_ir::{Fix, Issue, TextEdit};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 pub(super) type RawEdit = (usize, usize, String);
 type NativeFix = (String, Vec<RawEdit>);
 
@@ -79,7 +79,7 @@ fn attach_native_fixes(ctx: &AnalysisContext<'_>, issues: &mut [Issue]) {
         };
         if let Some((message, edits)) = match rule {
             "S1264" => s1264(ctx.source, start, end),
-            "S1488" => s1488(ctx.source, start, end),
+            "S1488" => s1488(ctx, start, end),
             _ => None,
         } {
             issue.fix = Some(Fix::new(
@@ -338,7 +338,8 @@ fn s1264(source: &str, start: usize, end: usize) -> Option<NativeFix> {
     ))
 }
 
-fn s1488(source: &str, start: usize, end: usize) -> Option<NativeFix> {
+fn s1488(ctx: &AnalysisContext<'_>, start: usize, end: usize) -> Option<NativeFix> {
+    let source = ctx.source;
     let (line_start, _) = line_bounds(source, start);
     let keyword = ["const ", "let ", "var "]
         .iter()
@@ -382,6 +383,9 @@ fn s1488(source: &str, start: usize, end: usize) -> Option<NativeFix> {
     if source.get(returned_start..returned_end)? != source.get(name_start..name_end)? {
         return None;
     }
+    if !s1488_binding_is_safe(ctx, (name_start, name_end), (returned_start, returned_end)) {
+        return None;
+    }
     let message = format!(
         "Immediately {action} this expression instead of assigning it to the temporary variable \"{}\".",
         &source[name_start..name_end]
@@ -397,6 +401,42 @@ fn s1488(source: &str, start: usize, end: usize) -> Option<NativeFix> {
             ),
         ],
     ))
+}
+
+/// The collapse is only binding-preserving when the returned identifier is
+/// the declared binding's sole resolved reference: removing the declaration
+/// would otherwise rebind surviving reads (for example a `var` read in a
+/// `finally` block or a hoisted earlier read) to an outer scope. #756
+fn s1488_binding_is_safe(
+    ctx: &AnalysisContext<'_>,
+    name: (usize, usize),
+    returned: (usize, usize),
+) -> bool {
+    let Some(semantic) = ctx.semantic else {
+        return false;
+    };
+    let reference_span = |reference: &oxc_semantic::Reference| {
+        let span = semantic.reference_span(reference);
+        (span.start as usize, span.end as usize)
+    };
+    let Some(symbol) = semantic.scoping().symbol_ids().find(|symbol| {
+        semantic
+            .symbol_references(*symbol)
+            .any(|reference| reference_span(reference) == returned)
+    }) else {
+        return false;
+    };
+    let declared_here = semantic
+        .scoping()
+        .symbol_declarations(symbol)
+        .any(|node_id| {
+            let span = semantic.nodes().get_node(node_id).kind().span();
+            span.start as usize <= name.0 && name.1 <= span.end as usize
+        });
+    declared_here
+        && semantic
+            .symbol_references(symbol)
+            .all(|reference| reference_span(reference) == returned)
 }
 
 fn s125(source: &str, start: usize, end: usize) -> Vec<Candidate> {
