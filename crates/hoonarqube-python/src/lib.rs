@@ -235,7 +235,9 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "python:S8493",
     "python:S8495",
     "python:S8505",
+    "python:S8511",
     "python:S8572",
+    "python:S8685",
     "python:S8953",
     "python:S8963",
     "python:S8966",
@@ -477,6 +479,7 @@ pub fn analyze_with_context(
         &index,
         source,
         path.as_path(),
+        &file_ctx,
     ));
     issues.extend(check_pytest_contract_battery(
         &parsed,
