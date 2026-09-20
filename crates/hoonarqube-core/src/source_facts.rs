@@ -94,7 +94,8 @@ pub(crate) fn source_exceeds_limits(path: &Path, source: &str) -> bool {
     let Some(language) = crate::language_for_path(path) else {
         return false;
     };
-    source.len() > MAX_SOURCE_BYTES || semantic_line_count(source, language) > MAX_SOURCE_LINES
+    source.len() > MAX_SOURCE_BYTES
+        || semantic_line_count(source, Some(language)) > MAX_SOURCE_LINES
 }
 
 /// Formats the structured rejection message shared by the pre-read bound
@@ -245,7 +246,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
     // be tens of megabytes of newline-only text, so they must not allocate a
     // line-start map just to produce fallback metrics.
     if source.len() > MAX_SOURCE_BYTES {
-        let physical_lines = semantic_line_count(source, language);
+        let physical_lines = semantic_line_count(source, Some(language));
         return Some(SourceFacts {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
@@ -255,7 +256,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     }
-    let physical_lines = semantic_line_count(source, language);
+    let physical_lines = semantic_line_count(source, Some(language));
     if physical_lines > MAX_SOURCE_LINES {
         return Some(SourceFacts {
             metrics: fallback_metrics(source, language),
@@ -279,7 +280,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
             language,
         });
     }
-    let line_starts = semantic_line_starts(source, language);
+    let line_starts = semantic_line_starts(source, Some(language));
     let mut parser = Parser::new();
     if let Err(error) = set_parser_language(&mut parser, language, extension) {
         return Some(SourceFacts {
@@ -1232,7 +1233,7 @@ impl<'source> FactCollector<'source> {
         let bytes = self.source.as_bytes();
         let mut offset = start;
         while offset < end {
-            if let Some(width) = line_break_width(bytes, offset, self.language)
+            if let Some(width) = line_break_width(bytes, offset, Some(self.language))
                 && offset.saturating_add(width) <= end
             {
                 if has_non_whitespace {
@@ -1333,7 +1334,7 @@ fn line_number_at_byte(line_starts: &[usize], byte: usize) -> u32 {
     saturating_u32(line).max(1)
 }
 
-fn semantic_line_count(source: &str, language: Language) -> usize {
+pub(crate) fn semantic_line_count(source: &str, language: Option<Language>) -> usize {
     if source.is_empty() {
         return 0;
     }
@@ -1353,7 +1354,7 @@ fn semantic_line_count(source: &str, language: Language) -> usize {
     lines
 }
 
-fn semantic_line_starts(source: &str, language: Language) -> Vec<usize> {
+pub(crate) fn semantic_line_starts(source: &str, language: Option<Language>) -> Vec<usize> {
     if source.is_empty() {
         return Vec::new();
     }
@@ -1374,10 +1375,15 @@ fn semantic_line_starts(source: &str, language: Language) -> Vec<usize> {
     starts
 }
 
-fn line_break_width(bytes: &[u8], offset: usize, language: Language) -> Option<usize> {
+pub(crate) fn line_break_width(
+    bytes: &[u8],
+    offset: usize,
+    language: Option<Language>,
+) -> Option<usize> {
     if bytes.get(offset) == Some(&b'\n') {
         return Some(1);
     }
+    let language = language?;
     if !matches!(
         language,
         Language::JavaScript | Language::TypeScript | Language::Java
@@ -1617,7 +1623,7 @@ fn contains_interpolation(node: Node<'_>) -> bool {
 }
 
 pub(crate) fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
-    let lines = semantic_line_count(source, language);
+    let lines = semantic_line_count(source, Some(language));
     let mut code_lines = 0usize;
     let mut comment_lines = 0usize;
     let mut in_block_comment = false;
@@ -1637,7 +1643,7 @@ pub(crate) fn fallback_metrics(source: &str, language: Language) -> FileMetrics 
     let mut line_start = 0;
     let mut offset = 0;
     while offset < bytes.len() {
-        if let Some(width) = line_break_width(bytes, offset, language) {
+        if let Some(width) = line_break_width(bytes, offset, Some(language)) {
             process_line(&source[line_start..offset]);
             offset += width;
             line_start = offset;

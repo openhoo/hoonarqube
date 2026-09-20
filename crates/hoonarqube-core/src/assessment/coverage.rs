@@ -5,6 +5,7 @@
 //! missing line from a report.  A report line is eligible only once it has a
 //! valid, unambiguous source-path and an in-range source line number.
 
+use crate::Language;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -273,7 +274,7 @@ fn import_coverage_line(
     }
     let mut invalid = false;
     if let Some(reported_checksum) = line.checksum.as_deref() {
-        let checksum_matches = source_line_checksum(source.source, line.line)
+        let checksum_matches = source_line_checksum(source.source, source.language, line.line)
             .is_some_and(|expected| expected == reported_checksum);
         if !checksum_matches {
             invalid = true;
@@ -330,6 +331,7 @@ struct SourceEntry<'a> {
     path: String,
     source: &'a str,
     classification: FileClassification,
+    language: Option<Language>,
     line_count: usize,
     digest: String,
 }
@@ -364,11 +366,13 @@ impl<'a> SourceIndex<'a> {
                 ));
                 continue;
             };
+            let language = crate::language_for_path(source.path);
             let entry = SourceEntry {
                 path: path.clone(),
                 source: source.source,
                 classification: source.classification,
-                line_count: source_line_count(source.source),
+                language: crate::language_for_path(source.path),
+                line_count: crate::source_facts::semantic_line_count(source.source, language),
                 digest: sha256_hex(source.source.as_bytes()),
             };
             if index.entries.contains_key(&path) {
@@ -1674,18 +1678,6 @@ fn input_path(root: &Path, path: &Path) -> PathBuf {
         .map_or_else(|| PathBuf::from(lexical_path(path)), PathBuf::from)
 }
 
-fn source_line_count(source: &str) -> usize {
-    if source.is_empty() {
-        return 0;
-    }
-    let count = source.bytes().filter(|byte| *byte == b'\n').count();
-    if source.ends_with('\n') {
-        count
-    } else {
-        count.saturating_add(1)
-    }
-}
-
 fn is_lcov_checksum(value: &str) -> bool {
     value.len() == 22
         && value
@@ -1693,10 +1685,19 @@ fn is_lcov_checksum(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/'))
 }
 
-fn source_line_checksum(source: &str, line: u32) -> Option<String> {
+fn source_line_checksum(source: &str, language: Option<Language>, line: u32) -> Option<String> {
     let index = usize::try_from(line).ok()?.checked_sub(1)?;
-    let source_line = source.split('\n').nth(index)?;
-    let source_line = source_line.strip_suffix('\r').unwrap_or(source_line);
+    let starts = crate::source_facts::semantic_line_starts(source, language);
+    let start = *starts.get(index)?;
+    let end = starts.get(index + 1).copied().unwrap_or(source.len());
+    let bytes = source.as_bytes();
+    let mut content_end = start;
+    while content_end < end
+        && crate::source_facts::line_break_width(bytes, content_end, language).is_none()
+    {
+        content_end += 1;
+    }
+    let source_line = source.get(start..content_end)?;
     let digest = Md5::digest(source_line.as_bytes());
     Some(STANDARD_NO_PAD.encode(digest))
 }
@@ -1800,6 +1801,103 @@ mod tests {
         }
     }
 
+    #[test]
+    fn lcov_accepts_ecmascript_line_boundaries() {
+        for separator in ["\r", "\r\n", "\u{2028}", "\u{2029}"] {
+            let text = format!("export const a = 1;{separator}export const b = 2;");
+            let files = [source("src/a.js", &text)];
+            let report = import_coverage(
+                Path::new("/repo"),
+                &[lcov(
+                    "coverage.info",
+                    "SF:src/a.js\nDA:1,1\nDA:2,1\nLF:2\nLH:2\nend_of_record\n",
+                )],
+                &files,
+            );
+            assert_eq!(report.status, AssessmentStatus::Complete, "{separator:?}");
+            assert_eq!(
+                report.lines,
+                CoverageCounter {
+                    eligible: 2,
+                    covered: 2
+                },
+                "{separator:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn lcov_checksum_matches_lone_cr_separated_lines() {
+        let files = [source(
+            "src/a.js",
+            "export const a = 1;\rexport const b = 2;",
+        )];
+        let matching = import_coverage(
+            Path::new("/repo"),
+            &[lcov(
+                "coverage.info",
+                "SF:src/a.js\nDA:1,1,3hbm2TW1f1MbAtZosGKinA\nDA:2,1,NS+OPP4vrV4wISNNyHnkkA\nend_of_record\n",
+            )],
+            &files,
+        );
+        assert_eq!(matching.status, AssessmentStatus::Complete);
+
+        let stale = import_coverage(
+            Path::new("/repo"),
+            &[lcov(
+                "coverage.info",
+                "SF:src/a.js\nDA:1,1,NS+OPP4vrV4wISNNyHnkkA\nDA:2,1,NS+OPP4vrV4wISNNyHnkkA\nend_of_record\n",
+            )],
+            &files,
+        );
+        assert_eq!(stale.status, AssessmentStatus::Invalid);
+        assert!(
+            stale
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("checksum mismatch"))
+        );
+    }
+
+    #[test]
+    fn lcov_line_ranges_stay_language_aware_and_fail_closed() {
+        let javascript = [source(
+            "src/a.js",
+            "export const a = 1;\rexport const b = 2;",
+        )];
+        let out_of_range = import_coverage(
+            Path::new("/repo"),
+            &[lcov(
+                "coverage.info",
+                "SF:src/a.js\nDA:3,1\nend_of_record\n",
+            )],
+            &javascript,
+        );
+        assert_eq!(out_of_range.status, AssessmentStatus::Invalid);
+        assert!(
+            out_of_range
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("does not exist"))
+        );
+
+        let python = [source("src/a.py", "x = 1\rx = 2\r")];
+        let not_a_boundary = import_coverage(
+            Path::new("/repo"),
+            &[lcov(
+                "coverage.info",
+                "SF:src/a.py\nDA:1,1\nDA:2,1\nend_of_record\n",
+            )],
+            &python,
+        );
+        assert_eq!(not_a_boundary.status, AssessmentStatus::Invalid);
+        assert!(
+            not_a_boundary
+                .diagnostics
+                .iter()
+                .any(|message| message.contains("does not exist"))
+        );
+    }
     #[test]
     fn lcov_partial_zero_and_full_runs_are_distinct_and_deterministic() {
         let files = [source("src/a.js", "one\ntwo\nthree\n")];
