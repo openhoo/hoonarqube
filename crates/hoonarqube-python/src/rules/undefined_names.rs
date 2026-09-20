@@ -65,4 +65,16 @@ mod tests {
         let undefined = scan("value = missing_name + 1\n");
         assert_eq!(findings(&undefined, "python:S5953").len(), 1);
     }
+
+    #[test]
+    fn vars_assignment_binds_like_globals() {
+        let source = "vars()[\"dynamically_defined\"] = 1\nprint(dynamically_defined)\n";
+        assert!(findings(&scan(source), "python:S5953").is_empty());
+
+        let control = "globals()[\"dynamically_defined\"] = 1\nprint(dynamically_defined)\n";
+        assert!(findings(&scan(control), "python:S5953").is_empty());
+
+        let undefined = scan("print(missing_name)\n");
+        assert_eq!(findings(&undefined, "python:S5953").len(), 1);
+    }
 }
