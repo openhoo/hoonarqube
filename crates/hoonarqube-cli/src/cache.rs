@@ -466,7 +466,7 @@ impl Cache {
                 symbols: &facts.symbols,
                 units: CachedUnits(&facts.units),
                 error: facts.error.as_deref(),
-                language: language_name(facts.language),
+                language: facts.language.report_name(),
             },
         };
         let Ok(header_bytes) = serde_json::to_vec(&CacheHeader {
@@ -527,7 +527,7 @@ impl Cache {
         if facts.error.is_some()
             || facts.language != expected_language
             || payload.report.metrics != facts.metrics
-            || payload.report.language != language_name(expected_language)
+            || payload.report.language != expected_language.report_name()
             || !valid_facts(&facts, source_len)
         {
             return None;
@@ -556,7 +556,7 @@ impl TryFrom<CachedFacts> for SourceFacts {
     type Error = ();
 
     fn try_from(facts: CachedFacts) -> Result<Self, Self::Error> {
-        let language = parse_language(&facts.language).ok_or(())?;
+        let language = Language::from_report_name(&facts.language).ok_or(())?;
         if facts.tokens.len() > MAX_CACHE_TOKENS
             || facts.symbols.len() > MAX_CACHE_SYMBOLS
             || facts.units.len() > MAX_CACHE_UNITS
@@ -730,35 +730,6 @@ fn is_java_unit_symbol(symbol: &str) -> bool {
             .as_bytes()
             .get(length)
             .is_some_and(|byte| *byte == b'|')
-}
-
-fn parse_language(value: &str) -> Option<Language> {
-    Some(match value {
-        "python" => Language::Python,
-        "javascript" => Language::JavaScript,
-        "typescript" => Language::TypeScript,
-        "csharpsquid" => Language::CSharp,
-        "go" => Language::Go,
-        "java" => Language::Java,
-        "rust" => Language::Rust,
-        "ruby" => Language::Ruby,
-        "web" => Language::Html,
-        _ => return None,
-    })
-}
-
-fn language_name(language: Language) -> &'static str {
-    match language {
-        Language::Python => "python",
-        Language::JavaScript => "javascript",
-        Language::TypeScript => "typescript",
-        Language::CSharp => "csharpsquid",
-        Language::Go => "go",
-        Language::Java => "java",
-        Language::Rust => "rust",
-        Language::Ruby => "ruby",
-        Language::Html => "web",
-    }
 }
 
 fn parse_frame(bytes: &[u8]) -> Option<(u32, usize, usize, [u8; 32])> {

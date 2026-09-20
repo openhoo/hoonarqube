@@ -947,20 +947,6 @@ fn language_rank(language: Language) -> u8 {
     }
 }
 
-fn language_name(language: Language) -> &'static str {
-    match language {
-        Language::Python => "python",
-        Language::JavaScript => "javascript",
-        Language::TypeScript => "typescript",
-        Language::CSharp => "csharp",
-        Language::Go => "go",
-        Language::Java => "java",
-        Language::Rust => "rust",
-        Language::Ruby => "ruby",
-        Language::Html => "web",
-    }
-}
-
 fn range_hash(prefix: &[u64], powers: &[u64], start: usize, length: usize) -> u64 {
     let end = start + length;
     prefix[end].wrapping_sub(prefix[start].wrapping_mul(powers[length]))
@@ -1446,7 +1432,7 @@ fn append_projected_group(
         });
     }
     output_groups.push(hoonarqube_ir::DuplicateGroup {
-        language: language_name(group.language).to_owned(),
+        language: group.language.report_name().to_owned(),
         occurrences,
     });
 }
@@ -2068,6 +2054,35 @@ mod tests {
                     })
                 })
         }));
+    }
+
+    #[test]
+    fn csharp_groups_use_the_report_language_identity() {
+        let body = (0..30)
+            .map(|index| format!("int value{index} = {index};"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let source = format!("class C {{ void F() {{ {body} }} }}");
+        let left = collect_source_facts(Path::new("left.cs"), &source).expect("csharp facts");
+        let right = collect_source_facts(Path::new("right.cs"), &source).expect("csharp facts");
+        let files = vec![
+            DuplicationFile {
+                path: PathBuf::from("left.cs"),
+                language: Language::CSharp,
+                facts: left,
+            },
+            DuplicationFile {
+                path: PathBuf::from("right.cs"),
+                language: Language::CSharp,
+                facts: right,
+            },
+        ];
+        let result = detect_duplications(&files, &options(10, 1)).expect("csharp detection");
+        assert!(!result.groups.is_empty());
+        for group in &result.groups {
+            assert_eq!(group.language, "csharpsquid");
+            assert_eq!(group.language, Language::CSharp.report_name());
+        }
     }
 
     #[test]
