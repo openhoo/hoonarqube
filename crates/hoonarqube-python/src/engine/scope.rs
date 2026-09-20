@@ -1062,7 +1062,7 @@ pub(crate) fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> Fi
             }
             if matches!(
                 called_name(&call.func),
-                Some("locals" | "globals" | "eval" | "exec")
+                Some("locals" | "globals" | "vars" | "eval" | "exec")
             ) {
                 facts.dynamic_names = true;
             }

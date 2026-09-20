@@ -375,6 +375,13 @@ impl<'a> WebFrameworkFacts<'a> {
                         .iter()
                         .filter(|class| class.name.as_str() == name.id.as_str())
                         .filter(|class| self.strict_parent_scope(class.range()) == scope)
+                        // A reference sees only bindings that already
+                        // exist at its position: after `class Base` is
+                        // rebound, earlier `class Child(Base)` must still
+                        // resolve to the first definition.
+                        .filter(|class| {
+                            class.range().start() < at.start() || class.range().contains_range(at)
+                        })
                         .max_by_key(|class| class.range().start().to_u32());
                     if let Some(class) = candidate {
                         return Some(*class);

@@ -108,6 +108,11 @@ fn collect_occurrences(
                 out.push((value, node_range(map, node)));
             }
             "regex" | "subshell" => {
+                // Interpolation makes the value dynamic; like the string
+                // branch, interpolated regex/subshell content never counts.
+                if has_child_of_kind(node, "interpolation") {
+                    return;
+                }
                 if let Some(content) = child_of_kind(node, "string_content") {
                     out.push((
                         source[content.byte_range()].to_string(),
@@ -359,6 +364,29 @@ H1 = <<~A
 A
 ";
         assert_eq!(findings(source), Vec::<String>::new());
+    }
+
+    #[test]
+    fn interpolated_regex_and_subshell_never_count() {
+        let source = concat!(
+            "def probe(x, y)\n",
+            "  a = \"prefix-value \"\n",
+            "  b = /prefix-value #{x}/\n",
+            "  c = /prefix-value #{y}/\n",
+            "end\n",
+        );
+        assert!(findings(source).is_empty());
+
+        let plain_regex_still_counts = concat!(
+            "def probe\n",
+            "  a = \"prefix-value \"\n",
+            "  b = /prefix-value /\n",
+            "  c = %x{prefix-value }\n",
+            "end\n",
+        );
+        let messages = findings(plain_regex_still_counts);
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].contains("prefix-value"));
     }
 
     #[test]
