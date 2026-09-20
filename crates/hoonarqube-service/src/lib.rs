@@ -2643,4 +2643,192 @@ mod tests {
         let _ = std::fs::remove_file(format!("{}-wal", database_path.display()));
         let _ = std::fs::remove_file(format!("{}-shm", database_path.display()));
     }
+
+    async fn spawn_test_service() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let test_id = NEXT_HTTP_TEST_ID.fetch_add(1, AtomicOrdering::Relaxed);
+        let database_path = std::env::temp_dir().join(format!(
+            "hoonarqube-service-http-{}-{test_id}.sqlite3",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&database_path);
+        let auth = AuthConfig::new(vec![Credential::new(
+            "admin",
+            "secret",
+            [("demo".to_string(), Role::Admin)],
+        )])
+        .expect("test credentials");
+        let service = Service::open(&database_path, auth).expect("test database");
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("test listener");
+        let address = listener.local_addr().expect("test listener address");
+        let router = service.router();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("test service server");
+        });
+        (address, server)
+    }
+
+    fn json_body(response: &RawHttpResponse) -> Value {
+        serde_json::from_slice(&response.body).expect("JSON response body")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deleted_project_rejects_idempotent_analysis_replay() {
+        async fn ingest(address: SocketAddr, body: &str) -> RawHttpResponse {
+            api_request(
+                address,
+                "POST",
+                "/api/v1/projects/demo/analyses",
+                Some("application/json"),
+                body,
+            )
+            .await
+        }
+        let (address, server) = spawn_test_service().await;
+        let payload = r#"{"schema_version":1,"branch":"main","commit":"c1","analyzed_at":"2026-09-20T10:00:00Z","report":{"schema_version":1,"files":[],"project":{"metrics":{"files":0,"lines":0,"code_lines":0,"comment_lines":0},"files":[],"duplications":[],"duplication":null,"complete":true,"warnings":[],"roots":["."]}}}"#;
+
+        let first = ingest(address, payload).await;
+        assert_eq!(first.status, 200);
+        assert_eq!(json_body(&first)["idempotent"], false);
+
+        let replay = ingest(address, payload).await;
+        assert_eq!(replay.status, 200);
+        assert_eq!(json_body(&replay)["idempotent"], true);
+
+        let deleted = api_request(
+            address,
+            "DELETE",
+            "/api/v1/projects/demo?reason=probe",
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(deleted.status, 204);
+
+        let replay_after_delete = ingest(address, payload).await;
+        assert_api_error(&replay_after_delete, 409, "conflict");
+
+        let fresh_commit = ingest(
+            address,
+            &payload.replace("\"commit\":\"c1\"", "\"commit\":\"c2\""),
+        )
+        .await;
+        assert_api_error(&fresh_commit, 409, "conflict");
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retention_keeps_context_compatible_accepted_review_visible() {
+        async fn ingest_analysis(
+            address: SocketAddr,
+            commit: &str,
+            analyzed_at: &str,
+            report: &str,
+        ) -> RawHttpResponse {
+            let body = format!(
+                r#"{{"schema_version":1,"branch":"main","commit":"{commit}","analyzed_at":"{analyzed_at}","report":{report}}}"#
+            );
+            api_request(
+                address,
+                "POST",
+                "/api/v1/projects/demo/analyses",
+                Some("application/json"),
+                &body,
+            )
+            .await
+        }
+        let (address, server) = spawn_test_service().await;
+        let report = r#"{"schema_version":1,"files":[{"path":"a.py","language":"python","issues":[{"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":20}}}],"metrics":{"lines":2,"code_lines":1,"comment_lines":1}}],"project":{"metrics":{"files":1,"lines":2,"code_lines":1,"comment_lines":1},"files":[{"path":"a.py","classification":"source","status":"complete","metrics":{"lines":2,"code_lines":1,"comment_lines":1},"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"reason":null}],"duplications":[],"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"complete":true,"warnings":[],"roots":["a.py"]},"assessment":{"schema_version":1,"context":{"analyzer_version":"hoonarqube-cli/0.8.2","catalog_digest":"d9ce2a1a13961a57f4dede498924fd3518312e8de5a4a5bc671952c73c158a84","options_digest":"471a1bbba734ab8a2da6fa62d0d84d5dd967dd2e1476565c78de6881b54b48d1","scope_digest":"dc756006f7d7366908f4cff666986e61f0fbd42c39b18381e745422035d69e36"},"sources":[{"path":"a.py","content_digest":"f89600824c3f62a48dcc441d730d7d43f1923b7b37bccb3a0536d109c1199764","line_digests":["1dd36e4257b84fc35cfcaca20a29fcbbd61530714fcbde191251b7d679dd9a44","e09e09453d48049c48cadbc630a121ed1b033498846be9aba19eafb8ab73f917"],"findings":[{"issue_index":0,"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","source_digest":"2837a0fd9c3732d35586b5be9794e0511049637f586fba20edb81d67b7d237f8","context_digest":"c2d980f6467c3167454753db29f2986ca82af25bd310de58bb297175584b3e30","start_line":1,"end_line":1,"identity":"1fe7b3c0d5b9cf565b5949ab0cfc9fed6e041652bf6b1f58dcf92e018540a3e0","ambiguous":false}]}]}}"#;
+        let ingest = async |commit: &str, analyzed_at: &str| {
+            ingest_analysis(address, commit, analyzed_at, report).await
+        };
+        let first = ingest("c1", "2026-09-20T10:00:00Z").await;
+        assert_eq!(first.status, 200);
+        let first_id = json_body(&first)["analysis"]["id"]
+            .as_i64()
+            .expect("first analysis id");
+        let second = ingest("c2", "2026-09-20T12:00:00Z").await;
+        assert_eq!(second.status, 200);
+        let second_id = json_body(&second)["analysis"]["id"]
+            .as_i64()
+            .expect("second analysis id");
+
+        let findings = api_request(
+            address,
+            "GET",
+            &format!("/api/v1/projects/demo/analyses/{first_id}/findings"),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(findings.status, 200);
+        let identity = json_body(&findings)["findings"][0]["identity"]
+            .as_str()
+            .expect("finding identity")
+            .to_string();
+
+        let review = api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/reviews",
+            Some("application/json"),
+            &format!(
+                r#"{{"schema_version":1,"analysis_id":{first_id},"identity":"{identity}","kind":"finding","state":"accepted","reason":"reviewed","expected_version":0}}"#
+            ),
+        )
+        .await;
+        assert_eq!(review.status, 200);
+        assert_eq!(json_body(&review)["review"]["state"], "accepted");
+
+        let inherited_before = api_request(
+            address,
+            "GET",
+            &format!("/api/v1/projects/demo/analyses/{second_id}/findings"),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(inherited_before.status, 200);
+        assert_eq!(
+            json_body(&inherited_before)["findings"][0]["review"]["state"],
+            "accepted"
+        );
+
+        let retention = api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/retention",
+            Some("application/json"),
+            r#"{"before":"2026-09-20T11:00:00Z","reason":"probe"}"#,
+        )
+        .await;
+        assert_eq!(retention.status, 200);
+        assert_eq!(json_body(&retention)["deleted"], 1);
+
+        let inherited_after = api_request(
+            address,
+            "GET",
+            &format!("/api/v1/projects/demo/analyses/{second_id}/findings"),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(inherited_after.status, 200);
+        assert_eq!(
+            json_body(&inherited_after)["findings"][0]["review"]["state"],
+            "accepted"
+        );
+
+        let reviews = api_request(address, "GET", "/api/v1/projects/demo/reviews", None, "").await;
+        assert_eq!(reviews.status, 200);
+        assert_eq!(json_body(&reviews)["reviews"][0]["state"], "accepted");
+
+        server.abort();
+        let _ = server.await;
+    }
 }
