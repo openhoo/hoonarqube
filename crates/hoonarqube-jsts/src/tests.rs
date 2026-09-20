@@ -3455,8 +3455,8 @@ fn semantic_quickfix_fixture(
             names.join(",")
         ),
     );
-    let config = TypeScriptProjectConfig::new(root.clone())
-        .with_typescript_package(typescript_package);
+    let config =
+        TypeScriptProjectConfig::new(root.clone()).with_typescript_package(typescript_package);
     let sources = ProjectSemanticSources::from_pairs(pairs);
     let context =
         ProjectSemanticContext::load(&config, &sources).expect("semantic helper should load");
@@ -3513,13 +3513,8 @@ export function h() { return f(undefined); }
         ],
     );
 
-    let shadowed =
-        semantic_quickfix_analysis(&context, &root, "src/shadowed.ts", shadowed_source);
-    let shadowed_issue = find_issue(
-        &shadowed,
-        "typescript:S4623",
-        "shadowed undefined argument",
-    );
+    let shadowed = semantic_quickfix_analysis(&context, &root, "src/shadowed.ts", shadowed_source);
+    let shadowed_issue = find_issue(&shadowed, "typescript:S4623", "shadowed undefined argument");
     assert!(
         shadowed_issue.fix.is_none(),
         "a parameter named `undefined` must not receive an automatic fix"
@@ -3532,20 +3527,14 @@ export function h() { return f(undefined); }
         "a parameter named `undefined` must not receive the removal action"
     );
 
-    let control =
-        semantic_quickfix_analysis(&context, &root, "src/control.ts", control_source);
-    let control_issue = find_issue(
-        &control,
-        "typescript:S4623",
-        "global undefined argument",
-    );
+    let control = semantic_quickfix_analysis(&context, &root, "src/control.ts", control_source);
+    let control_issue = find_issue(&control, "typescript:S4623", "global undefined argument");
     let control_action = control_issue
         .alternatives
         .iter()
         .find(|alternative| alternative.id == "s4623-remove-undefined-argument")
         .expect("the ambient global `undefined` argument must stay removable");
-    let control_edits: Vec<&hoonarqube_ir::TextEdit> =
-        control_action.fix.edits.iter().collect();
+    let control_edits: Vec<&hoonarqube_ir::TextEdit> = control_action.fix.edits.iter().collect();
     let control_projected = hoonarqube_ir::apply_fixes(control_source, &control_edits)
         .expect("global-undefined removal should apply");
     assert!(
@@ -3580,8 +3569,7 @@ fn semantic_s1125_quickfix_flips_chained_equality_instead_of_negating_left() {
         ],
     );
 
-    let chained =
-        semantic_quickfix_analysis(&context, &root, "src/chained.ts", chained_source);
+    let chained = semantic_quickfix_analysis(&context, &root, "src/chained.ts", chained_source);
     let chained_issue = find_issue(
         &chained,
         "typescript:S1125",
@@ -3592,8 +3580,7 @@ fn semantic_s1125_quickfix_flips_chained_equality_instead_of_negating_left() {
         .iter()
         .find(|alternative| alternative.id == "s1125-remove-boolean")
         .expect("chained equality must keep a precedence-preserving action");
-    let chained_edits: Vec<&hoonarqube_ir::TextEdit> =
-        chained_action.fix.edits.iter().collect();
+    let chained_edits: Vec<&hoonarqube_ir::TextEdit> = chained_action.fix.edits.iter().collect();
     let chained_projected = hoonarqube_ir::apply_fixes(chained_source, &chained_edits)
         .expect("chained equality action should apply");
     assert!(
@@ -3619,8 +3606,7 @@ fn semantic_s1125_quickfix_flips_chained_equality_instead_of_negating_left() {
         .iter()
         .find(|alternative| alternative.id == "s1125-remove-boolean")
         .expect("simple `flag === false` must stay actionable");
-    let simple_edits: Vec<&hoonarqube_ir::TextEdit> =
-        simple_action.fix.edits.iter().collect();
+    let simple_edits: Vec<&hoonarqube_ir::TextEdit> = simple_action.fix.edits.iter().collect();
     let simple_projected = hoonarqube_ir::apply_fixes(simple_source, &simple_edits)
         .expect("simple boolean action should apply");
     assert!(

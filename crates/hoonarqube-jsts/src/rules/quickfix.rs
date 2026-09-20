@@ -383,11 +383,7 @@ fn s1488(ctx: &AnalysisContext<'_>, start: usize, end: usize) -> Option<NativeFi
     if source.get(returned_start..returned_end)? != source.get(name_start..name_end)? {
         return None;
     }
-    if !s1488_binding_is_safe(
-        ctx,
-        (name_start, name_end),
-        (returned_start, returned_end),
-    ) {
+    if !s1488_binding_is_safe(ctx, (name_start, name_end), (returned_start, returned_end)) {
         return None;
     }
     let message = format!(
@@ -423,15 +419,11 @@ fn s1488_binding_is_safe(
         let span = semantic.reference_span(reference);
         (span.start as usize, span.end as usize)
     };
-    let Some(symbol) = semantic
-        .scoping()
-        .symbol_ids()
-        .find(|symbol| {
-            semantic
-                .symbol_references(*symbol)
-                .any(|reference| reference_span(reference) == returned)
-        })
-    else {
+    let Some(symbol) = semantic.scoping().symbol_ids().find(|symbol| {
+        semantic
+            .symbol_references(*symbol)
+            .any(|reference| reference_span(reference) == returned)
+    }) else {
         return false;
     };
     let declared_here = semantic
