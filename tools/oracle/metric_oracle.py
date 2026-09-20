@@ -1494,6 +1494,14 @@ def validate_reference_artifact(artifact: Mapping[str, Any]) -> None:
     if not isinstance(cases, list):
         raise ValueError("metric reference artifact cases must be a list")
     _validate_reference_cases(cases)
+    unsupported = artifact.get("unsupported", [])
+    if not isinstance(unsupported, list):
+        raise ValueError("metric reference artifact unsupported must be a list")
+    if not cases and not unsupported:
+        raise ValueError(
+            "metric reference artifact contains no observations; "
+            "an empty reference cannot certify parity"
+        )
 
 
 def _normal_path(path: Any) -> str | None:
