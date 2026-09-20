@@ -1150,11 +1150,49 @@ function collectQuickfixes(ts, checker, program, sourceFile, config) {
             const negate = (inequality && literal.kind === ts.SyntaxKind.TrueKeyword)
               || (!inequality && literal.kind === ts.SyntaxKind.FalseKeyword);
             const otherText = text(other);
-            add(eligible
+            // `!` binds tighter than binary, conditional, yield, and comma
+            // expressions, so `a === b === false` must never fold to
+            // `!a === b`. Equality operands flip their operator (`a !== b`),
+            // which also avoids the S1940 inverted-check finding
+            // `!(a === b)` would raise; relational operands refuse because
+            // `a >= b` is not `!(a < b)` under NaN and the grouped form
+            // trips S1940 verification. Other loose operands keep grouping
+            // parentheses. #758
+            let replacement = otherText;
+            if (negate) {
+              const unwrappedOther = unwrap(other);
+              if (ts.isBinaryExpression(unwrappedOther)) {
+                const flipped = {
+                  [ts.SyntaxKind.EqualsEqualsToken]: '!=',
+                  [ts.SyntaxKind.ExclamationEqualsToken]: '==',
+                  [ts.SyntaxKind.EqualsEqualsEqualsToken]: '!==',
+                  [ts.SyntaxKind.ExclamationEqualsEqualsToken]: '===',
+                }[unwrappedOther.operatorToken.kind];
+                if (flipped) {
+                  replacement = `${text(unwrappedOther.left)} ${flipped} ${text(unwrappedOther.right)}`;
+                } else if (unwrappedOther.operatorToken.kind === ts.SyntaxKind.LessThanToken
+                  || unwrappedOther.operatorToken.kind === ts.SyntaxKind.LessThanEqualsToken
+                  || unwrappedOther.operatorToken.kind === ts.SyntaxKind.GreaterThanToken
+                  || unwrappedOther.operatorToken.kind === ts.SyntaxKind.GreaterThanEqualsToken) {
+                  replacement = undefined;
+                } else {
+                  replacement = `!(${text(unwrappedOther)})`;
+                }
+              } else if (ts.isParenthesizedExpression(other)) {
+                replacement = `!${otherText}`;
+              } else if (ts.isConditionalExpression(unwrappedOther)
+                || ts.isYieldExpression(unwrappedOther)
+                || unwrappedOther.kind === ts.SyntaxKind.CommaListExpression) {
+                replacement = `!(${otherText})`;
+              } else {
+                replacement = `!${otherText}`;
+              }
+            }
+            add(eligible && replacement !== undefined
               ? quickfixFact(source, 'S1125', literal, 's1125-remove-boolean', 'Remove the unnecessary boolean literal', [{
                 start: node.getStart(sourceFile),
                 end: node.end,
-                replacement: negate ? `!${otherText}` : otherText,
+                replacement,
               }])
               : quickfixNoAction(source, 'S1125', literal));
           } else {
@@ -1246,6 +1284,29 @@ function collectQuickfixes(ts, checker, program, sourceFile, config) {
       const type = quickfixSymbolType(checker, parameter, node);
       eligible = Boolean(declaration?.questionToken || declaration?.initializer
         || quickfixTypeParts(type).some(item => Boolean(item.flags & ts.TypeFlags.Undefined)));
+    }
+    // The spelling `undefined` is not proof of the global value: a shadowing
+    // parameter or local binding must keep its argument. Only the ambient
+    // global `undefined` (no declarations, or default-library declarations
+    // only) may be removed. #757
+    if (eligible) {
+      const argumentSymbol = quickfixSymbol(checker, last);
+      const declarations = argumentSymbol?.declarations || [];
+      eligible = Boolean(argumentSymbol) && declarations.every(declaration => {
+        let declarationSource;
+        try {
+          declarationSource = declaration.getSourceFile();
+        } catch {
+          return false;
+        }
+        if (!declarationSource || declarationSource.isDeclarationFile !== true) return false;
+        try {
+          return typeof program?.isSourceFileDefaultLibrary === 'function'
+            && program.isSourceFileDefaultLibrary(declarationSource) === true;
+        } catch {
+          return false;
+        }
+      });
     }
     const open = source.indexOf('(', node.expression.end);
     const close = node.end > 0 && source[node.end - 1] === ')' ? node.end - 1 : -1;

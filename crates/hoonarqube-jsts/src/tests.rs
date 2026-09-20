@@ -3071,6 +3071,131 @@ function check(x) {
 }
 
 #[test]
+fn s1488_quickfix_refuses_when_other_references_bind_the_declaration() {
+    // #756: `var` is function-scoped, so the `finally` read resolves to the
+    // collapsed declaration; deleting it would rebind that read to the outer
+    // `result`. The fix must be withheld whenever the binding has references
+    // beyond the returned identifier.
+    let hoisted_fixture = "\
+const result = 'outer';
+function run() {
+  try {
+    var result = 'inner';
+    return result;
+  } finally {
+    console.log(result);
+  }
+}
+console.log(run());
+";
+    let hoisted_report = js(hoisted_fixture);
+    let hoisted_issue = find_issue(
+        &hoisted_report,
+        "javascript:S1488",
+        "var collapse with a finally read",
+    );
+    assert!(
+        hoisted_issue.fix.is_none(),
+        "collapsing must be refused while `finally` still reads the binding"
+    );
+
+    let earlier_read_fixture = "\
+function run() {
+  console.log(result);
+  var result = 'inner';
+  return result;
+}
+";
+    let earlier_report = js(earlier_read_fixture);
+    assert!(
+        find_issue(&earlier_report, "javascript:S1488", "hoisted earlier read")
+            .fix
+            .is_none(),
+        "a hoisted read before the declaration must also refuse the collapse"
+    );
+
+    let closure_fixture = "\
+function run() {
+  const read = () => result;
+  var result = 'inner';
+  return result;
+}
+";
+    let closure_report = js(closure_fixture);
+    assert!(
+        find_issue(&closure_report, "javascript:S1488", "closure-captured read")
+            .fix
+            .is_none(),
+        "a closure capturing the hoisted binding must refuse the collapse"
+    );
+}
+
+#[test]
+fn s1488_quickfix_keeps_sole_reference_and_differently_bound_controls() {
+    // Boundary control: a `finally` read that resolves to a different
+    // (outer) binding must not block the collapse of the block-scoped `let`.
+    let scoped_fixture = "\
+const result = 'outer';
+function run() {
+  try {
+    let result = 'inner';
+    return result;
+  } finally {
+    console.log(result);
+  }
+}
+";
+    let scoped_report = js(scoped_fixture);
+    let scoped_fix = find_issue(&scoped_report, "javascript:S1488", "block-scoped let")
+        .fix
+        .as_ref()
+        .expect("block-scoped `let` with only the returned reference must still collapse");
+    let scoped_edits: Vec<&hoonarqube_ir::TextEdit> = scoped_fix.edits.iter().collect();
+    let scoped_projected = hoonarqube_ir::apply_fixes(scoped_fixture, &scoped_edits)
+        .expect("block-scoped collapse should apply");
+    assert!(
+        scoped_projected.contains("return 'inner';"),
+        "block-scoped collapse projection mismatch: {scoped_projected}"
+    );
+
+    // Safe control: the sole-reference shape still inlines and preserves
+    // runtime output.
+    let safe_fixture = "\
+function run() {
+  var result = 'inner';
+  return result;
+}
+console.log(run());
+";
+    let safe_report = js(safe_fixture);
+    let safe_fix = find_issue(&safe_report, "javascript:S1488", "sole-reference var")
+        .fix
+        .as_ref()
+        .expect("sole-reference `var` must keep its inline fix");
+    let safe_edits: Vec<&hoonarqube_ir::TextEdit> = safe_fix.edits.iter().collect();
+    let safe_projected = hoonarqube_ir::apply_fixes(safe_fixture, &safe_edits)
+        .expect("sole-reference collapse should apply");
+    assert!(
+        safe_projected.contains("return 'inner';"),
+        "sole-reference collapse projection mismatch: {safe_projected}"
+    );
+    let safe_after = js(&safe_projected);
+    assert_eq!(count_key(&report_keys(&safe_after), "javascript:S1488"), 0);
+    assert_no_new_findings(&rule_counts(&safe_report), &rule_counts(&safe_after));
+
+    let Some(before_output) = quickfix_node_stdout("s1488-before", safe_fixture) else {
+        eprintln!("skipping S1488 runtime control: node is unavailable");
+        return;
+    };
+    let after_output = quickfix_node_stdout("s1488-after", &safe_projected)
+        .expect("node should stay available for the projected control");
+    assert_eq!(
+        after_output, before_output,
+        "the sole-reference collapse must preserve runtime behavior"
+    );
+}
+
+#[test]
 fn s1940_quickfix_restores_grouping_in_tighter_binding_parents() {
     // #102: the inverted comparison binds looser than arithmetic; the
     // action must restore grouping so the rewrite keeps the runtime value.
@@ -3307,4 +3432,187 @@ fn semantic_s4782_requires_exact_optional_property_types() {
         );
         let _ = fs::remove_dir_all(&root);
     }
+}
+
+fn semantic_quickfix_fixture(
+    label: &str,
+    typescript_package: &Path,
+    files: &[(&str, &str)],
+) -> (PathBuf, ProjectSemanticContext) {
+    let root = issue36_temp_dir(label);
+    let mut pairs = Vec::with_capacity(files.len());
+    let mut names = Vec::with_capacity(files.len());
+    for (relative, source) in files {
+        let path = root.join(relative);
+        write_issue36_file(&path, source);
+        pairs.push((path, (*source).to_owned()));
+        names.push(format!("\"{relative}\""));
+    }
+    write_issue36_file(
+        &root.join("tsconfig.json"),
+        &format!(
+            "{{\"compilerOptions\":{{\"strict\":true,\"noEmit\":true,\"target\":\"ES2022\",\"module\":\"NodeNext\",\"moduleResolution\":\"NodeNext\"}},\"files\":[{}]}}",
+            names.join(",")
+        ),
+    );
+    let config =
+        TypeScriptProjectConfig::new(root.clone()).with_typescript_package(typescript_package);
+    let sources = ProjectSemanticSources::from_pairs(pairs);
+    let context =
+        ProjectSemanticContext::load(&config, &sources).expect("semantic helper should load");
+    assert!(
+        context.is_complete(),
+        "{label} fixture diagnostics: {:?}",
+        context.diagnostics()
+    );
+    (root, context)
+}
+
+fn semantic_quickfix_analysis(
+    context: &ProjectSemanticContext,
+    root: &Path,
+    relative: &str,
+    source: &str,
+) -> hoonarqube_ir::FileReport {
+    context
+        .analyze_with_context(
+            root.join(relative),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        )
+        .report
+}
+
+#[test]
+fn semantic_s4623_quickfix_refuses_shadowed_undefined_parameter() {
+    // #757: the trailing argument spelled `undefined` must resolve to the
+    // ambient global value before it can be removed; a parameter that
+    // shadows the name keeps its argument.
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping semantic S4623 regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let shadowed_source = "\
+function f(x?: number) { return x ?? 2; }
+export function g(undefined: number) { return [f(undefined), undefined]; }
+";
+    let control_source = "\
+function f(x?: number) { return x ?? 2; }
+export function h() { return f(undefined); }
+";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-s4623",
+        &typescript_package,
+        &[
+            ("src/shadowed.ts", shadowed_source),
+            ("src/control.ts", control_source),
+        ],
+    );
+
+    let shadowed = semantic_quickfix_analysis(&context, &root, "src/shadowed.ts", shadowed_source);
+    let shadowed_issue = find_issue(&shadowed, "typescript:S4623", "shadowed undefined argument");
+    assert!(
+        shadowed_issue.fix.is_none(),
+        "a parameter named `undefined` must not receive an automatic fix"
+    );
+    assert!(
+        shadowed_issue
+            .alternatives
+            .iter()
+            .all(|alternative| alternative.id != "s4623-remove-undefined-argument"),
+        "a parameter named `undefined` must not receive the removal action"
+    );
+
+    let control = semantic_quickfix_analysis(&context, &root, "src/control.ts", control_source);
+    let control_issue = find_issue(&control, "typescript:S4623", "global undefined argument");
+    let control_action = control_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s4623-remove-undefined-argument")
+        .expect("the ambient global `undefined` argument must stay removable");
+    let control_edits: Vec<&hoonarqube_ir::TextEdit> = control_action.fix.edits.iter().collect();
+    let control_projected = hoonarqube_ir::apply_fixes(control_source, &control_edits)
+        .expect("global-undefined removal should apply");
+    assert!(
+        control_projected.contains("return f();"),
+        "global-undefined removal projection mismatch: {control_projected}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn semantic_s1125_quickfix_flips_chained_equality_instead_of_negating_left() {
+    // #758: `a === b === false` parses as `(a === b) === false`; negating the
+    // whole expression must flip the inner operator to `a !== b`, never emit
+    // `!a === b` (which negates only `a`) or `!(a === b)` (which trips S1940).
+    let Some(typescript_package) = pinned_typescript_package_for_tests() else {
+        eprintln!(
+            "skipping semantic S1125 regression: \
+             set HOONARQUBE_TYPESCRIPT_PACKAGE to TypeScript 6.0.3"
+        );
+        return;
+    };
+    let chained_source =
+        "export function differs(a: number, b: number) { return a === b === false; }\n";
+    let simple_source = "export function check(flag: boolean) { return flag === false; }\n";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-s1125",
+        &typescript_package,
+        &[
+            ("src/chained.ts", chained_source),
+            ("src/simple.ts", simple_source),
+        ],
+    );
+
+    let chained = semantic_quickfix_analysis(&context, &root, "src/chained.ts", chained_source);
+    let chained_issue = find_issue(
+        &chained,
+        "typescript:S1125",
+        "chained equality boolean literal",
+    );
+    let chained_action = chained_issue
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1125-remove-boolean")
+        .expect("chained equality must keep a precedence-preserving action");
+    let chained_edits: Vec<&hoonarqube_ir::TextEdit> = chained_action.fix.edits.iter().collect();
+    let chained_projected = hoonarqube_ir::apply_fixes(chained_source, &chained_edits)
+        .expect("chained equality action should apply");
+    assert!(
+        chained_projected.contains("return a !== b;"),
+        "chained equality must flip the operator, not negate the left operand: {chained_projected}"
+    );
+    let chained_after =
+        semantic_quickfix_analysis(&context, &root, "src/chained.ts", &chained_projected);
+    assert_eq!(
+        count_key(&report_keys(&chained_after), "typescript:S1125"),
+        0,
+        "the flipped rewrite must retire the S1125 finding"
+    );
+    assert_eq!(
+        count_key(&report_keys(&chained_after), "typescript:S1940"),
+        0,
+        "the flipped rewrite must not introduce an inverted-check finding"
+    );
+
+    let simple = semantic_quickfix_analysis(&context, &root, "src/simple.ts", simple_source);
+    let simple_action = find_issue(&simple, "typescript:S1125", "simple boolean comparison")
+        .alternatives
+        .iter()
+        .find(|alternative| alternative.id == "s1125-remove-boolean")
+        .expect("simple `flag === false` must stay actionable");
+    let simple_edits: Vec<&hoonarqube_ir::TextEdit> = simple_action.fix.edits.iter().collect();
+    let simple_projected = hoonarqube_ir::apply_fixes(simple_source, &simple_edits)
+        .expect("simple boolean action should apply");
+    assert!(
+        simple_projected.contains("return !flag;"),
+        "simple `x === false` must keep the bare negation: {simple_projected}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
 }

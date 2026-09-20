@@ -201,7 +201,10 @@ impl Collector<'_, '_> {
             let should_negate = (expression.operator == BinaryOperator::Equality && !literal.value)
                 || (expression.operator == BinaryOperator::Inequality && literal.value);
             let replacement = if should_negate {
-                format!("!{other_text}")
+                let Some(negated) = self.s1125_negated_operand(other, other_text) else {
+                    continue;
+                };
+                negated
             } else {
                 other_text.to_owned()
             };
@@ -217,6 +220,53 @@ impl Collector<'_, '_> {
                     )],
                 ),
             );
+        }
+    }
+    /// `!` binds tighter than binary, conditional, assignment, and comma
+    /// expressions, so `a === b === false` must never fold to `!a === b`.
+    /// Equality operands flip their operator (`a !== b`), which also avoids
+    /// the S1940 inverted-check finding `!(a === b)` would raise; relational
+    /// operands refuse because `a >= b` is not `!(a < b)` under NaN and the
+    /// grouped form trips S1940 verification. Other loose operands keep
+    /// grouping parentheses. #758
+    fn s1125_negated_operand(&self, operand: &Expression<'_>, text: &str) -> Option<String> {
+        let unwrapped = unparenthesized(operand);
+        if let Expression::BinaryExpression(binary) = unwrapped {
+            let flipped = match binary.operator {
+                BinaryOperator::Equality => "!=",
+                BinaryOperator::Inequality => "==",
+                BinaryOperator::StrictEquality => "!==",
+                BinaryOperator::StrictInequality => "===",
+                BinaryOperator::LessThan
+                | BinaryOperator::LessEqualThan
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::GreaterEqualThan => return None,
+                _ => "",
+            };
+            if !flipped.is_empty() {
+                let left = self.text(binary.left.span())?;
+                let right = self.text(binary.right.span())?;
+                return Some(format!("{left} {flipped} {right}"));
+            }
+        }
+        let needs_grouping = !matches!(operand, Expression::ParenthesizedExpression(_))
+            && matches!(
+                unwrapped,
+                Expression::AssignmentExpression(_)
+                    | Expression::BinaryExpression(_)
+                    | Expression::ConditionalExpression(_)
+                    | Expression::LogicalExpression(_)
+                    | Expression::PrivateInExpression(_)
+                    | Expression::SequenceExpression(_)
+                    | Expression::TSAsExpression(_)
+                    | Expression::TSSatisfiesExpression(_)
+                    | Expression::TSTypeAssertion(_)
+                    | Expression::YieldExpression(_)
+            );
+        if needs_grouping {
+            Some(format!("!({text})"))
+        } else {
+            Some(format!("!{text}"))
         }
     }
 
