@@ -1171,6 +1171,8 @@ pub(crate) fn check_future_reference_battery(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_s8508_mutable_default_values(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_s8511_mro_conflict(parsed, index, source, file_ctx));
     issues.extend(check_s8515_typevar_variance(
         parsed, index, source, file_ctx,
