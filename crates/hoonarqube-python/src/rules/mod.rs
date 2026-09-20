@@ -271,6 +271,7 @@ use crate::rules::s8374_flask_view_decorators::check_s8374_flask_view_decorators
 use crate::rules::s8375_flask_preprocess_request::check_s8375_flask_preprocess_request;
 use crate::rules::s8385_flask_send_file_mimetype::check_s8385_flask_send_file_mimetype;
 use crate::rules::s8389_file_upload_form::check_s8389_file_upload_form;
+use crate::rules::s8392_bind_all_network_interfaces::check_s8392_bind_all_network_interfaces;
 use crate::rules::s8396_optional_field_defaults::check_s8396_optional_field_defaults;
 use crate::rules::s8397_uvicorn_import_string::check_s8397_uvicorn_import_string;
 use crate::rules::s8400_fastapi_no_content_body::check_s8400_fastapi_no_content_body;
@@ -284,6 +285,10 @@ use crate::rules::s8413_router_prefix_in_include::check_s8413_router_prefix_in_i
 use crate::rules::s8414_cors_middleware_ordering::check_s8414_cors_middleware_ordering;
 use crate::rules::s8415_http_exception_documented::check_s8415_http_exception_documented;
 use crate::rules::s8502_set_update_instead_of_add_loop::check_s8502_set_update_instead_of_add_loop;
+use crate::rules::s8503_empty_collection_membership::check_s8503_empty_collection_membership;
+use crate::rules::s8504_property_without_return::check_s8504_property_without_return;
+use crate::rules::s8505_singledispatch_mixup::check_s8505_singledispatch_mixup;
+use crate::rules::s8508_mutable_default_values::check_s8508_mutable_default_values;
 use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_shadows_outer;
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
@@ -298,6 +303,8 @@ use crate::rules::s8963_multiple_inheritance_config::check_s8963_multiple_inheri
 use crate::rules::s8966_serialization_fallback::check_s8966_serialization_fallback;
 use crate::rules::s8971_skip_validation_constraints::check_s8971_skip_validation_constraints;
 use crate::rules::s8973_double_underscore_private_attributes::check_s8973_double_underscore_private_attributes;
+use crate::rules::s8974_json_schema_input_type_after::check_s8974_json_schema_input_type_after;
+use crate::rules::s8978_pydantic_dataclass_revalidation::check_s8978_pydantic_dataclass_revalidation;
 use crate::rules::s8992_autouse_fixture_params::check_s8992_autouse_fixture_params;
 use crate::rules::s8993_fixture_param_dependencies::check_s8993_fixture_param_dependencies;
 use crate::rules::s8994_pytest_fixture_single_yield::check_s8994_pytest_fixture_single_yield;
@@ -1140,6 +1147,21 @@ pub(crate) fn check_future_reference_battery(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_s8513_chained_startswith_calls(parsed, index, source));
+    issues.extend(check_s8392_bind_all_network_interfaces(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8503_empty_collection_membership(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8504_property_without_return(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8505_singledispatch_mixup(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8508_mutable_default_values(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_dataclass_annotated_attributes(
         parsed, index, source, file_ctx,
     ));
@@ -1170,6 +1192,12 @@ pub(crate) fn check_future_reference_battery(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_s8973_double_underscore_private_attributes(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8974_json_schema_input_type_after(
+        index, source, file_ctx,
+    ));
+    issues.extend(check_s8978_pydantic_dataclass_revalidation(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_notimplemented_boolean_contexts(
@@ -1850,6 +1878,8 @@ mod s7625_aws_long_term_access_keys;
 
 mod s8389_file_upload_form;
 
+mod s8392_bind_all_network_interfaces;
+
 mod s8396_optional_field_defaults;
 
 mod s8397_uvicorn_import_string;
@@ -1887,6 +1917,14 @@ mod s8385_flask_send_file_mimetype;
 mod s8400_fastapi_no_content_body;
 mod s8502_set_update_instead_of_add_loop;
 
+mod s8503_empty_collection_membership;
+
+mod s8504_property_without_return;
+
+mod s8505_singledispatch_mixup;
+
+mod s8508_mutable_default_values;
+
 mod s8510_loop_variable_shadows_outer;
 
 mod s8513_chained_startswith_calls;
@@ -1914,6 +1952,10 @@ mod s8966_serialization_fallback;
 mod s8971_skip_validation_constraints;
 
 mod s8973_double_underscore_private_attributes;
+
+mod s8974_json_schema_input_type_after;
+
+mod s8978_pydantic_dataclass_revalidation;
 
 mod s8992_autouse_fixture_params;
 
