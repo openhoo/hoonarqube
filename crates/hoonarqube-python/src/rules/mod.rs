@@ -175,6 +175,7 @@ use crate::rules::s1523_dynamic_code_execution::check_s1523_dynamic_code_executi
 use crate::rules::s2053_static_salt::check_s2053_static_salt;
 use crate::rules::s2077_sql_formatting::check_s2077_sql_formatting;
 use crate::rules::s2115_empty_database_password::check_s2115_empty_database_password;
+use crate::rules::s2187_test_cases_contain_tests::check_s2187_test_cases_contain_tests;
 use crate::rules::s2201_ignored_pure_returns::check_s2201_ignored_pure_returns;
 use crate::rules::s2245_pseudorandom_calls::check_s2245_pseudorandom_calls;
 use crate::rules::s2257_custom_cryptography::check_s2257_custom_cryptography;
@@ -279,7 +280,11 @@ use crate::rules::s8414_cors_middleware_ordering::check_s8414_cors_middleware_or
 use crate::rules::s8415_http_exception_documented::check_s8415_http_exception_documented;
 use crate::rules::s8502_set_update_instead_of_add_loop::check_s8502_set_update_instead_of_add_loop;
 use crate::rules::s8510_loop_variable_shadows_outer::check_s8510_loop_variable_shadows_outer;
+use crate::rules::s8511_mro_conflict::check_s8511_mro_conflict;
 use crate::rules::s8513_chained_startswith_calls::check_s8513_chained_startswith_calls;
+use crate::rules::s8515_typevar_variance::check_s8515_typevar_variance;
+use crate::rules::s8516_groupby_iterator_reuse::check_s8516_groupby_iterator_reuse;
+use crate::rules::s8685_dataclass_mutable_defaults::check_s8685_dataclass_mutable_defaults;
 use crate::rules::s8714_pytest_raises_try_except::check_s8714_pytest_raises_try_except;
 use crate::rules::s8786_super_linear_regex::check_s8786_super_linear_regex;
 use crate::rules::s8900_deprecated_names::check_s8900_deprecated_names;
@@ -1057,14 +1062,17 @@ pub(crate) fn check_naming_convention_battery(
     issues.extend(check_parameter_and_local_names(parsed, index, source));
     issues
 }
-/// Aggregates the test-assertion detector family (python:S3415,
-/// python:S5778, python:S5779, python:S5863, python:S5958), whose pytest
-/// gating needs the analyzed file name.
+
+/// Aggregates the test-assertion detector family (python:S2187,
+/// python:S3415, python:S5778, python:S5779, python:S5863, python:S5958),
+/// whose pytest and test-scope gating needs the analyzed file name; S2187
+/// additionally reads the shared file context for class ancestry.
 pub(crate) fn check_test_assertion_battery(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     path: &std::path::Path,
+    file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_s3415_assertion_argument_order(
@@ -1079,6 +1087,9 @@ pub(crate) fn check_test_assertion_battery(
     ));
     issues.extend(check_s5958_specific_exception_assertion(
         parsed, index, source,
+    ));
+    issues.extend(check_s2187_test_cases_contain_tests(
+        parsed, index, source, path, file_ctx,
     ));
     issues
 }
@@ -1123,6 +1134,16 @@ pub(crate) fn check_future_reference_battery(
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_s8513_chained_startswith_calls(parsed, index, source));
+    issues.extend(check_s8511_mro_conflict(parsed, index, source, file_ctx));
+    issues.extend(check_s8515_typevar_variance(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8516_groupby_iterator_reuse(
+        parsed, index, source, file_ctx,
+    ));
+    issues.extend(check_s8685_dataclass_mutable_defaults(
+        parsed, index, source, file_ctx,
+    ));
     issues.extend(check_dataclass_annotated_attributes(
         parsed, index, source, file_ctx,
     ));
@@ -1655,6 +1676,8 @@ mod s2077_sql_formatting;
 
 mod s2115_empty_database_password;
 
+mod s2187_test_cases_contain_tests;
+
 mod s2201_ignored_pure_returns;
 
 mod s2245_pseudorandom_calls;
@@ -1851,7 +1874,15 @@ mod s8502_set_update_instead_of_add_loop;
 
 mod s8510_loop_variable_shadows_outer;
 
+mod s8511_mro_conflict;
+
 mod s8513_chained_startswith_calls;
+
+mod s8515_typevar_variance;
+
+mod s8516_groupby_iterator_reuse;
+
+mod s8685_dataclass_mutable_defaults;
 
 mod s8714_pytest_raises_try_except;
 
