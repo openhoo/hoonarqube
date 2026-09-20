@@ -28,10 +28,10 @@ pub(crate) enum NameResolution<'a> {
 
 /// Per-file framework binding facts; build once, share across web rules.
 pub(crate) struct WebFrameworkFacts<'a> {
-    functions: Vec<&'a StmtFunctionDef>,
+    pub(crate) functions: Vec<&'a StmtFunctionDef>,
     classes: Vec<&'a StmtClassDef>,
     lambdas: Vec<&'a ruff_python_ast::ExprLambda>,
-    stmts: Vec<&'a Stmt>,
+    pub(crate) stmts: Vec<&'a Stmt>,
     stmt_scope: Vec<Option<TextRange>>,
 }
 
@@ -52,10 +52,14 @@ impl<'a> WebFrameworkFacts<'a> {
             stmts: file_ctx.stmts.clone(),
             stmt_scope: Vec::new(),
         };
+        // A statement's bindings live in its parent scope: for `def`/`class`
+        // statements the statement's own range self-matches
+        // `enclosing_scope`, which would attribute the bound name to the
+        // new scope instead of the scope that actually binds it.
         facts.stmt_scope = facts
             .stmts
             .iter()
-            .map(|stmt| facts.enclosing_scope(stmt.range()))
+            .map(|stmt| facts.strict_parent_scope(stmt.range()))
             .collect();
         facts
     }
@@ -83,7 +87,7 @@ impl<'a> WebFrameworkFacts<'a> {
     }
 
     /// Enclosing scopes of `at`, innermost first, module (`None`) last.
-    fn enclosing_chain(&self, at: TextRange) -> Vec<Option<TextRange>> {
+    pub(crate) fn enclosing_chain(&self, at: TextRange) -> Vec<Option<TextRange>> {
         let mut scopes: Vec<TextRange> = self
             .functions
             .iter()
@@ -132,6 +136,60 @@ impl<'a> WebFrameworkFacts<'a> {
             };
         }
         NameResolution::Unbound
+    }
+
+    /// Resolves a bare `name` read at `at` to the latest binding that
+    /// precedes it in the nearest binding scope — the execution-order
+    /// semantics the reference's symbol model applies when a name is
+    /// rebound (an import followed by a `def` of the same spelling binds
+    /// uses before the `def` to the import and uses after it to the
+    /// `def`). A scope that binds the name only after `at` still owns the
+    /// name (the use is an early local read), so the result is `Bound`,
+    /// never a fall-through to an outer scope.
+    pub(crate) fn resolve_name_before(&self, name: &str, at: TextRange) -> NameResolution<'a> {
+        for scope in self.enclosing_chain(at) {
+            let mut bindings: Vec<&Stmt> = self
+                .stmts
+                .iter()
+                .zip(&self.stmt_scope)
+                .filter(|(stmt, stmt_scope)| {
+                    **stmt_scope == scope && stmt_store_names(stmt).iter().any(|n| n == name)
+                })
+                .map(|(stmt, _)| *stmt)
+                .collect();
+            bindings.retain(|stmt| stmt.range().start() < at.start());
+            bindings.sort_by_key(|stmt| stmt.range().start());
+            if let Some(latest) = bindings.pop() {
+                return match latest {
+                    Stmt::Assign(assign) => NameResolution::Value(assign.value.as_ref()),
+                    Stmt::AnnAssign(assign) => match assign.value.as_deref() {
+                        Some(value) => NameResolution::Value(value),
+                        None => NameResolution::Bound,
+                    },
+                    Stmt::Import(import) => plain_import_fqn(import, name)
+                        .map_or(NameResolution::Bound, NameResolution::Import),
+                    Stmt::ImportFrom(import) => from_import_fqn(import, name)
+                        .map_or(NameResolution::Bound, NameResolution::Import),
+                    _ => NameResolution::Bound,
+                };
+            }
+            if self.scope_binds_name(scope, name) || scope_has_parameter(self, scope, name) {
+                return NameResolution::Bound;
+            }
+        }
+        NameResolution::Unbound
+    }
+
+    /// Whether `scope` binds `name` anywhere (position-insensitive) — the
+    /// ownership test that keeps an early local read from falling through
+    /// to an outer scope.
+    fn scope_binds_name(&self, scope: Option<TextRange>, name: &str) -> bool {
+        self.stmts
+            .iter()
+            .zip(&self.stmt_scope)
+            .any(|(stmt, stmt_scope)| {
+                *stmt_scope == scope && stmt_store_names(stmt).iter().any(|n| n == name)
+            })
     }
 
     /// The single assigned value of `name` at `at`, or `None` when the name
@@ -580,7 +638,21 @@ fn plain_import_fqn(import: &ruff_python_ast::StmtImport, name: &str) -> Option<
             );
             local == name
         })
-        .map(|alias| alias.name.as_str().to_string())
+        .map(|alias| {
+            // `import a.b` binds `a` to the top-level package; only an
+            // `as`-alias binds the submodule itself.
+            if alias.asname.is_some() {
+                alias.name.as_str().to_string()
+            } else {
+                alias
+                    .name
+                    .as_str()
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            }
+        })
 }
 
 fn from_import_fqn(import: &ruff_python_ast::StmtImportFrom, name: &str) -> Option<String> {
