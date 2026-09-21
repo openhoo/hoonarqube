@@ -1197,7 +1197,9 @@ fn analyze_project_source(
     let content_digest = cache.map(|_| Cache::source_digest(source.as_bytes()));
     if let Some(entry) = cache
         .zip(content_digest)
-        .and_then(|(cache, digest)| cache.load(&input.path, source.len(), digest))
+        .and_then(|(cache, digest)| {
+            cache.load(&input.path, source.len(), digest, input.classification)
+        })
     {
         return ProjectFile {
             path: input.path.clone(),
@@ -1259,7 +1261,7 @@ fn project_file_from_report(
     input: &ProjectInput,
     source: &str,
     mut report: hoonarqube_ir::FileReport,
-    _options: &AnalyzerOptionsBundle,
+    options: &AnalyzerOptionsBundle,
     semantic: Option<&ProjectSemanticContext>,
 ) -> ProjectFile {
     let is_razor = hoonarqube_core::is_razor_path(&input.path);
@@ -1288,6 +1290,14 @@ fn project_file_from_report(
         report.metrics = facts.metrics.clone();
     } else if error.is_none() {
         error = Some("source facts unavailable for analyzed file".to_owned());
+    }
+    // Semantic reports bypass `hoonarqube_core::analyze`, so the shared
+    // profile-membership and test-scope policies are applied here as well.
+    hoonarqube_core::retain_profile_active_issues(options.profile, &mut report);
+    if input.classification == FileClassification::Test
+        && hoonarqube_core::language_for_path(&input.path) == Some(Language::CSharp)
+    {
+        hoonarqube_csharp::retain_test_scope_issues(&mut report);
     }
     // Semantic reports bypass `hoonarqube_core::analyze`, so the retired
     // security-hotspot filter is applied here as well.
@@ -3035,6 +3045,152 @@ mod tests {
                 10,
             )
             .is_err()
+        );
+    }
+
+    /// Issue #781: a cached source-scope result must not leak MAIN-scope C#
+    /// findings after the same file is reclassified as a test. The first run
+    /// populates the cache under `Source`; the second run classifies the file
+    /// `Test` via `--test-include`, misses the stale entry, and suppresses
+    /// `S3216` while ALL-scope `S4261` stays under the non-default profile.
+    #[test]
+    fn cached_source_findings_do_not_leak_after_test_reclassification() {
+        let fix = TempDir::new("csharp-test-reclassification");
+        let source = concat!(
+            "using System.Threading.Tasks;\n",
+            "\n",
+            "public static class ExampleTests\n",
+            "{\n",
+            "    public static async Task ReturnsValue()\n",
+            "    {\n",
+            "        await Task.Delay(1);\n",
+            "    }\n",
+            "}\n",
+        );
+        fix.write("ExampleTests.cs", source);
+        let options = AnalyzerOptionsBundle {
+            profile: hoonarqube_core::RuleProfile::Recommended,
+            ..AnalyzerOptionsBundle::default()
+        };
+        let keys = |test_include: &[String]| {
+            let mut project = project_analysis_options(
+                ProjectPatternLists {
+                    exclude: &[],
+                    test_include,
+                    generated_include: &[],
+                    vendor_include: &[],
+                    duplication_exclude: &[],
+                },
+                100,
+                10,
+                10,
+            )
+            .expect("valid project options");
+            project.cache_dir = Some(fix.0.join("cache"));
+            let mut warnings = Vec::new();
+            let report = analyze_project_paths(
+                std::slice::from_ref(&fix.0),
+                &options,
+                &project,
+                &mut warnings,
+            )
+            .expect("project report");
+            report
+                .files
+                .iter()
+                .flat_map(|file| file.issues.iter().map(|issue| issue.rule_key.clone()))
+                .collect::<Vec<_>>()
+        };
+
+        let source_keys = keys(&[]);
+        assert!(
+            source_keys.contains(&"csharpsquid:S3216".to_owned()),
+            "source scope caches the MAIN-scope finding: {source_keys:?}"
+        );
+
+        let test_keys = keys(&["**/*Tests.cs".to_string()]);
+        assert!(
+            !test_keys.contains(&"csharpsquid:S3216".to_owned()),
+            "test reclassification must not reuse cached MAIN-scope findings: {test_keys:?}"
+        );
+        assert!(
+            test_keys.contains(&"csharpsquid:S4261".to_owned()),
+            "ALL-scope S4261 stays on explicit test scope: {test_keys:?}"
+        );
+    }
+
+    /// Compiler-backed reports bypass `hoonarqube_core::analyze`, so
+    /// `project_file_from_report` applies the shared membership and explicit
+    /// test-scope policies itself (issues #780/#781).
+    #[test]
+    fn semantic_report_path_applies_membership_and_test_scope() {
+        let issue = |rule_key: &str| {
+            hoonarqube_ir::Issue::new(
+                rule_key,
+                "finding",
+                hoonarqube_ir::Range::file_level(),
+            )
+        };
+        let input = ProjectInput {
+            path: PathBuf::from("ExampleTests.cs"),
+            classification: FileClassification::Test,
+            duplication_excluded: false,
+            source_index: None,
+        };
+        let source = "public static class ExampleTests {}\n";
+        let report = |rule_keys: &[&str]| hoonarqube_ir::FileReport {
+            path: input.path.clone(),
+            language: "csharpsquid".to_owned(),
+            issues: rule_keys.iter().map(|key| issue(key)).collect(),
+            metrics: hoonarqube_ir::FileMetrics {
+                lines: 1,
+                code_lines: 1,
+                comment_lines: 0,
+            },
+        };
+
+        let recommended = AnalyzerOptionsBundle {
+            profile: hoonarqube_core::RuleProfile::Recommended,
+            ..AnalyzerOptionsBundle::default()
+        };
+        let outcome = project_file_from_report(
+            &input,
+            source,
+            report(&["csharpsquid:S3216", "csharpsquid:S4261"]),
+            &recommended,
+            None,
+        );
+        let keys: Vec<_> = outcome
+            .report
+            .expect("report")
+            .issues
+            .iter()
+            .map(|issue| issue.rule_key.clone())
+            .collect();
+        assert!(
+            !keys.contains(&"csharpsquid:S3216".to_owned())
+                && keys.contains(&"csharpsquid:S4261".to_owned()),
+            "explicit test scope drops MAIN but keeps ALL: {keys:?}"
+        );
+
+        let parity = AnalyzerOptionsBundle::default();
+        let outcome = project_file_from_report(
+            &input,
+            source,
+            report(&["csharpsquid:S3216", "csharpsquid:S4261"]),
+            &parity,
+            None,
+        );
+        let keys: Vec<_> = outcome
+            .report
+            .expect("report")
+            .issues
+            .iter()
+            .map(|issue| issue.rule_key.clone())
+            .collect();
+        assert!(
+            keys.is_empty(),
+            "sonar-parity drops the reference-inactive membership: {keys:?}"
         );
     }
 }

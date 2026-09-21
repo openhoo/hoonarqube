@@ -304,8 +304,50 @@ pub fn analyze(
         hoonarqube_ir::sort_issues(&mut report.issues);
         report.issues.dedup();
     }
+    retain_profile_active_issues(options.profile, &mut report);
     drop_retired_security_hotspots(&mut report);
     Some(report)
+}
+
+/// Catalog rules the reporter-observed SonarQube Server 2025.4.4 default
+/// "Sonar way" quality profiles do not activate (issues #780, #781, #782).
+///
+/// The reference membership comes from the `/api/qualityprofiles/export`
+/// output the issue reporters attached to their findings; it is pinned here
+/// as observed evidence for that server version, not as a claim about every
+/// SonarQube release. `sonar-parity` tracks the default profile, so these
+/// keys stay inactive there; the cumulative `recommended`, `extended`, and
+/// `strict` profiles keep every catalog detector available, and the isolated
+/// `github-code-quality` profile never reaches this filter.
+const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
+    "csharpsquid:S3216",
+    "csharpsquid:S4261",
+    "javascript:S1441",
+    "javascript:S1537",
+    "python:S1720",
+    "python:S6542",
+    "typescript:S1441",
+    "typescript:S1537",
+];
+
+/// Drops findings whose rules are inactive in the selected profile.
+///
+/// Only `sonar-parity` restricts catalog-rule membership today; every other
+/// profile keeps the full detector battery, so this is a no-op for them.
+/// Language analyzers run their complete battery regardless of profile, so
+/// every report-producing path must funnel through this policy: [`analyze`]
+/// applies it for native callers, while compiler-backed report paths that
+/// bypass [`analyze`] invoke it on the returned report.
+pub fn retain_profile_active_issues(
+    profile: RuleProfile,
+    report: &mut hoonarqube_ir::FileReport,
+) {
+    if profile != RuleProfile::SonarParity {
+        return;
+    }
+    report.issues.retain(|issue| {
+        !SONAR_PARITY_INACTIVE_RULE_KEYS.contains(&issue.rule_key.as_str())
+    });
 }
 
 /// Removes findings from rules the reference scanner retired to the
@@ -401,7 +443,7 @@ fn github_registry(language: Language) -> Option<&'static [&'static str]> {
 mod tests {
     use super::{
         AnalyzerOptions, EXTENSIONS, GITHUB_QUALITY_RULES_BY_FAMILY, Language, RuleProfile,
-        analyze, github_registry, language_for_path,
+        analyze, github_registry, language_for_path, retain_profile_active_issues,
     };
     use std::collections::{BTreeSet, HashSet};
     use std::path::Path;
@@ -905,5 +947,182 @@ mod tests {
         }
         let rust = analyze(Path::new("sample.rs"), "fn main() {}\n", &options).unwrap();
         assert!(rust.issues.is_empty());
+    }
+
+    /// Issue #780/#781/#782 fixtures: the reporter-observed SonarQube Server
+    /// 2025.4.4 default "Sonar way" exports activate none of these rules, so
+    /// `sonar-parity` must not emit them while unrelated catalog rules stay.
+    #[test]
+    fn sonar_parity_drops_reference_inactive_rule_membership() {
+        let options = AnalyzerOptions::default();
+        let jsts_source = concat!(
+            "const values = [\n",
+            "  \"alpha\",\n",
+            "  \"beta\",\n",
+            "];\n",
+            "\n",
+            "console.log(values);\n",
+        );
+        for (name, dropped, kept) in [
+            (
+                "example.mjs",
+                ["javascript:S1441", "javascript:S1537"].as_slice(),
+                ["javascript:S1451", "javascript:S106"].as_slice(),
+            ),
+            (
+                "example.ts",
+                ["typescript:S1441", "typescript:S1537"].as_slice(),
+                ["typescript:S1451", "typescript:S106"].as_slice(),
+            ),
+        ] {
+            let report = analyze(Path::new(name), jsts_source, &options).unwrap();
+            let keys: Vec<_> = report
+                .issues
+                .iter()
+                .map(|issue| issue.rule_key.as_str())
+                .collect();
+            for key in dropped {
+                assert!(!keys.contains(key), "{name} must not emit {key}: {keys:?}");
+            }
+            // Unrelated catalog rules still fire: the fixture has no license
+            // header and logs to the console.
+            for key in kept {
+                assert!(keys.contains(key), "{name} keeps {key}: {keys:?}");
+            }
+        }
+
+        let python = analyze(
+            Path::new("example.py"),
+            "from typing import Any\n\nvalue: Any = None\n",
+            &options,
+        )
+        .unwrap();
+        let keys: Vec<_> = python
+            .issues
+            .iter()
+            .map(|issue| issue.rule_key.as_str())
+            .collect();
+        for key in ["python:S1720", "python:S6542"] {
+            assert!(!keys.contains(&key), "example.py must not emit {key}: {keys:?}");
+        }
+
+        let csharp = analyze(
+            Path::new("ExampleTests.cs"),
+            concat!(
+                "using System.Threading.Tasks;\n",
+                "\n",
+                "public static class ExampleTests\n",
+                "{\n",
+                "    public static async Task ReturnsValue()\n",
+                "    {\n",
+                "        await Task.Delay(1);\n",
+                "    }\n",
+                "}\n",
+            ),
+            &options,
+        )
+        .unwrap();
+        let keys: Vec<_> = csharp
+            .issues
+            .iter()
+            .map(|issue| issue.rule_key.as_str())
+            .collect();
+        for key in ["csharpsquid:S3216", "csharpsquid:S4261"] {
+            assert!(
+                !keys.contains(&key),
+                "ExampleTests.cs must not emit {key}: {keys:?}"
+            );
+        }
+        // The unrelated namespace finding stays: only the pinned membership
+        // is dropped, not the whole detector battery.
+        assert!(keys.contains(&"csharpsquid:S3903"), "{keys:?}");
+    }
+
+    /// Explicit profile activation outside `sonar-parity` keeps running the
+    /// same detectors; the membership drop is scoped to the parity profile.
+    #[test]
+    fn nondefault_profiles_keep_reference_inactive_detectors() {
+        let jsts_source = "const values = [\n  \"alpha\",\n];\nconsole.log(values);\n";
+        for profile in [
+            RuleProfile::Recommended,
+            RuleProfile::Extended,
+            RuleProfile::Strict,
+        ] {
+            let options = AnalyzerOptions {
+                profile,
+                ..AnalyzerOptions::default()
+            };
+            let ts = analyze(Path::new("example.ts"), jsts_source, &options).unwrap();
+            let keys: Vec<_> = ts
+                .issues
+                .iter()
+                .map(|issue| issue.rule_key.as_str())
+                .collect();
+            assert!(
+                keys.contains(&"typescript:S1441") && keys.contains(&"typescript:S1537"),
+                "{profile} keeps the TypeScript detectors: {keys:?}"
+            );
+            let python = analyze(
+                Path::new("example.py"),
+                "from typing import Any\n\nvalue: Any = None\n",
+                &options,
+            )
+            .unwrap();
+            let keys: Vec<_> = python
+                .issues
+                .iter()
+                .map(|issue| issue.rule_key.as_str())
+                .collect();
+            assert!(
+                keys.contains(&"python:S1720") && keys.contains(&"python:S6542"),
+                "{profile} keeps the Python detectors: {keys:?}"
+            );
+        }
+    }
+
+    /// The membership policy itself is a no-op outside `sonar-parity` and
+    /// drops exactly the pinned keys under it.
+    #[test]
+    fn retain_profile_active_issues_scopes_the_pinned_membership() {
+        let issue = |rule_key: &str| {
+            hoonarqube_ir::Issue::new(
+                rule_key,
+                "finding",
+                hoonarqube_ir::Range::file_level(),
+            )
+        };
+        let mut report = hoonarqube_ir::FileReport {
+            path: Path::new("example.ts").to_path_buf(),
+            language: "typescript".to_owned(),
+            issues: vec![
+                issue("typescript:S1441"),
+                issue("typescript:S1537"),
+                issue("typescript:S106"),
+            ],
+            metrics: hoonarqube_ir::FileMetrics {
+                lines: 1,
+                code_lines: 1,
+                comment_lines: 0,
+            },
+        };
+        for profile in [
+            RuleProfile::Recommended,
+            RuleProfile::Extended,
+            RuleProfile::Strict,
+            RuleProfile::GithubCodeQuality,
+        ] {
+            let mut retained = report.clone();
+            retain_profile_active_issues(profile, &mut retained);
+            assert_eq!(retained.issues.len(), 3, "{profile} keeps every rule");
+        }
+        retain_profile_active_issues(RuleProfile::SonarParity, &mut report);
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .map(|issue| issue.rule_key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["typescript:S106"]
+        );
     }
 }

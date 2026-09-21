@@ -969,13 +969,18 @@ impl FixAnalysisContext {
         path: &Path,
         source: &str,
     ) -> Result<Option<FileReport>, String> {
-        let report = context.analyze(path, source, &self.options)?;
+        let Some(mut report) = context.analyze(path, source, &self.options)? else {
+            return Ok(None);
+        };
+        // Semantic reports bypass `hoonarqube_core::analyze`, so the shared
+        // profile-membership policy is applied here as well.
+        hoonarqube_core::retain_profile_active_issues(self.options.profile, &mut report);
         if hoonarqube_core::is_razor_path(path)
             && context.razor_source_facts(path, source).is_none()
         {
             return Err("complete compiler-backed Razor source facts are unavailable".to_owned());
         }
-        Ok(report)
+        Ok(Some(report))
     }
 }
 

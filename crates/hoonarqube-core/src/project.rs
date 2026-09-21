@@ -22,7 +22,7 @@ use crate::duplication::{
 };
 
 use crate::source_facts::{SourceFacts, collect_source_facts, source_exceeds_limits};
-use crate::{AnalyzerOptions, analyze, is_razor_path};
+use crate::{AnalyzerOptions, Language, analyze, is_razor_path, language_for_path};
 
 /// One input file and the facts gathered from its single source snapshot.
 ///
@@ -75,6 +75,14 @@ pub fn analyze_project_file(
     } else {
         analyze(path, source, options)
     };
+    if classification == FileClassification::Test
+        && let Some(report) = report.as_mut()
+        && language_for_path(path) == Some(Language::CSharp)
+    {
+        // An explicit test classification suppresses MAIN-scope C# rules even
+        // outside the conventional test directories the analyzer recognizes.
+        hoonarqube_csharp::retain_test_scope_issues(report);
+    }
     let facts = collect_source_facts(path, source);
     let mut error = None;
     if let Some(facts) = facts.as_ref() {
@@ -805,5 +813,72 @@ mod tests {
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.project.files[0].status, MeasurementStatus::Failed);
         assert_eq!(report.project.duplication, None);
+    }
+
+    /// Issue #781: an explicit `FileClassification::Test` (for example a
+    /// `--test-include` match outside the conventional test directories)
+    /// suppresses C# MAIN-scope rules. `S4261` declares scope ALL and stays
+    /// under non-default profiles; under `sonar-parity` the reporter-observed
+    /// SonarQube 2025.4.4 "Sonar way" export activates neither rule, so the
+    /// shared membership policy drops both.
+    #[test]
+    fn explicit_test_classification_suppresses_csharp_main_scope_rules() {
+        let source = concat!(
+            "using System.Threading.Tasks;\n",
+            "\n",
+            "public static class ExampleTests\n",
+            "{\n",
+            "    public static async Task ReturnsValue()\n",
+            "    {\n",
+            "        await Task.Delay(1);\n",
+            "    }\n",
+            "}\n",
+        );
+        let keys = |classification: FileClassification, profile: crate::RuleProfile| {
+            let options = AnalyzerOptions {
+                profile,
+                ..AnalyzerOptions::default()
+            };
+            analyze_project_file(
+                Path::new("ExampleTests.cs"),
+                source,
+                &options,
+                classification,
+                false,
+            )
+            .report
+            .expect("C# report")
+            .issues
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect::<Vec<_>>()
+        };
+
+        let source_keys = keys(FileClassification::Source, crate::RuleProfile::Recommended);
+        assert!(
+            source_keys.contains(&"csharpsquid:S3216".to_owned())
+                && source_keys.contains(&"csharpsquid:S4261".to_owned()),
+            "source scope keeps both detectors: {source_keys:?}"
+        );
+
+        let test_keys = keys(FileClassification::Test, crate::RuleProfile::Recommended);
+        assert!(
+            !test_keys.contains(&"csharpsquid:S3216".to_owned()),
+            "explicit test scope drops MAIN-scope S3216: {test_keys:?}"
+        );
+        assert!(
+            test_keys.contains(&"csharpsquid:S4261".to_owned()),
+            "ALL-scope S4261 stays on explicit test scope: {test_keys:?}"
+        );
+
+        for classification in [FileClassification::Source, FileClassification::Test] {
+            let parity_keys = keys(classification, crate::RuleProfile::SonarParity);
+            for key in ["csharpsquid:S3216", "csharpsquid:S4261"] {
+                assert!(
+                    !parity_keys.contains(&key.to_owned()),
+                    "sonar-parity drops {key} under {classification:?}: {parity_keys:?}"
+                );
+            }
+        }
     }
 }
