@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0 (2026-09-21)
+
+### Features
+
+- **cli:** make sonar-parity machine-verifiable with report contract and reference comparison (#800) (21a2889)
+
+### Bug Fixes
+
+- **python:** count augmented parameter assignment as reading the initial value (#794) (5adea51)
+- **csharp:** spare S1118 instance-state classes and locate S2629 template past logging metadata (#795) (06ccfa2)
+- **jsts:** scope S3972 to adjacent sibling if statements and resolve S7060 by path (#796) (317d5f4)
+- **jsts:** dedupe regex-site findings and align S5843 scoring with reference (#798) (1334fe9)
+
+### Other Changes
+
+- **oracle:** pin acceptance corpus for issue-797 linked regressions (#799) (e98dbc1)
+
 ## 0.9.2 (2026-09-21)
 
 ### Bug Fixes
