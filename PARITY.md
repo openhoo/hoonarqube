@@ -75,6 +75,55 @@ is MAIN-scoped and stays suppressed on sources explicitly classified as test
 scope semantics. Under `sonar-parity` neither rule emits because it is
 inactive in the reporter-derived default profile.
 
+## Machine-verifiable `sonar-parity` report block
+
+Every `analyze` run under `--profile sonar-parity` attaches a `parity` block
+to the versioned JSON report (`--format json`) and to the Generic Issue
+Import document (`--format sonar`). The block is the machine-readable form of
+this contract; it never upgrades a claim by itself.
+
+- `reference` carries the frozen catalog's capture provenance:
+  `sonarqube_version`, `profile` (`sonar-parity`), `captured_at_utc`, and
+  `capture_sha256`, taken verbatim from `catalog/snapshot.toml`.
+- `active_rules` is the effective active-rule set: the frozen catalog's
+  `sonar-parity` membership for the languages present in the analyzed scope
+  (the six reference-inactive keys above are excluded), each with its
+  catalog-declared `parameters` and `fidelity` classification.
+  `fidelity` is the captured `classification` fact: `community-base` or
+  `enterprise-unverified`. `enterprise-unverified` rules remain
+  machine-identifiable and never count as verified parity on their own.
+- `scope` records the normalized roots, the raw `--test-include`,
+  `--exclude`, `--generated-include`, `--vendor-include`, and
+  `--duplication-exclude` patterns, and per-classification file counts, so a
+  reference scan can be replayed against the same inputs.
+- `semantic_context` records `supplied`, `missing`, or `not_applicable` for
+  the `typescript` and `csharp` families. `typescript` is `supplied` only
+  when a complete compiler context covered every analyzed JS/TS-family file
+  (an explicit `--typescript-project` or complete auto-discovered
+  `tsconfig.json` coverage); `csharp` is `supplied` only when a complete
+  `--csharp-project` context was loaded. `missing` is the explicit
+  diagnostic for context-requiring rules that ran without their context; it
+  is recorded, not hidden, and does not by itself change `completeness`.
+- `rule_set_violations` lists emitted rule keys outside the recorded active
+  set. It is always empty in a correct run; any entry is a defect signal and
+  forces `completeness` to `incomplete`.
+- `completeness` is `reference_parity_verified` only when a
+  `--parity-reference` comparison matched while every prerequisite held;
+  `complete_native_analysis` when the analysis completed without violations
+  but no comparison was requested; and `incomplete` when the analysis is
+  incomplete, rule-set violations exist, or a requested comparison diverged.
+
+`--parity-reference PATH` requires `--profile sonar-parity` and compares the
+run's findings against a pinned Generic Issue Import report — the same
+document `--format sonar` emits — by rule id, file path, and text range
+(`parity.comparison.status` is `matched` or `diverged`, with per-identity
+`divergences`). A diverged comparison prints diagnostics to stderr and exits
+non-zero, consistent with the existing fail-closed incomplete handling. An
+unreadable or malformed reference is an input error and also exits non-zero.
+
+Profiles other than `sonar-parity` emit no `parity` block and require no
+SonarQube server or proprietary analyzer.
+
 ## Rust S1612 coverage contract, version 1
 
 The Rust analyzer owns `rust:S1612`, but its current executable coverage is

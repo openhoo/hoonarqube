@@ -24,6 +24,7 @@ use sha2::{Digest as _, Sha256};
 mod analyze;
 mod assessment_cli;
 mod cache;
+mod parity_cli;
 mod project_features;
 mod semantic_cli;
 
@@ -108,6 +109,11 @@ enum Command {
         /// Optional project semantics, coverage, baseline and quality gates.
         #[command(flatten)]
         features: Box<project_features::ProjectFeatureOptions>,
+        /// Pinned Generic Issue Import reference report for `sonar-parity`
+        /// comparison. When supplied, the report's `parity` block carries a
+        /// `comparison` verdict and the run exits non-zero on divergence.
+        #[arg(long = "parity-reference")]
+        parity_reference: Option<std::path::PathBuf>,
     },
     /// Detect and optionally apply automatic fixes.
     ///
@@ -244,6 +250,7 @@ fn main() -> ExitCode {
             duplication_min_lines,
             duplication_min_statements,
             features,
+            parity_reference,
         } => {
             let mut project_options = match analyze::project_analysis_options(
                 analyze::ProjectPatternLists {
@@ -273,6 +280,7 @@ fn main() -> ExitCode {
                 json_flag: cli.json,
                 python_require_type_hints: *python_require_type_hints,
                 project_options: &project_options,
+                parity_reference: parity_reference.as_deref(),
             };
             run_analyze(catalog, paths, &run_options)
         }
@@ -1894,7 +1902,7 @@ fn render_project_text_report(report: &hoonarqube_ir::AnalysisReport) -> String 
 /// single metadata source. Native columns are converted at this export boundary
 /// to Sonar's zero-based UTF-16 units; native JSON and SARIF retain their own
 /// coordinate contracts.
-fn sonar_import_value(
+pub(crate) fn sonar_import_value(
     catalog: &Catalog,
     reports: &[hoonarqube_ir::FileReport],
 ) -> Result<serde_json::Value, String> {
@@ -2932,6 +2940,7 @@ fn gitlab_codequality_value(
 /// Options captured from the `analyze` command before execution.
 struct AnalyzeRunOptions<'a> {
     format: Option<&'a str>,
+    parity_reference: Option<&'a std::path::Path>,
     go_header_format: &'a str,
     csharp_header_format: &'a str,
     profile: RuleProfile,
@@ -2968,8 +2977,9 @@ fn run_analyze(
         run_options.python_require_type_hints,
     );
     let mut warnings = Vec::new();
-    let report = match analyze::analyze_project_paths(
+    let mut report = match analyze::analyze_project_paths(
         paths,
+        catalog,
         &options,
         run_options.project_options,
         &mut warnings,
@@ -2980,6 +2990,12 @@ fn run_analyze(
             return ExitCode::FAILURE;
         }
     };
+    if let Some(reference) = run_options.parity_reference
+        && let Err(error) = parity_cli::attach_comparison(&mut report, catalog, reference)
+    {
+        eprintln!("{error}");
+        return ExitCode::from(2);
+    }
     for warning in &report.project.warnings {
         eprintln!("{warning}");
     }
@@ -3019,7 +3035,13 @@ fn render_analyze_output(
 
 fn render_sonar_output(catalog: &Catalog, report: &hoonarqube_ir::AnalysisReport) -> bool {
     match sonar_import_value(catalog, &report.files) {
-        Ok(value) => print_json(&value),
+        Ok(mut value) => {
+            if let Some(parity) = &report.parity {
+                value["parity"] =
+                    serde_json::to_value(parity).expect("parity report serialization cannot fail");
+            }
+            print_json(&value)
+        }
         Err(error) => {
             eprintln!("cannot render Sonar output: {error}");
             false
@@ -3058,7 +3080,14 @@ fn analyze_exit_code(
     report: &hoonarqube_ir::AnalysisReport,
     assessment_status: u8,
 ) -> ExitCode {
-    if !output_ok {
+    let parity_diverged = report
+        .parity
+        .as_ref()
+        .and_then(|parity| parity.comparison.as_ref())
+        .is_some_and(|comparison| {
+            comparison.status == hoonarqube_ir::parity::ParityComparisonStatus::Diverged
+        });
+    if !output_ok || parity_diverged {
         ExitCode::FAILURE
     } else if !report.project.complete || assessment_status == 2 {
         ExitCode::from(2)
@@ -3068,7 +3097,6 @@ fn analyze_exit_code(
         ExitCode::SUCCESS
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

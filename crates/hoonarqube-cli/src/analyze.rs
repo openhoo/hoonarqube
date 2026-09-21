@@ -47,12 +47,12 @@ pub(crate) struct ProjectPatternLists<'a> {
 }
 
 #[derive(Clone)]
-struct OwnedProjectPatternLists {
-    exclude: Vec<String>,
-    test_include: Vec<String>,
-    generated_include: Vec<String>,
-    vendor_include: Vec<String>,
-    duplication_exclude: Vec<String>,
+pub(crate) struct OwnedProjectPatternLists {
+    pub(crate) exclude: Vec<String>,
+    pub(crate) test_include: Vec<String>,
+    pub(crate) generated_include: Vec<String>,
+    pub(crate) vendor_include: Vec<String>,
+    pub(crate) duplication_exclude: Vec<String>,
 }
 
 impl OwnedProjectPatternLists {
@@ -129,7 +129,7 @@ pub(crate) struct ProjectAnalysisOptions {
     pub(crate) duplication: DuplicationOptions,
     pub(crate) cache_dir: Option<PathBuf>,
     pub(crate) features: ProjectFeatureOptions,
-    raw_patterns: OwnedProjectPatternLists,
+    pub(crate) raw_patterns: OwnedProjectPatternLists,
 }
 
 impl ProjectPatterns {
@@ -347,6 +347,7 @@ fn lexical_normalize(path: &Path) -> PathBuf {
 /// the same in-memory snapshot is passed to the core project facade.
 pub(crate) fn analyze_project_paths(
     paths: &[PathBuf],
+    catalog: &Catalog,
     options: &AnalyzerOptionsBundle,
     project_options: &ProjectAnalysisOptions,
     warnings: &mut Vec<String>,
@@ -397,6 +398,13 @@ pub(crate) fn analyze_project_paths(
         &collected.source_inventory,
         options,
         project_options,
+    );
+    crate::parity_cli::attach_parity_contract(
+        &mut report,
+        catalog,
+        options,
+        project_options,
+        semantic.as_ref(),
     );
     Ok(report)
 }
@@ -2103,8 +2111,14 @@ mod tests {
         options: &ProjectAnalysisOptions,
         warnings: &mut Vec<String>,
     ) -> hoonarqube_ir::AnalysisReport {
-        analyze_project_paths(paths, &AnalyzerOptionsBundle::default(), options, warnings)
-            .expect("project report")
+        analyze_project_paths(
+            paths,
+            hoonarqube_catalog::embedded(),
+            &AnalyzerOptionsBundle::default(),
+            options,
+            warnings,
+        )
+        .expect("project report")
     }
 
     #[test]
@@ -2674,6 +2688,7 @@ mod tests {
         let options = project_options();
         let report = analyze_project_paths(
             &[exact, over],
+            hoonarqube_catalog::embedded(),
             &analyzer_options_bundle(hoonarqube_catalog::embedded()),
             &options,
             &mut warnings,
@@ -3087,6 +3102,7 @@ mod tests {
             let mut warnings = Vec::new();
             let report = analyze_project_paths(
                 std::slice::from_ref(&fix.0),
+                hoonarqube_catalog::embedded(),
                 &options,
                 &project,
                 &mut warnings,

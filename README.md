@@ -219,6 +219,38 @@ semantic facts, and IDE-style suggestions are separate features; their
 availability does not turn them into SonarQube-equivalent metrics, rules, or IDE
 behavior. Parity claims are limited to the contracts recorded in
 [PARITY.md](PARITY.md).
+
+### Machine-verifiable `sonar-parity` contract
+
+Every `analyze` run under `--profile sonar-parity` attaches a `parity` block
+to the versioned JSON report (`--format json`) and to the Generic Issue
+Import document (`--format sonar`). The block records the frozen catalog's
+capture provenance (`reference.sonarqube_version`, `captured_at_utc`,
+`capture_sha256`), the effective active-rule set for the analyzed languages
+with each rule's catalog parameters and `fidelity` classification
+(`community-base` or `enterprise-unverified`), the normalized analysis scope
+(roots, `--test-include`/`--exclude`/`--generated-include`/`--vendor-include`
+patterns, and per-classification file counts), and whether required semantic
+contexts were supplied (`semantic_context.typescript`/`csharp` are
+`supplied`, `missing`, or `not_applicable`).
+
+`parity.completeness` is one of `reference_parity_verified`,
+`complete_native_analysis`, or `incomplete`. A run is `incomplete` when the
+analysis itself is incomplete, when emitted rule keys escape the recorded
+active set (`parity.rule_set_violations`), or when a requested reference
+comparison diverged. Missing semantic context is recorded explicitly in
+`semantic_context` — it is never hidden — but does not by itself change
+`completeness`. An incomplete parity result is reported explicitly; it is
+never presented as verified parity.
+
+`--parity-reference PATH` (requires `--profile sonar-parity`) compares the
+run's findings against a pinned Generic Issue Import report — the same
+document `--format sonar` emits — by rule id, file path, and text range. A
+match sets `parity.comparison.status` to `matched` and, when every
+prerequisite holds, `completeness` to `reference_parity_verified`. A
+divergence lists each differing identity in `parity.comparison.divergences`,
+prints diagnostics to stderr, and exits non-zero. Other profiles are
+unchanged: they emit no `parity` block and require no reference.
 The source-by-source adoption and deferral record is maintained in
 [RULE_RESEARCH.md](RULE_RESEARCH.md).
 

@@ -129,6 +129,24 @@ impl ProjectSemanticContext {
         &self.fingerprints
     }
 
+    /// Explicitly requested JS/TS compiler context, when one loaded.
+    #[must_use]
+    pub(crate) fn jsts(&self) -> Option<&hoonarqube_jsts::project_context::ProjectSemanticContext> {
+        self.jsts.as_ref()
+    }
+
+    /// Auto-discovered per-tsconfig JS/TS contexts for plain scans.
+    #[must_use]
+    pub(crate) fn jsts_auto(&self) -> &[hoonarqube_jsts::project_context::ProjectSemanticContext] {
+        &self.jsts_auto
+    }
+
+    /// Explicitly requested C# project context, when one loaded.
+    #[must_use]
+    pub(crate) fn csharp(&self) -> Option<&hoonarqube_csharp::semantic::ProjectSemanticContext> {
+        self.csharp.as_ref()
+    }
+
     /// Returns complete compiler-backed Razor facts for an exact source
     /// snapshot, when the loaded C# context owns them.
     #[must_use]
