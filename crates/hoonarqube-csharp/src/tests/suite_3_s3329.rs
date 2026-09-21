@@ -327,6 +327,34 @@ fn s1118_hides_utility_constructors() {
     assert_eq!(flagged[0].range.start.line, 4);
 }
 
+// --- #789 — instance members disqualify the utility-class shape -----------
+
+/// Issue #789: `InstanceService` owns an instance property initialized by its
+/// public constructor and additionally carries a constant plus a private
+/// static helper. Constants and static helpers do not make a class a utility
+/// class while any instance member exists, so no `S1118` finding may appear.
+#[test]
+fn s1118_spares_mixed_instance_and_static_members() {
+    let report = analyze_default(
+        "public sealed class InstanceService\n{\n    private const string Prefix = \"value:\";\n\n    public InstanceService(string value)\n    {\n        Value = Normalize(value);\n    }\n\n    public string Value { get; }\n\n    private static string Normalize(string value)\n    {\n        return Prefix + value;\n    }\n}\n",
+    );
+    assert!(with_key(&report, "csharpsquid:S1118").is_empty());
+}
+
+/// Instance state and behavior arrive through several member kinds: instance
+/// fields, properties, events, indexers, and destructors each disqualify the
+/// utility-class shape even when every method stays static. A class whose
+/// members are all static remains reportable.
+#[test]
+fn s1118_spares_instance_members_but_flags_static_only_classes() {
+    let report = analyze_default(
+        "class WithProperty\n{\n    public string Value { get; }\n    public WithProperty(string value) { Value = value; }\n    public static void Run() { }\n}\n\nclass WithEvent\n{\n    public event EventHandler Changed;\n    public WithEvent() { }\n    public static void Run() { }\n}\n\nclass WithIndexer\n{\n    public int this[int index] => index;\n    public WithIndexer() { }\n    public static void Run() { }\n}\n\nclass WithDestructor\n{\n    ~WithDestructor() { }\n    public WithDestructor() { }\n    public static void Run() { }\n}\n\nclass StaticOnly\n{\n    public static string Prefix { get; } = \"v\";\n    public StaticOnly() { }\n    public static void Run() { }\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S1118");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 32);
+}
+
 #[test]
 fn s112_flags_reserved_exception_throws() {
     let report = analyze_default(
