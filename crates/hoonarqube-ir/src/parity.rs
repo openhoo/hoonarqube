@@ -5,7 +5,7 @@
 //! frozen catalog's capture provenance, the effective active-rule set with
 //! parameters and fidelity, the analyzed scope, the semantic contexts that
 //! parity-relevant rules require, and the completeness verdict. An optional
-//! [`ParityComparison`] carries the result of comparing this run against a
+//! [`crate::parity::ParityComparison`] carries the result of comparing this run against a
 //! pinned Generic Issue Import reference report.
 //!
 //! All types serialize deterministically: lists are sorted by their natural
