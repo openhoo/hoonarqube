@@ -271,6 +271,64 @@ class StrictParityTests(unittest.TestCase):
         )
         self.assertTrue(any("unknown fixture" in row["reason"] for row in invalid))
 
+    def test_native_namespace_findings_are_declared_for_ours_only(self):
+        native = {
+            "rule_key": "hoonarqube-python:S113",
+            "message": "native-only detector",
+            "range": {
+                "start": {"line": 3, "column": 0},
+                "end": {"line": 3, "column": 4},
+            },
+        }
+        ours = {
+            "files": [
+                {"path": f"/fixture/{BAD}", "issues": [ours_issue(), native]}
+            ]
+        }
+        rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            ours,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+        )
+        self.assertEqual(counts(rows), {"PASS": 1})
+        self.assertEqual(failure_count(rows), 0)
+
+        sonar_native = compare_reports(
+            [expectation()],
+            oracle_report(
+                oracle_issue(), oracle_issue(rule="hoonarqube-python:S113")
+            ),
+            ours_report(ours_issue()),
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+        )
+        invalid = [
+            row for row in sonar_native if row["status"] == "INVALID_ARTIFACT"
+        ]
+        self.assertEqual(len(invalid), 1)
+        self.assertIn("Sonar: rule absent from oracle contract", invalid[0]["reason"])
+
+        unknown_file = {
+            "files": [
+                {"path": f"/fixture/{BAD}", "issues": [ours_issue()]},
+                {"path": "/fixture/other.py", "issues": [native]},
+            ]
+        }
+        unknown_rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            unknown_file,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+        )
+        invalid = [
+            row for row in unknown_rows if row["status"] == "INVALID_ARTIFACT"
+        ]
+        self.assertEqual(len(invalid), 1)
+        self.assertIn("unknown fixture", invalid[0]["reason"])
+
     def test_each_missing_side_and_both_missing_are_distinct_failures(self):
         ours_missing = self.compare(
             [expectation()], oracle_report(oracle_issue()), ours_report()

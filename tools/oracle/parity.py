@@ -2008,7 +2008,16 @@ def _unexpected_finding_rows(
     for source, findings in (("Sonar", context.sonar), ("hoonarqube", context.ours)):
         for finding in findings:
             rule, file_name = finding[:2]
-            if rule not in declared_rules:
+            # The oracle contract covers Sonar rule keys only. Findings from
+            # the separate hoonarqube-* native namespace are declared by the
+            # cumulative native profiles, so they are not contract violations;
+            # a Sonar artifact can never legitimately carry them.
+            native_rule = (
+                source == "hoonarqube"
+                and str(rule).startswith("hoonarqube-")
+                and ":" in str(rule)
+            )
+            if rule not in declared_rules and not native_rule:
                 unexpected.add((str(rule), source, "rule absent from oracle contract"))
             elif context.files is not None and file_name not in context.files:
                 unexpected.add(

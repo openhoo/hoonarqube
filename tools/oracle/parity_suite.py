@@ -2728,7 +2728,14 @@ def _append_ours_command(
     src: Path,
     native_context: dict[str, object],
 ) -> None:
-    command.extend(["analyze", "--format", "json"])
+    # The oracle reference profiles ("Hoonarqube Oracle All <language>")
+    # activate every cataloged rule, so the native side must run the cumulative
+    # `strict` profile: it keeps every Sonar detector active and adds the
+    # hoonarqube-* native rules, which the comparator accepts as declared
+    # native findings. The default `sonar-parity` profile tracks the default
+    # reference profile and does not activate every cataloged rule.
+    command.extend(["analyze", "--profile", "strict", "--format", "json"])
+    native_context["profile"] = "strict"
     if proj == "oracle-ts":
         command.extend(
             [

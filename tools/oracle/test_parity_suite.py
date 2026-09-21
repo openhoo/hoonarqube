@@ -475,6 +475,68 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
                     {"files": [{"path": context_paths[0]}]}, native_context
                 )
 
+    def test_ours_command_selects_strict_profile_for_all_rule_oracle(self):
+        for proj in ("oracle-py", "oracle-js", "oracle-go", "oracle-rust"):
+            with self.subTest(proj=proj):
+                command: list[str] = []
+                parity_suite._append_ours_command(
+                    command, proj, Path("/fixture/src"), {}
+                )
+                self.assertEqual(
+                    command[:5],
+                    ["analyze", "--profile", "strict", "--format", "json"],
+                )
+
+        ts_command: list[str] = []
+        parity_suite._append_ours_command(
+            ts_command,
+            "oracle-ts",
+            Path("/fixture/src"),
+            {
+                "typescript_project_path": "/fixture/tsconfig.json",
+                "typescript_module": "/fixture/node_modules/typescript",
+            },
+        )
+        self.assertEqual(
+            ts_command[:5],
+            ["analyze", "--profile", "strict", "--format", "json"],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            (
+                workspace,
+                static_files,
+                mapping,
+                fixture,
+                _expected_context_paths,
+            ) = self._write_csharp_context_workspace(Path(directory))
+            current_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            context_paths, context_hashes = (
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, current_static, [mapping]
+                )
+            )
+            cs_command: list[str] = []
+            with mock.patch.dict(parity_suite.os.environ, {}, clear=True):
+                parity_suite._append_ours_command(
+                    cs_command,
+                    "oracle-cs",
+                    fixture,
+                    {
+                        "status": "READY",
+                        "workspace": str(workspace),
+                        "solution": str(workspace / "Oracle.slnx"),
+                        "source_mapping": [mapping],
+                        "source_paths": [str(fixture)],
+                        "context_source_paths": context_paths,
+                        "context_source_hashes": context_hashes,
+                    },
+                )
+            self.assertEqual(
+                cs_command[:5],
+                ["analyze", "--profile", "strict", "--format", "json"],
+            )
+
     def test_csharp_context_sources_reject_changed_or_unowned_auxiliary_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             (

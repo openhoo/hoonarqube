@@ -8,6 +8,19 @@
 
 ## Unreleased
 
+### Bug Fixes
+
+- **hoonarqube:** stop `sonar-parity` from activating javascript/typescript
+  S1441/S1537, python S1720/S6542, and csharpsquid S3216/S4261, which are
+  absent from the reporter-exported SonarQube 2025.4.4 default "Sonar way"
+  profiles; the cumulative recommended/extended/strict profiles keep every
+  detector active (#780, #781, #782)
+- **csharp:** keep MAIN-scope rules such as csharpsquid:S3216 suppressed on
+  explicitly test-classified sources (#781)
+- **oracle:** run the native all-rules comparison under `--profile strict`
+  and accept declared `hoonarqube-*` native findings in the comparator
+  (#780, #781, #782)
+
 ### Performance
 
 - Reuse C# node-kind indexing, Python source-snapshot facts and name lookups,
