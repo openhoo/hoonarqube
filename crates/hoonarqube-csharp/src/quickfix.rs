@@ -434,7 +434,10 @@ pub(crate) fn attach_fixes(
     facts: Option<&dyn QuickFixSemanticFacts>,
 ) {
     let tree = crate::parse(source);
-    attach_fixes_from_tree(tree.root_node(), source, options, report, facts);
+    let root = tree.root_node();
+    crate::cst::with_kind_index(root, || {
+        attach_fixes_from_tree(root, source, options, report, facts);
+    });
 }
 
 /// Attach C# suggestions while borrowing the caller's already parsed tree.

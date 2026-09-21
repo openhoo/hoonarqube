@@ -424,7 +424,7 @@ pub fn analyze_with_context(
     let parsed = parse(source);
     let index = LineIndex::from_source_text(source);
     let metrics = file_metrics(&parsed, source, &index);
-    let file_ctx = FileContext::build(&parsed);
+    let file_ctx = FileContext::build(&parsed, source);
 
     let mut issues = Vec::new();
     issues.extend(check_parsing_errors(&parsed, &index, source));

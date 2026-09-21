@@ -1,9 +1,8 @@
 use crate::engine::file_context::{AnyImport, FileContext};
-use crate::engine::scope::{Binding, BindingKind, SymbolTable, build_symbol_table};
+use crate::engine::scope::{Binding, BindingKind, SymbolTable};
 use crate::support::{issue_at, keyword_value};
 use hoonarqube_ir::Issue;
-use ruff_python_ast::{Expr, ExprCall, ModModule, Stmt};
-use ruff_python_parser::Parsed;
+use ruff_python_ast::{Expr, ExprCall, Stmt};
 use ruff_source_file::LineIndex;
 use ruff_text_size::{Ranged, TextRange};
 use std::collections::HashMap;
@@ -12,12 +11,11 @@ use std::collections::HashMap;
 // 126234f10b1507e63055a028f8762fa80beaf078bbe07cbe4571a62cdecef952.
 // This is scientific-computing reproducibility, not the S2245 security hotspot.
 pub(crate) fn check_unseeded_randomness(
-    parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    let facts = SeedFacts::new(parsed, file_ctx);
+    let facts = SeedFacts::new(file_ctx);
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         let Some(path) = facts.path(&call.func, 0) else {
@@ -96,7 +94,7 @@ impl SeedPolicy {
 // spellings. Parameters, comprehensions, local definitions and reassignments
 // must not inherit an unrelated NumPy/sklearn import's identity.
 struct SeedFacts<'a> {
-    symbols: SymbolTable,
+    symbols: &'a SymbolTable,
     loads: HashMap<TextRange, usize>,
     imports: HashMap<TextRange, String>,
     values: HashMap<TextRange, &'a Expr>,
@@ -104,8 +102,8 @@ struct SeedFacts<'a> {
 }
 
 impl<'a> SeedFacts<'a> {
-    fn new(parsed: &Parsed<ModModule>, file_ctx: &FileContext<'a>) -> Self {
-        let symbols = build_symbol_table(parsed);
+    fn new(file_ctx: &'a FileContext<'a>) -> Self {
+        let symbols = file_ctx.symbol_table();
         let loads = symbols
             .resolved_loads
             .iter()
@@ -122,7 +120,7 @@ impl<'a> SeedFacts<'a> {
         for import in &file_ctx.imports {
             facts.record_import(import);
         }
-        for stmt in &file_ctx.stmts {
+        for stmt in file_ctx.stmts.iter().copied() {
             facts.record_value(stmt);
         }
         facts
@@ -773,6 +771,34 @@ mod tests {
             "    default_rng()\n",
         ));
         assert!(findings(&report, "python:S6709").is_empty());
+    }
+
+    #[test]
+    fn seed_resolution_follows_loads_into_nested_scopes() {
+        // A call inside a nested function resolves through the enclosing
+        // scope's assignment binding to the NumPy generator path.
+        let report = scan(concat!(
+            "import numpy as np\n",
+            "def outer():\n",
+            "    rng = np.random.default_rng\n",
+            "    def inner():\n",
+            "        rng()\n",
+            "    return inner\n",
+        ));
+        let issues = findings(&report, "python:S6709");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].range.start, pos(5, 8));
+        // A sibling scope's same-named binding must not leak into `outer`.
+        let sibling = scan(concat!(
+            "import numpy as np\n",
+            "def outer():\n",
+            "    rng = np.random.default_rng\n",
+            "    return rng\n",
+            "def other():\n",
+            "    rng = lambda: None\n",
+            "    rng()\n",
+        ));
+        assert!(findings(&sibling, "python:S6709").is_empty());
     }
 
     #[test]

@@ -74,14 +74,14 @@ const VALIDATION_CONSTRAINT_FQNS: &[&str] = &[
 /// to one of those. `SkipValidation` alone, constraints without
 /// `SkipValidation`, and non-model classes stay silent.
 pub(crate) fn check_s8971_skip_validation_constraints(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let fqns = ImportFqns::build(file_ctx);
     let classes = ClassIndex::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for class in &file_ctx.classes {
         check_class(

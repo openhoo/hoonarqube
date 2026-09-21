@@ -25,10 +25,17 @@ impl SecurityHotspotCollector<'_, '_> {
             let Some(expression) = argument_expression(argument) else {
                 return false;
             };
-            let text = span_text(self.source, expression.span()).to_ascii_lowercase();
-            SENSITIVE_DATA_FRAGMENTS
-                .iter()
-                .any(|fragment| text.contains(fragment))
+            // ASCII-insensitive scan over the borrowed span text; identical
+            // matches to the former `to_ascii_lowercase().contains(...)`
+            // (the ASCII lowercase map preserves byte positions) without a
+            // lowered copy per argument.
+            let text = span_text(self.source, expression.span());
+            SENSITIVE_DATA_FRAGMENTS.iter().any(|fragment| {
+                crate::support::contains_ascii_case_insensitive(
+                    text.as_bytes(),
+                    fragment.as_bytes(),
+                )
+            })
         });
         if sensitive {
             self.sink.emit_span(

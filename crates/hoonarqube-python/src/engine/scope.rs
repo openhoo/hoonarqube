@@ -1,9 +1,6 @@
 use crate::support::called_name;
 use crate::support::child_bodies;
 use crate::support::child_exprs;
-use crate::support::collect_string_contents;
-use crate::support::for_each_stmt;
-use crate::support::for_each_stmt_expr;
 use crate::support::import_binding_name;
 use crate::support::is_tf_function;
 use crate::support::named_parameters;
@@ -142,6 +139,9 @@ pub(crate) struct DefSite {
 pub(crate) struct SymbolTable {
     pub(crate) scopes: Vec<SymbolScope>,
     pub(crate) resolved_loads: Vec<LoadRecord>,
+    /// Load-record indices grouped by name, in `resolved_loads` order.
+    /// Per-name lookups skip scanning the whole load list.
+    pub(crate) resolved_index: HashMap<String, Vec<u32>>,
     pub(crate) def_sites: Vec<DefSite>,
     pub(crate) attr_writes: Vec<(String, TextRange)>,
 }
@@ -149,6 +149,9 @@ pub(crate) struct SymbolTable {
 /// Cross-file lexical facts used to veto reports conservatively.
 pub(crate) struct FileFacts {
     pub(crate) token_names: Vec<(String, TextRange)>,
+    /// `token_names` indices grouped by name, in token order. Per-name
+    /// lookups skip scanning every identifier token in the file.
+    pub(crate) token_index: HashMap<String, Vec<u32>>,
     pub(crate) attr_reads: Vec<(String, TextRange)>,
     pub(crate) called_names: HashSet<String>,
     pub(crate) string_texts: Vec<String>,
@@ -163,15 +166,22 @@ fn bind_symbol(
     kind: BindingKind,
     loop_depth: u32,
 ) {
-    scope
-        .bindings
-        .entry(name.to_string())
-        .or_default()
-        .push(Binding {
+    if let Some(entries) = scope.bindings.get_mut(name) {
+        entries.push(Binding {
             range,
             kind,
             loop_depth,
         });
+    } else {
+        scope.bindings.insert(
+            name.to_string(),
+            vec![Binding {
+                range,
+                kind,
+                loop_depth,
+            }],
+        );
+    }
 }
 
 fn push_symbol_scope(table: &mut SymbolTable, kind: ScopeKind, parent: usize) -> usize {
@@ -183,6 +193,7 @@ pub(crate) fn build_symbol_table(parsed: &Parsed<ModModule>) -> SymbolTable {
     let mut table = SymbolTable {
         scopes: vec![SymbolScope::new(ScopeKind::Module, None)],
         resolved_loads: Vec::new(),
+        resolved_index: HashMap::new(),
         def_sites: Vec::new(),
         attr_writes: Vec::new(),
     };
@@ -956,10 +967,21 @@ fn record_comprehension_scope(
 
 fn resolve_symbol_loads(table: &mut SymbolTable) {
     let mut resolved = Vec::new();
+    let mut resolved_index: HashMap<String, Vec<u32>> = HashMap::new();
     for scope_idx in 0..table.scopes.len() {
-        let entries: Vec<(String, TextRange, bool)> = table.scopes[scope_idx].loads.clone();
+        // `loads` is write-only after resolution, so the recorded events move
+        // out instead of cloning every name.
+        let entries: Vec<(String, TextRange, bool)> =
+            std::mem::take(&mut table.scopes[scope_idx].loads);
         for (name, range, in_annotation) in entries {
             let target = resolve_name(table, scope_idx, &name);
+            let index = u32::try_from(resolved.len()).unwrap_or(u32::MAX);
+            match resolved_index.get_mut(&name) {
+                Some(indices) => indices.push(index),
+                None => {
+                    resolved_index.insert(name.clone(), vec![index]);
+                }
+            }
             resolved.push(LoadRecord {
                 scope: scope_idx,
                 name,
@@ -970,6 +992,7 @@ fn resolve_symbol_loads(table: &mut SymbolTable) {
         }
     }
     table.resolved_loads = resolved;
+    table.resolved_index = resolved_index;
 }
 
 /// Resolves a name from `start` through the scope chain. Functions and
@@ -1029,24 +1052,61 @@ pub(crate) fn scope_is_within(table: &SymbolTable, scope: usize, ancestor: usize
     false
 }
 
-pub(crate) fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> FileFacts {
+pub(crate) fn collect_file_facts(
+    ctx: &crate::engine::file_context::FileContext<'_>,
+    source: &str,
+) -> FileFacts {
     let mut facts = FileFacts {
         token_names: Vec::new(),
+        token_index: HashMap::new(),
         attr_reads: Vec::new(),
         called_names: HashSet::new(),
         string_texts: Vec::new(),
         dynamic_names: false,
         has_wildcard_import: false,
     };
-    for token in parsed.tokens() {
+    collect_token_names(&mut facts, ctx, source);
+    collect_wildcard_import(&mut facts, ctx);
+    collect_called_names(&mut facts, ctx);
+    collect_attr_reads(&mut facts, ctx);
+    facts.string_texts = ctx
+        .strings
+        .iter()
+        .map(|literal| crate::support::string_value_text(&literal.value))
+        .collect();
+    facts
+}
+
+/// Indexes every `Name` token by its text so the token-net veto can answer
+/// "does this identifier appear anywhere else" without rescanning the file.
+fn collect_token_names(
+    facts: &mut FileFacts,
+    ctx: &crate::engine::file_context::FileContext<'_>,
+    source: &str,
+) {
+    for token in ctx.parsed.tokens() {
         if token.kind() == TokenKind::Name {
-            facts
-                .token_names
-                .push((source[token.range()].to_string(), token.range()));
+            let index = u32::try_from(facts.token_names.len()).unwrap_or(u32::MAX);
+            let name = source[token.range()].to_string();
+            match facts.token_index.get_mut(&name) {
+                Some(indices) => indices.push(index),
+                None => {
+                    facts.token_index.insert(name.clone(), vec![index]);
+                }
+            }
+            facts.token_names.push((name, token.range()));
         }
     }
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        if let Stmt::ImportFrom(import_from) = stmt
+}
+
+/// Flags `from module import *`, which makes every module-level name a
+/// potential use of any definition.
+fn collect_wildcard_import(
+    facts: &mut FileFacts,
+    ctx: &crate::engine::file_context::FileContext<'_>,
+) {
+    for import in &ctx.imports {
+        if let crate::engine::file_context::AnyImport::From(import_from) = import
             && import_from
                 .names
                 .iter()
@@ -1054,19 +1114,26 @@ pub(crate) fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> Fi
         {
             facts.has_wildcard_import = true;
         }
-    });
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
-        if let Expr::Call(call) = expr {
-            if let Some(name) = called_name(&call.func) {
-                facts.called_names.insert(name.to_string());
-            }
-            if matches!(
-                called_name(&call.func),
-                Some("locals" | "globals" | "vars" | "eval" | "exec")
-            ) {
+    }
+}
+
+/// Collects the called-name set and flags dynamic name access
+/// (`locals`/`globals`/`vars`/`eval`/`exec`), which disables
+/// resolution-based rules.
+fn collect_called_names(facts: &mut FileFacts, ctx: &crate::engine::file_context::FileContext<'_>) {
+    for call in &ctx.calls {
+        if let Some(name) = called_name(&call.func) {
+            facts.called_names.insert(name.to_string());
+            if matches!(name, "locals" | "globals" | "vars" | "eval" | "exec") {
                 facts.dynamic_names = true;
             }
         }
+    }
+}
+
+/// Collects every load-context attribute read in expression pre-order.
+fn collect_attr_reads(facts: &mut FileFacts, ctx: &crate::engine::file_context::FileContext<'_>) {
+    for expr in &ctx.exprs {
         if let Expr::Attribute(attribute) = expr
             && matches!(attribute.ctx, ruff_python_ast::ExprContext::Load)
         {
@@ -1074,23 +1141,21 @@ pub(crate) fn collect_file_facts(parsed: &Parsed<ModModule>, source: &str) -> Fi
                 .attr_reads
                 .push((attribute.attr.as_str().to_string(), expr.range()));
         }
-    });
-    facts.string_texts = collect_string_contents(parsed.syntax().body.as_slice())
-        .into_iter()
-        .map(|(text, _)| text)
-        .collect();
-    facts
+    }
 }
 
 /// Token-net veto: `true` when the identifier appears anywhere outside the
 /// excluded (definition) ranges. Never produces false positives for
 /// unused-name rules because every plausible textual use counts.
 pub(crate) fn name_used_in_tokens(facts: &FileFacts, name: &str, excluded: &[TextRange]) -> bool {
-    facts.token_names.iter().any(|(token_name, range)| {
-        token_name == name
-            && !excluded.iter().any(|excluded_range| {
-                excluded_range.start() <= range.start() && range.end() <= excluded_range.end()
-            })
+    let Some(indices) = facts.token_index.get(name) else {
+        return false;
+    };
+    indices.iter().any(|&index| {
+        let range = facts.token_names[index as usize].1;
+        !excluded.iter().any(|excluded_range| {
+            excluded_range.start() <= range.start() && range.end() <= excluded_range.end()
+        })
     })
 }
 
@@ -1101,14 +1166,18 @@ pub(crate) fn scope_has_dynamic_declaration(scope: &SymbolScope, name: &str) -> 
 // --- python:S3985 / python:S5603 — unused nested definitions ------------------
 
 pub(crate) fn definition_is_used(table: &SymbolTable, facts: &FileFacts, site: &DefSite) -> bool {
-    table
-        .resolved_loads
-        .iter()
-        .any(|load| load.target == Some(site.enclosing_scope) && load.name == site.name)
-        || facts.called_names.contains(&site.name)
+    // Cheap lookups first: the resolved-load index, the called-name set, and
+    // the token index answer most sites without scanning every load, string,
+    // or identifier token in the file. The substring scan over string
+    // literals stays last, as before.
+    table.resolved_index.get(&site.name).is_some_and(|indices| {
+        indices
+            .iter()
+            .any(|&index| table.resolved_loads[index as usize].target == Some(site.enclosing_scope))
+    }) || facts.called_names.contains(&site.name)
+        || name_used_in_tokens(facts, &site.name, &[site.name_range])
         || facts
             .string_texts
             .iter()
             .any(|text| text.contains(&site.name))
-        || name_used_in_tokens(facts, &site.name, &[site.name_range])
 }

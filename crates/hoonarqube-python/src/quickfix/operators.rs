@@ -1,7 +1,7 @@
 use super::{Alternative, alt, issue_range, text_edit};
 use crate::engine::file_context::{AnyImport, FileContext};
 use crate::support::{
-    child_exprs, comparison_pairs, for_each_stmt, function_parameters, is_identity_op, stmt_exprs,
+    child_exprs, comparison_pairs, function_parameters, is_identity_op, stmt_exprs,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::token::TokenKind;
@@ -356,14 +356,14 @@ fn token_identity_span(
 }
 
 fn s5799(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
-    _file_ctx: &FileContext<'_>,
+    file_ctx: &FileContext<'_>,
     issue: &Issue,
 ) -> Vec<Alternative> {
     let issue_span = issue_range(issue, index, source);
-    for (literal_range, parts) in implicit_literal_parts(parsed) {
+    for (literal_range, parts) in implicit_literal_parts(file_ctx) {
         let mut eligible = Vec::new();
         for pair in parts.windows(2) {
             let previous = pair[0];
@@ -373,7 +373,7 @@ fn s5799(
             }
             let same_line =
                 line_number(source, previous.start()) == line_number(source, current.start());
-            let (collection, blocked) = string_context(parsed, literal_range);
+            let (collection, blocked) = string_context(file_ctx, literal_range);
             if blocked
                 || (!same_line
                     && (!collection
@@ -422,9 +422,9 @@ fn s5799(
     Vec::new()
 }
 
-fn implicit_literal_parts(parsed: &Parsed<ModModule>) -> Vec<(TextRange, Vec<TextRange>)> {
+fn implicit_literal_parts(file_ctx: &FileContext<'_>) -> Vec<(TextRange, Vec<TextRange>)> {
     let mut literals = Vec::new();
-    crate::support::for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    for expr in file_ctx.exprs.iter().copied() {
         let item = match expr {
             Expr::StringLiteral(literal) => (
                 literal.range(),
@@ -442,12 +442,12 @@ fn implicit_literal_parts(parsed: &Parsed<ModModule>) -> Vec<(TextRange, Vec<Tex
                     .map(Ranged::range)
                     .collect::<Vec<TextRange>>(),
             ),
-            _ => return,
+            _ => continue,
         };
         if item.1.len() > 1 {
             literals.push(item);
         }
-    });
+    }
     literals
 }
 
@@ -525,11 +525,11 @@ fn line_number(source: &str, offset: TextSize) -> usize {
         .count()
 }
 
-fn string_context(parsed: &Parsed<ModModule>, target: TextRange) -> (bool, bool) {
+fn string_context(file_ctx: &FileContext<'_>, target: TextRange) -> (bool, bool) {
     let mut result = None;
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |statement| {
+    for statement in file_ctx.stmts.iter().copied() {
         if result.is_some() {
-            return;
+            break;
         }
         for expression in stmt_exprs(statement) {
             if let Some(context) = find_string_context(expression, target, false, false) {
@@ -537,7 +537,7 @@ fn string_context(parsed: &Parsed<ModModule>, target: TextRange) -> (bool, bool)
                 break;
             }
         }
-    });
+    }
     result.unwrap_or((false, false))
 }
 

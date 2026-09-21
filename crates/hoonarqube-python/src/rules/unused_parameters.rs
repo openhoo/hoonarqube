@@ -56,9 +56,13 @@ pub(crate) fn check_unused_parameters(
             // functions, annotations, unrelated scopes) must not veto the
             // finding, so no file-wide token fallback runs here.
             let used = table
-                .resolved_loads
-                .iter()
-                .any(|load| load.target == Some(site.own_scope) && load.name == *param_name);
+                .resolved_index
+                .get(param_name.as_str())
+                .is_some_and(|indices| {
+                    indices.iter().any(|&index| {
+                        table.resolved_loads[index as usize].target == Some(site.own_scope)
+                    })
+                });
             if !used && !parameter_is_documented(source, file_ctx, function, param_name) {
                 issues.push(issue_at(
                     "python:S1172",
@@ -396,13 +400,15 @@ fn has_non_call_usage(
     name: &str,
     name_range: TextRange,
 ) -> bool {
-    table.resolved_loads.iter().any(|load| {
-        load.name == name
-            && load.range != name_range
-            && !file_ctx
-                .calls
-                .iter()
-                .any(|call| call.func.range().contains_range(load.range))
+    table.resolved_index.get(name).is_some_and(|indices| {
+        indices.iter().any(|&index| {
+            let load = &table.resolved_loads[index as usize];
+            load.range != name_range
+                && !file_ctx
+                    .calls
+                    .iter()
+                    .any(|call| call.func.range().contains_range(load.range))
+        })
     })
 }
 

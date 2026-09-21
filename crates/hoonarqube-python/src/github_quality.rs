@@ -674,7 +674,7 @@ pub(crate) fn analyze_parsed(
         return Vec::new();
     }
 
-    let file_ctx = FileContext::build(parsed);
+    let file_ctx = FileContext::build(parsed, source);
     let facts = BindingFacts::build(parsed);
     let mut issues = Vec::new();
     check_regex_backspace(index, source, &file_ctx, &facts, &mut issues);

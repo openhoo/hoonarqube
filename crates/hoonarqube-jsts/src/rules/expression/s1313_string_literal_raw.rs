@@ -61,15 +61,16 @@ fn is_ipv4_address(text: &str) -> bool {
     if EXEMPT.contains(&text) {
         return false;
     }
-    let parts: Vec<&str> = text.split('.').collect();
-    parts.len() == 4
-        && parts.iter().all(|part| {
-            !part.is_empty()
-                && part.len() <= 3
-                && part.bytes().all(|byte| byte.is_ascii_digit())
-                && (*part == "0" || !part.starts_with('0'))
-                && part.parse::<u16>().is_ok_and(|value| value <= 255)
-        })
+    let mut count = 0_usize;
+    let valid = text.split('.').all(|part| {
+        count += 1;
+        !part.is_empty()
+            && part.len() <= 3
+            && part.bytes().all(|byte| byte.is_ascii_digit())
+            && (part == "0" || !part.starts_with('0'))
+            && part.parse::<u16>().is_ok_and(|value| value <= 255)
+    });
+    count == 4 && valid
 }
 
 /// Loose IPv6 grammar shared with the Python family (deliberately not a
@@ -79,24 +80,28 @@ fn is_ipv6_address(text: &str) -> bool {
     if text == "::" || text == "::1" {
         return false;
     }
-    let groups: Vec<&str> = text.split(':').filter(|group| !group.is_empty()).collect();
+    let mut count = 0_usize;
+    let valid = text
+        .split(':')
+        .filter(|group| !group.is_empty())
+        .all(|group| {
+            count += 1;
+            group.len() <= 4 && group.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
     let has_double_colon = text.contains("::");
-    (groups.len() == 8 || (has_double_colon && !groups.is_empty()))
-        && groups
-            .iter()
-            .all(|group| group.len() <= 4 && group.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    (count == 8 || (has_double_colon && count > 0)) && valid
 }
 
 /// A backslash followed by a character that does not need escaping.
 fn has_unnecessary_escape(raw: &str) -> bool {
-    let chars: Vec<char> = raw.chars().collect();
     let meaningful = [
         b'n', b't', b'r', b'b', b'f', b'v', b'x', b'u', b'\\', b'\'', b'"', b'`', b'0',
     ];
-    chars.windows(2).any(|window| {
-        window[0] == '\\'
-            && window[1].is_ascii_alphanumeric()
-            && !meaningful.contains(&(window[1] as u8))
+    // Byte windows match the former `Vec<char>` windows exactly: `\` is
+    // ASCII and `is_ascii_alphanumeric` is false for every byte ≥ 0x80, so
+    // multi-byte characters behave identically.
+    raw.as_bytes().windows(2).any(|window| {
+        window[0] == b'\\' && window[1].is_ascii_alphanumeric() && !meaningful.contains(&window[1])
     })
 }
 
@@ -137,5 +142,26 @@ mod tests {
         let findings = js_keys("let s = \"${x}\\a\";\n");
         assert_eq!(count_key(&findings, "javascript:S3786"), 1);
         assert_eq!(count_key(&findings, "javascript:S6535"), 1);
+    }
+
+    #[test]
+    fn s1313_edge_octet_bounds_and_ipv6_exemptions() {
+        // Octet >255 and leading-zero octets are not addresses; bare `::`
+        // and `::1` stay exempt (baseline-verified).
+        let findings = js_keys(
+            "let a = \"999.1.1.1\";\nlet b = \"01.2.3.4\";\nlet c = \"::\";\nlet d = \"::1\";\nlet e = \"fe80::1\";\n",
+        );
+        assert_eq!(count_key(&findings, "javascript:S1313"), 1);
+    }
+
+    #[test]
+    fn s6535_byte_windows_keep_nonascii_and_meaningful_escapes() {
+        // `\q` after multi-byte characters still flags (byte windows match
+        // the former char windows); `\t` is a meaningful escape and does
+        // not (baseline-verified).
+        let flagged = js_keys("let s = \"caf\u{e9}\\q\";\n");
+        assert_eq!(count_key(&flagged, "javascript:S6535"), 1);
+        let clean = js_keys("let s = \"tab\\there\";\n");
+        assert_eq!(count_key(&clean, "javascript:S6535"), 0);
     }
 }

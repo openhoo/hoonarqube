@@ -239,19 +239,27 @@ pub(crate) fn is_zero_literal(expr: &Expr) -> bool {
 }
 
 pub(crate) fn collect_target_names(target: &Expr, names: &mut Vec<String>) {
+    let mut refs = Vec::new();
+    collect_target_name_refs(target, &mut refs);
+    names.extend(refs.into_iter().map(str::to_string));
+}
+
+/// Borrowed-name variant of [`collect_target_names`]: callers that only need
+/// the identifier text avoid one `String` per target name.
+pub(crate) fn collect_target_name_refs<'a>(target: &'a Expr, names: &mut Vec<&'a str>) {
     match target {
-        Expr::Name(name) => names.push(name.id.to_string()),
+        Expr::Name(name) => names.push(name.id.as_str()),
         Expr::Tuple(tuple) => {
             for element in &tuple.elts {
-                collect_target_names(element, names);
+                collect_target_name_refs(element, names);
             }
         }
         Expr::List(list) => {
             for element in &list.elts {
-                collect_target_names(element, names);
+                collect_target_name_refs(element, names);
             }
         }
-        Expr::Starred(starred) => collect_target_names(&starred.value, names),
+        Expr::Starred(starred) => collect_target_name_refs(&starred.value, names),
         _ => {}
     }
 }

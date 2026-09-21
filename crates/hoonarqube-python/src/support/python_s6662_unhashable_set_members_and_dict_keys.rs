@@ -1,7 +1,7 @@
 // --- python:S6662 — unhashable set members and dict keys
 
 use crate::support::{
-    collect_target_names, for_each_stmt, for_each_stmt_expr, import_binding_name,
+    collect_target_name_refs, collect_target_names, for_each_stmt, for_each_stmt_expr,
 };
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
@@ -34,37 +34,66 @@ pub(crate) fn typed_literal_kind(expr: &Expr) -> Option<&'static str> {
 /// and `global`/`nonlocal` declarations (which license remote writes).
 /// Comprehension and match-capture scopes cannot rebind these names.
 pub(crate) fn stmt_store_names(stmt: &Stmt) -> Vec<String> {
+    stmt_store_name_refs(stmt)
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+/// Borrowed-name variant of [`stmt_store_names`]: callers that only need the
+/// identifier text avoid one `String` per written name.
+pub(crate) fn stmt_store_name_refs(stmt: &Stmt) -> Vec<&str> {
     let mut names = Vec::new();
     match stmt {
-        Stmt::Assign(assign) => collect_targets(&assign.targets, &mut names),
-        Stmt::AnnAssign(assign) => collect_target_names(&assign.target, &mut names),
-        Stmt::AugAssign(assign) => collect_target_names(&assign.target, &mut names),
-        Stmt::Delete(delete) => collect_targets(&delete.targets, &mut names),
-        Stmt::For(loop_stmt) => collect_target_names(&loop_stmt.target, &mut names),
+        Stmt::Assign(assign) => collect_target_refs(&assign.targets, &mut names),
+        Stmt::AnnAssign(assign) => collect_target_name_refs(&assign.target, &mut names),
+        Stmt::AugAssign(assign) => collect_target_name_refs(&assign.target, &mut names),
+        Stmt::Delete(delete) => collect_target_refs(&delete.targets, &mut names),
+        Stmt::For(loop_stmt) => collect_target_name_refs(&loop_stmt.target, &mut names),
         Stmt::With(with_stmt) => with_stmt
             .items
             .iter()
             .filter_map(|item| item.optional_vars.as_deref())
-            .for_each(|target| collect_target_names(target, &mut names)),
-        Stmt::Import(import) => names.extend(import.names.iter().filter_map(import_binding_name)),
+            .for_each(|target| collect_target_name_refs(target, &mut names)),
+        Stmt::Import(import) => names.extend(import.names.iter().filter_map(import_binding_ref)),
         Stmt::ImportFrom(import_from) => {
-            names.extend(import_from.names.iter().filter_map(import_binding_name));
+            names.extend(import_from.names.iter().filter_map(import_binding_ref));
         }
-        Stmt::FunctionDef(function) => names.push(function.name.as_str().to_string()),
-        Stmt::ClassDef(class) => names.push(class.name.as_str().to_string()),
-        Stmt::Global(global) => names.extend(global.names.iter().map(ToString::to_string)),
+        Stmt::FunctionDef(function) => names.push(function.name.as_str()),
+        Stmt::ClassDef(class) => names.push(class.name.as_str()),
+        Stmt::Global(global) => {
+            names.extend(global.names.iter().map(ruff_python_ast::Identifier::as_str));
+        }
         Stmt::Nonlocal(nonlocal_stmt) => {
-            names.extend(nonlocal_stmt.names.iter().map(ToString::to_string));
+            names.extend(
+                nonlocal_stmt
+                    .names
+                    .iter()
+                    .map(ruff_python_ast::Identifier::as_str),
+            );
         }
         _ => {}
     }
     names
 }
 
-fn collect_targets(targets: &[Expr], names: &mut Vec<String>) {
+fn collect_target_refs<'a>(targets: &'a [Expr], names: &mut Vec<&'a str>) {
     for target in targets {
-        collect_target_names(target, names);
+        collect_target_name_refs(target, names);
     }
+}
+
+/// Borrowed-name variant of [`import_binding_name`]: the local binding an
+/// import alias introduces, or `None` for `*`.
+fn import_binding_ref(alias: &ruff_python_ast::Alias) -> Option<&str> {
+    let name = alias.name.as_str();
+    if name == "*" {
+        return None;
+    }
+    Some(match alias.asname.as_deref() {
+        Some(asname) => asname,
+        None => name.split('.').next().unwrap_or(name),
+    })
 }
 
 /// Module names provably holding a non-callable literal: assigned a literal

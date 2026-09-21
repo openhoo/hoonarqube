@@ -907,6 +907,92 @@ fn s1481_spares_public_module_bindings() {
     let local = scan("def run():\n    total = 1\n    result = 2\n    return result\n\n\nrun()\n");
     assert_eq!(findings(&local, "python:S1481").len(), 1);
 }
+#[test]
+fn s1481_nested_lambda_and_comprehension_loads_count_as_uses() {
+    // Loads inside nested lambda/comprehension scopes resolve outward to the
+    // enclosing function's binding, so the local is used.
+    let nested = scan(concat!(
+        "def outer():\n",
+        "    value = 3\n",
+        "    fn = lambda: value\n",
+        "    return fn\n",
+    ));
+    assert!(findings(&nested, "python:S1481").is_empty());
+    let comprehension = scan(concat!(
+        "def outer():\n",
+        "    value = 3\n",
+        "    return [value * i for i in range(3)]\n",
+    ));
+    assert!(findings(&comprehension, "python:S1481").is_empty());
+}
+
+#[test]
+fn s1481_sibling_scope_same_name_does_not_count_as_use() {
+    // A load in a sibling scope binds to that sibling's own binding, never to
+    // the first function's same-named local.
+    let siblings = scan(concat!(
+        "def first():\n",
+        "    value = 1\n",
+        "def second():\n",
+        "    value = 2\n",
+        "    return value\n",
+    ));
+    let found = findings(&siblings, "python:S1481");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 2);
+}
+
+#[test]
+fn s1854_nested_scope_load_keeps_store_live() {
+    // The reference's isUsedInSubFunction exemption: a nested function's load
+    // resolving to this scope keeps same-name stores live.
+    let nested = scan(concat!(
+        "def tally(items):\n",
+        "    total = 2\n",
+        "    def inner():\n",
+        "        return total\n",
+        "    total = 3\n",
+        "    return inner()\n",
+    ));
+    assert!(findings(&nested, "python:S1854").is_empty());
+    // A same-named load in a sibling scope resolves to the sibling's own
+    // binding and must not exempt this function's dead store.
+    let sibling = scan(concat!(
+        "def tally(items):\n",
+        "    total = 2\n",
+        "    report(total)\n",
+        "    total = 3\n",
+        "def other():\n",
+        "    total = 4\n",
+        "    return total\n",
+    ));
+    let found = findings(&sibling, "python:S1854");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start.line, 4);
+}
+
+#[test]
+fn s1226_nested_scope_read_after_overwrite_exempts() {
+    // A nested function reading the parameter after the overwrite keeps the
+    // initial value reachable, so no finding.
+    let nested = scan(concat!(
+        "def render(mode):\n",
+        "    mode = 'fast'\n",
+        "    def inner():\n",
+        "        return mode\n",
+        "    return inner()\n",
+    ));
+    assert!(findings(&nested, "python:S1226").is_empty());
+    // A same-named load in a sibling scope is not a use of this parameter.
+    let sibling = scan(concat!(
+        "def render(mode):\n",
+        "    mode = 'fast'\n",
+        "    return mode\n",
+        "def other(mode):\n",
+        "    return mode\n",
+    ));
+    assert_eq!(findings(&sibling, "python:S1226").len(), 1);
+}
 
 #[test]
 fn s3827_flags_module_uses_before_definition() {
@@ -1316,6 +1402,20 @@ fn s2325_flags_methods_never_using_self() {
         "print(math_tool.combine(1, 2))\n"
     ));
     assert!(findings(&stateful, "python:S2325").is_empty());
+}
+
+#[test]
+fn s2325_flags_classes_nested_in_functions() {
+    // The flattened statement inventory reaches classes nested inside
+    // function bodies, matching the original recursive walk.
+    let nested = scan(concat!(
+        "def build():\n",
+        "    class Helper:\n",
+        "        def combine(self, left, right):\n",
+        "            return left + right\n",
+        "    return Helper\n",
+    ));
+    assert_eq!(findings(&nested, "python:S2325").len(), 1);
 }
 
 #[test]

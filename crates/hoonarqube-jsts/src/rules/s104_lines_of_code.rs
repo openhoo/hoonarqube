@@ -6,7 +6,6 @@ use crate::support::LineIndex;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::Statement;
 use oxc_span::GetSpan;
-use std::collections::BTreeSet;
 
 fn check_too_many_lines_of_code(
     body: &[Statement<'_>],
@@ -15,12 +14,9 @@ fn check_too_many_lines_of_code(
     rules: &RuleOptions,
 ) -> Vec<Issue> {
     // Same notion of code lines as `file_metrics`: statement coverage
-    // excludes blank lines and pure-comment lines.
-    let code_lines: BTreeSet<u32> = body
-        .iter()
-        .flat_map(|statement| index.covered_lines(statement.span()))
-        .collect();
-    let count = code_lines.len();
+    // excludes blank lines and pure-comment lines. Counted over merged
+    // coverage intervals rather than a per-line set.
+    let count = index.covered_line_count(body.iter().map(GetSpan::span));
     let maximum = usize::try_from(rules.maximum_lines_of_code).unwrap_or(usize::MAX);
     if count <= maximum {
         return Vec::new();

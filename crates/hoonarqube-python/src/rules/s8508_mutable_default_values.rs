@@ -34,13 +34,13 @@ const MUTABLE_CONSTRUCTOR_FQNS: &[&str] = &[
 /// classes stay silent, as do immutable defaults, `frozenset`, tuples,
 /// and arbitrary call results.
 pub(crate) fn check_s8508_mutable_default_values(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let facts = WebFrameworkFacts::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         if is_dict_fromkeys(call, &facts, &resolver) {

@@ -66,30 +66,52 @@ pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
 pub(crate) struct LineIndex<'src> {
     pub(crate) line_starts: Vec<u32>,
     source: &'src str,
+    /// Last `(line index, byte offset, character count)` resolved by
+    /// [`LineIndex::pos`]. Positions are queried in roughly source order
+    /// (issue spans, statement spans), so continuing the character count
+    /// from the cached offset turns repeated `pos` calls on one long line
+    /// into amortized O(1) instead of an O(line length) rescan each time.
+    /// Backward or cross-line queries simply recount from the line start,
+    /// matching the previous behavior exactly.
+    column_cursor: std::cell::Cell<(usize, usize, u32)>,
 }
 
 impl<'src> LineIndex<'src> {
     pub(crate) fn new(source: &'src str) -> Self {
         let mut line_starts = vec![0_u32];
-        let mut chars = source.char_indices().peekable();
-        while let Some((offset, character)) = chars.next() {
-            let line_start = match character {
-                '\r' => {
-                    if let Some(&(line_feed_offset, '\n')) = chars.peek() {
-                        let _ = chars.next();
-                        line_feed_offset + 1
+        // Byte-level scan: the ECMAScript line terminators are `\n`, `\r`,
+        // and the two UTF-8 sequences for U+2028/U+2029, so decoding every
+        // character is unnecessary. Offsets pushed are identical to the
+        // former `char_indices` walk.
+        let bytes = source.as_bytes();
+        let mut offset = 0_usize;
+        while offset < bytes.len() {
+            let line_start = match bytes[offset] {
+                b'\r' => {
+                    if bytes.get(offset + 1) == Some(&b'\n') {
+                        offset + 2
                     } else {
                         offset + 1
                     }
                 }
-                '\n' | '\u{2028}' | '\u{2029}' => offset + character.len_utf8(),
-                _ => continue,
+                b'\n' => offset + 1,
+                0xE2 if bytes.get(offset..offset + 3) == Some(&[0xE2, 0x80, 0xA8][..])
+                    || bytes.get(offset..offset + 3) == Some(&[0xE2, 0x80, 0xA9][..]) =>
+                {
+                    offset + 3
+                }
+                _ => {
+                    offset += 1;
+                    continue;
+                }
             };
             line_starts.push(to_u32(line_start));
+            offset = line_start;
         }
         Self {
             line_starts,
             source,
+            column_cursor: std::cell::Cell::new((0, 0, 0)),
         }
     }
 
@@ -134,11 +156,20 @@ impl<'src> LineIndex<'src> {
         let offset = to_u32(offset);
         let line = self.line_of(offset);
         let line_start = self.line_starts[line - 1];
-        let column = to_u32(
-            self.source[line_start as usize..offset as usize]
-                .chars()
-                .count(),
-        );
+        // Continue the character count from the cached position when the
+        // query lands on the same line at or after it; otherwise recount
+        // from the line start. Both paths yield the identical column.
+        let (cursor_line, cursor_offset, cursor_chars) = self.column_cursor.get();
+        let column = if cursor_line == line - 1 && cursor_offset <= offset as usize {
+            cursor_chars + to_u32(self.source[cursor_offset..offset as usize].chars().count())
+        } else {
+            to_u32(
+                self.source[line_start as usize..offset as usize]
+                    .chars()
+                    .count(),
+            )
+        };
+        self.column_cursor.set((line - 1, offset as usize, column));
         hoonarqube_ir::Pos {
             line: to_u32(line),
             column,
@@ -159,13 +190,62 @@ impl<'src> LineIndex<'src> {
     /// 1-based lines whose byte interval intersects `span`; a span ending
     /// exactly on a line break stays on its own line.
     pub(crate) fn covered_lines(&self, span: Span) -> std::ops::RangeInclusive<u32> {
-        let first = self.pos(span.start).line;
-        let mut last = self.pos(span.end).line;
+        // Only line numbers are needed, so the binary-search `line_of`
+        // replaces two `pos` calls that each counted characters across the
+        // line prefix — an O(line length) cost per statement that made
+        // single-line (minified) sources quadratic.
+        let first = to_u32(self.line_of(span.start));
+        let mut last = to_u32(self.line_of(span.end));
         if self.line_starts.binary_search(&span.end).is_ok() && last > first {
             last -= 1;
         }
         first..=last
     }
+
+    /// Merged, sorted 1-based line ranges covering `spans`. Adjacent and
+    /// overlapping ranges coalesce; the result supports binary-search
+    /// membership via [`line_in_ranges`].
+    pub(crate) fn merged_line_ranges(
+        &self,
+        spans: impl IntoIterator<Item = Span>,
+    ) -> Vec<(u32, u32)> {
+        let mut ranges: Vec<(u32, u32)> = spans
+            .into_iter()
+            .map(|span| {
+                let covered = self.covered_lines(span);
+                (*covered.start(), *covered.end())
+            })
+            // An inverted span covers no lines, matching the empty
+            // `RangeInclusive` the per-line iteration produced.
+            .filter(|(start, end)| start <= end)
+            .collect();
+        ranges.sort_unstable();
+        let mut merged: Vec<(u32, u32)> = Vec::with_capacity(ranges.len());
+        for (start, end) in ranges {
+            match merged.last_mut() {
+                Some((_, last_end)) if start <= last_end.saturating_add(1) => {
+                    *last_end = (*last_end).max(end);
+                }
+                _ => merged.push((start, end)),
+            }
+        }
+        merged
+    }
+
+    /// Total number of distinct 1-based lines covered by `spans`.
+    pub(crate) fn covered_line_count(&self, spans: impl IntoIterator<Item = Span>) -> usize {
+        self.merged_line_ranges(spans)
+            .iter()
+            .map(|(start, end)| usize::try_from(end - start + 1).unwrap_or(usize::MAX))
+            .sum()
+    }
+}
+
+/// Whether `line` (1-based) lies inside one of the merged ranges produced
+/// by [`LineIndex::merged_line_ranges`].
+pub(crate) fn line_in_ranges(ranges: &[(u32, u32)], line: u32) -> bool {
+    let index = ranges.partition_point(|(start, _)| *start <= line);
+    index > 0 && ranges[index - 1].1 >= line
 }
 
 fn strip_line_terminator(line: &str) -> &str {
@@ -199,21 +279,44 @@ pub(crate) fn file_metrics(
     // entirely (no trivia tokens exist), so comment rows derive from the one
     // scanner pass stored on `AnalysisContext` (`covered_lines` spans every
     // row a comment token covers, including multi-line block interiors).
-    let code_lines: BTreeSet<u32> = body
+    // Statement coverage is merged into intervals instead of materializing
+    // every covered row: a single multi-thousand-line function inserts one
+    // range, not one set entry per line.
+    let code_ranges = index.merged_line_ranges(body.iter().map(GetSpan::span));
+    let code_lines: usize = code_ranges
         .iter()
-        .flat_map(|statement| index.covered_lines(statement.span()))
-        .collect();
+        .map(|(start, end)| usize::try_from(end - start + 1).unwrap_or(usize::MAX))
+        .sum();
     let comment_rows: BTreeSet<u32> = comments
         .iter()
         .flat_map(|comment| index.covered_lines(comment.token))
-        .filter(|row| !code_lines.contains(row))
+        .filter(|row| !line_in_ranges(&code_ranges, *row))
         .collect();
 
     hoonarqube_ir::FileMetrics {
         lines,
-        code_lines: to_u32(code_lines.len()),
+        code_lines: to_u32(code_lines),
         comment_lines: to_u32(comment_rows.len()),
     }
+}
+
+/// Byte offset of the first `needle` occurrence in `haystack` at or after
+/// `offset`, comparing ASCII case-insensitively. Equivalent to searching
+/// `haystack.to_ascii_lowercase()` for an ASCII-lowercase `needle` (the
+/// lowercase map is byte-position preserving), without materializing the
+/// lowered copy.
+pub(crate) fn find_ascii_case_insensitive(
+    haystack: &[u8],
+    needle: &[u8],
+    offset: usize,
+) -> Option<usize> {
+    let last_start = haystack.len().checked_sub(needle.len())?;
+    (offset..=last_start)
+        .find(|index| haystack[*index..*index + needle.len()].eq_ignore_ascii_case(needle))
+}
+
+pub(crate) fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    find_ascii_case_insensitive(haystack, needle, 0).is_some()
 }
 
 /// Byte spans of one scanned comment: `token` covers the delimiters
@@ -252,10 +355,10 @@ fn is_ecmascript_line_terminator(character: char) -> bool {
     matches!(character, '\r' | '\n' | '\u{2028}' | '\u{2029}')
 }
 
-pub(crate) struct Scanner {
-    pub(crate) chars: Vec<char>,
-    /// Byte offset of `chars[i]`, kept parallel so spans stay byte-accurate.
-    pub(crate) offsets: Vec<u32>,
+pub(crate) struct Scanner<'a> {
+    /// Raw source; the scan decodes characters on demand instead of
+    /// materializing `Vec<char>`/`Vec<u32>` copies of the whole file.
+    pub(crate) source: &'a str,
     pub(crate) source_len: u32,
     pub(crate) state: ScanState,
     /// States suspended by `${` inside template literals, each with the
@@ -269,19 +372,11 @@ pub(crate) struct Scanner {
     pub(crate) open_comment: Option<(u32, u32)>,
 }
 
-impl Scanner {
-    pub(crate) fn new(source: &str) -> Self {
-        let chars: Vec<char> = source.chars().collect();
-        let mut offsets = Vec::with_capacity(chars.len());
-        let mut byte = 0_u32;
-        for c in &chars {
-            offsets.push(byte);
-            byte += to_u32(c.len_utf8());
-        }
+impl<'a> Scanner<'a> {
+    pub(crate) fn new(source: &'a str) -> Self {
         Self {
-            offsets,
+            source,
             source_len: to_u32(source.len()),
-            chars,
             state: ScanState::Code,
             template_stack: Vec::new(),
             prev_significant: None,
@@ -291,21 +386,28 @@ impl Scanner {
         }
     }
 
+    /// Character at byte offset `i` (`i` is always a char boundary).
+    fn char_at(&self, i: usize) -> Option<char> {
+        self.source.get(i..)?.chars().next()
+    }
+
     pub(crate) fn run(&mut self) {
-        let mut i = 0;
-        while i < self.chars.len() {
-            let c = self.chars[i];
+        let mut i = 0_usize;
+        while i < self.source.len() {
+            let Some(c) = self.char_at(i) else {
+                break;
+            };
             if is_ecmascript_line_terminator(c) {
                 if self.state == ScanState::LineComment {
-                    self.close_comment(self.offsets[i], self.offsets[i]);
+                    self.close_comment(to_u32(i), to_u32(i));
                     self.state = ScanState::Code;
                 }
-                i += 1;
-                if c == '\r' && self.chars.get(i) == Some(&'\n') {
+                i += c.len_utf8();
+                if c == '\r' && self.char_at(i) == Some('\n') {
                     i += 1;
                 }
             } else {
-                let next = self.chars.get(i + 1).copied();
+                let next = self.char_at(i + c.len_utf8());
                 let (jump, _) = self.step(i, c, next);
                 i += jump;
             }
@@ -314,10 +416,10 @@ impl Scanner {
         self.close_comment(self.source_len, self.source_len);
     }
 
-    /// Records a comment that starts at `i` (byte span starts there, body
-    /// after the two delimiter characters).
+    /// Records a comment that starts at byte offset `i` (byte span starts
+    /// there, body after the two delimiter characters).
     pub(crate) fn open_comment(&mut self, i: usize) {
-        let token_start = self.offsets[i];
+        let token_start = to_u32(i);
         self.open_comment = Some((token_start, token_start + 2));
     }
 
@@ -332,22 +434,22 @@ impl Scanner {
         }
     }
 
-    /// Advances one non-newline character; returns `(chars consumed, whether
+    /// Advances one non-newline character; returns `(bytes consumed, whether
     /// a comment starts here)`.
     pub(crate) fn step(&mut self, i: usize, c: char, next: Option<char>) -> (usize, bool) {
         match self.state {
             ScanState::Code => self.step_code(i, c, next),
-            ScanState::LineComment => (1, false),
+            ScanState::LineComment => (c.len_utf8(), false),
             ScanState::BlockComment => {
                 let closing = c == '*' && next == Some('/');
                 if closing {
-                    self.close_comment(self.offsets[i] + 2, self.offsets[i]);
+                    self.close_comment(to_u32(i) + 2, to_u32(i));
                     self.state = ScanState::Code;
                 }
-                (if closing { 2 } else { 1 }, closing)
+                (if closing { 2 } else { c.len_utf8() }, closing)
             }
-            ScanState::SingleQuote => self.step_quoted(c, '\''),
-            ScanState::DoubleQuote => self.step_quoted(c, '"'),
+            ScanState::SingleQuote => self.step_quoted(c, next, '\''),
+            ScanState::DoubleQuote => self.step_quoted(c, next, '"'),
             ScanState::Template => self.step_template(c, next),
         }
     }
@@ -386,7 +488,7 @@ impl Scanner {
         if c == '/' && regex_can_start(self.prev_significant, &self.prev_word) {
             self.prev_word.clear();
             self.prev_significant = Some('/');
-            return (skip_regex_literal(&self.chars, i + 1) - i, false);
+            return (skip_regex_literal(self.source, i + 1) - i, false);
         }
         match c {
             '\'' => self.state = ScanState::SingleQuote,
@@ -402,24 +504,31 @@ impl Scanner {
         if !c.is_whitespace() {
             self.prev_significant = Some(c);
         }
-        (1, false)
+        (c.len_utf8(), false)
     }
 
-    pub(crate) fn step_quoted(&mut self, c: char, quote: char) -> (usize, bool) {
+    pub(crate) fn step_quoted(
+        &mut self,
+        c: char,
+        next: Option<char>,
+        quote: char,
+    ) -> (usize, bool) {
         if c == '\\' {
-            (2, false)
+            // Consume the escaped character too; a dangling backslash at end
+            // of input consumes one byte past it, ending the scan.
+            (1 + next.map_or(1, char::len_utf8), false)
         } else {
             if c == quote {
                 self.state = ScanState::Code;
                 self.prev_significant = Some(quote);
             }
-            (1, false)
+            (c.len_utf8(), false)
         }
     }
 
     pub(crate) fn step_template(&mut self, c: char, next: Option<char>) -> (usize, bool) {
         if c == '\\' {
-            (2, false)
+            (1 + next.map_or(1, char::len_utf8), false)
         } else if c == '`' {
             self.state = ScanState::Code;
             self.prev_significant = Some('`');
@@ -430,7 +539,7 @@ impl Scanner {
             self.prev_significant = Some('(');
             (2, false)
         } else {
-            (1, false)
+            (c.len_utf8(), false)
         }
     }
 }
@@ -683,11 +792,10 @@ pub(crate) use ast::{
     unparenthesized, update_target_name,
 };
 pub(crate) mod ast;
-
 #[cfg(test)]
 mod scanner_tests {
     use super::*;
-    use crate::test_support::{count_key, js, js_keys};
+    use crate::test_support::{count_key, js, js_keys, pos};
 
     #[test]
     fn source_type_preserves_path_semantics_case_insensitively() {
@@ -876,5 +984,178 @@ mod scanner_tests {
     fn braces_track_per_template_frame_independently() {
         let source = "const v = `${ fn({ k: `${ {m: 1}.m }` }) }`;\n// note\n";
         assert_eq!(comment_bodies(source), vec![" note"]);
+    }
+
+    /// Byte-level scanner equivalence fixture: multi-byte characters,
+    /// U+2028/U+2029 inside strings and comments, escapes (including a
+    /// dangling backslash), regex literals versus division, nested
+    /// templates with `${}` blocks, and an unterminated trailing comment.
+    /// Expected spans were produced by the former `Vec<char>` scanner.
+    const BYTE_SCAN_SOURCE: &str = "const caf\u{e9} = 'na\u{ef}ve';\n// comment \u{fc}\u{f1}\u{ef}code \u{2029}inside\nconst re = /ab[c\\/]d\\\\/gi;\nconst div = x / y / z;\nconst t = `outer ${ { /* inner */ a: 1 } } tail ${`n${deep}`}`;\nconst esc = 'q\\'s \\\\';\n/* block\n   multi \u{fc}\u{f1}\u{ef}code */\nconst after = 1; // trailing\nconst r2 = return2 / 3;\nconst r3 = return /re$/;\nconst u = '\u{2028}';\u{2028}const v = 2;\u{2029}// last comment";
+
+    #[test]
+    fn byte_scanner_matches_char_scanner_spans() {
+        let comments = scan_comments(BYTE_SCAN_SOURCE);
+        let spans: Vec<(u32, u32, u32, u32)> = comments
+            .iter()
+            .map(|comment| {
+                (
+                    comment.token.start,
+                    comment.token.end,
+                    comment.body.start,
+                    comment.body.end,
+                )
+            })
+            .collect();
+        // The U+2029 inside the first comment terminates it mid-comment
+        // (line terminators close comments regardless of state); the
+        // U+2028 inside the string literal is a line break for the index
+        // but not a comment boundary.
+        assert_eq!(
+            spans,
+            vec![
+                (24, 46, 26, 46),
+                (128, 139, 130, 137),
+                (193, 224, 195, 222),
+                (242, 253, 244, 253),
+                (337, 352, 339, 352),
+            ]
+        );
+        let bodies: Vec<&str> = comments
+            .iter()
+            .map(|comment| source_slice(BYTE_SCAN_SOURCE, comment.body))
+            .collect();
+        assert_eq!(
+            bodies,
+            vec![
+                " comment \u{fc}\u{f1}\u{ef}code ",
+                " inner ",
+                " block\n   multi \u{fc}\u{f1}\u{ef}code ",
+                " trailing",
+                " last comment",
+            ]
+        );
+    }
+
+    #[test]
+    fn byte_scanner_metrics_and_positions_match_baseline() {
+        let report = js(BYTE_SCAN_SOURCE);
+        assert_eq!(report.metrics.lines, 16);
+        // The U+2028-in-string parse error leaves an empty program body, so
+        // `analyze` reports zero code lines and every comment row counts
+        // (the CLI's 12/4 come from tree-sitter source_facts, a different
+        // observable surface). Comment tokens land on lines {2,6,8,9,10,16}.
+        assert_eq!(report.metrics.code_lines, 0);
+        assert_eq!(report.metrics.comment_lines, 6);
+        // `return /re$/` on line 12 is a parse error (S2260) spanning that
+        // line; the U+2029 inside the comment leaves trailing whitespace
+        // (S1131) before it.
+        let s2260 = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S2260")
+            .expect("parse error finding");
+        assert_eq!(s2260.range.start, pos(12, 0));
+        assert_eq!(s2260.range.end, pos(12, 24));
+        let s1131 = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S1131")
+            .expect("trailing whitespace finding");
+        assert_eq!(s1131.range.start, pos(2, 18));
+        assert_eq!(s1131.range.end, pos(2, 19));
+        let s113 = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S113")
+            .expect("missing newline finding");
+        assert_eq!(s113.range.start, pos(16, 0));
+        assert_eq!(s113.range.end, pos(16, 15));
+    }
+
+    #[test]
+    fn pos_cursor_handles_forward_backward_and_mid_utf8_queries() {
+        // Mixed-direction queries over multi-byte content: the cursor must
+        // continue forward counts and recount backward/cross-line queries
+        // from the line start, always yielding the baseline column.
+        let index = LineIndex::new(BYTE_SCAN_SOURCE);
+        let expected = [
+            (0, pos(1, 0)),
+            (9, pos(1, 9)),
+            (10, pos(1, 9)),
+            (11, pos(1, 10)),
+            (17, pos(1, 16)),
+            (18, pos(1, 16)),
+            (19, pos(1, 17)),
+            (24, pos(2, 0)),
+            (34, pos(2, 10)),
+            (35, pos(2, 11)),
+            (36, pos(2, 11)),
+            (45, pos(2, 18)),
+            (46, pos(2, 19)),
+            (47, pos(2, 19)),
+            (48, pos(2, 19)),
+            (55, pos(3, 6)),
+            (100, pos(5, 17)),
+            (128, pos(6, 22)),
+            (163, pos(6, 57)),
+            (200, pos(8, 7)),
+            (293, pos(12, 15)),
+            (307, pos(13, 4)),
+            (308, pos(13, 5)),
+            (309, pos(13, 6)),
+            (310, pos(13, 7)),
+            (322, pos(15, 0)),
+            (323, pos(15, 1)),
+            (352, pos(16, 15)),
+            (351, pos(16, 14)),
+            (350, pos(16, 13)),
+        ];
+        for (offset, expected_pos) in expected {
+            assert_eq!(index.pos(offset), expected_pos, "offset {offset}");
+        }
+        // Reverse order exercises the recount path after the cursor moved.
+        for (offset, expected_pos) in expected.iter().rev() {
+            assert_eq!(index.pos(*offset), *expected_pos, "offset {offset}");
+        }
+    }
+
+    #[test]
+    fn merged_line_ranges_union_and_membership() {
+        let index = LineIndex::new("a\nb\nc\nd\ne\nf\ng\nh\n");
+        let ranges = index.merged_line_ranges([
+            Span::new(0, 4),
+            Span::new(4, 8),
+            Span::new(10, 11),
+            Span::new(12, 16),
+        ]);
+        assert_eq!(ranges, vec![(1, 4), (6, 8)]);
+        assert!(line_in_ranges(&ranges, 2));
+        assert!(line_in_ranges(&ranges, 7));
+        assert!(!line_in_ranges(&ranges, 5));
+        assert!(!line_in_ranges(&ranges, 9));
+        let count = index.covered_line_count([
+            Span::new(0, 4),
+            Span::new(4, 8),
+            Span::new(10, 11),
+            Span::new(12, 16),
+        ]);
+        assert_eq!(count, 7);
+    }
+
+    #[test]
+    fn find_ascii_case_insensitive_short_and_empty_haystacks() {
+        // Needle longer than haystack must return None, never panic
+        // (regression: saturating_sub yielded a 0..=0 range that sliced
+        // past the end).
+        assert_eq!(find_ascii_case_insensitive(b"ab", b"abc", 0), None);
+        assert_eq!(find_ascii_case_insensitive(b"", b"a", 0), None);
+        assert_eq!(find_ascii_case_insensitive(b"", b"", 0), Some(0));
+        assert_eq!(find_ascii_case_insensitive(b"abc", b"", 2), Some(2));
+        assert_eq!(find_ascii_case_insensitive(b"abc", b"", 4), None);
+        assert_eq!(find_ascii_case_insensitive(b"abc", b"c", 3), None);
+        assert_eq!(find_ascii_case_insensitive(b"abc", b"C", 2), Some(2));
+        assert!(!contains_ascii_case_insensitive(b"ab", b"abc"));
+        assert!(contains_ascii_case_insensitive(b"Ab", b"aB"));
     }
 }

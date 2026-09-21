@@ -28,13 +28,13 @@ const EMPTY_CONSTRUCTOR_FQNS: &[&str] = &["builtins.set", "builtins.tuple", "bui
 /// trees). Non-empty literals, constructor calls with arguments,
 /// `list()`/`dict()`, names, and shadowed builtins stay silent.
 pub(crate) fn check_s8503_empty_collection_membership(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let facts = WebFrameworkFacts::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for expr in &file_ctx.exprs {
         let Expr::Compare(compare) = expr else {

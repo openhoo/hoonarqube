@@ -360,73 +360,75 @@ pub fn analyze(
             metrics,
         };
     }
-    let mut issues = Vec::new();
-    issues.extend(rules::text_scans::text_issues(
-        root,
-        &path,
-        source,
-        language,
-        options,
-        code_line_count,
-    ));
-    issues.extend(rules::naming::naming_issues(
-        root, source, language, options,
-    ));
-    issues.extend(rules::modifiers::modifier_issues(
-        root, source, language, options,
-    ));
-    issues.extend(rules::structure::structure_issues(
-        root, source, language, options,
-    ));
-    issues.extend(rules::expressions::expression_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::declaration_contracts::contract_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::literals::literal_content_issues(
-        root, source, language, options,
-    ));
-    issues.extend(rules::usage::usage_heuristic_issues(root, source, language));
-    issues.extend(rules::type_members::declaration_contract_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::security::security_deny_list_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::datetime_aspnet::datetime_aspnet_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::logging::logging_issues(
-        root, source, language, options,
-    ));
-    issues.extend(rules::linq_api::linq_api_issues(
-        root, source, language, options,
-    ));
-    issues.extend(rules::usage_analysis::usage_analysis_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::dataflow::dataflow_cfg_issues(root, source, language));
-    issues.extend(rules::api_patterns::framework_api_issues(
-        root, source, language,
-    ));
-    issues.extend(rules::tier_c::tier_c_heuristic_issues(
-        root, source, language, options,
-    ));
-    if semantic::is_test_scope_file(&path) {
-        issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
-    } else {
-        issues.retain(|issue| !TEST_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
-    }
-    let mut report = hoonarqube_ir::FileReport {
-        path,
-        language: language.prefix().to_string(),
-        issues,
-        metrics,
-    };
-    quickfix::attach_fixes_from_tree(root, source, options, &mut report, None);
-    hoonarqube_ir::sort_issues(&mut report.issues);
-    report
+    cst::with_kind_index(root, move || {
+        let mut issues = Vec::new();
+        issues.extend(rules::text_scans::text_issues(
+            root,
+            &path,
+            source,
+            language,
+            options,
+            code_line_count,
+        ));
+        issues.extend(rules::naming::naming_issues(
+            root, source, language, options,
+        ));
+        issues.extend(rules::modifiers::modifier_issues(
+            root, source, language, options,
+        ));
+        issues.extend(rules::structure::structure_issues(
+            root, source, language, options,
+        ));
+        issues.extend(rules::expressions::expression_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::declaration_contracts::contract_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::literals::literal_content_issues(
+            root, source, language, options,
+        ));
+        issues.extend(rules::usage::usage_heuristic_issues(root, source, language));
+        issues.extend(rules::type_members::declaration_contract_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::security::security_deny_list_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::datetime_aspnet::datetime_aspnet_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::logging::logging_issues(
+            root, source, language, options,
+        ));
+        issues.extend(rules::linq_api::linq_api_issues(
+            root, source, language, options,
+        ));
+        issues.extend(rules::usage_analysis::usage_analysis_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::dataflow::dataflow_cfg_issues(root, source, language));
+        issues.extend(rules::api_patterns::framework_api_issues(
+            root, source, language,
+        ));
+        issues.extend(rules::tier_c::tier_c_heuristic_issues(
+            root, source, language, options,
+        ));
+        if semantic::is_test_scope_file(&path) {
+            issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+        } else {
+            issues.retain(|issue| !TEST_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+        }
+        let mut report = hoonarqube_ir::FileReport {
+            path,
+            language: language.prefix().to_string(),
+            issues,
+            metrics,
+        };
+        quickfix::attach_fixes_from_tree(root, source, options, &mut report, None);
+        hoonarqube_ir::sort_issues(&mut report.issues);
+        report
+    })
 }
 /// Exact `CodeQL` query IDs emitted by [`analyze_github_quality`], in sorted order.
 pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
@@ -483,7 +485,7 @@ fn github_quality_issues(
     if root.has_error() && !recovered {
         return Vec::new();
     }
-    let issues = github_quality::check(root, source, project);
+    let issues = cst::with_kind_index(root, || github_quality::check(root, source, project));
     debug_assert!(
         issues
             .iter()
@@ -502,40 +504,42 @@ pub fn analyze_native(source: &str) -> Vec<hoonarqube_ir::Issue> {
     if root.has_error() && !recovered {
         return Vec::new();
     }
-    let mut issues = Vec::new();
-    for invocation in cst::collect_kinds(root, &["invocation_expression"]) {
-        let Some(access) = invocation.child_by_field_name("function") else {
-            continue;
-        };
-        if access.kind() != "member_access_expression"
-            || !native_result_is_discarded(invocation, source)
-        {
-            continue;
+    cst::with_kind_index(root, || {
+        let mut issues = Vec::new();
+        for invocation in cst::collect_kinds(root, &["invocation_expression"]) {
+            let Some(access) = invocation.child_by_field_name("function") else {
+                continue;
+            };
+            if access.kind() != "member_access_expression"
+                || !native_result_is_discarded(invocation, source)
+            {
+                continue;
+            }
+            let (Some(name), Some(receiver)) = (
+                access.child_by_field_name("name"),
+                access.child_by_field_name("expression"),
+            ) else {
+                continue;
+            };
+            if !matches!(cst::node_text(name, source), "Read" | "ReadAsync") {
+                continue;
+            }
+            let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
+            let is_known_stream = native_resolved_receiver_type(receiver, source)
+                .is_some_and(|type_name| type_evidence.is_stream(type_name));
+            if is_known_stream {
+                issues.push(hoonarqube_ir::Issue::new(
+                    "hoonarqube-csharp:CA2022",
+                    "Inspect the returned byte count because a stream read can be partial.",
+                    cst::range_of(name, source),
+                ));
+            }
         }
-        let (Some(name), Some(receiver)) = (
-            access.child_by_field_name("name"),
-            access.child_by_field_name("expression"),
-        ) else {
-            continue;
-        };
-        if !matches!(cst::node_text(name, source), "Read" | "ReadAsync") {
-            continue;
-        }
-        let type_evidence = NativeTypeEvidence::collect_for(root, receiver, source);
-        let is_known_stream = native_resolved_receiver_type(receiver, source)
-            .is_some_and(|type_name| type_evidence.is_stream(type_name));
-        if is_known_stream {
-            issues.push(hoonarqube_ir::Issue::new(
-                "hoonarqube-csharp:CA2022",
-                "Inspect the returned byte count because a stream read can be partial.",
-                cst::range_of(name, source),
-            ));
-        }
-    }
-    issues.extend(native_end_of_stream_issues(root, source));
-    issues.extend(native_json_element_parse_issues(root, source));
-    hoonarqube_ir::sort_issues(&mut issues);
-    issues
+        issues.extend(native_end_of_stream_issues(root, source));
+        issues.extend(native_json_element_parse_issues(root, source));
+        hoonarqube_ir::sort_issues(&mut issues);
+        issues
+    })
 }
 
 fn native_end_of_stream_issues(
