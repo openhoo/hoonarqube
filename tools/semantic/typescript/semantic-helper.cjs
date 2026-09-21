@@ -9,6 +9,13 @@
  * keys; this helper owns only TypeScript's compiler API.  It never downloads a
  * package and never emits findings.  All offsets in the response are UTF-8
  * byte offsets so they can be consumed directly by the Oxc-based Rust rules.
+ *
+ * The helper supports exactly the pinned compiler in EXPECTED_COMPILER_VERSION
+ * and rejects every other version with one precise diagnostic.  Analyzed
+ * projects may keep any TypeScript dependency of their own: the CLI's
+ * `--typescript-module` option or the HOONARQUBE_TYPESCRIPT_PACKAGE
+ * environment variable points this helper at a separate supported compiler
+ * without changing the analyzed project.
  */
 
 const fs = require('node:fs');
@@ -150,9 +157,10 @@ function loadTypescript(request, diagnostics) {
   if (version !== expected) {
     diagnostics.push(diagnostic(
       'TS_HELPER_COMPILER_VERSION',
-      `TypeScript ${expected} is required, but ${version || '<unknown>'} was loaded.`,
+      `Unsupported TypeScript compiler: the semantic helper supports ${expected}, but ${version || '<unknown>'} was loaded from ${resolved}. ` +
+      'The analyzed project may keep its own TypeScript dependency; supply a supported compiler to the helper via the ' +
+      '--typescript-module option or the HOONARQUBE_TYPESCRIPT_PACKAGE environment variable.',
     ));
-    return undefined;
   }
   return { ts, version, resolved };
 }
@@ -1938,12 +1946,12 @@ function main() {
   const snapshots = makeSnapshots(request, diagnostics);
   const compiler = loadTypescript(request, diagnostics);
   if (!compiler || diagnostics.some(item => item.category === 'error')) {
-    return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: compiler?.version, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
+    return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: compiler?.version, compiler_path: compiler?.resolved, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
   }
   const { ts, version } = compiler;
   const config = readConfig(ts, request, snapshots, diagnostics);
   if (!config) {
-    return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: version, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
+    return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: version, compiler_path: compiler.resolved, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
   }
   const host = makeHost(ts, config, snapshots, diagnostics);
   const rootNames = [...new Set([...config.fileNames, ...snapshots.keys()])];
@@ -1969,7 +1977,7 @@ function main() {
     });
   } catch (error) {
     diagnostics.push(diagnostic('TS_HELPER_PROGRAM', `Unable to create TypeScript program: ${error.message}`));
-    return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: version, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
+    return { schema_version: PROTOCOL_VERSION, complete: false, compiler_version: version, compiler_path: compiler.resolved, files: [], dependencies: [], diagnostics, fingerprint: requestFingerprint(request, diagnostics) };
   }
   const checker = program.getTypeChecker();
   collectOptionsDiagnostics(ts, program, diagnostics);
