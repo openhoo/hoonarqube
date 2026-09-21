@@ -427,9 +427,7 @@ class StrictParityTests(unittest.TestCase):
             ours_native_rule_keys(
                 {
                     "oracle_provenance": {
-                        "native_context": {
-                            "native_rule_keys": ["hoonarqube-go:G110"]
-                        }
+                        "native_context": {"native_rule_keys": ["hoonarqube-go:G110"]}
                     },
                     "oracle_evidence": {
                         "native_context": {
@@ -446,9 +444,7 @@ class StrictParityTests(unittest.TestCase):
             ours_native_rule_keys(
                 {
                     "oracle_provenance": {
-                        "native_context": {
-                            "native_rule_keys": ["hoonarqube-go:G110"]
-                        }
+                        "native_context": {"native_rule_keys": ["hoonarqube-go:G110"]}
                     },
                     "oracle_evidence": {},
                 }
@@ -472,9 +468,7 @@ class StrictParityTests(unittest.TestCase):
                 }
             ],
             "oracle_evidence": {
-                "native_context": {
-                    "native_rule_keys": ["hoonarqube-python:S9999"]
-                }
+                "native_context": {"native_rule_keys": ["hoonarqube-python:S9999"]}
             },
         }
         with self.assertRaisesRegex(ValueError, "undigested evidence-only"):
@@ -485,9 +479,7 @@ class StrictParityTests(unittest.TestCase):
             tampered,
             catalog_keys=[RULE],
             available_files=[BAD, GOOD],
-            native_rule_keys=ours_native_rule_keys(
-                {"files": tampered["files"]}
-            ),
+            native_rule_keys=ours_native_rule_keys({"files": tampered["files"]}),
         )
         invalid = [row for row in rows if row["status"] == "INVALID_ARTIFACT"]
         self.assertEqual(len(invalid), 1)

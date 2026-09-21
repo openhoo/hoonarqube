@@ -2062,8 +2062,7 @@ def ours_native_rule_keys(report: Any) -> list[str] | None:
     if manifest_context is None:
         if evidence_context is not None:
             raise ValueError(
-                "native artifact carries an undigested evidence-only "
-                "native_context"
+                "native artifact carries an undigested evidence-only native_context"
             )
         return None
     if not isinstance(manifest_context, dict):
