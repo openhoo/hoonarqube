@@ -376,6 +376,132 @@ pub(crate) const REACT_DOM_ATTRIBUTES: &[&str] = &[
     "zoomAndPan",
 ];
 
+/// Tag-scoped DOM attributes (`S6747`): names that are only valid on the
+/// listed intrinsic tags, mirroring `ATTRIBUTE_TAGS_MAP` in the reference
+/// `react/no-unknown-property` implementation (eslint-plugin-react 7.37.5).
+/// A mapped name on any other tag is reportable; an unmapped name falls back
+/// to `REACT_DOM_ATTRIBUTES` and the `data-*`/`aria-*`/`on*` conventions.
+pub(crate) const TAG_SCOPED_ATTRIBUTES: &[(&str, &[&str])] = &[
+    ("abbr", &["th", "td"]),
+    ("charset", &["meta"]),
+    ("checked", &["input"]),
+    // `image` is required for SVG support, all other tags are HTML.
+    (
+        "crossOrigin",
+        &["script", "img", "video", "audio", "link", "image"],
+    ),
+    ("displaystyle", &["math"]),
+    ("download", &["a", "area"]),
+    // https://developer.mozilla.org/en-US/docs/Web/SVG/Attribute/fill
+    (
+        "fill",
+        &[
+            "altGlyph",
+            "circle",
+            "ellipse",
+            "g",
+            "line",
+            "marker",
+            "mask",
+            "path",
+            "polygon",
+            "polyline",
+            "rect",
+            "svg",
+            "symbol",
+            "text",
+            "textPath",
+            "tref",
+            "tspan",
+            "use",
+            "animate",
+            "animateColor",
+            "animateMotion",
+            "animateTransform",
+            "set",
+        ],
+    ),
+    ("focusable", &["svg"]),
+    ("imageSizes", &["link"]),
+    ("imageSrcSet", &["link"]),
+    ("property", &["meta"]),
+    ("viewBox", &["marker", "pattern", "svg", "symbol", "view"]),
+    ("as", &["link"]),
+    (
+        "align",
+        &[
+            "applet", "caption", "col", "colgroup", "hr", "iframe", "img", "table", "tbody", "td",
+            "tfoot", "th", "thead", "tr",
+        ],
+    ),
+    (
+        "valign",
+        &[
+            "tr", "td", "th", "thead", "tbody", "tfoot", "colgroup", "col",
+        ],
+    ),
+    ("noModule", &["script"]),
+    // Media events allowed only on audio and video tags.
+    ("onAbort", &["audio", "video"]),
+    ("onCancel", &["dialog"]),
+    ("onCanPlay", &["audio", "video"]),
+    ("onCanPlayThrough", &["audio", "video"]),
+    ("onClose", &["dialog"]),
+    ("onDurationChange", &["audio", "video"]),
+    ("onEmptied", &["audio", "video"]),
+    ("onEncrypted", &["audio", "video"]),
+    ("onEnded", &["audio", "video"]),
+    (
+        "onError",
+        &[
+            "audio", "video", "img", "link", "source", "script", "picture", "iframe",
+        ],
+    ),
+    (
+        "onLoad",
+        &[
+            "script", "img", "link", "picture", "iframe", "object", "source",
+        ],
+    ),
+    ("onLoadedData", &["audio", "video"]),
+    ("onLoadedMetadata", &["audio", "video"]),
+    ("onLoadStart", &["audio", "video"]),
+    ("onPause", &["audio", "video"]),
+    ("onPlay", &["audio", "video"]),
+    ("onPlaying", &["audio", "video"]),
+    ("onProgress", &["audio", "video"]),
+    ("onRateChange", &["audio", "video"]),
+    ("onResize", &["audio", "video"]),
+    ("onSeeked", &["audio", "video"]),
+    ("onSeeking", &["audio", "video"]),
+    ("onStalled", &["audio", "video"]),
+    ("onSuspend", &["audio", "video"]),
+    ("onTimeUpdate", &["audio", "video"]),
+    ("onVolumeChange", &["audio", "video"]),
+    ("onWaiting", &["audio", "video"]),
+    ("autoPictureInPicture", &["video"]),
+    ("controls", &["audio", "video"]),
+    ("controlsList", &["audio", "video"]),
+    ("disablePictureInPicture", &["video"]),
+    ("disableRemotePlayback", &["audio", "video"]),
+    ("loop", &["audio", "video"]),
+    ("muted", &["audio", "video"]),
+    ("playsInline", &["video"]),
+    ("allowFullScreen", &["iframe", "video"]),
+    ("webkitAllowFullScreen", &["iframe", "video"]),
+    ("mozAllowFullScreen", &["iframe", "video"]),
+    ("poster", &["video"]),
+    ("preload", &["audio", "video"]),
+    ("scrolling", &["iframe"]),
+    ("returnValue", &["dialog"]),
+    ("webkitDirectory", &["input"]),
+    ("shadowrootmode", &["template"]),
+    ("shadowrootclonable", &["template"]),
+    ("shadowrootdelegatesfocus", &["template"]),
+    ("shadowrootserializable", &["template"]),
+    ("transform-origin", &["rect"]),
+];
+
 /// Whether a function-like expression body returns JSX (`strict`) or
 /// JSX-or-null somewhere.
 pub(crate) fn expression_returns_jsx(expression: &Expression<'_>, strict: bool) -> Option<bool> {
