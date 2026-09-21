@@ -1,11 +1,11 @@
 use super::{
     ArrowFunctionBody, ArrowFunctionExpression, BTreeMap, BinaryExpression, BinaryOperator, Class,
     ClassElement, Declaration, Expression, Function, GetSpan, MethodDefinition,
-    MethodDefinitionKind, ReturnStatement, ScopeFlags, Span, Statement, SwitchStatement, TSType,
-    TSTypeAnnotation, TSTypeName, TSTypeReference, UnaryOperator, VariableDeclarator, Visit,
-    binding_identifier_name, identifier_name, property_key_name, unparenthesized,
-    walk_binary_expression, walk_class, walk_declaration, walk_function, walk_program,
-    walk_return_statement, walk_switch_statement, walk_variable_declarator,
+    MethodDefinitionKind, ReturnStatement, ScopeFlags, Span, Statement, SwitchStatement, TSLiteral,
+    TSType, TSTypeAnnotation, TSTypeName, TSTypeOperatorOperator, TSTypeReference, UnaryOperator,
+    VariableDeclarator, Visit, binding_identifier_name, identifier_name, property_key_name,
+    unparenthesized, walk_binary_expression, walk_class, walk_declaration, walk_function,
+    walk_program, walk_return_statement, walk_switch_statement, walk_variable_declarator,
 };
 // --- Tier C: operator/literal rules over a shared literal classifier ---
 
@@ -89,8 +89,9 @@ pub(crate) struct FnFacts {
     /// A declared return type other than `void`/`never` means calls produce
     /// a value even when the body is absent or has no valued `return`.
     pub(crate) declared_value_return: bool,
-    /// A declared `any`/`unknown` return, or a union containing `undefined`,
-    /// already covers mixed literal return kinds (`S3800`).
+    /// A declared return type that covers every classified literal kind the
+    /// body returns (`any`/`unknown`, or an explicit union naming each
+    /// returned kind) makes mixed returns consistent by contract (`S3800`).
     pub(crate) return_covers_mixed: bool,
     /// A declared return type that is or contains `Promise`/`PromiseLike`,
     /// so awaiting the call is meaningful even without `async` (`S4123`).
@@ -291,6 +292,8 @@ fn fn_facts(
     anchor: Span,
 ) -> FnFacts {
     let declared_never = annotation.is_some_and(annotation_is_never);
+    let return_covers_mixed = annotation
+        .is_some_and(|annotation| annotation_covers_return_kinds(annotation, &scan.return_kinds));
     FnFacts {
         r#async,
         generator,
@@ -300,7 +303,7 @@ fn fn_facts(
         has_opaque_return: scan.has_opaque_return,
         never_returns: declared_never || scan.never_returns,
         declared_value_return: annotation.is_some_and(annotation_declares_value),
-        return_covers_mixed: annotation.is_some_and(annotation_covers_mixed),
+        return_covers_mixed,
         declared_maybe_thenable: annotation.is_some_and(annotation_maybe_thenable),
         span: anchor,
     }
@@ -332,29 +335,103 @@ fn annotation_declares_value(annotation: &TSTypeAnnotation<'_>) -> bool {
         TSType::TSVoidKeyword(_) | TSType::TSNeverKeyword(_)
     )
 }
-
-/// Whether the declared return type already covers mixed literal return
-/// kinds: `any`/`unknown`, or a union containing `undefined` — directly or
-/// as the single type argument of `Promise<...>`.
-fn annotation_covers_mixed(annotation: &TSTypeAnnotation<'_>) -> bool {
-    type_covers_mixed(&annotation.type_annotation)
+/// Whether the declared return type covers every classified literal kind the
+/// body actually returns: `any`/`unknown` cover everything, a union covers
+/// the union of its members' kinds, and `Promise<...>`/`PromiseLike<...>`
+/// covers the awaited kinds. An explicit annotation that names every
+/// returned kind — for example `false | true | { id: string }` or
+/// `T | undefined` — makes the mixed returns consistent by contract
+/// (`S3800`, issues #534 and #806).
+fn annotation_covers_return_kinds(
+    annotation: &TSTypeAnnotation<'_>,
+    kinds: &[LiteralKind],
+) -> bool {
+    kinds
+        .iter()
+        .all(|kind| type_covers_kind(&annotation.type_annotation, *kind))
 }
 
-fn type_covers_mixed(ts_type: &TSType<'_>) -> bool {
+/// Whether one declared type admits values of `kind`.
+fn type_covers_kind(ts_type: &TSType<'_>, kind: LiteralKind) -> bool {
     match unparenthesized_type(ts_type) {
-        TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) => true,
-        TSType::TSUnionType(union) => union.types.iter().any(|member| {
-            matches!(
-                unparenthesized_type(member),
-                TSType::TSUndefinedKeyword(_)
-                    | TSType::TSAnyKeyword(_)
-                    | TSType::TSUnknownKeyword(_)
-            )
-        }),
-        TSType::TSTypeReference(reference) => {
-            promise_type_argument(reference).is_some_and(type_covers_mixed)
+        TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::JSDocUnknownType(_) => true,
+        TSType::TSUnionType(union) => union
+            .types
+            .iter()
+            .any(|member| type_covers_kind(member, kind)),
+        TSType::TSTypeReference(reference) => match promise_type_argument(reference) {
+            Some(argument) => type_covers_kind(argument, kind),
+            None => named_reference_kind(reference) == kind,
+        },
+        TSType::TSTypeOperatorType(operator)
+            if operator.operator == TSTypeOperatorOperator::Readonly =>
+        {
+            type_covers_kind(&operator.type_annotation, kind)
         }
-        _ => false,
+        TSType::JSDocNullableType(nullable) => {
+            kind == LiteralKind::Null || type_covers_kind(&nullable.type_annotation, kind)
+        }
+        TSType::JSDocNonNullableType(non_nullable) => {
+            type_covers_kind(&non_nullable.type_annotation, kind)
+        }
+        other => named_type_kind(other) == Some(kind),
+    }
+}
+
+/// The [`LiteralKind`] a non-reference type admits, when it names exactly
+/// one. `void` admits `undefined` returns; `never` admits nothing.
+fn named_type_kind(ts_type: &TSType<'_>) -> Option<LiteralKind> {
+    match ts_type {
+        TSType::TSBooleanKeyword(_) => Some(LiteralKind::Boolean),
+        TSType::TSNumberKeyword(_) => Some(LiteralKind::Number),
+        TSType::TSBigIntKeyword(_) => Some(LiteralKind::BigInt),
+        TSType::TSStringKeyword(_) | TSType::TSTemplateLiteralType(_) => Some(LiteralKind::String),
+        TSType::TSNullKeyword(_) => Some(LiteralKind::Null),
+        TSType::TSUndefinedKeyword(_) | TSType::TSVoidKeyword(_) => Some(LiteralKind::Undefined),
+        TSType::TSObjectKeyword(_)
+        | TSType::TSTypeLiteral(_)
+        | TSType::TSMappedType(_)
+        | TSType::TSIntersectionType(_)
+        | TSType::TSThisType(_) => Some(LiteralKind::Object),
+        TSType::TSArrayType(_) | TSType::TSTupleType(_) => Some(LiteralKind::Array),
+        TSType::TSFunctionType(_) | TSType::TSConstructorType(_) => Some(LiteralKind::Function),
+        TSType::TSLiteralType(literal) => literal_type_kind(&literal.literal),
+        _ => None,
+    }
+}
+
+/// The [`LiteralKind`] a named type reference admits. `Array`/`ReadonlyArray`
+/// and `Function` name their literal kinds; every other named type — aliases,
+/// classes, interfaces, qualified names — is an object shape to file-local
+/// analysis.
+fn named_reference_kind(reference: &TSTypeReference<'_>) -> LiteralKind {
+    let TSTypeName::IdentifierReference(identifier) = &reference.type_name else {
+        return LiteralKind::Object;
+    };
+    match identifier.name.as_str() {
+        "Array" | "ReadonlyArray" => LiteralKind::Array,
+        "Function" => LiteralKind::Function,
+        _ => LiteralKind::Object,
+    }
+}
+
+/// The [`LiteralKind`] a literal type admits (`'a'` → string, `2` → number).
+fn literal_type_kind(literal: &TSLiteral<'_>) -> Option<LiteralKind> {
+    match literal {
+        TSLiteral::BooleanLiteral(_) => Some(LiteralKind::Boolean),
+        TSLiteral::NumericLiteral(_) => Some(LiteralKind::Number),
+        TSLiteral::BigIntLiteral(_) => Some(LiteralKind::BigInt),
+        TSLiteral::StringLiteral(_) | TSLiteral::TemplateLiteral(_) => Some(LiteralKind::String),
+        TSLiteral::UnaryExpression(unary) => {
+            let numeric = matches!(
+                unary.operator,
+                UnaryOperator::UnaryNegation | UnaryOperator::UnaryPlus
+            ) && matches!(
+                unparenthesized(&unary.argument),
+                Expression::NumericLiteral(_)
+            );
+            numeric.then_some(LiteralKind::Number)
+        }
     }
 }
 
