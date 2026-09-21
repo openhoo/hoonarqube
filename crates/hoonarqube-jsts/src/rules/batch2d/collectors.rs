@@ -55,9 +55,10 @@ use oxc_ast_visit::walk::{
     walk_call_expression, walk_class, walk_conditional_expression, walk_continue_statement,
     walk_declaration, walk_do_while_statement, walk_export_declaration,
     walk_export_default_declaration_kind, walk_expression, walk_for_in_statement,
-    walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_logical_expression,
-    walk_member_expression, walk_method_definition, walk_new_expression, walk_object_expression,
-    walk_statements, walk_switch_statement, walk_try_statement, walk_while_statement,
+    walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_if_statement,
+    walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
+    walk_object_expression, walk_statements, walk_switch_statement, walk_try_statement,
+    walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -557,7 +558,6 @@ pub(crate) struct KeywordPlacementCollector<'a, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) source: &'a str,
     pub(crate) index: &'index LineIndex<'index>,
-    pub(crate) suppress_else_if_chain: bool,
 }
 
 impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
@@ -567,27 +567,15 @@ impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
     }
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
-        if let Some(alternate) = &it.alternate {
-            if !self.suppress_else_if_chain && !matches!(alternate, Statement::IfStatement(_)) {
-                self.check_keyword_line(it.consequent.span(), alternate.span(), "else");
-            }
-            // An `else if` link is a nested statement, not an unbraced
-            // body: the chain's own braces decide its layout (`S3973`).
-            if !matches!(alternate, Statement::IfStatement(_)) {
-                self.check_unbraced_indent(it.span(), alternate);
-            }
+        // An `else if` link is a nested statement, not an unbraced
+        // body: the chain's own braces decide its layout (`S3973`).
+        if let Some(alternate) = &it.alternate
+            && !matches!(alternate, Statement::IfStatement(_))
+        {
+            self.check_unbraced_indent(it.span(), alternate);
         }
         self.check_unbraced_indent(it.span(), &it.consequent);
-        self.visit_expression(&it.test);
-        self.visit_statement(&it.consequent);
-        if let Some(alternate) = &it.alternate {
-            let saved_suppression = self.suppress_else_if_chain;
-            if matches!(alternate, Statement::IfStatement(_)) {
-                self.suppress_else_if_chain = true;
-            }
-            self.visit_statement(alternate);
-            self.suppress_else_if_chain = saved_suppression;
-        }
+        walk_if_statement(self, it);
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
@@ -613,17 +601,6 @@ impl<'a> Visit<'a> for KeywordPlacementCollector<'a, '_> {
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
         self.check_unbraced_indent(it.span(), &it.body);
         walk_do_while_statement(self, it);
-    }
-
-    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
-        if let Some(handler) = &it.handler {
-            self.check_keyword_line(it.block.span(), handler.span(), "catch");
-        }
-        let after_catch = it.handler.as_ref().map_or(it.block.span(), |h| h.span());
-        if let Some(finalizer) = &it.finalizer {
-            self.check_keyword_line(after_catch, finalizer.span(), "finally");
-        }
-        walk_try_statement(self, it);
     }
 }
 

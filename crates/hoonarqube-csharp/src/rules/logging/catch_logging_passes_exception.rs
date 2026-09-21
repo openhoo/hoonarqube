@@ -1,4 +1,4 @@
-use super::support::logging_calls;
+use super::support::{caught_exception_name, logging_calls};
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::invocation_arguments;
@@ -43,16 +43,6 @@ fn argument_references(argument: Node<'_>, caught: &str, source: &str) -> bool {
     collect_kinds(argument, &["identifier"])
         .into_iter()
         .any(|identifier| node_text(identifier, source) == caught)
-}
-
-/// The declared variable name of a catch clause (`catch (Exception ex)`).
-fn caught_exception_name<'a>(clause: Node<'_>, source: &'a str) -> Option<&'a str> {
-    let mut cursor = clause.walk();
-    clause
-        .children(&mut cursor)
-        .find(|child| child.kind() == "catch_declaration")
-        .and_then(|declaration| declaration.child_by_field_name("name"))
-        .map(|name| node_text(name, source))
 }
 
 #[cfg(test)]

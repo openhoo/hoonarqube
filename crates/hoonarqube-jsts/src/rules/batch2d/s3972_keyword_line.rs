@@ -34,20 +34,4 @@ impl KeywordPlacementCollector<'_, '_> {
             );
         }
     }
-    /// Native S3972 also reports `else`, `catch`, and `finally` that share
-    /// a closing brace line; these findings intentionally have no quickfix.
-    pub(crate) fn check_keyword_line(&mut self, previous: Span, following: Span, keyword: &str) {
-        let gap = &self.source[previous.end as usize..following.start as usize];
-        if !gap.contains('\n') {
-            let anchor = gap
-                .find(keyword)
-                .map_or(following.start, |at| previous.end + to_u32(at));
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S3972",
-                "Move this keyword onto its own line after the closing brace.",
-                Span::new(anchor, anchor + to_u32(keyword.len())),
-            );
-        }
-    }
 }
