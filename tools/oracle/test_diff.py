@@ -143,6 +143,49 @@ class DiffArtifactValidationTests(unittest.TestCase):
             ):
                 diff.main("py", project, report, report)
 
+    def test_divergent_native_context_copies_are_rejected(self):
+        manifest = self._manifest("ours")
+        manifest["native_context"] = {
+            "native_rule_keys": ["hoonarqube-go:G110"]
+        }
+        manifest["manifest_sha256"] = manifest_digest(manifest)
+        report = {
+            "oracle_provenance": manifest,
+            "oracle_evidence": {
+                "provenance_sha256": manifest["manifest_sha256"],
+                "native_context": {
+                    "native_rule_keys": [
+                        "hoonarqube-go:G110",
+                        "hoonarqube-python:S9999",
+                    ]
+                },
+            },
+        }
+        with (
+            mock.patch.object(
+                parity_suite, "artifact_input_sha256", return_value="current"
+            ),
+            self.assertRaisesRegex(ValueError, "native_context diverges"),
+        ):
+            parity_suite.validate_artifact_provenance(
+                report, "oracle-py", "ours"
+            )
+
+        # Identical digested and evidence copies validate cleanly.
+        report["oracle_evidence"]["native_context"] = dict(
+            manifest["native_context"]
+        )
+        with mock.patch.object(
+            parity_suite, "artifact_input_sha256", return_value="current"
+        ):
+            validated = parity_suite.validate_artifact_provenance(
+                report, "oracle-py", "ours"
+            )
+        self.assertEqual(
+            validated["native_context"]["native_rule_keys"],
+            ["hoonarqube-go:G110"],
+        )
+
     def test_parameter_context_mismatch_is_rejected(self):
         from reference_provenance import validate_compatible_manifests
 

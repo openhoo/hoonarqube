@@ -1835,6 +1835,11 @@ def validate_artifact_provenance(
         or evidence.get("provenance_sha256") != manifest["manifest_sha256"]
     ):
         raise ValueError(f"{kind} artifact provenance evidence mismatch")
+    if evidence.get("native_context") != manifest.get("native_context"):
+        raise ValueError(
+            f"{kind} artifact evidence native_context diverges from the "
+            "digested provenance copy"
+        )
     return manifest
 
 

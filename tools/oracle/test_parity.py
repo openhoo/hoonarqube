@@ -365,33 +365,135 @@ class StrictParityTests(unittest.TestCase):
         self.assertIsNone(ours_native_rule_keys({"oracle_evidence": {}}))
         self.assertIsNone(
             ours_native_rule_keys(
-                {"oracle_evidence": {"native_context": {"profile": "strict"}}}
+                {
+                    "oracle_provenance": {},
+                    "oracle_evidence": {},
+                }
             )
         )
+        context = {"native_rule_keys": ["hoonarqube-go:G110"]}
         self.assertEqual(
             ours_native_rule_keys(
                 {
-                    "oracle_evidence": {
-                        "native_context": {"native_rule_keys": ["hoonarqube-go:G110"]}
-                    }
+                    "oracle_provenance": {"native_context": context},
+                    "oracle_evidence": {"native_context": dict(context)},
                 }
             ),
             ["hoonarqube-go:G110"],
         )
         with self.assertRaisesRegex(ValueError, "must be strings"):
             ours_native_rule_keys(
-                {"oracle_evidence": {"native_context": {"native_rule_keys": ["ok", 1]}}}
+                {
+                    "oracle_provenance": {
+                        "native_context": {"native_rule_keys": ["ok", 1]}
+                    },
+                    "oracle_evidence": {
+                        "native_context": {"native_rule_keys": ["ok", 1]}
+                    },
+                }
             )
         with self.assertRaisesRegex(ValueError, "duplicates"):
             ours_native_rule_keys(
                 {
+                    "oracle_provenance": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-go:G110"] * 2
+                        }
+                    },
                     "oracle_evidence": {
                         "native_context": {
                             "native_rule_keys": ["hoonarqube-go:G110"] * 2
                         }
+                    },
+                }
+            )
+
+    def test_ours_native_rule_keys_rejects_undigested_or_divergent_context(self):
+        # An evidence-only native_context is not bound by the manifest digest
+        # and must never widen the declared native set.
+        with self.assertRaisesRegex(ValueError, "undigested evidence-only"):
+            ours_native_rule_keys(
+                {
+                    "oracle_evidence": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-python:S9999"]
+                        }
                     }
                 }
             )
+        # A divergent evidence copy is tampering even when the digested
+        # provenance context is well-formed.
+        with self.assertRaisesRegex(ValueError, "diverges"):
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-go:G110"]
+                        }
+                    },
+                    "oracle_evidence": {
+                        "native_context": {
+                            "native_rule_keys": [
+                                "hoonarqube-go:G110",
+                                "hoonarqube-python:S9999",
+                            ]
+                        }
+                    },
+                }
+            )
+        # A missing evidence copy is equally divergent.
+        with self.assertRaisesRegex(ValueError, "diverges"):
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-go:G110"]
+                        }
+                    },
+                    "oracle_evidence": {},
+                }
+            )
+        # Tampering cannot smuggle an undeclared key into a comparison.
+        tampered = {
+            "files": [
+                {
+                    "path": f"/fixture/{BAD}",
+                    "issues": [
+                        ours_issue(),
+                        {
+                            "rule_key": "hoonarqube-python:S9999",
+                            "message": "injected",
+                            "range": {
+                                "start": {"line": 2, "column": 0},
+                                "end": {"line": 2, "column": 4},
+                            },
+                        },
+                    ],
+                }
+            ],
+            "oracle_evidence": {
+                "native_context": {
+                    "native_rule_keys": ["hoonarqube-python:S9999"]
+                }
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "undigested evidence-only"):
+            ours_native_rule_keys(tampered)
+        rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            tampered,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+            native_rule_keys=ours_native_rule_keys(
+                {"files": tampered["files"]}
+            ),
+        )
+        invalid = [row for row in rows if row["status"] == "INVALID_ARTIFACT"]
+        self.assertEqual(len(invalid), 1)
+        self.assertIn(
+            "hoonarqube: rule absent from oracle contract", invalid[0]["reason"]
+        )
 
     def test_each_missing_side_and_both_missing_are_distinct_failures(self):
         ours_missing = self.compare(

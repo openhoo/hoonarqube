@@ -2042,19 +2042,38 @@ def ours_native_rule_keys(report: Any) -> list[str] | None:
     """Return the registered native rule keys recorded in a native artifact.
 
     The oracle harness records the analyzed binary's own `rules native`
-    registry into `oracle_evidence.native_context.native_rule_keys`. Missing
-    context returns ``None`` so comparisons fail closed; malformed recorded
-    keys are rejected instead of silently widening the declared set.
+    registry into `native_context`, which is embedded in both the digested
+    `oracle_provenance` manifest and the `oracle_evidence` convenience copy.
+    Only the digested provenance copy is authoritative: an evidence-only or
+    divergent context is rejected as tampering instead of silently widening
+    the declared set. Artifacts recorded before the registry was captured
+    have no context and return ``None`` so comparisons fail closed.
     """
     if not isinstance(report, dict):
         return None
+    manifest = report.get("oracle_provenance")
+    manifest_context = (
+        manifest.get("native_context") if isinstance(manifest, dict) else None
+    )
     evidence = report.get("oracle_evidence")
-    if not isinstance(evidence, dict):
+    evidence_context = (
+        evidence.get("native_context") if isinstance(evidence, dict) else None
+    )
+    if manifest_context is None:
+        if evidence_context is not None:
+            raise ValueError(
+                "native artifact carries an undigested evidence-only "
+                "native_context"
+            )
         return None
-    context = evidence.get("native_context")
-    if not isinstance(context, dict):
-        return None
-    keys = context.get("native_rule_keys")
+    if not isinstance(manifest_context, dict):
+        raise ValueError("native artifact provenance native_context is invalid")
+    if evidence_context != manifest_context:
+        raise ValueError(
+            "native artifact evidence native_context diverges from the "
+            "digested provenance copy"
+        )
+    keys = manifest_context.get("native_rule_keys")
     if keys is None:
         return None
     if not isinstance(keys, list) or any(
