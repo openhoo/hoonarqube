@@ -233,8 +233,21 @@ impl<'a> Visit<'a> for TestFrameworkCollector<'_, '_> {
 }
 
 impl TestFrameworkCollector<'_, '_> {
-    pub(crate) fn body_text(&self, span: Span) -> String {
-        span_text(self.source, span).to_ascii_lowercase()
+    /// Whether the raw body text contains `needle`, ASCII
+    /// case-insensitively. Equivalent to the former
+    /// `body_text(span).contains(needle)` over a lowercased copy — the
+    /// ASCII lowercase map is byte-position preserving — without
+    /// materializing a lowered copy of the whole body per query.
+    pub(crate) fn body_contains(&self, span: Span, needle: &str) -> bool {
+        crate::support::contains_ascii_case_insensitive(
+            span_text(self.source, span).as_bytes(),
+            needle.as_bytes(),
+        )
+    }
+
+    /// Raw body text of `span` (no copy).
+    pub(crate) fn body_source(&self, span: Span) -> &str {
+        span_text(self.source, span)
     }
 }
 
@@ -785,6 +798,35 @@ const upload = multer(options);
 
         let last: &str = "it('finishes', function (done) {\n  verify();\n  done();\n});\n";
         assert_eq!(count_key(&test_file_keys(last), "javascript:S6079"), 0);
+    }
+
+    #[test]
+    fn batch5_ascii_case_insensitive_checks_match_baseline() {
+        // ASCII-only case-insensitive body scans: `MATH.RANDOM()`,
+        // `DONE()`, `EXPECT(...)`, and `PASSWORD` all behave exactly like
+        // their lowercase forms (baseline-verified).
+        let upper_random: &str = "it('rolls', () => { MATH.RANDOM(); });\n";
+        assert_eq!(
+            count_key(&test_file_keys(upper_random), "javascript:S5973"),
+            1
+        );
+
+        let upper_done: &str = "it('finishes', function (done) { DONE(); verify(); });\n";
+        assert_eq!(
+            count_key(&test_file_keys(upper_done), "javascript:S6079"),
+            1
+        );
+
+        let upper_expect: &str = "it('throws', () => {\n  try {\n    boom();\n  } catch (e) {\n    EXPECT(e);\n  }\n});\n";
+        assert_eq!(
+            count_key(&test_file_keys(upper_expect), "javascript:S5958"),
+            0
+        );
+
+        let upper_secret: &str = "console.log(\"user PASSWORD x\");\n";
+        assert_eq!(count_key(&js_keys(upper_secret), "javascript:S5757"), 1);
+        let plain: &str = "console.log(\"plain\");\n";
+        assert_eq!(count_key(&js_keys(plain), "javascript:S5757"), 0);
     }
 
     #[test]

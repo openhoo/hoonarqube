@@ -9,8 +9,17 @@ use crate::support::callee_name;
 use oxc_ast::ast::CallExpression;
 
 /// Whether trimmed text still holds statements after the last `done()` call.
+/// `done()` is matched ASCII case-insensitively, exactly like the former
+/// `text.to_ascii_lowercase().rfind("done()")` over the lowered copy.
 fn statements_follow_done(text: &str) -> bool {
-    let Some(position) = text.rfind("done()") else {
+    let bytes = text.as_bytes();
+    let mut position = None;
+    let mut offset = 0_usize;
+    while let Some(found) = crate::support::find_ascii_case_insensitive(bytes, b"done()", offset) {
+        position = Some(found);
+        offset = found + 1;
+    }
+    let Some(position) = position else {
         return false;
     };
     let remainder = text[position + "done()".len()..].trim_matches(|character: char| {
@@ -34,8 +43,10 @@ impl TestFrameworkCollector<'_, '_> {
         let Some(body_span) = function_body_span(callback) else {
             return;
         };
-        let text = self.body_text(body_span);
-        if !ASSERTION_MARKERS.iter().any(|marker| text.contains(marker)) {
+        if !ASSERTION_MARKERS
+            .iter()
+            .any(|marker| self.body_contains(body_span, marker))
+        {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S2699",
@@ -43,9 +54,9 @@ impl TestFrameworkCollector<'_, '_> {
                 body_span,
             );
         }
-        if text.contains("math.random()")
-            || text.contains("date.now()")
-            || text.contains("new date()")
+        if self.body_contains(body_span, "math.random()")
+            || self.body_contains(body_span, "date.now()")
+            || self.body_contains(body_span, "new date()")
         {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -56,7 +67,7 @@ impl TestFrameworkCollector<'_, '_> {
         }
         let uses_done = function_parameters(callback)
             .is_some_and(|params| parameter_names(params).contains(&"done"));
-        if uses_done && statements_follow_done(&text) {
+        if uses_done && statements_follow_done(self.body_source(body_span)) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S6079",

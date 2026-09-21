@@ -1,6 +1,6 @@
 use crate::engine::file_context::AnyImport;
 use crate::engine::file_context::FileContext;
-use crate::support::for_each_stmt;
+
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use hoonarqube_ir::Issue;
@@ -18,14 +18,14 @@ use std::path::Path;
 // assignments, or calls other than `warnings.warn`.
 
 pub(crate) fn check_wildcard_imports(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
     path: &Path,
 ) -> Vec<Issue> {
     if path.file_name().is_some_and(|name| name == "__init__.py")
-        || !contains_application_logic(parsed)
+        || !contains_application_logic(file_ctx)
     {
         return Vec::new();
     }
@@ -47,9 +47,9 @@ pub(crate) fn check_wildcard_imports(
     issues
 }
 
-fn contains_application_logic(parsed: &Parsed<ModModule>) -> bool {
+fn contains_application_logic(file_ctx: &FileContext) -> bool {
     let mut found = false;
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in file_ctx.stmts.iter().copied() {
         match stmt {
             Stmt::FunctionDef(_)
             | Stmt::ClassDef(_)
@@ -80,7 +80,7 @@ fn contains_application_logic(parsed: &Parsed<ModModule>) -> bool {
                 pending.extend(crate::support::child_exprs(expr));
             }
         }
-    });
+    }
     found
 }
 
@@ -103,5 +103,27 @@ mod tests {
             1
         );
         assert!(findings(&scan("from m import thing\n"), "python:S2208").is_empty());
+    }
+
+    #[test]
+    fn s2208_nested_logic_counts_as_application_logic() {
+        // Application logic nested inside a function body still enables the
+        // rule; the flattened statement inventory sees it.
+        assert_eq!(
+            findings(
+                &scan("from m import *\ndef f():\n    x = 1\n    return x\n"),
+                "python:S2208"
+            )
+            .len(),
+            1
+        );
+        // A module holding only `__all__` re-exports is not logic.
+        assert!(
+            findings(
+                &scan("from m import *\n__all__ = ['a', 'b']\n"),
+                "python:S2208"
+            )
+            .is_empty()
+        );
     }
 }

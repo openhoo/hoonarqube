@@ -46,27 +46,40 @@ pub(crate) fn regex_can_start(prev: Option<char>, word: &str) -> bool {
     }
 }
 
-/// Skips a regex literal starting at `chars[i - 1] == '/'`; returns the index
-/// of the closing `/` (or the line end on unterminated regexes).
-pub(crate) fn skip_regex_literal(chars: &[char], mut i: usize) -> usize {
-    while i < chars.len() {
-        if chars[i] == '\\' {
-            i += 2;
+/// Skips a regex literal starting at `source[i - 1] == '/'`; returns the
+/// byte index of the closing `/` (or the line end on unterminated
+/// regexes). Only ASCII bytes are inspected, so the scan advances by UTF-8
+/// character length and stays on char boundaries.
+pub(crate) fn skip_regex_literal(source: &str, mut i: usize) -> usize {
+    fn char_len_at(source: &str, i: usize) -> usize {
+        source
+            .get(i..)
+            .and_then(|rest| rest.chars().next())
+            .map_or(1, char::len_utf8)
+    }
+    while i < source.len() {
+        let c = source.as_bytes()[i];
+        if c == b'\\' {
+            i += 1 + char_len_at(source, i + 1);
             continue;
         }
-        if chars[i] == '[' {
+        if c == b'[' {
             // Character class: `/` inside is literal.
             i += 1;
-            while i < chars.len() && chars[i] != ']' {
-                i += if chars[i] == '\\' { 2 } else { 1 };
+            while i < source.len() && source.as_bytes()[i] != b']' {
+                i += if source.as_bytes()[i] == b'\\' {
+                    1 + char_len_at(source, i + 1)
+                } else {
+                    char_len_at(source, i)
+                };
             }
             i += 1;
             continue;
         }
-        if chars[i] == '/' || chars[i] == '\n' {
+        if c == b'/' || c == b'\n' {
             break;
         }
-        i += 1;
+        i += char_len_at(source, i);
     }
     i
 }

@@ -715,11 +715,12 @@ fn check_member_calls(
 }
 
 /// Legacy octal escapes (`\101`), including `\0`-prefixed forms.
+/// Byte-level scan: `\` and `1`–`7` are ASCII, and UTF-8 continuation bytes
+/// are ≥ 0x80, so byte windows match the former `Vec<char>` windows exactly.
 fn has_octal_escape(text: &str) -> bool {
-    let chars: Vec<char> = text.chars().collect();
-    chars
+    text.as_bytes()
         .windows(2)
-        .any(|window| window[0] == '\\' && ('1'..='7').contains(&window[1]))
+        .any(|window| window[0] == b'\\' && (b'1'..=b'7').contains(&window[1]))
 }
 
 pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> {

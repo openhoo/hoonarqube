@@ -33,14 +33,14 @@ const CONFIG_DICT_FQNS: &[&str] = &["pydantic.ConfigDict", "pydantic.config.Conf
 /// dataclasses, plain classes, unresolved annotations, and non-model
 /// classes stay silent.
 pub(crate) fn check_s8978_pydantic_dataclass_revalidation(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let fqns = ImportFqns::build(file_ctx);
     let classes = ClassIndex::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for class in &file_ctx.classes {
         check_class(

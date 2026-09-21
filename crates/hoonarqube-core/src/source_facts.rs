@@ -13,7 +13,7 @@ use std::io::Read;
 use std::path::Path;
 
 use hoonarqube_ir::FileMetrics;
-use tree_sitter::{Node, Parser};
+use tree_sitter::{Node, Parser, TreeCursor};
 
 use crate::Language;
 
@@ -443,13 +443,12 @@ impl RowFlags {
     }
 
     fn metrics(&self, lines: usize) -> FileMetrics {
-        let code_lines = self.code.iter().filter(|value| **value).count();
-        let comment_lines = self
-            .comment
-            .iter()
-            .zip(self.code.iter())
-            .filter(|(comment, code)| **comment && !**code)
-            .count();
+        let mut code_lines = 0usize;
+        let mut comment_lines = 0usize;
+        for (&code, &comment) in self.code.iter().zip(self.comment.iter()) {
+            code_lines += usize::from(code);
+            comment_lines += usize::from(comment && !code);
+        }
         FileMetrics {
             lines: saturating_u32(lines),
             code_lines: saturating_u32(code_lines),
@@ -463,6 +462,10 @@ struct FactCollector<'source> {
     language: Language,
     physical_lines: usize,
     line_starts: Vec<usize>,
+    /// Last resolved line span: token emission walks the tree in byte order,
+    /// so most lookups hit the same or the next line without a fresh binary
+    /// search.  `start > end` marks the cache empty.
+    line_hint: LineHint,
     rows: RowFlags,
     tokens: Vec<NormalizedToken>,
     symbols: Vec<String>,
@@ -477,6 +480,14 @@ struct FactCollector<'source> {
     java_definitions: Vec<UnitDefinition>,
     error: Option<String>,
     stopped: bool,
+}
+
+/// Inclusive byte span of one physical line plus its one-based number.
+#[derive(Debug, Clone, Copy)]
+struct LineHint {
+    start: usize,
+    end: usize,
+    line: u32,
 }
 struct JavaStream<'tree> {
     id: usize,
@@ -507,6 +518,14 @@ impl<'source> FactCollector<'source> {
             language,
             physical_lines,
             line_starts,
+            // Token emission walks the tree in byte order, so most line
+            // lookups hit the same or the next line without a fresh binary
+            // search.  `start > end` marks the cache empty.
+            line_hint: LineHint {
+                start: usize::MAX,
+                end: 0,
+                line: 0,
+            },
             rows: RowFlags::new(physical_lines),
             tokens: Vec::with_capacity(source.len().min(4096) / 8),
             symbols: Vec::new(),
@@ -545,8 +564,11 @@ impl<'source> FactCollector<'source> {
     }
 
     fn walk_generic(&mut self, root: Node<'_>) {
-        // An explicit node stack avoids recursion on adversarially deep trees.
+        // An explicit node stack avoids recursion on adversarially deep
+        // trees; one cursor is reset per internal node instead of
+        // allocating a fresh `node.walk()` for every child push.
         let mut stack = vec![root];
+        let mut cursor = root.walk();
         while let Some(node) = stack.pop() {
             if self.stopped {
                 break;
@@ -557,11 +579,11 @@ impl<'source> FactCollector<'source> {
             if node.is_missing() {
                 continue;
             }
-            if self.emit_special_node(node) {
+            if self.emit_special_node(node, &mut cursor) {
                 continue;
             }
             self.emit_generic_marker(node);
-            self.visit_generic_node(&mut stack, node);
+            self.visit_generic_node(&mut stack, &mut cursor, node);
         }
     }
 
@@ -575,14 +597,18 @@ impl<'source> FactCollector<'source> {
         true
     }
 
-    fn emit_special_node(&mut self, node: Node<'_>) -> bool {
+    fn emit_special_node<'tree>(
+        &mut self,
+        node: Node<'tree>,
+        cursor: &mut TreeCursor<'tree>,
+    ) -> bool {
         let kind = node.kind();
         if is_comment_kind(kind) {
             self.mark_node(node, false);
             return true;
         }
         if is_string_root_kind(kind) {
-            self.emit_string_token(node);
+            self.emit_string_token(node, cursor);
             return true;
         }
         if is_atomic_literal_kind(kind) {
@@ -592,12 +618,12 @@ impl<'source> FactCollector<'source> {
         false
     }
 
-    fn emit_string_token(&mut self, node: Node<'_>) {
+    fn emit_string_token<'tree>(&mut self, node: Node<'tree>, cursor: &mut TreeCursor<'tree>) {
         let kind = node.kind();
         let interpolated =
             is_interpolated_kind(kind) || (kind == "string" && contains_interpolation(node));
         if interpolated {
-            self.emit_interpolated(node);
+            self.emit_interpolated(node, cursor);
         } else {
             self.mark_node(node, true);
             self.key_buffer.clear();
@@ -636,15 +662,21 @@ impl<'source> FactCollector<'source> {
         }
     }
 
-    fn visit_generic_node<'tree>(&mut self, stack: &mut Vec<Node<'tree>>, node: Node<'tree>) {
+    fn visit_generic_node<'tree>(
+        &mut self,
+        stack: &mut Vec<Node<'tree>>,
+        cursor: &mut TreeCursor<'tree>,
+        node: Node<'tree>,
+    ) {
         if node.child_count() == 0 {
             self.emit_leaf(node);
         } else {
-            push_children(stack, node);
+            push_children(stack, cursor, node);
         }
     }
     fn walk_python(&mut self, root: Node<'_>) {
         let mut stack = vec![(root, false)];
+        let mut cursor = root.walk();
         while let Some((node, exiting)) = stack.pop() {
             if self.stopped {
                 return;
@@ -659,11 +691,11 @@ impl<'source> FactCollector<'source> {
             if node.is_missing() {
                 continue;
             }
-            if self.emit_special_node(node) {
+            if self.emit_special_node(node, &mut cursor) {
                 continue;
             }
             self.emit_python_start(node, &mut stack);
-            self.visit_python_node(&mut stack, node);
+            self.visit_python_node(&mut stack, &mut cursor, node);
         }
     }
 
@@ -691,12 +723,13 @@ impl<'source> FactCollector<'source> {
     fn visit_python_node<'tree>(
         &mut self,
         stack: &mut Vec<(Node<'tree>, bool)>,
+        cursor: &mut TreeCursor<'tree>,
         node: Node<'tree>,
     ) {
         if node.child_count() == 0 {
             self.emit_leaf(node);
         } else {
-            push_children_with_root_flag(stack, node);
+            push_children_with_root_flag(stack, cursor, node);
         }
     }
     fn walk_java(&mut self, root: Node<'_>) {
@@ -708,7 +741,11 @@ impl<'source> FactCollector<'source> {
 
     fn collect_java_streams<'tree>(&mut self, root: Node<'tree>) -> Vec<JavaStream<'tree>> {
         let mut stack = vec![root];
+        let mut cursor = root.walk();
         let mut stream_indices: HashMap<usize, usize> = HashMap::new();
+        // Consecutive units usually share one stream; the last lookup is
+        // cached so the map is only consulted on stream switches.
+        let mut last_stream: Option<(usize, usize)> = None;
         let mut streams = Vec::new();
         while let Some(node) = stack.pop() {
             if self.stopped {
@@ -720,11 +757,11 @@ impl<'source> FactCollector<'source> {
             if node.is_missing() {
                 continue;
             }
-            if self.collect_java_node(node, &mut stream_indices, &mut streams) {
+            if self.collect_java_node(node, &mut stream_indices, &mut last_stream, &mut streams) {
                 continue;
             }
             if node.child_count() > 0 {
-                push_children(&mut stack, node);
+                push_children(&mut stack, &mut cursor, node);
             }
         }
         streams
@@ -734,6 +771,7 @@ impl<'source> FactCollector<'source> {
         &mut self,
         node: Node<'tree>,
         stream_indices: &mut HashMap<usize, usize>,
+        last_stream: &mut Option<(usize, usize)>,
         streams: &mut Vec<JavaStream<'tree>>,
     ) -> bool {
         let kind = node.kind();
@@ -742,7 +780,7 @@ impl<'source> FactCollector<'source> {
             return true;
         }
         if is_java_unit_kind(kind) {
-            Self::add_java_unit(node, stream_indices, streams);
+            Self::add_java_unit(node, stream_indices, last_stream, streams);
         } else if node.child_count() == 0 && !node.is_extra() && !is_string_content_kind(kind) {
             // Canonical statement signatures mark their own leaves; this
             // covers declarations/wrappers that contain no statement
@@ -755,10 +793,15 @@ impl<'source> FactCollector<'source> {
     fn add_java_unit<'tree>(
         node: Node<'tree>,
         stream_indices: &mut HashMap<usize, usize>,
+        last_stream: &mut Option<(usize, usize)>,
         streams: &mut Vec<JavaStream<'tree>>,
     ) {
         let stream_id = java_stream_id(node);
-        let index = if let Some(index) = stream_indices.get(&stream_id) {
+        let index = if let Some((id, index)) = last_stream
+            && *id == stream_id
+        {
+            *index
+        } else if let Some(index) = stream_indices.get(&stream_id) {
             *index
         } else {
             let index = streams.len();
@@ -770,6 +813,7 @@ impl<'source> FactCollector<'source> {
             });
             index
         };
+        *last_stream = Some((stream_id, index));
         streams[index].units.push(node);
     }
 
@@ -791,8 +835,13 @@ impl<'source> FactCollector<'source> {
     }
 
     fn emit_java_units(&mut self, units: Vec<Node<'_>>) {
+        // One stack and one cursor serve every unit signature in this
+        // stream; both are reset per unit instead of reallocated.
+        let mut stack = Vec::new();
+        let mut cursor = None;
         for unit in units {
-            self.emit_java_unit_token(unit);
+            let cursor = cursor.get_or_insert_with(|| unit.walk());
+            self.emit_java_unit_token(unit, &mut stack, cursor);
             if self.stopped {
                 return;
             }
@@ -906,7 +955,7 @@ impl<'source> FactCollector<'source> {
         self.key_buffer.push_str(kind);
         self.emit_buffered_token_start(node);
     }
-    fn emit_interpolated(&mut self, node: Node<'_>) {
+    fn emit_interpolated<'tree>(&mut self, node: Node<'tree>, cursor: &mut TreeCursor<'tree>) {
         self.key_buffer.clear();
         self.key_buffer.push_str("interp:");
         append_part(&mut self.key_buffer, node.kind());
@@ -918,7 +967,7 @@ impl<'source> FactCollector<'source> {
             if self.stopped {
                 return;
             }
-            self.visit_interpolated_node(current, in_expression, is_root, &mut stack);
+            self.visit_interpolated_node(current, in_expression, is_root, &mut stack, cursor);
         }
         if !self.check_signature_size("interpolated syntax exceeds bounded facts size") {
             return;
@@ -954,6 +1003,7 @@ impl<'source> FactCollector<'source> {
         in_expression: bool,
         is_root: bool,
         stack: &mut Vec<(Node<'tree>, bool, bool)>,
+        cursor: &mut TreeCursor<'tree>,
     ) {
         let kind = current.kind();
         if !is_root && is_comment_kind(kind) {
@@ -976,7 +1026,7 @@ impl<'source> FactCollector<'source> {
         if current.child_count() == 0 {
             self.emit_interpolated_leaf(current, in_expression);
         } else {
-            push_children_with_context(stack, current, child_expression);
+            push_children_with_context(stack, cursor, current, child_expression);
         }
     }
 
@@ -1005,12 +1055,18 @@ impl<'source> FactCollector<'source> {
             },
         );
     }
-    fn emit_java_unit_token(&mut self, node: Node<'_>) {
+    fn emit_java_unit_token<'tree>(
+        &mut self,
+        node: Node<'tree>,
+        stack: &mut Vec<(Node<'tree>, bool)>,
+        cursor: &mut TreeCursor<'tree>,
+    ) {
         self.key_buffer.clear();
         self.key_buffer.push_str("java-unit");
         append_part(&mut self.key_buffer, node.kind());
         self.java_unit_children.clear();
-        let mut stack = vec![(node, true)];
+        stack.clear();
+        stack.push((node, true));
         let mut saw_code = false;
         while let Some((current, is_root)) = stack.pop() {
             if !self.check_signature_budget("java statement exceeds bounded facts size") {
@@ -1019,7 +1075,7 @@ impl<'source> FactCollector<'source> {
             if self.stopped {
                 return;
             }
-            self.visit_java_signature_node(current, is_root, &mut stack, &mut saw_code);
+            self.visit_java_signature_node(current, is_root, stack, cursor, &mut saw_code);
         }
         if !self.check_signature_size("java statement exceeds bounded facts size") {
             return;
@@ -1071,6 +1127,7 @@ impl<'source> FactCollector<'source> {
         current: Node<'tree>,
         is_root: bool,
         stack: &mut Vec<(Node<'tree>, bool)>,
+        cursor: &mut TreeCursor<'tree>,
         saw_code: &mut bool,
     ) {
         let kind = current.kind();
@@ -1126,7 +1183,7 @@ impl<'source> FactCollector<'source> {
                 },
             );
         } else {
-            push_children_with_root_flag(stack, current);
+            push_children_with_root_flag(stack, cursor, current);
         }
     }
 
@@ -1148,7 +1205,7 @@ impl<'source> FactCollector<'source> {
             self.stopped = true;
             return;
         };
-        let (_, end_line) = line_span(node, &self.line_starts);
+        let (_, end_line) = self.line_span(node);
         let end_byte = saturating_u32(node.end_byte());
         self.tokens.push(NormalizedToken {
             symbol,
@@ -1169,7 +1226,7 @@ impl<'source> FactCollector<'source> {
             self.stopped = true;
             return;
         };
-        let (start_line, full_end_line) = line_span(node, &self.line_starts);
+        let (start_line, full_end_line) = self.line_span(node);
         let start_byte = saturating_u32(node.start_byte());
         let full_end_byte = saturating_u32(node.end_byte());
         self.tokens.push(NormalizedToken {
@@ -1228,7 +1285,7 @@ impl<'source> FactCollector<'source> {
         // as executable code (and empty comment rows as comments).
         let start = node.start_byte().min(self.source.len());
         let end = node.end_byte().min(self.source.len()).max(start);
-        let mut row = line_number_at_byte(&self.line_starts, start);
+        let mut row = self.line_at(start);
         let mut has_non_whitespace = false;
         let bytes = self.source.as_bytes();
         let mut offset = start;
@@ -1252,14 +1309,69 @@ impl<'source> FactCollector<'source> {
         if has_non_whitespace {
             self.rows.mark(row, row, code);
         } else if start == end {
-            let line = line_number_at_byte(&self.line_starts, start);
+            let line = self.line_at(start);
             self.rows.mark(line, line, code);
         }
     }
 
     fn mark_start(&mut self, node: Node<'_>, code: bool) {
-        let (start, _) = line_span(node, &self.line_starts);
+        let (start, _) = self.line_span(node);
         self.rows.mark(start, start, code);
+    }
+
+    /// One-based line containing `byte`, served from the last resolved
+    /// line when possible.  Token emission is byte-ordered, so the common
+    /// case is a same-line hit; otherwise a binary search refreshes the
+    /// hint.
+    fn line_at(&mut self, byte: usize) -> u32 {
+        let hint = self.line_hint;
+        if hint.start <= byte && byte < hint.end {
+            return hint.line;
+        }
+        let partition = self.line_starts.partition_point(|start| *start <= byte);
+        let line = partition.max(1);
+        self.line_hint = LineHint {
+            start: self
+                .line_starts
+                .get(partition.saturating_sub(1))
+                .copied()
+                .unwrap_or(0),
+            end: self
+                .line_starts
+                .get(partition)
+                .copied()
+                .unwrap_or(usize::MAX),
+            line: saturating_u32(line).max(1),
+        };
+        self.line_hint.line
+    }
+
+    /// Inclusive one-based line span of a node; identical to the former
+    /// free `line_span` but served through [`Self::line_at`].
+    fn line_span(&mut self, node: Node<'_>) -> (u32, u32) {
+        let start_byte = node.start_byte();
+        let end_byte = node.end_byte();
+        let start_line = self.line_at(start_byte);
+        if end_byte <= start_byte {
+            return (start_line, start_line);
+        }
+        // A token ending inside the start line needs no second search.
+        if self
+            .line_starts
+            .get(start_line as usize)
+            .is_none_or(|next_start| end_byte < *next_start)
+        {
+            return (start_line, start_line);
+        }
+        let mut end_line = self.line_at(end_byte);
+        // A half-open node ending at a line start belongs to the preceding
+        // line.  This matches tree-sitter's end-position convention while
+        // also handling ECMAScript separators that tree-sitter does not
+        // count as rows.
+        if self.line_starts.binary_search(&end_byte).is_ok() {
+            end_line = end_line.saturating_sub(1).max(start_line);
+        }
+        (start_line, end_line.max(start_line))
     }
 
     fn fail(&mut self, message: &str) {
@@ -1269,8 +1381,12 @@ impl<'source> FactCollector<'source> {
     }
 }
 
-fn push_children<'tree>(stack: &mut Vec<Node<'tree>>, node: Node<'tree>) {
-    let mut cursor = node.walk();
+fn push_children<'tree>(
+    stack: &mut Vec<Node<'tree>>,
+    cursor: &mut TreeCursor<'tree>,
+    node: Node<'tree>,
+) {
+    cursor.reset(node);
     if cursor.goto_last_child() {
         loop {
             stack.push(cursor.node());
@@ -1281,8 +1397,12 @@ fn push_children<'tree>(stack: &mut Vec<Node<'tree>>, node: Node<'tree>) {
     }
 }
 
-fn push_children_with_root_flag<'tree>(stack: &mut Vec<(Node<'tree>, bool)>, node: Node<'tree>) {
-    let mut cursor = node.walk();
+fn push_children_with_root_flag<'tree>(
+    stack: &mut Vec<(Node<'tree>, bool)>,
+    cursor: &mut TreeCursor<'tree>,
+    node: Node<'tree>,
+) {
+    cursor.reset(node);
     if cursor.goto_last_child() {
         loop {
             stack.push((cursor.node(), false));
@@ -1295,10 +1415,11 @@ fn push_children_with_root_flag<'tree>(stack: &mut Vec<(Node<'tree>, bool)>, nod
 
 fn push_children_with_context<'tree>(
     stack: &mut Vec<(Node<'tree>, bool, bool)>,
+    cursor: &mut TreeCursor<'tree>,
     node: Node<'tree>,
     in_expression: bool,
 ) {
-    let mut cursor = node.walk();
+    cursor.reset(node);
     if cursor.goto_last_child() {
         loop {
             stack.push((cursor.node(), in_expression, false));
@@ -1307,31 +1428,6 @@ fn push_children_with_context<'tree>(
             }
         }
     }
-}
-
-fn line_span(node: Node<'_>, line_starts: &[usize]) -> (u32, u32) {
-    let start_byte = node.start_byte();
-    let end_byte = node.end_byte();
-    let start_line = line_number_at_byte(line_starts, start_byte);
-    if end_byte <= start_byte {
-        return (start_line, start_line);
-    }
-    let mut end_line = line_number_at_byte(line_starts, end_byte);
-    // A half-open node ending at a line start belongs to the preceding line.
-    // This matches tree-sitter's end-position convention while also handling
-    // ECMAScript separators that tree-sitter does not count as rows.
-    if line_starts.binary_search(&end_byte).is_ok() {
-        end_line = end_line.saturating_sub(1).max(start_line);
-    }
-    (start_line, end_line.max(start_line))
-}
-
-fn line_number_at_byte(line_starts: &[usize], byte: usize) -> u32 {
-    let line = match line_starts.binary_search(&byte) {
-        Ok(index) => index.saturating_add(1),
-        Err(index) => index.max(1),
-    };
-    saturating_u32(line).max(1)
 }
 
 pub(crate) fn semantic_line_count(source: &str, language: Option<Language>) -> usize {
@@ -1605,21 +1701,34 @@ fn is_java_unit_kind(kind: &str) -> bool {
 }
 
 fn contains_interpolation(node: Node<'_>) -> bool {
-    let mut stack = vec![node];
-    let mut visited = 0usize;
-    while let Some(current) = stack.pop() {
+    // A reused cursor depth-first walk replaces the former Vec stack plus
+    // per-node `node.walk()` allocations.  The root counts toward the
+    // bounded scan exactly like the stack version did.
+    let mut cursor = node.walk();
+    let mut visited = 1usize;
+    if !cursor.goto_first_child() {
+        return false;
+    }
+    loop {
         visited = visited.saturating_add(1);
         if visited > MAX_INTERPOLATION_SCAN_NODES {
-            // A huge string with an unbounded number of descendants is safer
-            // treated as interpolated than flattened as a plain literal.
+            // A huge string with an unbounded number of descendants is
+            // safer treated as interpolated than flattened as a plain
+            // literal.
             return true;
         }
-        if current.id() != node.id() && is_interpolation_boundary(current.kind()) {
+        if is_interpolation_boundary(cursor.node().kind()) {
             return true;
         }
-        push_children(&mut stack, current);
+        if cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() || cursor.node().id() == node.id() {
+                return false;
+            }
+        }
     }
-    false
 }
 
 pub(crate) fn fallback_metrics(source: &str, language: Language) -> FileMetrics {
@@ -2163,7 +2272,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
             if current.child_count() == 0 {
                 legacy_push_leaf_parts(&mut parts, source, current, kind);
             } else {
-                push_children_with_root_flag(&mut stack, current);
+                push_children_with_root_flag(&mut stack, &mut node.walk(), current);
             }
         }
         parts
@@ -2332,7 +2441,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
                 );
                 compared += 1;
             }
-            push_children(&mut stack, node);
+            push_children(&mut stack, &mut node.walk(), node);
         }
         assert_eq!(compared, facts.units.len());
     }

@@ -21,13 +21,13 @@ const SECONDARY_MESSAGE: &str = "Also set to \"False\" here.";
 /// `[]`/`()`/`{}` literals, and names bound exactly once to one of those.
 /// Missing keywords, truthy values, and non-`ConfigDict` calls stay silent.
 pub(crate) fn check_s8953_config_dict_validation_options(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let fqns = ImportFqns::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         check_call(call, &fqns, &resolver, index, source, &mut issues);

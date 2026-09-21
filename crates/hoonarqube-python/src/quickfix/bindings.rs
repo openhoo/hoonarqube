@@ -258,6 +258,7 @@ pub(crate) fn alternatives_s6974(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
     issue: &Issue,
 ) -> Vec<FixAlternative> {
     let issue_span = issue_range(issue, index, source);
@@ -280,11 +281,11 @@ pub(crate) fn alternatives_s6974(
     // A same-spelled self attribute in another class may be a distinct symbol;
     // do not guess across class boundaries.
     let mut outside = false;
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in file_ctx.stmts.iter().copied() {
         if stmt.range().start() >= class.range().start()
             && stmt.range().end() <= class.range().end()
         {
-            return;
+            continue;
         }
         for expr in stmt_exprs(stmt) {
             for_each_expr(expr, &mut |expr| {
@@ -296,7 +297,7 @@ pub(crate) fn alternatives_s6974(
                 }
             });
         }
-    });
+    }
     if outside {
         return Vec::new();
     }
@@ -694,11 +695,13 @@ fn load_is_in_nested_scope(
     name: &str,
     binding_range: TextRange,
 ) -> bool {
-    table.resolved_loads.iter().any(|load| {
-        load.name == name
-            && load.target == Some(scope_index)
-            && load.scope != scope_index
-            && load.range.start() > binding_range.end()
+    table.resolved_index.get(name).is_some_and(|indices| {
+        indices.iter().any(|&index| {
+            let load = &table.resolved_loads[index as usize];
+            load.target == Some(scope_index)
+                && load.scope != scope_index
+                && load.range.start() > binding_range.end()
+        })
     })
 }
 

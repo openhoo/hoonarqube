@@ -1,7 +1,7 @@
 use crate::engine::scope::{
     BindingKind, FileFacts, ScopeKind, SymbolTable, scope_has_dynamic_declaration,
 };
-use crate::support::{for_each_stmt, for_each_stmt_expr, is_builtin_name, issue_at, to_range};
+use crate::support::{is_builtin_name, issue_at, to_range};
 use hoonarqube_ir::{Fix, FixAlternative, Issue, TextEdit};
 use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_python_parser::Parsed;
@@ -10,13 +10,14 @@ use ruff_text_size::{Ranged, TextRange};
 
 // --- python:S5806 — shadowed builtins ----------------------------------------
 pub(crate) fn check_shadowed_builtins(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     table: &SymbolTable,
     facts: &FileFacts,
     index: &LineIndex,
     source: &str,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> Vec<Issue> {
-    let supported = supported_assignment_ranges(parsed);
+    let supported = supported_assignment_ranges(file_ctx);
     let mut issues = Vec::new();
     for (scope_index, scope) in table.scopes.iter().enumerate() {
         if scope.kind != ScopeKind::Function {
@@ -63,24 +64,28 @@ pub(crate) fn check_shadowed_builtins(
     issues
 }
 
-fn supported_assignment_ranges(parsed: &Parsed<ModModule>) -> Vec<TextRange> {
+fn supported_assignment_ranges(
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
+) -> Vec<TextRange> {
     let mut ranges = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
-        Stmt::Assign(assign) => {
-            for target in &assign.targets {
-                target_ranges(target, &mut ranges);
+    for stmt in file_ctx.stmts.iter().copied() {
+        match stmt {
+            Stmt::Assign(assign) => {
+                for target in &assign.targets {
+                    target_ranges(target, &mut ranges);
+                }
             }
+            Stmt::AnnAssign(assign) if assign.value.is_some() => {
+                target_ranges(&assign.target, &mut ranges);
+            }
+            _ => {}
         }
-        Stmt::AnnAssign(assign) if assign.value.is_some() => {
-            target_ranges(&assign.target, &mut ranges);
-        }
-        _ => {}
-    });
-    for_each_stmt_expr(parsed.syntax().body.as_slice(), &mut |expr| {
+    }
+    for expr in file_ctx.exprs.iter().copied() {
         if let Expr::Named(named) = expr {
             target_ranges(&named.target, &mut ranges);
         }
-    });
+    }
     ranges.sort_by_key(Ranged::start);
     ranges.dedup();
     ranges
@@ -158,11 +163,16 @@ pub(crate) fn alternatives_for_binding(
         }
         parent = table.scopes[idx].parent;
     }
-    if table.resolved_loads.iter().any(|load| {
-        load.scope == scope_index
-            && load.name == replacement_name
-            && load.target != Some(scope_index)
-    }) {
+    if table
+        .resolved_index
+        .get(&replacement_name)
+        .is_some_and(|indices| {
+            indices.iter().any(|&index| {
+                let load = &table.resolved_loads[index as usize];
+                load.scope == scope_index && load.target != Some(scope_index)
+            })
+        })
+    {
         return Vec::new();
     }
     let mut ranges: Vec<TextRange> = bindings
@@ -172,10 +182,12 @@ pub(crate) fn alternatives_for_binding(
         .collect();
     ranges.extend(
         table
-            .resolved_loads
-            .iter()
-            .filter(|load| load.target == Some(scope_index) && load.name == name)
-            .map(|load| load.range),
+            .resolved_index
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter(|&&index| table.resolved_loads[index as usize].target == Some(scope_index))
+            .map(|&index| table.resolved_loads[index as usize].range),
     );
     ranges.sort_by_key(Ranged::start);
     ranges.dedup();
@@ -235,6 +247,36 @@ mod tests {
         let issues = findings(&report, "python:S5806");
         assert_eq!(issues.len(), 1);
         assert!(issues[0].alternatives.is_empty());
+    }
+    #[test]
+    fn s5806_in_scope_load_resolving_elsewhere_vetoes_rename() {
+        // A `_len` load inside the shadowing scope that resolves outside it
+        // (here: the module binding) makes the rename unsafe.
+        let report = scan(concat!(
+            "_len = print\n",
+            "def process(items):\n",
+            "    len = 42\n",
+            "    return _len(items)\n",
+        ));
+        let issues = findings(&report, "python:S5806");
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].alternatives.is_empty());
+    }
+    #[test]
+    fn s5806_sibling_scope_load_does_not_veto_rename() {
+        // A `_len` load in a sibling scope resolves to that sibling's own
+        // binding and must not veto the rename in `process`.
+        let report = scan(concat!(
+            "def process(items):\n",
+            "    len = 42\n",
+            "    return len\n",
+            "def other():\n",
+            "    _len = str\n",
+            "    return _len(1)\n",
+        ));
+        let issues = findings(&report, "python:S5806");
+        assert_eq!(issues.len(), 1);
+        assert!(!issues[0].alternatives.is_empty());
     }
     #[test]
     fn s5806_module_level_preassignment_is_not_reported() {

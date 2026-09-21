@@ -14,17 +14,18 @@ use ruff_text_size::{Ranged, TextRange};
 // --- python:S1226 — ignored parameter initial values --------------------------
 
 pub(crate) fn check_overwritten_parameters(
-    parsed: &ruff_python_parser::Parsed<ruff_python_ast::ModModule>,
+    _parsed: &ruff_python_parser::Parsed<ruff_python_ast::ModModule>,
     table: &SymbolTable,
     facts: &FileFacts,
     index: &LineIndex,
     source: &str,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> Vec<Issue> {
     // Statement ranges let a load on the right-hand side of the first
     // overwriting assignment (`x = x + 1`) count as reading the initial
     // parameter value, matching the reference's live-variables analysis.
     let mut statement_ranges: Vec<TextRange> = Vec::new();
-    crate::support::for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in file_ctx.stmts.iter().copied() {
         if matches!(
             stmt,
             ruff_python_ast::Stmt::Assign(_)
@@ -33,7 +34,7 @@ pub(crate) fn check_overwritten_parameters(
         ) {
             statement_ranges.push(stmt.range());
         }
-    });
+    }
     let mut issues = Vec::new();
     for site in &table.def_sites {
         if site.flavor != DefFlavor::Function {
@@ -77,11 +78,18 @@ fn check_function_parameters(
             .map(|binding| binding.range)
             .collect();
         let loads: Vec<TextRange> = table
-            .resolved_loads
-            .iter()
-            .filter(|load| load.target == Some(site.own_scope) && load.name == *param_name)
-            .map(|load| load.range)
-            .collect();
+            .resolved_index
+            .get(param_name.as_str())
+            .map(|indices| {
+                indices
+                    .iter()
+                    .filter(|&&index| {
+                        table.resolved_loads[index as usize].target == Some(site.own_scope)
+                    })
+                    .map(|&index| table.resolved_loads[index as usize].range)
+                    .collect()
+            })
+            .unwrap_or_default();
         let Some(&first_overwrite) = overwrites.iter().reduce(|left, right| {
             if right.start() < left.start() {
                 right
@@ -111,26 +119,38 @@ fn check_function_parameters(
             .iter()
             .any(|range| range.start() < first_overwrite.start())
             || read_on_overwrite_rhs
-            || facts.token_names.iter().any(|(token_name, range)| {
-                let belongs_to_parameter = token_name == param_name;
-                let follows_parameter = range.start() >= param_range.end();
-                let precedes_overwrite = range.end() <= first_overwrite.start();
-                belongs_to_parameter && follows_parameter && precedes_overwrite
-            });
+            || facts
+                .token_index
+                .get(param_name.as_str())
+                .is_some_and(|indices| {
+                    indices.iter().any(|&index| {
+                        let range = facts.token_names[index as usize].1;
+                        range.start() >= param_range.end() && range.end() <= first_overwrite.start()
+                    })
+                });
         let read_after_overwrite = loads
             .iter()
             .any(|range| range.end() > first_overwrite.end())
-            || facts.token_names.iter().any(|(token_name, range)| {
-                let belongs_to_parameter = token_name == param_name;
-                let follows_overwrite = range.start() >= first_overwrite.end();
-                let is_not_an_overwrite = !overwrites.contains(range);
-                belongs_to_parameter && follows_overwrite && is_not_an_overwrite
-            });
-        let used_in_sub_function = table.resolved_loads.iter().any(|load| {
-            load.target == Some(site.own_scope)
-                && load.name == *param_name
-                && load.scope != site.own_scope
-        });
+            || facts
+                .token_index
+                .get(param_name.as_str())
+                .is_some_and(|indices| {
+                    indices.iter().any(|&index| {
+                        let range = facts.token_names[index as usize].1;
+                        range.start() >= first_overwrite.end() && !overwrites.contains(&range)
+                    })
+                });
+        let used_in_sub_function =
+            table
+                .resolved_index
+                .get(param_name.as_str())
+                .is_some_and(|indices| {
+                    indices.iter().any(|&index| {
+                        let load = &table.resolved_loads[index as usize];
+                        load.target == Some(site.own_scope) && load.scope != site.own_scope
+                    })
+                });
+
         if !read_before_overwrite && read_after_overwrite && !used_in_sub_function {
             issues.push(issue_at(
                 "python:S1226",

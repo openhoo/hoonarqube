@@ -17,17 +17,18 @@ use ruff_text_size::Ranged;
 // first positional parameter is a plain name never used inside the body.
 
 pub(crate) fn check_static_candidates(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in file_ctx.stmts.iter().copied() {
         let Stmt::ClassDef(class) = stmt else {
-            return;
+            continue;
         };
         check_class_for_static_candidates(class, index, source, &mut issues);
-    });
+    }
     issues
 }
 

@@ -29,12 +29,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ruff_python_ast::{Expr, ModModule, Stmt, StmtClassDef, StmtImportFrom};
-use ruff_python_parser::Parsed;
+use ruff_python_ast::{Expr, Stmt, StmtClassDef, StmtImportFrom};
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::engine::file_context::{AnyImport, FileContext};
-use crate::engine::scope::{BindingKind, SymbolTable, build_symbol_table, collect_file_facts};
+use crate::engine::scope::{BindingKind, SymbolTable};
 use crate::support::dotted_segments;
 
 /// FQNs the reference's `isOrExtendsType("pydantic.BaseModel")` accepts as
@@ -314,29 +313,21 @@ pub(crate) enum NameValue<'a> {
 /// through the symbol table to the expression its single assignment bound.
 /// Built once per file; `resolve` is O(1) per name.
 pub(crate) struct NameResolver<'a> {
-    values: HashMap<TextRange, &'a Expr>,
-    loads: HashMap<TextRange, (usize, String)>,
-    table: SymbolTable,
+    values: &'a HashMap<TextRange, &'a Expr>,
+    loads: &'a HashMap<TextRange, (usize, String)>,
+    table: &'a SymbolTable,
     dynamic: bool,
 }
 
 impl<'a> NameResolver<'a> {
-    pub(crate) fn build(parsed: &'a Parsed<ModModule>, source: &str) -> Self {
-        let table = build_symbol_table(parsed);
-        let facts = collect_file_facts(parsed, source);
-        let mut values: HashMap<TextRange, &'a Expr> = HashMap::new();
-        collect_assigned_values(parsed.syntax().body.as_slice(), &mut values);
-        let mut loads = HashMap::new();
-        for load in &table.resolved_loads {
-            if let Some(target) = load.target {
-                loads.insert(load.range, (target, load.name.clone()));
-            }
-        }
+    /// Shares the per-file symbol table, load map, and assigned-value map
+    /// from [`FileContext`] instead of rebuilding them per rule.
+    pub(crate) fn build(file_ctx: &'a FileContext<'a>) -> Self {
         Self {
-            values,
-            loads,
-            table,
-            dynamic: facts.dynamic_names,
+            values: file_ctx.assigned_values(),
+            loads: file_ctx.load_map(),
+            table: file_ctx.symbol_table(),
+            dynamic: file_ctx.file_facts().dynamic_names,
         }
     }
 
@@ -402,29 +393,4 @@ impl<'a> NameResolver<'a> {
             .collect::<Option<Vec<_>>>()
             .unwrap_or_default()
     }
-}
-
-/// Maps each single-`Name` assignment target range to its value expression.
-/// Chained targets (`x = y = v`) each record the same value, matching the
-/// reference's single-write counting; tuple targets, annotated targets
-/// without a value, and non-`Name` targets record nothing (their bindings
-/// resolve as ambiguous).
-fn collect_assigned_values<'a>(stmts: &'a [Stmt], values: &mut HashMap<TextRange, &'a Expr>) {
-    crate::support::for_each_stmt(stmts, &mut |stmt| match stmt {
-        Stmt::Assign(assign) => {
-            for target in &assign.targets {
-                if let Expr::Name(name) = target {
-                    values.insert(name.range(), &assign.value);
-                }
-            }
-        }
-        Stmt::AnnAssign(assign) => {
-            if let (Expr::Name(name), Some(value)) =
-                (assign.target.as_ref(), assign.value.as_deref())
-            {
-                values.insert(name.range(), value);
-            }
-        }
-        _ => {}
-    });
 }

@@ -20,7 +20,8 @@
 //! Semicolon checks use parser token boundaries rather than sibling-gap guesses.
 use crate::context::{AnalysisContext, RuleOptions};
 use crate::support::{
-    LineIndex, file_metrics, scan_comments, sort_issues, source_type_for, span_issue,
+    LineIndex, contains_ascii_case_insensitive, file_metrics, find_ascii_case_insensitive,
+    scan_comments, sort_issues, source_type_for, span_issue,
 };
 
 mod context;
@@ -507,15 +508,6 @@ fn attribute_value<'tag>(tag: &'tag [u8], name: &[u8]) -> Option<&'tag [u8]> {
         index = found + 1;
     }
     None
-}
-
-fn find_ascii_case_insensitive(haystack: &[u8], needle: &[u8], offset: usize) -> Option<usize> {
-    (offset..=haystack.len().saturating_sub(needle.len()))
-        .find(|index| haystack[*index..*index + needle.len()].eq_ignore_ascii_case(needle))
-}
-
-fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
-    find_ascii_case_insensitive(haystack, needle, 0).is_some()
 }
 
 /// Whether the path names a TypeScript declaration file. Matched on the

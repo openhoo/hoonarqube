@@ -24,14 +24,14 @@ const MESSAGE: &str = "Add a \"fallback\" parameter to this pydantic-core serial
 /// unknown callables stay silent. A keyword first argument and `*args`
 /// unpackings cannot be the model instance and flag like any other call.
 pub(crate) fn check_s8966_serialization_fallback(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let fqns = ImportFqns::build(file_ctx);
     let classes = ClassIndex::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for call in &file_ctx.calls {
         check_call(call, &fqns, &classes, &resolver, index, source, &mut issues);

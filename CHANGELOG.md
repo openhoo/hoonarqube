@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Performance
+
+- Reuse C# node-kind indexing, Python source-snapshot facts and name lookups,
+  JS/TS line-position/scanner work, and core source-facts/project bookkeeping
+  without changing analysis outputs or resource-limit semantics.
+- Qualify the local candidate against v0.9.0: 1.49x on the one-CPU reference
+  corpus, 1.58x on its C# subset, and 1.24–1.25x on minified JS/TS workloads.
+  Memory is broadly unchanged; see `PERFORMANCE.md` for measurements,
+  unchanged/slower controls, methodology, and limitations.
+
 ## 0.9.0 (2026-09-20)
 
 ### Features

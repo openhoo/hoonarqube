@@ -440,6 +440,33 @@ fn attach_duplication_result(
     measurements: &mut [ProjectFileMeasurement],
     measurement_indices: &[usize],
 ) -> Result<DuplicationAttachment, usize> {
+    // `detect_duplications` returns per-file metrics in the same path order
+    // the eligible inputs were fed in, so the common case attaches directly
+    // without building a path-keyed map.  Any shape mismatch falls back to
+    // the exact lookup below.
+    let aligned = result.files.len() == measurement_indices.len()
+        && measurement_indices
+            .iter()
+            .zip(result.files.iter())
+            .all(|(&index, file)| {
+                measurements
+                    .get(index)
+                    .is_some_and(|measurement| measurement.path == file.path)
+            });
+    if aligned {
+        for (&index, file) in measurement_indices.iter().zip(result.files) {
+            if let Some(measurement) = measurements.get_mut(index) {
+                measurement.duplication = Some(file.metrics);
+            } else {
+                return Err(1);
+            }
+        }
+        return Ok(DuplicationAttachment {
+            groups: result.groups,
+            metrics: result.metrics,
+        });
+    }
+
     let mut by_path: BTreeMap<PathBuf, Vec<DuplicationMetrics>> = BTreeMap::new();
     for file in result.files {
         by_path.entry(file.path).or_default().push(file.metrics);

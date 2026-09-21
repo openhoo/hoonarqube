@@ -32,7 +32,7 @@ pub(crate) fn check_s8505_singledispatch_mixup(
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let facts = WebFrameworkFacts::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     let mut visit = |function: &StmtFunctionDef, is_method: bool| {
         for (position, decorator) in function.decorator_list.iter().enumerate() {

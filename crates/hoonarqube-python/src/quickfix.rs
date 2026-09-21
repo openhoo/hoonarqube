@@ -14,10 +14,10 @@ mod type_fixes;
 
 use crate::engine::bindings::KnownBinding;
 use crate::engine::file_context::{AnyImport, FileContext};
-use crate::engine::scope::{
-    BindingKind, ScopeKind, SymbolTable, build_symbol_table, collect_file_facts, scope_is_within,
-};
-use crate::support::{for_each_stmt, parse, ranges_textually_equal, suite_span, to_range, to_u32};
+#[cfg(test)]
+use crate::engine::scope::build_symbol_table;
+use crate::engine::scope::{BindingKind, ScopeKind, SymbolTable, scope_is_within};
+use crate::support::{parse, ranges_textually_equal, suite_span, to_range, to_u32};
 use hoonarqube_ir::{Issue, TextEdit};
 use ruff_python_ast::token::TokenKind;
 use ruff_python_ast::{Expr, ModModule, Stmt, StmtIf};
@@ -49,12 +49,13 @@ pub(crate) fn attach_quick_fixes(
             "python:S139" => s139(issue, index, source),
             "python:S1110" => s1110(parsed, issue, index, source),
             "python:S1131" => s1131(issue, index, source),
+            "python:S1720" => s1720(issue, index, source, file_ctx),
             "python:S1186" => s1186(issue, index, source),
-            "python:S1720" => s1720(parsed, issue, index, source),
+
             "python:S1940" => s1940(issue, index, source),
-            "python:S2710" => s2710(parsed, issue, index, source),
+            "python:S2710" => s2710(parsed, issue, index, source, file_ctx),
             "python:S2772" | "python:S3626" => remove_line(issue, index, source),
-            "python:S3923" => s3923(parsed, issue, index, source),
+            "python:S3923" => s3923(parsed, issue, index, source, file_ctx),
             "python:S3984" => s3984(issue, index, source),
             "python:S4144" => s4144(issue, index, source),
             "python:S5712" => s5712(issue, index, source),
@@ -516,10 +517,10 @@ fn s1186(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
     result
 }
 fn s1720(
-    parsed: &Parsed<ModModule>,
     issue: &Issue,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext<'_>,
 ) -> Vec<Alternative> {
     if issue.range.is_file_level() {
         let insertion = text_edit(
@@ -531,7 +532,7 @@ fn s1720(
         return vec![alt("s1720-add-docstring", "Add docstring", vec![insertion])];
     }
     let issue_span = issue_range(issue, index, source);
-    match s1720_class_context(parsed, issue_span, source) {
+    match s1720_class_context(file_ctx, issue_span, source) {
         S1720ClassContext::Body {
             line_start,
             indentation,
@@ -580,49 +581,49 @@ enum S1720ClassContext {
 }
 
 fn s1720_class_context(
-    parsed: &Parsed<ModModule>,
+    file_ctx: &FileContext<'_>,
     issue_span: TextRange,
     source: &str,
 ) -> S1720ClassContext {
     let mut context = S1720ClassContext::NotClass;
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |statement| {
+    for statement in file_ctx.stmts.iter().copied() {
         if !matches!(&context, S1720ClassContext::NotClass) {
-            return;
+            continue;
         }
         let Stmt::ClassDef(class) = statement else {
-            return;
+            continue;
         };
         if class.name.range() != issue_span {
-            return;
+            continue;
         }
         context = S1720ClassContext::Unsafe;
         let Some(first) = class.body.first() else {
-            return;
+            continue;
         };
         let class_line = source.line_start(class.name.range().start());
         let first_start = first.range().start();
         let first_line = source.line_start(first_start);
         if class_line == first_line {
-            return;
+            continue;
         }
         let Some(class_line_text) = source
             .get(class_line.to_usize()..source.line_end(class.name.range().start()).to_usize())
         else {
-            return;
+            continue;
         };
         let Some(indentation) = source.get(first_line.to_usize()..first_start.to_usize()) else {
-            return;
+            continue;
         };
         if !indentation.chars().all(char::is_whitespace)
             || indentation.len() <= indent(class_line_text).len()
         {
-            return;
+            continue;
         }
         context = S1720ClassContext::Body {
             line_start: first_line.to_usize(),
             indentation: indentation.to_string(),
         };
-    });
+    }
     context
 }
 
@@ -840,20 +841,21 @@ fn operator_has_identifier_neighbor(bytes: &[u8], index: usize, length: usize) -
 }
 
 fn s2710(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     issue: &Issue,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext<'_>,
 ) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let table = build_symbol_table(parsed);
-    let Some((param_scope, flagged, kind)) = parameter_binding_at(&table, range) else {
+    let table = file_ctx.symbol_table();
+    let Some((param_scope, flagged, kind)) = parameter_binding_at(table, range) else {
         return Vec::new();
     };
     if kind != BindingKind::Parameter || flagged == "cls" {
         return Vec::new();
     }
-    if collect_file_facts(parsed, source).dynamic_names {
+    if file_ctx.file_facts().dynamic_names {
         return Vec::new();
     }
     let target = "cls";
@@ -864,11 +866,11 @@ fn s2710(
     {
         return Vec::new();
     }
-    let Some(method_span) = function_span_containing(parsed, range) else {
+    let Some(method_span) = function_span_containing_ctx(file_ctx, range) else {
         return Vec::new();
     };
     let Some(mut renames) =
-        s2710_collect_renames(&table, param_scope, flagged, target, method_span, range)
+        s2710_collect_renames(table, param_scope, flagged, target, method_span, range)
     else {
         return Vec::new();
     };
@@ -904,27 +906,32 @@ fn s2710_collect_renames(
     if let Some(bindings) = table.scopes[param_scope].bindings.get(flagged) {
         renames.extend(bindings.iter().map(|binding| binding.range));
     }
-    for load in &table.resolved_loads {
-        if load.name != flagged || !method_span.contains(load.range.start()) {
-            continue;
-        }
-        match load.target {
-            Some(binding_scope) if binding_scope == param_scope => {
-                if intermediate_scope_binds(table, load.scope, param_scope, target) {
-                    return None;
-                }
-                renames.push(load.range);
+    if let Some(indices) = table.resolved_index.get(flagged) {
+        for &index in indices {
+            let load = &table.resolved_loads[index as usize];
+            if !method_span.contains(load.range.start()) {
+                continue;
             }
-            Some(_) => {}
-            None => return None,
+            match load.target {
+                Some(binding_scope) if binding_scope == param_scope => {
+                    if intermediate_scope_binds(table, load.scope, param_scope, target) {
+                        return None;
+                    }
+                    renames.push(load.range);
+                }
+                Some(_) => {}
+                None => return None,
+            }
         }
     }
-    for load in &table.resolved_loads {
-        if load.name == target
-            && method_span.contains(load.range.start())
-            && post_rename_rebinds_to(table, load.scope, param_scope, target)
-        {
-            return None;
+    if let Some(indices) = table.resolved_index.get(target) {
+        for &index in indices {
+            let load = &table.resolved_loads[index as usize];
+            if method_span.contains(load.range.start())
+                && post_rename_rebinds_to(table, load.scope, param_scope, target)
+            {
+                return None;
+            }
         }
     }
     Some(renames)
@@ -948,19 +955,21 @@ fn parameter_binding_at(
         })
 }
 
-fn function_span_containing(parsed: &Parsed<ModModule>, span: TextRange) -> Option<TextRange> {
-    let mut found: Option<TextRange> = None;
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        if let Stmt::FunctionDef(function) = stmt
-            && function.range().contains(span.start())
-        {
-            let candidate = function.range();
-            if found.is_none_or(|current| candidate.len() < current.len()) {
-                found = Some(candidate);
+/// Same smallest-containing-function lookup over the shared inventory: the
+/// pre-order `file_ctx.functions` sequence preserves the original
+/// first-minimum tie-break.
+fn function_span_containing_ctx(ctx: &FileContext<'_>, span: TextRange) -> Option<TextRange> {
+    ctx.functions
+        .iter()
+        .filter(|function| function.range().contains(span.start()))
+        .map(Ranged::range)
+        .reduce(|best, candidate| {
+            if candidate.len() < best.len() {
+                candidate
+            } else {
+                best
             }
-        }
-    });
-    found
+        })
 }
 
 fn intermediate_scope_binds(
@@ -1012,16 +1021,16 @@ fn post_rename_rebinds_to(
     false
 }
 
-fn s3923_find_if(parsed: &Parsed<ModModule>, range: TextRange) -> Option<&StmtIf> {
-    let mut flagged: Option<&StmtIf> = None;
-    for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
-        if let Stmt::If(if_stmt) = stmt
-            && if_stmt.start() == range.start()
-        {
-            flagged = Some(if_stmt);
-        }
-    });
-    flagged
+fn s3923_find_if<'a>(ctx: &'a FileContext<'a>, range: TextRange) -> Option<&'a StmtIf> {
+    // The original walk overwrote `flagged` on every match, so the last
+    // `if` statement starting at the issue offset wins.
+    ctx.stmts
+        .iter()
+        .filter_map(|&stmt| match stmt {
+            Stmt::If(if_stmt) if if_stmt.start() == range.start() => Some(if_stmt),
+            _ => None,
+        })
+        .next_back()
 }
 
 fn s3923(
@@ -1029,9 +1038,10 @@ fn s3923(
     issue: &Issue,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext<'_>,
 ) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let Some(if_stmt) = s3923_find_if(parsed, range) else {
+    let Some(if_stmt) = s3923_find_if(file_ctx, range) else {
         return Vec::new();
     };
     let [clause] = &if_stmt.elif_else_clauses[..] else {
@@ -1044,7 +1054,7 @@ fn s3923(
     let else_suite = suite_span(&clause.body);
     if !ranges_textually_equal(if_suite, else_suite, source)
         || branch_strings_unsafe(parsed, source, if_suite, else_suite)
-        || !builtin_bool_is_unshadowed(parsed, source)
+        || !builtin_bool_is_unshadowed(file_ctx)
     {
         return Vec::new();
     }
@@ -1108,11 +1118,11 @@ fn s3923_replacement(
     }
     Some(replacement)
 }
-fn builtin_bool_is_unshadowed(parsed: &Parsed<ModModule>, source: &str) -> bool {
-    let facts = collect_file_facts(parsed, source);
+fn builtin_bool_is_unshadowed(file_ctx: &FileContext<'_>) -> bool {
+    let facts = file_ctx.file_facts();
     !facts.dynamic_names
         && !facts.has_wildcard_import
-        && build_symbol_table(parsed).scopes.iter().all(|scope| {
+        && file_ctx.symbol_table().scopes.iter().all(|scope| {
             !scope.bindings.contains_key("bool")
                 && !scope.declares_global("bool")
                 && !scope.declares_nonlocal("bool")
@@ -2471,6 +2481,26 @@ mod tests {
 
         let multiline = "if flag:\n    value = \"\"\"\n        same\n    \"\"\"\nelse:\n    value = \"\"\"\n        same\n    \"\"\"\n";
         assert_refused(multiline, "python:S3923", "s3923-remove-if-statement");
+    }
+
+    #[test]
+    fn s3923_finds_if_statements_nested_in_functions() {
+        // The flattened statement inventory reaches `if` statements nested
+        // inside function bodies, matching the original recursive walk.
+        let nested = "def select(flag):\n    if flag:\n        value = 2\n    else:\n        value = 2\n    return value\n\n\nprint(select(True))\n";
+        let projected_nested = projected(nested, "python:S3923", "s3923-remove-if-statement")
+            .expect("nested if rewrite expected");
+        assert_same_runtime(nested, &projected_nested);
+    }
+
+    #[test]
+    fn s1720_finds_classes_nested_in_functions() {
+        // The flattened statement inventory reaches classes nested inside
+        // function bodies for the docstring insertion context.
+        let nested = "def build():\n    \"\"\"builder\"\"\"\n    class Helper:\n        def work(self):\n            \"\"\"work\"\"\"\n            return 1\n    return Helper\n";
+        let projected_nested = projected(nested, "python:S1720", "s1720-add-docstring")
+            .expect("nested class docstring rewrite expected");
+        assert!(projected_nested.contains("\"\"\" doc \"\"\""));
     }
 
     #[test]

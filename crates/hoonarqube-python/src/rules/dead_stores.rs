@@ -109,17 +109,20 @@ fn is_reportable(
         return false;
     };
     binding.loop_depth == 0
-        && table
-            .resolved_loads
-            .iter()
-            .any(|load| load.target == Some(scope_idx) && load.name == name)
-        && !table.resolved_loads.iter().any(|load| {
-            // A load from a nested function scope keeps the store live:
-            // the reference's isUsedInSubFunction exemption.
-            load.target == Some(scope_idx) && load.name == name && load.scope != scope_idx
+        && table.resolved_index.get(name).is_some_and(|indices| {
+            indices
+                .iter()
+                .any(|&index| table.resolved_loads[index as usize].target == Some(scope_idx))
+        })
+        && !table.resolved_index.get(name).is_some_and(|indices| {
+            indices.iter().any(|&index| {
+                // A load from a nested function scope keeps the store live:
+                // the reference's isUsedInSubFunction exemption.
+                let load = &table.resolved_loads[index as usize];
+                load.target == Some(scope_idx) && load.scope != scope_idx
+            })
         })
 }
-
 /// The reference exempts assignments of falsy literals, `True`, `1`, and
 /// `-1` (sentinel initializations like `y = None` before a `try`).
 fn is_sentinel_assignment(suite: &[Stmt], range: TextRange) -> bool {

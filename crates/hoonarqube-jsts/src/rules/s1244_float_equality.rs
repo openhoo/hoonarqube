@@ -224,6 +224,13 @@ fn is_floating_point_literal(literal: &oxc_ast::ast::NumericLiteral<'_>) -> bool
     let Some(raw) = literal.raw.as_ref() else {
         return false;
     };
+    // Fast path: removing `_` and lowercasing can never introduce `.` or
+    // `e`, so a literal without `.`/`e`/`E` in its raw text fails the
+    // normalized `contains` check below — skipping both allocations for
+    // the common integer literal.
+    if !raw.bytes().any(|byte| matches!(byte, b'.' | b'e' | b'E')) {
+        return false;
+    }
     let raw = raw.replace('_', "").to_lowercase();
     if !raw.contains('.') && !raw.contains('e') {
         return false;
@@ -558,5 +565,16 @@ const status = total !== 0 ? 'ok' : 'zero';
 ";
         let keys = js_keys(source);
         assert_eq!(count_key(&keys, "javascript:S1244"), 0);
+    }
+
+    #[test]
+    fn s1244_underscore_and_exponent_literal_edges() {
+        // Underscore-separated float literals still classify as floats
+        // after `_` removal; integer-only literals (even with underscores
+        // or exponent form) do not flag (baseline-verified).
+        let flagged = js_keys("if (1_000.1 == 2) {}\nif (0.1 == 0.2) {}\n");
+        assert_eq!(count_key(&flagged, "javascript:S1244"), 2);
+        let clean = js_keys("if (1_000 == 2) {}\nif (1e10 == 2) {}\n");
+        assert_eq!(count_key(&clean, "javascript:S1244"), 0);
     }
 }

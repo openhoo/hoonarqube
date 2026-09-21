@@ -6,8 +6,7 @@ use crate::engine::file_context::FileContext;
 use crate::engine::project_context::PythonProjectContext;
 use crate::engine::rx::collect_regex_sites;
 use crate::engine::rx::parse_regex;
-use crate::engine::scope::build_symbol_table;
-use crate::engine::scope::collect_file_facts;
+
 use crate::rules::all_exports_exist::check_all_exports_exist;
 use crate::rules::any_all_list_comprehension::check_any_all_list_comprehension;
 use crate::rules::any_type_hints::check_any_type_hints;
@@ -563,7 +562,7 @@ fn tier_a2_data_science_checks(
     issues.extend(check_pipeline_memory_missing(index, source, file_ctx));
     issues.extend(check_estimator_hyperparameters(index, source, file_ctx));
     issues.extend(check_base_estimator_underscore_attributes(
-        parsed, index, source,
+        parsed, index, source, file_ctx,
     ));
     issues.extend(check_nn_module_super_init(index, source, file_ctx));
     issues.extend(check_autograd_variable_usage(index, source, file_ctx));
@@ -676,7 +675,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_unconditional_assertions(
         parsed, index, source, file_ctx,
     ));
-    issues.extend(check_unseeded_randomness(parsed, index, source, file_ctx));
+    issues.extend(check_unseeded_randomness(index, source, file_ctx));
     issues.extend(check_sync_os_calls_in_async(
         parsed, index, source, file_ctx,
     ));
@@ -745,45 +744,43 @@ pub(crate) fn check_tier_b_battery(
     file_ctx: &FileContext,
     path: &Path,
 ) -> Vec<Issue> {
-    let table = build_symbol_table(parsed);
-    let facts = collect_file_facts(parsed, source);
+    let table = file_ctx.symbol_table();
+    let facts = file_ctx.file_facts();
     let mut issues = Vec::new();
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(
-            parsed, &table, &facts, index, source, path,
+            parsed, table, facts, index, source, path, file_ctx,
         ));
-        issues.extend(check_unused_locals(parsed, &table, options, index, source));
+        issues.extend(check_unused_locals(
+            parsed, table, options, index, source, file_ctx,
+        ));
         issues.extend(check_unused_parameters(
-            &table, index, source, file_ctx, path,
+            table, index, source, file_ctx, path,
         ));
-        issues.extend(check_use_before_definition(&table, &facts, index, source));
+        issues.extend(check_use_before_definition(table, facts, index, source));
         issues.extend(check_dead_stores(
-            parsed, &table, &facts, options, index, source,
+            parsed, table, facts, options, index, source,
         ));
         issues.extend(check_overwritten_parameters(
-            parsed, &table, &facts, index, source,
+            parsed, table, facts, index, source, file_ctx,
         ));
         issues.extend(check_known_value_comparisons(index, source, file_ctx));
-        issues.extend(check_static_candidates(parsed, index, source));
+        issues.extend(check_static_candidates(parsed, index, source, file_ctx));
     }
     issues.extend(check_unused_private_methods(
-        &table, &facts, index, source, file_ctx,
+        table, facts, index, source, file_ctx,
     ));
     issues.extend(check_unused_private_nested_classes(
-        &table, &facts, index, source,
+        table, facts, index, source,
     ));
-    issues.extend(check_unused_nested_definitions(
-        &table, &facts, index, source,
-    ));
+    issues.extend(check_unused_nested_definitions(table, facts, index, source));
     issues.extend(check_shadowed_builtins(
-        parsed, &table, &facts, index, source,
+        parsed, table, facts, index, source, file_ctx,
     ));
-    issues.extend(check_all_exports_exist(
-        parsed, &table, &facts, index, source,
-    ));
-    issues.extend(check_undefined_names(&table, &facts, index, source));
+    issues.extend(check_all_exports_exist(parsed, table, facts, index, source));
+    issues.extend(check_undefined_names(table, facts, index, source));
     issues.extend(check_unread_private_attributes(
-        &table, &facts, options, index, source,
+        table, facts, options, index, source,
     ));
     issues.extend(check_unreachable_except_blocks(index, source, file_ctx));
     issues.extend(check_single_iteration_loops(index, source, file_ctx));
@@ -795,14 +792,14 @@ pub(crate) fn check_tier_b_battery(
     issues.extend(check_invariant_returns(index, source, file_ctx));
     issues.extend(check_inconsistent_returns(index, source, file_ctx));
     issues.extend(check_confusing_type_checks(index, source, file_ctx));
-    issues.extend(check_tf_function_global_captures(&table, index, source));
+    issues.extend(check_tf_function_global_captures(table, index, source));
     issues.extend(check_tf_variable_creation(parsed, index, source));
     issues.extend(check_tf_function_side_effects(parsed, index, source));
     issues.extend(check_missing_eval_after_load(index, source, file_ctx));
     issues.extend(check_unreferenced_asyncio_tasks(index, source, file_ctx));
     issues.extend(check_sync_open_without_async_with(parsed, index, source));
     issues.extend(check_nested_estimator_parameters(
-        parsed, &table, index, source, file_ctx,
+        parsed, table, index, source, file_ctx,
     ));
     issues.extend(check_cancellation_scope_checkpoints(parsed, index, source));
     issues.extend(check_swallowed_cancellations(index, source, file_ctx));

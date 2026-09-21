@@ -3,6 +3,8 @@
 
 use crate::CsLanguage;
 use hoonarqube_ir::Issue;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use tree_sitter::Node;
 
 pub(crate) use hoonarqube_ir::u32_saturating as to_u32;
@@ -25,8 +27,106 @@ pub(crate) fn walk_all<'t>(node: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {
     }
 }
 
+/// One analyzed file's kind index: a kind → document-position table over
+/// the CST's preorder traversal.  Only plain data is stored (positions and
+/// kind names), so the table is `'static` and can live in a scoped
+/// thread-local while `collect_kinds` callers keep borrowing nodes from
+/// their own tree.
+struct KindIndex {
+    /// Identity of the indexed root: node id, byte extent, and descendant
+    /// count.  A hit requires all four, so a subtree or a different tree's
+    /// root can never be served stale data.
+    root_id: usize,
+    root_start: usize,
+    root_end: usize,
+    root_descendants: usize,
+    /// kind → preorder positions, each list in document order.
+    by_kind: HashMap<&'static str, Vec<usize>>,
+}
+
+impl KindIndex {
+    fn build(root: Node<'_>) -> Self {
+        let mut by_kind: HashMap<&'static str, Vec<usize>> = HashMap::new();
+        let mut position = 0_usize;
+        walk_all(root, &mut |node| {
+            by_kind.entry(node.kind()).or_default().push(position);
+            position += 1;
+        });
+        KindIndex {
+            root_id: root.id(),
+            root_start: root.start_byte(),
+            root_end: root.end_byte(),
+            root_descendants: root.descendant_count(),
+            by_kind,
+        }
+    }
+
+    fn matches(&self, root: Node<'_>) -> bool {
+        root.id() == self.root_id
+            && root.start_byte() == self.root_start
+            && root.end_byte() == self.root_end
+            && root.descendant_count() == self.root_descendants
+    }
+}
+
+thread_local! {
+    static KIND_INDEX: RefCell<Option<KindIndex>> = const { RefCell::new(None) };
+}
+
+/// Restores the previous index when the [`with_kind_index`] scope ends,
+/// including on unwind, so nested analyses index their own tree.
+struct KindIndexGuard(Option<KindIndex>);
+
+impl Drop for KindIndexGuard {
+    fn drop(&mut self) {
+        let _ = KIND_INDEX.try_with(|slot| *slot.borrow_mut() = self.0.take());
+    }
+}
+
+/// Runs `f` with a kind index of `root`'s tree installed for this thread.
+/// While the scope is active, `collect_kinds` calls on that exact root are
+/// served from the index instead of re-walking the whole tree; calls on any
+/// other node or tree keep the original cursor walk.  The index is built
+/// once per analyzed file, replacing hundreds of per-rule full traversals.
+pub(crate) fn with_kind_index<R>(root: Node<'_>, f: impl FnOnce() -> R) -> R {
+    let previous = KIND_INDEX.with(|slot| slot.borrow_mut().replace(KindIndex::build(root)));
+    let _guard = KindIndexGuard(previous);
+    f()
+}
+
 /// Collects every node whose kind is listed, in document order.
 pub(crate) fn collect_kinds<'t>(root: Node<'t>, kinds: &[&str]) -> Vec<Node<'t>> {
+    let indexed = KIND_INDEX.with(|slot| {
+        let slot = slot.borrow();
+        let index = slot.as_ref()?;
+        if !index.matches(root) {
+            return None;
+        }
+        let mut positions: Vec<usize> = Vec::new();
+        for kind in kinds {
+            if let Some(list) = index.by_kind.get(*kind) {
+                positions.extend_from_slice(list);
+            }
+        }
+        positions.sort_unstable();
+        positions.dedup();
+        // Positions are preorder indices over the same visible nodes the
+        // cursor visits, so `goto_descendant` lands exactly on each recorded
+        // node; sorted input keeps cursor movement incremental.
+        let mut cursor = root.walk();
+        let mut nodes = Vec::with_capacity(positions.len());
+        for position in positions {
+            cursor.goto_descendant(position);
+            if cursor.descendant_index() != position {
+                return None;
+            }
+            nodes.push(cursor.node());
+        }
+        Some(nodes)
+    });
+    if let Some(nodes) = indexed {
+        return nodes;
+    }
     let mut matched = Vec::new();
     walk_all(root, &mut |node| {
         if kinds.contains(&node.kind()) {
@@ -479,7 +579,7 @@ pub(crate) fn is_error_tainted(node: Node<'_>) -> bool {
 mod tests {
     use super::{
         canonical_identifier, collect_kinds, node_text, pos_of, range_from_byte_offsets, range_of,
-        simple_name, walk_all,
+        simple_name, walk_all, with_kind_index,
     };
     use hoonarqube_ir::{Pos, Range};
     use std::collections::HashSet;
@@ -593,5 +693,87 @@ mod tests {
                 column: 0,
             }
         );
+    }
+    #[test]
+    fn kind_index_collect_kinds_matches_walk_results() {
+        let source = "class C { void M() { foreach (var x in xs) { if (x) { y += 1; } } } }";
+        let tree = crate::parse(source);
+        let root = tree.root_node();
+        let kind_sets: &[&[&str]] = &[
+            &["identifier"],
+            &["block", "if_statement"],
+            &["foreach_statement", "if_statement", "block"],
+            &["nonexistent_kind"],
+            &["=", "+="],
+            &["compilation_unit"],
+        ];
+        with_kind_index(root, || {
+            for &kinds in kind_sets {
+                let mut expected = Vec::new();
+                walk_all(root, &mut |node| {
+                    if kinds.contains(&node.kind()) {
+                        expected.push(node);
+                    }
+                });
+                assert_eq!(collect_kinds(root, kinds), expected, "kinds {kinds:?}");
+            }
+        });
+    }
+
+    #[test]
+    fn kind_index_nested_scopes_serve_their_own_tree() {
+        let source_a = "class A { int x; }";
+        let source_b = "class B { string y; void M() {} }";
+        let tree_a = crate::parse(source_a);
+        let tree_b = crate::parse(source_b);
+        let root_a = tree_a.root_node();
+        let root_b = tree_b.root_node();
+        let kinds: &[&str] = &["class_declaration", "method_declaration"];
+        let mut expected_a = Vec::new();
+        walk_all(root_a, &mut |node| {
+            if kinds.contains(&node.kind()) {
+                expected_a.push(node);
+            }
+        });
+        let mut expected_b = Vec::new();
+        walk_all(root_b, &mut |node| {
+            if kinds.contains(&node.kind()) {
+                expected_b.push(node);
+            }
+        });
+        with_kind_index(root_a, || {
+            assert_eq!(collect_kinds(root_a, kinds), expected_a);
+            with_kind_index(root_b, || {
+                // The inner scope indexes tree B; tree A's root must still
+                // resolve to A's own nodes through the walk fallback.
+                assert_eq!(collect_kinds(root_b, kinds), expected_b);
+                assert_eq!(collect_kinds(root_a, kinds), expected_a);
+            });
+            // The outer index is restored after the inner scope ends.
+            assert_eq!(collect_kinds(root_a, kinds), expected_a);
+        });
+    }
+
+    #[test]
+    fn kind_index_scope_restores_after_panic() {
+        let source = "class C { int x; }";
+        let tree = crate::parse(source);
+        let root = tree.root_node();
+        let kinds: &[&str] = &["class_declaration"];
+        let mut expected = Vec::new();
+        walk_all(root, &mut |node| {
+            if kinds.contains(&node.kind()) {
+                expected.push(node);
+            }
+        });
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_kind_index(root, || panic!("boom"));
+        }));
+        assert!(panicked.is_err());
+        // No index is installed after the unwound scope: results still match.
+        assert_eq!(collect_kinds(root, kinds), expected);
+        with_kind_index(root, || {
+            assert_eq!(collect_kinds(root, kinds), expected);
+        });
     }
 }

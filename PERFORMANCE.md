@@ -1,9 +1,95 @@
 # Performance and footprint qualification
 
-The current review compares a locally rebuilt, immutable v0.8.2 baseline
-(`5ea3135`) with the integrated performance PR #25 on the same host/toolchain.
-The older `d305104` (0.4.2) versus `f032103` comparison is retained in explicitly
-historical sections below; those numbers are not current-release claims.
+The latest local qualification compares immutable v0.9.0 (`b93725fd`) with
+the performance candidate described below. Earlier comparisons are retained
+as historical evidence, not current-release claims.
+
+## Qualification — 2026-09-21 (local candidate)
+
+Both executables used Rust 1.96.0, the locked dependencies, and the unchanged
+release profile (thin LTO, stripped symbols). CLI measurements used the existing
+`scripts/benchmark_cli.py`: two warmups and six measured runs per executable,
+balanced AB/BA ordering, 300-second command timeouts, fixed CPU affinity,
+unchanged input fingerprints, and exact stdout/stderr/exit equality. No campaign
+builds or tests ran during measurements. Unrelated host workloads remained
+active; a baseline-versus-identical-baseline control differed by 1.2% in elapsed
+median. Small differences below are not evidence of a general speedup.
+
+The reference benchmark contains 3,433 inventory entries copied from the eight
+checked-in oracle projects. Only five intentionally malformed parser negatives
+were removed from this complete benchmark copy: Python `parsingerror_bad.py`
+and JS/TS/Go/Rust `s2260_bad` files. Those inputs remain in the separate full
+correctness corpus. No analysis rules, duplication checks, or resource limits
+were disabled. The existing generated mixed workload contains 4,641 files.
+
+Elapsed medians; RSS is median per-run peak KiB, not allocation attribution:
+
+| Workload / output | CPUs | Before ms | After ms | Speedup | RSS before / after KiB |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Reference mixed / JSON | 1 | 4235.74 | 2837.42 | 1.49x | 91316 / 91100 |
+| Reference mixed / JSON | 8 | 1310.01 | 1069.52 | 1.22x | 90368 / 90332 |
+| C# reference / JSON | 1 | 3824.22 | 2417.56 | 1.58x | 32894 / 33060 |
+| Python reference / JSON | 1 | 105.53 | 94.36 | 1.12x | 23714 / 23686 |
+| JavaScript reference / JSON | 1 | 64.86 | 62.44 | 1.04x | 25482 / 25544 |
+| TypeScript reference / JSON | 1 | 286.01 | 282.73 | 1.01x | 88796 / 89890 |
+| C# many-method stress / JSON | 1 | 1763.89 | 780.12 | 2.26x | 33536 / 33782 |
+| C# loop-heavy stress / JSON | 1 | 2089.43 | 1170.09 | 1.79x | 27670 / 27994 |
+| Minified JavaScript / JSON | 1 | 1173.91 | 947.45 | 1.24x | 91744 / 92226 |
+| Minified TypeScript / JSON | 1 | 1185.09 | 949.10 | 1.25x | 92426 / 92422 |
+| Unicode/CRLF metric stress / JSON | 1 | 323.67 | 318.32 | 1.02x | 84984 / 84734 |
+| Generated mixed / default JSON | 8 | 258.52 | 246.36 | 1.05x | 105566 / 105888 |
+| Generated mixed / extended JSON | 8 | 262.70 | 245.57 | 1.07x | 105838 / 105666 |
+| Generated mixed / GitLab | 8 | 413.25 | 385.65 | 1.07x | 227646 / 227466 |
+| Report-heavy Python / Sonar | 1 | 461.18 | 392.56 | 1.17x | 167010 / 167388 |
+
+The six-language in-memory benchmark retained identical semantic checksums.
+At scale 1, C# improved 1.62x and Python 1.33x; JS/TS/Go/Rust were effectively
+unchanged. The restored, unchanged duplication matcher measured 1.07x for
+same-diagonal matches, 1.00x for exact clones, and 1.01x for no-clone input;
+these are controls, not matcher optimization claims. RSS is broadly unchanged.
+The CLI grew from 39,972,320 to 40,005,888 bytes (0.08%); no binary-size gain
+is claimed.
+
+Implementation changes:
+
+- C# builds one scoped, thread-local kind-to-preorder index per analysis and
+  resolves matching nodes through the caller's tree cursor. Subtree queries
+  retain ordinary traversal; nested analyses and unwinding restore the previous
+  index. Existing quick-fix node/range lookup semantics remain unchanged.
+- Python shares symbol tables, file facts, assignments, and name-load indices
+  within one source snapshot. Scope lookup uses validated nested ranges with
+  the original linear fallback for non-laminar input. Traversal uses reusable
+  scratch buffers without changing visit order.
+- JS/TS reuses character-position progress, counts covered lines with merged
+  intervals, scans comments without per-character vectors, and avoids repeated
+  ASCII-lowercase allocations. UTF-8 and ECMAScript line terminators retain
+  their original position semantics.
+- Core source-facts traversal reuses cursors, line lookups, and Java-stream
+  scratch storage. Project metrics avoid an auxiliary path map when the result
+  inventory already aligns. Duplication matcher changes were reverted after
+  the no-clone microbenchmark regressed by 7%; its original implementation,
+  work charging, and collision-candidate indexing remain unchanged.
+
+Correctness evidence: full stdout, stderr, and exits match on eight native
+profile/export combinations over the unmodified fixture corpus (3,565 inventory
+entries, deliberately incomplete). Another 100 differential controls cover
+malformed input, Unicode/CRLF, classification, invalid limits, recovered C#,
+and 50 seeded Java duplication cases checked against an independent window
+oracle. All 5,112 Rust tests, 141 oracle-harness tests, and 49 script tests pass,
+as do strict workspace Clippy, rustdoc, and formatting. The pinned v0.3.1
+`rust:S3776` gate reports zero findings.
+
+Measured executable SHA-256:
+
+```text
+baseline  5a6f576ea800c5a3b56c8ce8d36c60c6803d636da8e9c9ab025d87767d290e77
+candidate dff45418d5e95fecfd3346fabb8a6c8f924842481e1c1be91ee5de3b9cc42fb0
+```
+
+Local raw evidence and campaign-only drivers are retained under
+`~/.local/state/hoonarqube-perf-20260921/`: `provenance.json`, `machine.json`,
+`results/`, frozen binaries, fixture copies, and the measurement/control drivers.
+These local measurements are not a published-release or SonarQube-parity claim.
 
 ## Qualification — 2026-09-11 (superseded baseline)
 
@@ -182,7 +268,7 @@ explicit.
 Build both binaries once, from separate clean/immutable trees, before running
 the harness. Record each source commit, toolchain, build profile, executable
 SHA-256, and relevant environment. The baseline for this qualification is
-origin/main v0.8.2 at `5ea3135`; the candidate must be the exact integrated
+v0.9.0 at `b93725fd`; the candidate must be the exact integrated
 source under review. Do not build, test, or mutate either tree during timed
 runs. Run both binaries against the same unchanged fixture tree. Each
 `--output` must be a new path outside analyzed inputs; the harness refuses to
@@ -198,7 +284,7 @@ PROOF="$(mktemp -d /tmp/hoonarqube-perf-proof.XXXXXX)"
 FIXTURE_PARENT="$(mktemp -d /tmp/hoonarqube-perf-fixtures.XXXXXX)"
 FIXTURES="$FIXTURE_PARENT/fixtures"
 python3 scripts/benchmark_fixtures.py "$FIXTURES"
-BASELINE="$PROOF/baseline-v0.8.2"
+BASELINE="$PROOF/baseline-v0.9.0"
 CANDIDATE=/path/to/hoonarqube-candidate
 CHECKOUT="$FIXTURES"
 ```

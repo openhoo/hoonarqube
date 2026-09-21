@@ -14,6 +14,7 @@ pub(crate) fn check_base_estimator_underscore_attributes(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for_each_method(parsed.syntax().body.as_slice(), &mut |class, function| {
@@ -39,7 +40,7 @@ pub(crate) fn check_base_estimator_underscore_attributes(
                         source,
                     );
                     let alternatives = crate::quickfix::bindings::alternatives_s6974(
-                        parsed, index, source, &issue,
+                        parsed, index, source, file_ctx, &issue,
                     );
                     let issue = alternatives.into_iter().fold(issue, |issue, alternative| {
                         issue.with_alternative(

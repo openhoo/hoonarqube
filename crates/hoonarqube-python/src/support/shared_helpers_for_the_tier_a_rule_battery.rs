@@ -36,43 +36,55 @@ pub(crate) fn is_keyword(text: &str) -> bool {
 
 /// Directly nested statement bodies of a compound statement.
 pub(crate) fn child_bodies(stmt: &Stmt) -> Vec<&[Stmt]> {
+    let mut bodies = Vec::new();
+    child_bodies_into(stmt, &mut bodies);
+    bodies
+}
+
+/// [`child_bodies`] without the per-call `Vec` allocation: appends the same
+/// body slices in the same order into `out`.
+pub(crate) fn child_bodies_into<'a>(stmt: &'a Stmt, out: &mut Vec<&'a [Stmt]>) {
     match stmt {
-        Stmt::FunctionDef(s) => vec![s.body.as_slice()],
-        Stmt::ClassDef(s) => vec![s.body.as_slice()],
-        Stmt::For(s) => vec![s.body.as_slice(), s.orelse.as_slice()],
-        Stmt::While(s) => vec![s.body.as_slice(), s.orelse.as_slice()],
+        Stmt::FunctionDef(s) => out.push(s.body.as_slice()),
+        Stmt::ClassDef(s) => out.push(s.body.as_slice()),
+        Stmt::For(s) => {
+            out.push(s.body.as_slice());
+            out.push(s.orelse.as_slice());
+        }
+        Stmt::While(s) => {
+            out.push(s.body.as_slice());
+            out.push(s.orelse.as_slice());
+        }
         Stmt::If(s) => {
-            let mut bodies = vec![s.body.as_slice()];
-            bodies.extend(
+            out.push(s.body.as_slice());
+            out.extend(
                 s.elif_else_clauses
                     .iter()
                     .map(|clause| clause.body.as_slice()),
             );
-            bodies
         }
-        Stmt::With(s) => vec![s.body.as_slice()],
-        Stmt::Match(s) => s.cases.iter().map(|case| case.body.as_slice()).collect(),
+        Stmt::With(s) => out.push(s.body.as_slice()),
+        Stmt::Match(s) => out.extend(s.cases.iter().map(|case| case.body.as_slice())),
         Stmt::Try(s) => {
-            let mut bodies = vec![
-                s.body.as_slice(),
-                s.orelse.as_slice(),
-                s.finalbody.as_slice(),
-            ];
-            bodies.extend(s.handlers.iter().map(|handler| match handler {
+            out.push(s.body.as_slice());
+            out.push(s.orelse.as_slice());
+            out.push(s.finalbody.as_slice());
+            out.extend(s.handlers.iter().map(|handler| match handler {
                 ExceptHandler::ExceptHandler(handler) => handler.body.as_slice(),
             }));
-            bodies
         }
-        _ => Vec::new(),
+        _ => {}
     }
 }
 
 /// Depth-first visit of every statement in the tree.
 pub(crate) fn for_each_stmt<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a Stmt)) {
     let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
+    let mut bodies = Vec::new();
     while let Some(stmt) = pending.pop() {
         visit(stmt);
-        for body in child_bodies(stmt).into_iter().rev() {
+        child_bodies_into(stmt, &mut bodies);
+        for body in bodies.drain(..).rev() {
             pending.extend(body.iter().rev());
         }
     }
@@ -84,6 +96,13 @@ pub(crate) fn for_each_stmt<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a St
 /// it evaluates the string.
 pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
     let mut children: Vec<&Expr> = Vec::new();
+    child_exprs_into(expr, &mut children);
+    children
+}
+
+/// [`child_exprs`] without the per-call `Vec` allocation: appends the same
+/// child expressions in the same order into `children`.
+pub(crate) fn child_exprs_into<'a>(expr: &'a Expr, children: &mut Vec<&'a Expr>) {
     match expr {
         Expr::BoolOp(e) => children.extend(&e.values),
         Expr::Named(e) => {
@@ -97,7 +116,7 @@ pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
         Expr::UnaryOp(e) => children.push(&e.operand),
         Expr::Lambda(e) => {
             if let Some(parameters) = &e.parameters {
-                push_parameter_exprs(parameters, &mut children);
+                push_parameter_exprs(parameters, children);
             }
             children.push(&e.body);
         }
@@ -119,22 +138,22 @@ pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
         Expr::Tuple(e) => children.extend(&e.elts),
         Expr::ListComp(e) => {
             children.push(&e.elt);
-            push_generator_exprs(&e.generators, &mut children);
+            push_generator_exprs(&e.generators, children);
         }
         Expr::SetComp(e) => {
             children.push(&e.elt);
-            push_generator_exprs(&e.generators, &mut children);
+            push_generator_exprs(&e.generators, children);
         }
         Expr::Generator(e) => {
             children.push(&e.elt);
-            push_generator_exprs(&e.generators, &mut children);
+            push_generator_exprs(&e.generators, children);
         }
         Expr::DictComp(e) => {
             if let Some(key) = &e.key {
                 children.push(key);
             }
             children.push(&e.value);
-            push_generator_exprs(&e.generators, &mut children);
+            push_generator_exprs(&e.generators, children);
         }
         Expr::Await(e) => children.push(&e.value),
         Expr::YieldFrom(e) => children.push(&e.value),
@@ -159,11 +178,21 @@ pub(crate) fn child_exprs(expr: &Expr) -> Vec<&Expr> {
                 children.push(bound);
             }
         }
-        Expr::FString(e) => push_fstring_exprs(&e.value, &mut children),
-        Expr::TString(e) => push_tstring_exprs(&e.value, &mut children),
+        Expr::FString(e) => push_fstring_exprs(&e.value, children),
+        Expr::TString(e) => push_tstring_exprs(&e.value, children),
         _ => {}
     }
-    children
+}
+
+fn push_generator_exprs<'a>(
+    generators: &'a [ruff_python_ast::Comprehension],
+    children: &mut Vec<&'a Expr>,
+) {
+    for generator in generators {
+        children.push(&generator.target);
+        children.push(&generator.iter);
+        children.extend(&generator.ifs);
+    }
 }
 
 /// Interpolation expressions of an f-string value's f-string parts; plain
@@ -198,47 +227,68 @@ fn push_interpolation_exprs<'a>(
         }
     }
 }
-
-fn push_generator_exprs<'a>(
-    generators: &'a [ruff_python_ast::Comprehension],
-    children: &mut Vec<&'a Expr>,
-) {
-    for generator in generators {
-        children.push(&generator.target);
-        children.push(&generator.iter);
-        children.extend(&generator.ifs);
-    }
-}
-
 pub(crate) fn for_each_expr<'a>(expr: &'a Expr, visit: &mut impl FnMut(&'a Expr)) {
     let mut pending = vec![expr];
+    let mut children = Vec::new();
     while let Some(expr) = pending.pop() {
         visit(expr);
-        pending.extend(child_exprs(expr).into_iter().rev());
+        child_exprs_into(expr, &mut children);
+        pending.extend(children.drain(..).rev());
     }
 }
 
 /// Visits every expression reachable from a statement tree.
 pub(crate) fn for_each_stmt_expr<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a Expr)) {
-    for_each_stmt(stmts, &mut |stmt| {
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, visit);
+    enum Work<'a> {
+        Stmt(&'a Stmt),
+        Expr(&'a Expr),
+    }
+    let mut work: Vec<Work<'a>> = stmts.iter().rev().map(Work::Stmt).collect();
+    let mut bodies = Vec::new();
+    let mut top_exprs = Vec::new();
+    let mut children = Vec::new();
+    while let Some(item) = work.pop() {
+        match item {
+            Work::Stmt(stmt) => {
+                // Bodies go onto the stack first so the statement's own
+                // expressions pop — and fully drain — ahead of them.
+                child_bodies_into(stmt, &mut bodies);
+                for body in bodies.drain(..).rev() {
+                    work.extend(body.iter().rev().map(Work::Stmt));
+                }
+                push_stmt_exprs(stmt, &mut top_exprs);
+                work.extend(top_exprs.drain(..).rev().map(Work::Expr));
+            }
+            Work::Expr(expr) => {
+                visit(expr);
+                child_exprs_into(expr, &mut children);
+                work.extend(children.drain(..).rev().map(Work::Expr));
+            }
         }
-    });
+    }
 }
 
 /// Like [`for_each_stmt_expr`] but does not descend into nested function or
 /// class scopes.
 pub(crate) fn for_each_stmt_expr_in_scope<'a>(stmts: &'a [Stmt], visit: &mut impl FnMut(&'a Expr)) {
     let mut pending: Vec<&Stmt> = stmts.iter().rev().collect();
+    let mut bodies = Vec::new();
+    let mut top_exprs = Vec::new();
+    let mut exprs = Vec::new();
+    let mut children = Vec::new();
     while let Some(stmt) = pending.pop() {
         if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
             continue;
         }
-        for expr in stmt_exprs(stmt) {
-            for_each_expr(expr, visit);
+        push_stmt_exprs(stmt, &mut top_exprs);
+        exprs.extend(top_exprs.drain(..).rev());
+        while let Some(expr) = exprs.pop() {
+            visit(expr);
+            child_exprs_into(expr, &mut children);
+            exprs.extend(children.drain(..).rev());
         }
-        for body in child_bodies(stmt).into_iter().rev() {
+        child_bodies_into(stmt, &mut bodies);
+        for body in bodies.drain(..).rev() {
             pending.extend(body.iter().rev());
         }
     }
@@ -249,9 +299,16 @@ pub(crate) fn for_each_stmt_expr_in_scope<'a>(stmts: &'a [Stmt], visit: &mut imp
 /// selectors, ...).
 pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
     let mut exprs: Vec<&Expr> = Vec::new();
+    push_stmt_exprs(stmt, &mut exprs);
+    exprs
+}
+
+/// [`stmt_exprs`] without the per-call `Vec` allocation: appends the same
+/// top-level expressions in the same order into `exprs`.
+pub(crate) fn push_stmt_exprs<'a>(stmt: &'a Stmt, exprs: &mut Vec<&'a Expr>) {
     match stmt {
-        Stmt::FunctionDef(s) => push_function_exprs(s, &mut exprs),
-        Stmt::ClassDef(s) => push_class_exprs(s, &mut exprs),
+        Stmt::FunctionDef(s) => push_function_exprs(s, exprs),
+        Stmt::ClassDef(s) => push_class_exprs(s, exprs),
         Stmt::Return(s) => exprs.extend(s.value.as_deref()),
         Stmt::Delete(s) => exprs.extend(&s.targets),
         Stmt::Assign(s) => {
@@ -272,9 +329,9 @@ pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
             exprs.push(&s.iter);
         }
         Stmt::While(s) => exprs.push(&s.test),
-        Stmt::If(s) => push_if_exprs(s, &mut exprs),
-        Stmt::With(s) => push_with_exprs(s, &mut exprs),
-        Stmt::Match(s) => push_match_exprs(s, &mut exprs),
+        Stmt::If(s) => push_if_exprs(s, exprs),
+        Stmt::With(s) => push_with_exprs(s, exprs),
+        Stmt::Match(s) => push_match_exprs(s, exprs),
         Stmt::Raise(s) => {
             exprs.extend(s.exc.as_deref());
             exprs.extend(s.cause.as_deref());
@@ -290,10 +347,9 @@ pub(crate) fn stmt_exprs(stmt: &Stmt) -> Vec<&Expr> {
             }
         }
         Stmt::Expr(s) => exprs.push(&s.value),
-        Stmt::TypeAlias(type_alias) => push_type_alias_exprs(type_alias, &mut exprs),
+        Stmt::TypeAlias(type_alias) => push_type_alias_exprs(type_alias, exprs),
         _ => {}
     }
-    exprs
 }
 
 fn push_function_exprs<'a>(function: &'a StmtFunctionDef, exprs: &mut Vec<&'a Expr>) {

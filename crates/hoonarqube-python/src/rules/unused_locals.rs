@@ -19,11 +19,12 @@ pub(crate) fn check_unused_locals(
     options: &AnalyzerOptions,
     index: &LineIndex,
     source: &str,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> Vec<Issue> {
     // Names bound inside multi-target `for` headers (`for i, x in ...`)
     // are exempt in the reference.
     let mut tuple_target_ranges = std::collections::HashSet::new();
-    crate::support::for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| {
+    for stmt in file_ctx.stmts.iter().copied() {
         let target = match stmt {
             Stmt::For(node) => Some(node.target.as_ref()),
             _ => None,
@@ -36,7 +37,7 @@ pub(crate) fn check_unused_locals(
             }
             collect_target_ranges(target.unwrap(), &mut tuple_target_ranges);
         }
-    });
+    }
     let mut issues = Vec::new();
     for (scope_idx, scope) in table.scopes.iter().enumerate() {
         // Module-level bindings are the import surface: every name the
@@ -112,9 +113,13 @@ fn check_scope_locals(
         // unrelated scopes) must not veto the finding, so no file-wide
         // token fallback runs here.
         let used = table
-            .resolved_loads
-            .iter()
-            .any(|load| load.target == Some(scope_idx) && load.name == *name);
+            .resolved_index
+            .get(name.as_str())
+            .is_some_and(|indices| {
+                indices
+                    .iter()
+                    .any(|&index| table.resolved_loads[index as usize].target == Some(scope_idx))
+            });
         if !used {
             let issue = issue_at(
                 "python:S1481",

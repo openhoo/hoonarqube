@@ -30,11 +30,12 @@ pub(crate) fn check_unused_imports(
     index: &LineIndex,
     source: &str,
     path: &Path,
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> Vec<Issue> {
     if path.file_name().is_some_and(|name| name == "__init__.py") {
         return Vec::new();
     }
-    let import_modules = import_module_names(parsed);
+    let import_modules = import_module_names(file_ctx);
     let comments: Vec<&str> = comment_tokens(parsed)
         .map(|token| &source[token.range()])
         .collect();
@@ -56,9 +57,13 @@ pub(crate) fn check_unused_imports(
             continue;
         }
         let used = table
-            .resolved_loads
-            .iter()
-            .any(|load| load.target == Some(0) && load.name == *name)
+            .resolved_index
+            .get(name.as_str())
+            .is_some_and(|indices| {
+                indices
+                    .iter()
+                    .any(|&index| table.resolved_loads[index as usize].target == Some(0))
+            })
             || name_used_in_tokens(facts, name, &import_ranges)
             || comments
                 .iter()
@@ -87,33 +92,37 @@ fn import_is_allowed(module: &str) -> bool {
 
 /// Maps each import binding range to its dotted module name: `from a.b
 /// import c` yields `a.b` for `c`'s range, `import a.b` yields `a.b`.
-fn import_module_names(parsed: &Parsed<ModModule>) -> HashMap<TextRange, String> {
+fn import_module_names(
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
+) -> HashMap<TextRange, String> {
     let mut modules = HashMap::new();
-    crate::support::for_each_stmt(parsed.syntax().body.as_slice(), &mut |stmt| match stmt {
-        Stmt::ImportFrom(import) => {
-            let module = import
-                .module
-                .as_ref()
-                .map(ToString::to_string)
-                .unwrap_or_default();
-            for alias in &import.names {
-                let range = alias
-                    .asname
+    for stmt in file_ctx.stmts.iter().copied() {
+        match stmt {
+            Stmt::ImportFrom(import) => {
+                let module = import
+                    .module
                     .as_ref()
-                    .map_or_else(|| alias.name.range(), Ranged::range);
-                modules.insert(range, module.clone());
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+                for alias in &import.names {
+                    let range = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| alias.name.range(), Ranged::range);
+                    modules.insert(range, module.clone());
+                }
             }
-        }
-        Stmt::Import(import) => {
-            for alias in &import.names {
-                let range = alias
-                    .asname
-                    .as_ref()
-                    .map_or_else(|| alias.name.range(), Ranged::range);
-                modules.insert(range, alias.name.to_string());
+            Stmt::Import(import) => {
+                for alias in &import.names {
+                    let range = alias
+                        .asname
+                        .as_ref()
+                        .map_or_else(|| alias.name.range(), Ranged::range);
+                    modules.insert(range, alias.name.to_string());
+                }
             }
+            _ => {}
         }
-        _ => {}
-    });
+    }
     modules
 }

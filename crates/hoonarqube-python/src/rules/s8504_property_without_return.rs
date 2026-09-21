@@ -24,13 +24,13 @@ const MESSAGE: &str = "Add a return statement to this property method.";
 /// shadowing). Returns, yields, and raises inside nested `def`s,
 /// `class`es, or lambdas belong to the nested scope and do not count.
 pub(crate) fn check_s8504_property_without_return(
-    parsed: &Parsed<ModModule>,
+    _parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
     let facts = WebFrameworkFacts::build(file_ctx);
-    let resolver = NameResolver::build(parsed, source);
+    let resolver = NameResolver::build(file_ctx);
     let mut issues = Vec::new();
     for function in &file_ctx.functions {
         if !is_property(function, &facts, &resolver) || is_abstract(function, &facts, &resolver) {

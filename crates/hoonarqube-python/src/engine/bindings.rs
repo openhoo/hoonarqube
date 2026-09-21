@@ -1,6 +1,6 @@
 use crate::support::{
-    child_bodies, collect_target_names, for_each_expr, named_parameters, stmt_exprs,
-    stmt_store_names,
+    child_bodies, collect_target_name_refs, for_each_expr, named_parameters, stmt_exprs,
+    stmt_store_name_refs,
 };
 use ruff_python_ast::{ExceptHandler, Expr, ExprCall, ModModule, Pattern, Stmt};
 use ruff_python_parser::Parsed;
@@ -95,6 +95,14 @@ struct Scope {
 /// final spelling while preserving conservative unknown-call behavior.
 pub(crate) struct KnownBindings {
     scopes: Vec<Scope>,
+    /// Per-scope child indices, populated by [`KnownBindings::build_scope_index`].
+    scope_children: Vec<Vec<usize>>,
+    /// `true` when the recorded scope ranges form the laminar, source-ordered
+    /// family the descent in [`KnownBindings::scope_for`] relies on: every
+    /// child range is contained in its parent's and sibling ranges are
+    /// disjoint in source order. `false` keeps the original linear scan so
+    /// malformed or overlapping ranges resolve exactly as before.
+    scope_index_exact: bool,
 }
 
 impl KnownBindings {
@@ -106,9 +114,43 @@ impl KnownBindings {
                 range: parsed.syntax().range(),
                 bindings: HashMap::new(),
             }],
+            scope_children: Vec::new(),
+            scope_index_exact: false,
         };
         facts.record_suite(0, parsed.syntax().body.as_slice());
+        facts.build_scope_index();
         facts
+    }
+
+    /// Links every scope to its recorded children and verifies the laminar,
+    /// source-ordered range invariant that [`KnownBindings::scope_for`]'s
+    /// descent needs. Any deviation (a child escaping its parent's range or
+    /// overlapping siblings) disables the index and falls back to the
+    /// original linear scan, preserving resolution semantics for arbitrary
+    /// range configurations.
+    fn build_scope_index(&mut self) {
+        self.scope_children = vec![Vec::new(); self.scopes.len()];
+        let mut exact = true;
+        for (index, scope) in self.scopes.iter().enumerate() {
+            let Some(parent) = scope.parent else {
+                continue;
+            };
+            let parent_range = self.scopes[parent].range;
+            if !(parent_range.start() <= scope.range.start()
+                && scope.range.end() <= parent_range.end())
+            {
+                exact = false;
+            }
+            let siblings = &mut self.scope_children[parent];
+            if let Some(&previous) = siblings.last() {
+                let previous_range = self.scopes[previous].range;
+                if previous_range.end() > scope.range.start() {
+                    exact = false;
+                }
+            }
+            siblings.push(index);
+        }
+        self.scope_index_exact = exact;
     }
 
     /// Resolves a local name at a source position using the same lexical
@@ -200,8 +242,8 @@ impl KnownBindings {
             }
             _ => {
                 let activation = self.activation_range(scope, statement.range());
-                for name in stmt_store_names(statement) {
-                    self.bind(scope, &name, KnownBinding::Unknown, activation);
+                for name in stmt_store_name_refs(statement) {
+                    self.bind(scope, name, KnownBinding::Unknown, activation);
                 }
                 self.record_nested_bodies(scope, statement);
             }
@@ -393,9 +435,9 @@ impl KnownBindings {
         range: TextRange,
     ) {
         let mut names = Vec::new();
-        collect_target_names(target, &mut names);
+        collect_target_name_refs(target, &mut names);
         for name in names {
-            self.bind_with_static(scope, &name, value, static_text, range);
+            self.bind_with_static(scope, name, value, static_text, range);
         }
     }
 
@@ -411,15 +453,23 @@ impl KnownBindings {
         static_text: bool,
         range: TextRange,
     ) {
-        self.scopes[scope]
-            .bindings
-            .entry(name.to_string())
-            .or_default()
-            .push(Binding {
+        let bindings = &mut self.scopes[scope].bindings;
+        if let Some(entries) = bindings.get_mut(name) {
+            entries.push(Binding {
                 value,
                 static_text,
                 range,
             });
+        } else {
+            bindings.insert(
+                name.to_string(),
+                vec![Binding {
+                    value,
+                    static_text,
+                    range,
+                }],
+            );
+        }
     }
 
     fn bind_assignment_targets(
@@ -578,6 +628,18 @@ impl KnownBindings {
                 .is_some_and(|parent| self.has_binding_in_chain(parent, name))
     }
     fn scope_for(&self, range: TextRange) -> usize {
+        // Empty ranges can sit on a sibling boundary where several disjoint
+        // scopes contain them; the linear scan keeps the exact
+        // `min_by_key(len, index)` answer there.
+        if self.scope_index_exact && !range.is_empty() {
+            return self.scope_for_indexed(range);
+        }
+        self.scope_for_linear(range)
+    }
+
+    /// Original `min_by_key` semantics: the containing scope with the
+    /// smallest range, ties broken by the lowest recorded index.
+    fn scope_for_linear(&self, range: TextRange) -> usize {
         self.scopes
             .iter()
             .enumerate()
@@ -586,6 +648,39 @@ impl KnownBindings {
             })
             .min_by_key(|(_, scope)| u32::from(scope.range.end()) - u32::from(scope.range.start()))
             .map_or(0, |(index, _)| index)
+    }
+
+    /// Descends the verified scope tree to the deepest containing scope, then
+    /// returns the highest ancestor on that path whose range length equals
+    /// the deepest's. Under the laminar invariant every containing scope is
+    /// an ancestor of the deepest one, so this reproduces
+    /// `min_by_key(len, index)` exactly: the minimal length is the deepest
+    /// scope's, and among equal-length ancestors the lowest index is the
+    /// highest one. At most one child can contain a non-empty range because
+    /// verified siblings are disjoint and source-ordered.
+    fn scope_for_indexed(&self, range: TextRange) -> usize {
+        let mut current = 0usize;
+        loop {
+            let children = &self.scope_children[current];
+            let position = children
+                .partition_point(|&child| self.scopes[child].range.start() <= range.start());
+            let Some(&child) = position.checked_sub(1).and_then(|last| children.get(last)) else {
+                break;
+            };
+            if range.end() > self.scopes[child].range.end() {
+                break;
+            }
+            current = child;
+        }
+        let minimal = self.scopes[current].range.len();
+        let mut answer = current;
+        while let Some(parent) = self.scopes[answer].parent {
+            if self.scopes[parent].range.len() != minimal {
+                break;
+            }
+            answer = parent;
+        }
+        answer
     }
 }
 
