@@ -189,9 +189,15 @@ fn normalized_lexical(path: &Path) -> PathBuf {
     normalized
 }
 
-/// `specifier` interpreted as a module path relative to `importing_file`,
-/// compared extension-insensitively so `./x` matches `x.ts`/`x.js` siblings.
-/// A trailing directory specifier also matches the file's `index` module.
+/// `specifier` interpreted as a module path relative to `importing_file`.
+/// A specifier that names a concrete file (its last segment carries an
+/// extension) is a self-import only when the resolved path is exactly the
+/// importing file, or when module resolution would append the importing
+/// file's extension to it (`./widget.test` inside `widget.test.ts`).
+/// Same-stem assets such as `./widget.scss` inside `widget.ts` resolve to a
+/// different file and are never self-imports. An extensionless specifier
+/// (`./widget`, `./`) resolves through the importing file's extension, and a
+/// trailing directory specifier also matches the file's `index` module.
 fn relative_specifier_resolves_to_self(specifier: &str, importing_file: &Path) -> bool {
     let relative = specifier.starts_with("./")
         || specifier.starts_with("../")
@@ -203,9 +209,20 @@ fn relative_specifier_resolves_to_self(specifier: &str, importing_file: &Path) -
     let directory = importing_file.parent().unwrap_or_else(|| Path::new(""));
     let resolved = normalized_lexical(&directory.join(specifier));
     let target = normalized_lexical(importing_file);
-    let target_extensionless = target.with_extension("");
-    resolved.with_extension("") == target_extensionless
-        || resolved.join("index").with_extension("") == target_extensionless
+    let Some(target_stem) = target.file_stem() else {
+        return false;
+    };
+    let target_extensionless = target.with_file_name(target_stem);
+    let names_concrete_file =
+        !specifier.ends_with('/') && Path::new(specifier).extension().is_some();
+    let resolves_to_file = if names_concrete_file {
+        resolved == target || resolved == target_extensionless
+    } else {
+        resolved == target_extensionless
+    };
+    resolves_to_file
+        || resolved.join("index") == target
+        || resolved.join("index") == target_extensionless
 }
 
 /// `S7060`: imports whose specifier resolves to the importing file itself.
@@ -1059,6 +1076,108 @@ const upload = multer(options);
                 .issues
                 .iter()
                 .all(|issue| issue.rule_key != "typescript:S7060")
+        );
+    }
+
+    #[test]
+    fn same_stem_asset_imports_are_not_self_imports() {
+        // #807: `./widget.scss` inside `widget.ts` resolves to a separate
+        // stylesheet asset, not to the importing module. The same holds for
+        // any same-stem specifier whose concrete filename differs from the
+        // importing file's filename.
+        for specifier in [
+            "./widget.scss",
+            "./widget.css",
+            "./widget.json",
+            "./widget.js",
+            "./widget.test",
+        ] {
+            let report = analyze(
+                PathBuf::from("widget.ts"),
+                &format!("import \"{specifier}\";\nexport const widget = \"ready\";\n"),
+                JstsLanguage::TypeScript,
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "typescript:S7060"),
+                "{specifier} resolves to a different file than widget.ts"
+            );
+        }
+
+        // The same asset specifier is equally clean through a `..` climb.
+        let nested = analyze(
+            PathBuf::from("src/widgets/widget.ts"),
+            "import \"../widgets/widget.scss\";\n",
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            nested
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "typescript:S7060")
+        );
+    }
+
+    #[test]
+    fn concrete_file_self_imports_stay_reportable() {
+        // Extension-aware resolution still reports specifiers that resolve to
+        // the importing file itself: the exact filename, the extensionless
+        // module specifier, and the directory index module.
+        for specifier in ["./widget.ts", "./widget", "./sub/../widget.ts"] {
+            let report = analyze(
+                PathBuf::from("widget.ts"),
+                &format!("import \"{specifier}\";\n"),
+                JstsLanguage::TypeScript,
+                &AnalyzerOptions::default(),
+            );
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key == "typescript:S7060")
+                    .count(),
+                1,
+                "{specifier} resolves to widget.ts itself"
+            );
+        }
+
+        // Module resolution appends the importing file's extension to a
+        // dotted specifier, so `./widget.test` inside `widget.test.ts` still
+        // resolves to the importing file.
+        let appended_extension = analyze(
+            PathBuf::from("widget.test.ts"),
+            "import \"./widget.test\";\n",
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            appended_extension
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "typescript:S7060")
+                .count(),
+            1
+        );
+
+        // A directory specifier resolves through its `index` module even when
+        // the directory name carries a dot.
+        let dotted_directory = analyze(
+            PathBuf::from("src/pkg.v2/index.ts"),
+            "import \"../pkg.v2/\";\n",
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            dotted_directory
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "typescript:S7060")
+                .count(),
+            1
         );
     }
 }
