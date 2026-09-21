@@ -819,7 +819,7 @@ mod tests {
     /// `--test-include` match outside the conventional test directories)
     /// suppresses C# MAIN-scope rules. `S4261` declares scope ALL and stays
     /// under non-default profiles; under `sonar-parity` the reporter-observed
-    /// SonarQube 2025.4.4 "Sonar way" export activates neither rule, so the
+    /// `SonarQube` 2025.4.4 "Sonar way" export activates neither rule, so the
     /// shared membership policy drops both.
     #[test]
     fn explicit_test_classification_suppresses_csharp_main_scope_rules() {

@@ -1195,12 +1195,9 @@ fn analyze_project_source(
     cache: Option<&Cache>,
 ) -> ProjectFile {
     let content_digest = cache.map(|_| Cache::source_digest(source.as_bytes()));
-    if let Some(entry) = cache
-        .zip(content_digest)
-        .and_then(|(cache, digest)| {
-            cache.load(&input.path, source.len(), digest, input.classification)
-        })
-    {
+    if let Some(entry) = cache.zip(content_digest).and_then(|(cache, digest)| {
+        cache.load(&input.path, source.len(), digest, input.classification)
+    }) {
         return ProjectFile {
             path: input.path.clone(),
             classification: input.classification,
@@ -3125,11 +3122,7 @@ mod tests {
     #[test]
     fn semantic_report_path_applies_membership_and_test_scope() {
         let issue = |rule_key: &str| {
-            hoonarqube_ir::Issue::new(
-                rule_key,
-                "finding",
-                hoonarqube_ir::Range::file_level(),
-            )
+            hoonarqube_ir::Issue::new(rule_key, "finding", hoonarqube_ir::Range::file_level())
         };
         let input = ProjectInput {
             path: PathBuf::from("ExampleTests.cs"),

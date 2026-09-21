@@ -139,10 +139,10 @@ pub use hoonarqube_core::Language;
 pub use hoonarqube_core::RuleProfile;
 /// Analyzes one source file end to end.
 pub use hoonarqube_core::analyze;
-/// Drops findings whose rules are inactive in the selected profile.
-pub use hoonarqube_core::retain_profile_active_issues;
 /// Maps a file path to its analyzed [`Language`], or `None` if unknown.
 pub use hoonarqube_core::language_for_path;
+/// Drops findings whose rules are inactive in the selected profile.
+pub use hoonarqube_core::retain_profile_active_issues;
 /// Per-language analyzer knobs for field-by-field [`AnalyzerOptions`] construction.
 pub use hoonarqube_core::{
     CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions, JstsAnalyzerOptions,

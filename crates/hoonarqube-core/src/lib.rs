@@ -309,16 +309,16 @@ pub fn analyze(
     Some(report)
 }
 
-/// Catalog rules the reporter-observed SonarQube Server 2025.4.4 default
+/// Catalog rules the reporter-observed `SonarQube` Server 2025.4.4 default
 /// "Sonar way" quality profiles do not activate (issues #780, #781, #782).
 ///
 /// The reference membership comes from the `/api/qualityprofiles/export`
 /// output the issue reporters attached to their findings; it is pinned here
 /// as observed evidence for that server version, not as a claim about every
-/// SonarQube release. `sonar-parity` tracks the default profile, so these
-/// keys stay inactive there; the cumulative `recommended`, `extended`, and
-/// `strict` profiles keep every catalog detector available, and the isolated
-/// `github-code-quality` profile never reaches this filter.
+/// `SonarQube` release. `sonar-parity` membership follows those cited
+/// observations for these keys only; the cumulative `recommended`,
+/// `extended`, and `strict` profiles keep every catalog detector available,
+/// and the isolated `github-code-quality` profile never reaches this filter.
 const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
     "csharpsquid:S3216",
     "csharpsquid:S4261",
@@ -338,16 +338,13 @@ const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
 /// every report-producing path must funnel through this policy: [`analyze`]
 /// applies it for native callers, while compiler-backed report paths that
 /// bypass [`analyze`] invoke it on the returned report.
-pub fn retain_profile_active_issues(
-    profile: RuleProfile,
-    report: &mut hoonarqube_ir::FileReport,
-) {
+pub fn retain_profile_active_issues(profile: RuleProfile, report: &mut hoonarqube_ir::FileReport) {
     if profile != RuleProfile::SonarParity {
         return;
     }
-    report.issues.retain(|issue| {
-        !SONAR_PARITY_INACTIVE_RULE_KEYS.contains(&issue.rule_key.as_str())
-    });
+    report
+        .issues
+        .retain(|issue| !SONAR_PARITY_INACTIVE_RULE_KEYS.contains(&issue.rule_key.as_str()));
 }
 
 /// Removes findings from rules the reference scanner retired to the
@@ -949,9 +946,10 @@ mod tests {
         assert!(rust.issues.is_empty());
     }
 
-    /// Issue #780/#781/#782 fixtures: the reporter-observed SonarQube Server
-    /// 2025.4.4 default "Sonar way" exports activate none of these rules, so
-    /// `sonar-parity` must not emit them while unrelated catalog rules stay.
+    /// Issue #780/#781/#782 fixtures: the reporter-observed `SonarQube`
+    /// Server 2025.4.4 default "Sonar way" exports activate none of these
+    /// rules, so `sonar-parity` must not emit them while unrelated catalog
+    /// rules stay.
     #[test]
     fn sonar_parity_drops_reference_inactive_rule_membership() {
         let options = AnalyzerOptions::default();
@@ -1003,7 +1001,10 @@ mod tests {
             .map(|issue| issue.rule_key.as_str())
             .collect();
         for key in ["python:S1720", "python:S6542"] {
-            assert!(!keys.contains(&key), "example.py must not emit {key}: {keys:?}");
+            assert!(
+                !keys.contains(&key),
+                "example.py must not emit {key}: {keys:?}"
+            );
         }
 
         let csharp = analyze(
@@ -1085,11 +1086,7 @@ mod tests {
     #[test]
     fn retain_profile_active_issues_scopes_the_pinned_membership() {
         let issue = |rule_key: &str| {
-            hoonarqube_ir::Issue::new(
-                rule_key,
-                "finding",
-                hoonarqube_ir::Range::file_level(),
-            )
+            hoonarqube_ir::Issue::new(rule_key, "finding", hoonarqube_ir::Range::file_level())
         };
         let mut report = hoonarqube_ir::FileReport {
             path: Path::new("example.ts").to_path_buf(),
