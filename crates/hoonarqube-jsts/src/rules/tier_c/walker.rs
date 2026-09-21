@@ -139,8 +139,9 @@ fn flag_mixed_return_kinds(
         .flatten()
         .map(|scoped| &scoped.facts)
     {
-        // A declared `any`/union-with-`undefined` return already covers
-        // mixed literal kinds, so the returns are consistent by contract.
+        // A declared return type that covers every returned literal kind
+        // (`any`, `T | undefined`, or an explicit union naming each kind)
+        // makes the returns consistent by contract.
         if facts.return_covers_mixed {
             continue;
         }
@@ -538,6 +539,33 @@ mod tests {
 
         // Mixed kinds without a covering annotation still flag in TS.
         assert_eq!(count_key(&ts_keys(mixed), "typescript:S3800"), 1);
+
+        // #806: an explicit union that names every returned literal kind
+        // covers the mixed returns, even without `undefined` in it.
+        let union_literals = "export function selectConstraint(\n  enabled: boolean,\n  useDefault: boolean,\n): false | true | { id: string } {\n  if (!enabled) return false;\n  if (useDefault) return true;\n  return { id: \"custom\" };\n}\n";
+        assert_eq!(count_key(&ts_keys(union_literals), "typescript:S3800"), 0);
+
+        let union_object_null = "export function firstValue(\n  entries: Record<string, string>,\n): { key: string; value: string } | null {\n  for (const [key, value] of Object.entries(entries)) {\n    if (value) return { key, value };\n  }\n  return null;\n}\n";
+        assert_eq!(
+            count_key(&ts_keys(union_object_null), "typescript:S3800"),
+            0
+        );
+
+        // Primitive unions cover their literal kinds too.
+        let primitive_union = "function pick(flag: boolean): string | number {\n  if (flag) {\n    return 'yes';\n  }\n  return 0;\n}\n";
+        assert_eq!(count_key(&ts_keys(primitive_union), "typescript:S3800"), 0);
+
+        // Boundary: an annotation that does not cover a returned kind keeps
+        // the finding.
+        let uncovered = "function pick(flag: boolean): string | number {\n  if (flag) {\n    return 'yes';\n  }\n  return {};\n}\n";
+        assert_eq!(count_key(&ts_keys(uncovered), "typescript:S3800"), 1);
+
+        // Boundary: a single non-union annotation does not cover other kinds.
+        let single_annotation = "function pick(flag: boolean): string {\n  if (flag) {\n    return 'yes';\n  }\n  return 0;\n}\n";
+        assert_eq!(
+            count_key(&ts_keys(single_annotation), "typescript:S3800"),
+            1
+        );
     }
 
     #[test]

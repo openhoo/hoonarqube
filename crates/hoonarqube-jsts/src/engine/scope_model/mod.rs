@@ -12,9 +12,10 @@ use oxc_ast::ast::{
     ForStatement, FormalParameters, Function, IfStatement, ImportDeclaration,
     ImportDeclarationSpecifier, LogicalExpression, MemberExpression, MethodDefinition,
     MethodDefinitionKind, ModuleExportName, NewExpression, ReturnStatement, SimpleAssignmentTarget,
-    Statement, StaticBlock, SwitchStatement, TSType, TSTypeAnnotation, TSTypeName, TSTypeReference,
-    ThrowStatement, TryStatement, UnaryExpression, UnaryOperator, UpdateExpression,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
+    Statement, StaticBlock, SwitchStatement, TSLiteral, TSType, TSTypeAnnotation, TSTypeName,
+    TSTypeOperatorOperator, TSTypeReference, ThrowStatement, TryStatement, UnaryExpression,
+    UnaryOperator, UpdateExpression, VariableDeclaration, VariableDeclarationKind,
+    VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{

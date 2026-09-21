@@ -310,15 +310,20 @@ pub fn analyze(
 }
 
 /// Catalog rules the reporter-observed `SonarQube` Server 2025.4.4 default
-/// "Sonar way" quality profiles do not activate (issues #780, #781, #782).
+/// "Sonar way" quality profiles do not activate (issues #780, #781, #782),
+/// plus emitted rule keys the reference repository does not define at all
+/// (issue #806): `typescript:S3800` exists only in the `javascript`
+/// repository (`compatibleLanguages: ["js"]`), so it can never appear in
+/// `parity.active_rules` and every emission would be a rule-set violation.
 ///
 /// The reference membership comes from the `/api/qualityprofiles/export`
-/// output the issue reporters attached to their findings; it is pinned here
-/// as observed evidence for that server version, not as a claim about every
-/// `SonarQube` release. `sonar-parity` membership follows those cited
-/// observations for these keys only; the cumulative `recommended`,
-/// `extended`, and `strict` profiles keep every catalog detector available,
-/// and the isolated `github-code-quality` profile never reaches this filter.
+/// output the issue reporters attached to their findings and the captured
+/// `/api/rules/search` repository listings; it is pinned here as observed
+/// evidence for that server version, not as a claim about every `SonarQube`
+/// release. `sonar-parity` membership follows those cited observations for
+/// these keys only; the cumulative `recommended`, `extended`, and `strict`
+/// profiles keep every catalog detector available, and the isolated
+/// `github-code-quality` profile never reaches this filter.
 pub const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
     "csharpsquid:S3216",
     "csharpsquid:S4261",
@@ -328,16 +333,19 @@ pub const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
     "python:S6542",
     "typescript:S1441",
     "typescript:S1537",
+    "typescript:S3800",
 ];
 
 /// Drops findings whose rules are inactive in the selected profile.
 ///
-/// Only `sonar-parity` restricts catalog-rule membership today; every other
-/// profile keeps the full detector battery, so this is a no-op for them.
-/// Language analyzers run their complete battery regardless of profile, so
-/// every report-producing path must funnel through this policy: [`analyze`]
-/// applies it for native callers, while compiler-backed report paths that
-/// bypass [`analyze`] invoke it on the returned report.
+/// Only `sonar-parity` restricts rule membership today; every other profile
+/// keeps the full detector battery, so this is a no-op for them. The filter
+/// matches emitted rule keys directly, so it also covers emissions that have
+/// no catalog entry, such as the TypeScript-only `typescript:S3800`
+/// extension. Language analyzers run their complete battery regardless of
+/// profile, so every report-producing path must funnel through this policy:
+/// [`analyze`] applies it for native callers, while compiler-backed report
+/// paths that bypass [`analyze`] invoke it on the returned report.
 pub fn retain_profile_active_issues(profile: RuleProfile, report: &mut hoonarqube_ir::FileReport) {
     if profile != RuleProfile::SonarParity {
         return;
@@ -1094,6 +1102,7 @@ mod tests {
             issues: vec![
                 issue("typescript:S1441"),
                 issue("typescript:S1537"),
+                issue("typescript:S3800"),
                 issue("typescript:S106"),
             ],
             metrics: hoonarqube_ir::FileMetrics {
@@ -1110,7 +1119,7 @@ mod tests {
         ] {
             let mut retained = report.clone();
             retain_profile_active_issues(profile, &mut retained);
-            assert_eq!(retained.issues.len(), 3, "{profile} keeps every rule");
+            assert_eq!(retained.issues.len(), 4, "{profile} keeps every rule");
         }
         retain_profile_active_issues(RuleProfile::SonarParity, &mut report);
         assert_eq!(
