@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.2 (2026-09-21)
+
+### Bug Fixes
+
+- **analyzer:** honor inactive profile rules and explicit CSharp test scope (#785) (d0cb811)
+
 ## 0.9.1 (2026-09-21)
 
 ### Performance
