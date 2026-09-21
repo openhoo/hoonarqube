@@ -1065,6 +1065,25 @@ pub(crate) fn collect_file_facts(
         dynamic_names: false,
         has_wildcard_import: false,
     };
+    collect_token_names(&mut facts, ctx, source);
+    collect_wildcard_import(&mut facts, ctx);
+    collect_called_names(&mut facts, ctx);
+    collect_attr_reads(&mut facts, ctx);
+    facts.string_texts = ctx
+        .strings
+        .iter()
+        .map(|literal| crate::support::string_value_text(&literal.value))
+        .collect();
+    facts
+}
+
+/// Indexes every `Name` token by its text so the token-net veto can answer
+/// "does this identifier appear anywhere else" without rescanning the file.
+fn collect_token_names(
+    facts: &mut FileFacts,
+    ctx: &crate::engine::file_context::FileContext<'_>,
+    source: &str,
+) {
     for token in ctx.parsed.tokens() {
         if token.kind() == TokenKind::Name {
             let index = u32::try_from(facts.token_names.len()).unwrap_or(u32::MAX);
@@ -1078,6 +1097,14 @@ pub(crate) fn collect_file_facts(
             facts.token_names.push((name, token.range()));
         }
     }
+}
+
+/// Flags `from module import *`, which makes every module-level name a
+/// potential use of any definition.
+fn collect_wildcard_import(
+    facts: &mut FileFacts,
+    ctx: &crate::engine::file_context::FileContext<'_>,
+) {
     for import in &ctx.imports {
         if let crate::engine::file_context::AnyImport::From(import_from) = import
             && import_from
@@ -1088,6 +1115,12 @@ pub(crate) fn collect_file_facts(
             facts.has_wildcard_import = true;
         }
     }
+}
+
+/// Collects the called-name set and flags dynamic name access
+/// (`locals`/`globals`/`vars`/`eval`/`exec`), which disables
+/// resolution-based rules.
+fn collect_called_names(facts: &mut FileFacts, ctx: &crate::engine::file_context::FileContext<'_>) {
     for call in &ctx.calls {
         if let Some(name) = called_name(&call.func) {
             facts.called_names.insert(name.to_string());
@@ -1096,6 +1129,10 @@ pub(crate) fn collect_file_facts(
             }
         }
     }
+}
+
+/// Collects every load-context attribute read in expression pre-order.
+fn collect_attr_reads(facts: &mut FileFacts, ctx: &crate::engine::file_context::FileContext<'_>) {
     for expr in &ctx.exprs {
         if let Expr::Attribute(attribute) = expr
             && matches!(attribute.ctx, ruff_python_ast::ExprContext::Load)
@@ -1105,12 +1142,6 @@ pub(crate) fn collect_file_facts(
                 .push((attribute.attr.as_str().to_string(), expr.range()));
         }
     }
-    facts.string_texts = ctx
-        .strings
-        .iter()
-        .map(|literal| crate::support::string_value_text(&literal.value))
-        .collect();
-    facts
 }
 
 /// Token-net veto: `true` when the identifier appears anywhere outside the

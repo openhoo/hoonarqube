@@ -895,17 +895,47 @@ fn s2710_collect_renames(
     method_span: TextRange,
     range: TextRange,
 ) -> Option<Vec<TextRange>> {
-    for (scope_index, scope) in table.scopes.iter().enumerate() {
-        if scope_is_within(table, scope_index, param_scope)
-            && (scope.declares_global(flagged) || scope.declares_nonlocal(flagged))
-        {
-            return None;
-        }
+    if s2710_nested_scope_redeclares(table, param_scope, flagged) {
+        return None;
     }
     let mut renames = vec![range];
     if let Some(bindings) = table.scopes[param_scope].bindings.get(flagged) {
         renames.extend(bindings.iter().map(|binding| binding.range));
     }
+    s2710_collect_flagged_loads(
+        table,
+        param_scope,
+        flagged,
+        target,
+        method_span,
+        &mut renames,
+    )?;
+    if s2710_target_rebinds(table, param_scope, target, method_span) {
+        return None;
+    }
+    Some(renames)
+}
+
+/// Any scope nested below `param_scope` that redeclares `flagged` through
+/// `global`/`nonlocal` vetoes the rename.
+fn s2710_nested_scope_redeclares(table: &SymbolTable, param_scope: usize, flagged: &str) -> bool {
+    table.scopes.iter().enumerate().any(|(scope_index, scope)| {
+        scope_is_within(table, scope_index, param_scope)
+            && (scope.declares_global(flagged) || scope.declares_nonlocal(flagged))
+    })
+}
+
+/// Appends every in-method load of `flagged` that still resolves to the
+/// parameter; an unresolved load or an intermediate `target` binding vetoes
+/// the rename.
+fn s2710_collect_flagged_loads(
+    table: &SymbolTable,
+    param_scope: usize,
+    flagged: &str,
+    target: &str,
+    method_span: TextRange,
+    renames: &mut Vec<TextRange>,
+) -> Option<()> {
     if let Some(indices) = table.resolved_index.get(flagged) {
         for &index in indices {
             let load = &table.resolved_loads[index as usize];
@@ -924,17 +954,24 @@ fn s2710_collect_renames(
             }
         }
     }
-    if let Some(indices) = table.resolved_index.get(target) {
-        for &index in indices {
+    Some(())
+}
+
+/// A pre-existing `target` load inside the method that would rebind to the
+/// parameter scope after the rename vetoes it.
+fn s2710_target_rebinds(
+    table: &SymbolTable,
+    param_scope: usize,
+    target: &str,
+    method_span: TextRange,
+) -> bool {
+    table.resolved_index.get(target).is_some_and(|indices| {
+        indices.iter().any(|&index| {
             let load = &table.resolved_loads[index as usize];
-            if method_span.contains(load.range.start())
+            method_span.contains(load.range.start())
                 && post_rename_rebinds_to(table, load.scope, param_scope, target)
-            {
-                return None;
-            }
-        }
-    }
-    Some(renames)
+        })
+    })
 }
 
 fn parameter_binding_at(

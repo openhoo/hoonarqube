@@ -4,7 +4,7 @@ The latest local qualification compares immutable v0.9.0 (`b93725fd`) with
 the performance candidate described below. Earlier comparisons are retained
 as historical evidence, not current-release claims.
 
-## Qualification — 2026-09-21 (local candidate)
+## Qualification — 2026-09-21 (measured implementation ae296153)
 
 Both executables used Rust 1.96.0, the locked dependencies, and the unchanged
 release profile (thin LTO, stripped symbols). CLI measurements used the existing
@@ -76,10 +76,20 @@ entries, deliberately incomplete). Another 100 differential controls cover
 malformed input, Unicode/CRLF, classification, invalid limits, recovered C#,
 and 50 seeded Java duplication cases checked against an independent window
 oracle. All 5,112 Rust tests, 141 oracle-harness tests, and 49 script tests pass,
-as do strict workspace Clippy, rustdoc, and formatting. The pinned v0.3.1
-`rust:S3776` gate reports zero findings.
+as do strict workspace Clippy, rustdoc, and formatting. Publication CI found
+three pinned v0.3.1 `rust:S3776` findings missed by an incorrectly shaped local
+report check. Cohesive Python helper extractions resolve them without changing
+traversal or rename order. The corrected check explicitly uses `--format sonar`
+and validates `.issues[].ruleId`; it reports zero complexity findings.
 
-Measured executable SHA-256:
+After extraction, the full quality pipeline and all eight corpus comparisons
+and 100 controls passed again. Balanced comparisons against the measured
+executable were neutral: Python reference 92.53 to 93.10 ms; one-CPU mixed
+reference 2822.32 to 2790.61 ms. The post-extraction local executable SHA-256 is
+`e663ff8b94ae90b8a58e29d01eefefcb4ce2fb44531bf46bbbaf7f43b74b688d`.
+
+The table records the pre-extraction implementation `ae296153`, not the later
+release executable. Its immutable measured executable SHA-256 values are:
 
 ```text
 baseline  5a6f576ea800c5a3b56c8ce8d36c60c6803d636da8e9c9ab025d87767d290e77

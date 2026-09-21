@@ -19,6 +19,8 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtAnnAssign;
+use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtClassDef;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::StmtImport;
@@ -160,62 +162,91 @@ enum Work<'a> {
     Stmt(&'a Stmt),
     Expr(&'a Expr),
 }
+/// Reusable per-node buffers for the collection walk. Scratch buffers replace
+/// the per-node `Vec` allocations the `child_*`/`stmt_exprs` accessors would
+/// create.
+#[derive(Default)]
+struct Scratch<'a> {
+    /// Child body slices of the statement currently being visited.
+    bodies: Vec<&'a [Stmt]>,
+    /// The statement's own top-level expressions.
+    top_exprs: Vec<&'a Expr>,
+    /// Child expressions of the expression currently being visited.
+    children: Vec<&'a Expr>,
+}
 /// Collects every inventory in one explicit-stack pre-order pass; mirrors the
 /// recursive walker sequence (`visit`, then `stmt_exprs`, then each
 /// `child_bodies` slice in order, every subtree drained before the next item)
-/// cannot overflow the thread stack. Scratch buffers replace the per-node
-/// `Vec` allocations the `child_*`/`stmt_exprs` accessors would create.
+/// cannot overflow the thread stack.
 fn collect_all<'a>(body: &'a [Stmt], ctx: &mut FileContext<'a>) {
     let mut work: Vec<Work<'a>> = body.iter().rev().map(Work::Stmt).collect();
-    let mut bodies = Vec::new();
-    let mut top_exprs = Vec::new();
-    let mut children = Vec::new();
+    let mut scratch = Scratch::default();
     while let Some(item) = work.pop() {
         match item {
-            Work::Stmt(stmt) => {
-                ctx.stmts.push(stmt);
-                match stmt {
-                    Stmt::FunctionDef(function) => ctx.functions.push(function),
-                    Stmt::ClassDef(class) => ctx.classes.push(class),
-                    Stmt::Import(import) => ctx.imports.push(AnyImport::Plain(import)),
-                    Stmt::ImportFrom(import_from) => ctx.imports.push(AnyImport::From(import_from)),
-                    Stmt::Assign(assign) => {
-                        for target in &assign.targets {
-                            if let Expr::Name(name) = target {
-                                ctx.assigned_values
-                                    .insert(name.range(), assign.value.as_ref());
-                            }
-                        }
-                    }
-                    Stmt::AnnAssign(assign) => {
-                        if let (Expr::Name(name), Some(value)) =
-                            (assign.target.as_ref(), assign.value.as_deref())
-                        {
-                            ctx.assigned_values.insert(name.range(), value);
-                        }
-                    }
-                    _ => {}
-                }
-                // Bodies go onto the stack first so the statement's own
-                // expressions pop — and fully drain — ahead of them.
-                child_bodies_into(stmt, &mut bodies);
-                for body_slice in bodies.drain(..).rev() {
-                    work.extend(body_slice.iter().rev().map(Work::Stmt));
-                }
-                push_stmt_exprs(stmt, &mut top_exprs);
-                work.extend(top_exprs.drain(..).rev().map(Work::Expr));
-            }
-            Work::Expr(expr) => {
-                ctx.exprs.push(expr);
-                match expr {
-                    Expr::Call(call) => ctx.calls.push(call),
-                    Expr::StringLiteral(string) => ctx.strings.push(string),
-                    _ => {}
-                }
-                child_exprs_into(expr, &mut children);
-                work.extend(children.drain(..).rev().map(Work::Expr));
-            }
+            Work::Stmt(stmt) => collect_stmt(stmt, ctx, &mut work, &mut scratch),
+            Work::Expr(expr) => collect_expr(expr, ctx, &mut work, &mut scratch),
         }
+    }
+}
+
+/// Records one statement and queues its own expressions and child bodies.
+/// Bodies go onto the stack first so the statement's own expressions pop —
+/// and fully drain — ahead of them.
+fn collect_stmt<'a>(
+    stmt: &'a Stmt,
+    ctx: &mut FileContext<'a>,
+    work: &mut Vec<Work<'a>>,
+    scratch: &mut Scratch<'a>,
+) {
+    ctx.stmts.push(stmt);
+    match stmt {
+        Stmt::FunctionDef(function) => ctx.functions.push(function),
+        Stmt::ClassDef(class) => ctx.classes.push(class),
+        Stmt::Import(import) => ctx.imports.push(AnyImport::Plain(import)),
+        Stmt::ImportFrom(import_from) => ctx.imports.push(AnyImport::From(import_from)),
+        Stmt::Assign(assign) => record_assign_targets(assign, ctx),
+        Stmt::AnnAssign(assign) => record_ann_assign_target(assign, ctx),
+        _ => {}
+    }
+    child_bodies_into(stmt, &mut scratch.bodies);
+    for body_slice in scratch.bodies.drain(..).rev() {
+        work.extend(body_slice.iter().rev().map(Work::Stmt));
+    }
+    push_stmt_exprs(stmt, &mut scratch.top_exprs);
+    work.extend(scratch.top_exprs.drain(..).rev().map(Work::Expr));
+}
+
+/// Records one expression and queues its child expressions.
+fn collect_expr<'a>(
+    expr: &'a Expr,
+    ctx: &mut FileContext<'a>,
+    work: &mut Vec<Work<'a>>,
+    scratch: &mut Scratch<'a>,
+) {
+    ctx.exprs.push(expr);
+    match expr {
+        Expr::Call(call) => ctx.calls.push(call),
+        Expr::StringLiteral(string) => ctx.strings.push(string),
+        _ => {}
+    }
+    child_exprs_into(expr, &mut scratch.children);
+    work.extend(scratch.children.drain(..).rev().map(Work::Expr));
+}
+
+/// Maps each `Name` target of a plain assignment to the assigned value.
+fn record_assign_targets<'a>(assign: &'a StmtAssign, ctx: &mut FileContext<'a>) {
+    for target in &assign.targets {
+        if let Expr::Name(name) = target {
+            ctx.assigned_values
+                .insert(name.range(), assign.value.as_ref());
+        }
+    }
+}
+
+/// Maps an annotated `Name` target to its value when one is present.
+fn record_ann_assign_target<'a>(assign: &'a StmtAnnAssign, ctx: &mut FileContext<'a>) {
+    if let (Expr::Name(name), Some(value)) = (assign.target.as_ref(), assign.value.as_deref()) {
+        ctx.assigned_values.insert(name.range(), value);
     }
 }
 
