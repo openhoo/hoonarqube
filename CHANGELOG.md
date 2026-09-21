@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1 (2026-09-21)
+
+### Performance
+
+- **hoonarqube:** optimize analyzer hot paths with measured parity (#783) (86d25b7)
+
 ## Unreleased
 
 ### Performance
