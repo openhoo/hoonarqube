@@ -161,8 +161,10 @@ impl CsLanguage {
 /// sources (the reference scanner's C# analysis does not run it on test
 /// files — the dapper oracle flags it under `benchmarks/` but never under
 /// `tests/`). `SonarQube` never reports these rules on test sources, so
-/// findings are dropped for test-scoped files (conventional `test`,
-/// `tests`, and `testing` directories, per `semantic::is_test_scope_file`).
+/// findings are dropped for test-scoped files: conventional `test`,
+/// `tests`, and `testing` directories (per `semantic::is_test_scope_file`)
+/// inside [`analyze`], and explicitly test-classified reports through
+/// [`retain_test_scope_issues`].
 /// The remaining rules declare scope `ALL` (or `TEST`) and still apply.
 /// Benchmark suites stay in the main scope unless they live in such a
 /// directory: the reference scanner classifies them as non-test projects
@@ -338,6 +340,17 @@ const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
 /// the [`MAIN_SCOPE_RULE_KEYS`] drop); dapper's oracle fires
 /// `csharpsquid:S3415` exclusively under `tests/`.
 const TEST_SCOPE_RULE_KEYS: &[&str] = &["csharpsquid:S3415"];
+
+/// Drops every MAIN-scope finding from `report` in place, mirroring the
+/// conventional test-directory drop inside [`analyze`]. Callers that classify
+/// a file as a test outside those directories — for example an explicit
+/// `--test-include` match — apply the same suppression through this helper.
+/// ALL- and TEST-scope findings are retained, and repeated calls are no-ops.
+pub fn retain_test_scope_issues(report: &mut hoonarqube_ir::FileReport) {
+    report
+        .issues
+        .retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+}
 /// Analyzes one C# source file and lowers every rule finding into a
 /// [`hoonarqube_ir::FileReport`] with sorted issues and file metrics.
 #[must_use]
@@ -414,17 +427,19 @@ pub fn analyze(
         issues.extend(rules::tier_c::tier_c_heuristic_issues(
             root, source, language, options,
         ));
-        if semantic::is_test_scope_file(&path) {
-            issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
-        } else {
-            issues.retain(|issue| !TEST_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
-        }
         let mut report = hoonarqube_ir::FileReport {
             path,
             language: language.prefix().to_string(),
             issues,
             metrics,
         };
+        if semantic::is_test_scope_file(&report.path) {
+            retain_test_scope_issues(&mut report);
+        } else {
+            report
+                .issues
+                .retain(|issue| !TEST_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
+        }
         quickfix::attach_fixes_from_tree(root, source, options, &mut report, None);
         hoonarqube_ir::sort_issues(&mut report.issues);
         report
