@@ -174,36 +174,68 @@ pub(crate) fn walk_pattern_nodes(sequence: &[PatternNode], visit: &mut dyn FnMut
     }
 }
 
-/// Documented subset approximation of the `S5843` complexity score:
-/// literals/dots/anchors cost 1, shorthands 2, backreferences 2, property
-/// escapes 3, classes `2 + items`, groups 2 (lookarounds 4) plus their
-/// body, quantifiers 2 plus their target, and each additional alternation
-/// branch costs 1.
+/// `S5843` complexity score aligned with the reference implementations
+/// (`SonarJS`'s `ComplexityCalculator` and the shared `ComplexRegexFinder`):
+/// quantifiers, lookarounds, and each disjunction with two or more
+/// alternatives charge the *current nesting level* and then nest their
+/// contents one deeper; a disjunction with `k >= 2` alternatives charges
+/// `nesting + (k - 2)` (first `|` at nesting, later `|`s flat 1).
+/// Character classes and backreferences cost a flat 1 regardless of
+/// nesting. Literals, dots, anchors, shorthand/property escapes, class
+/// items, and single-alternative groups (capturing or not) are free.
+///
+/// Intentionally unscored or unsupported constructs: flag groups and
+/// atomic groups are rejected by the mini parser (reported as `S5856`,
+/// never scored); `v`-flag class intersections (`[a&&b]`) parse as plain
+/// class items here, so their `&&` operators are uncounted; and regexes
+/// assembled from multiple string parts or variables are out of scope
+/// because [`RegexSite`] only covers single literals. Where the reference
+/// semantics are uncertain this scorer prefers under-counting, so a
+/// parity-profile run never reports a regex the reference leaves clean.
 pub(crate) fn pattern_complexity(alternatives: &[Vec<PatternNode>]) -> u32 {
-    let extra_branches = alternatives.len().saturating_sub(1);
-    alternatives
-        .iter()
-        .map(|alternative| alternative.iter().map(node_complexity).sum::<u32>())
-        .sum::<u32>()
-        .saturating_add(to_u32(extra_branches))
+    disjunction_complexity(alternatives, 1)
 }
 
-pub(crate) fn node_complexity(node: &PatternNode) -> u32 {
+/// Scores one disjunction (a pattern or group body) at `nesting`.
+fn disjunction_complexity(alternatives: &[Vec<PatternNode>], nesting: u32) -> u32 {
+    let mut score = 0u32;
+    let mut inner_nesting = nesting;
+    if alternatives.len() > 1 {
+        // First `|` costs the current nesting level, later `|`s cost 1.
+        score = nesting.saturating_add(to_u32(alternatives.len() - 2));
+        inner_nesting = nesting.saturating_add(1);
+    }
+    for alternative in alternatives {
+        for node in alternative {
+            score = score.saturating_add(node_complexity(node, inner_nesting));
+        }
+    }
+    score
+}
+
+fn node_complexity(node: &PatternNode, nesting: u32) -> u32 {
     match node {
         PatternNode::Literal { .. }
         | PatternNode::CodeUnit { .. }
         | PatternNode::Dot
-        | PatternNode::Anchor { .. } => 1,
-        PatternNode::BackReference { .. } | PatternNode::ClassEscape { .. } => 2,
-        PatternNode::PropertyEscape { .. } => 3,
-        PatternNode::Class { items, .. } => 2u32.saturating_add(to_u32(items.len())),
+        | PatternNode::Anchor { .. }
+        | PatternNode::ClassEscape { .. }
+        | PatternNode::PropertyEscape { .. } => 0,
+        PatternNode::BackReference { .. } | PatternNode::Class { .. } => 1,
         PatternNode::Group {
             kind, alternatives, ..
         } => {
-            let base: u32 = if kind.is_lookaround() { 4 } else { 2 };
-            base.saturating_add(pattern_complexity(alternatives))
+            let mut score = 0u32;
+            let mut inner_nesting = nesting;
+            if kind.is_lookaround() {
+                score = nesting;
+                inner_nesting = nesting.saturating_add(1);
+            }
+            score.saturating_add(disjunction_complexity(alternatives, inner_nesting))
         }
-        PatternNode::Quantified { node, .. } => 2u32.saturating_add(node_complexity(node)),
+        PatternNode::Quantified { node, .. } => {
+            nesting.saturating_add(node_complexity(node, nesting.saturating_add(1)))
+        }
     }
 }
 pub(crate) fn contains_unbounded_quantifier(node: &PatternNode) -> bool {
