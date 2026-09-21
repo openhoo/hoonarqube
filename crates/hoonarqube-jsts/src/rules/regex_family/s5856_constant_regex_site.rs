@@ -716,10 +716,17 @@ fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &Parse
 
 /// `S5852`: unbounded quantifiers nested inside unbounded quantifiers
 /// (`(a+)+`) risk exponential backtracking. Conservative subset: any
-/// containment counts; disjointness analysis stays out of scope.
+/// containment counts; disjointness analysis stays out of scope. One
+/// regex site yields at most one finding: the reference reports the
+/// pattern once, and a second nested quantifier would only repeat the
+/// same site span and message (#787).
 fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
+    let mut reported = false;
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| {
+            if reported {
+                return;
+            }
             if let PatternNode::Quantified {
                 max: None,
                 node: target,
@@ -734,6 +741,7 @@ fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed
                     "Make sure the regex used here, which is vulnerable to super-linear runtime due to backtracking, cannot lead to denial of service.",
                     site.span,
                 );
+                reported = true;
             }
         });
     }
@@ -1111,13 +1119,20 @@ mod tests {
 
     #[test]
     fn regex_complexity_budget_is_enforced() {
-        // Scores 29 against the budget of 20: three alternation branches
-        // of quantified shorthands and classes.
-        let over = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}|\\d{8}|\\d{2}[A-Z]{4}/;\n");
+        // Reference scoring (SonarJS ComplexityCalculator): the three
+        // alternation branches charge 2 at nesting 1, the wrapping `{2}`
+        // charges 1, and the nested quantifiers charge their nesting —
+        // 23 against the budget of 20.
+        let over = js_keys("const re = /(?:\\d{4}-\\d{2}-\\d{2}|\\d{8}|\\d{2}[A-Z]{4}){2}/;\n");
         assert_eq!(count_key(&over, "javascript:S5843"), 1);
 
-        let under = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}/;\n");
+        // The same alternation without the outer repetition scores 15:
+        // the reference leaves it clean.
+        let under = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}|\\d{8}|\\d{2}[A-Z]{4}/;\n");
         assert_eq!(count_key(&under, "javascript:S5843"), 0);
+
+        let simple = js_keys("const re = /\\d{4}-\\d{2}-\\d{2}/;\n");
+        assert_eq!(count_key(&simple, "javascript:S5843"), 0);
     }
 
     #[test]
@@ -1152,10 +1167,10 @@ mod tests {
         let kelvin = js_keys("const re = /[\\WK]/iu;\n");
         assert_eq!(count_key(&kelvin, "javascript:S5869"), 0);
 
-        // Existing direct duplicates still produce one finding per
-        // duplicate occurrence.
+        // Direct duplicates anchor at the first member's span, so repeat
+        // findings are byte-identical and collapse to one (#787).
         let direct = js_keys("const re = /[aaa]/;\n");
-        assert_eq!(count_key(&direct, "javascript:S5869"), 2);
+        assert_eq!(count_key(&direct, "javascript:S5869"), 1);
         let clean = js_keys("const re = /[ab]/;\n");
         assert_eq!(count_key(&clean, "javascript:S5869"), 0);
 

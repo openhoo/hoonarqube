@@ -42,7 +42,26 @@ fn check_regex_family(
         loop_depth: 0,
     };
     collector.visit_program(program);
+    dedupe_identical_issues(&mut collector.sink.issues);
     collector.sink.issues
+}
+
+/// Drops byte-identical findings — same rule, message, and range — while
+/// keeping the first occurrence. One regex source range yields at most
+/// one finding per rule (#787); genuinely distinct findings at different
+/// ranges or with different messages are preserved.
+fn dedupe_identical_issues(issues: &mut Vec<Issue>) {
+    let mut seen = std::collections::HashSet::new();
+    issues.retain(|issue| {
+        seen.insert((
+            issue.rule_key.clone(),
+            issue.message.clone(),
+            issue.range.start.line,
+            issue.range.start.column,
+            issue.range.end.line,
+            issue.range.end.column,
+        ))
+    });
 }
 
 /// Drives [`check_constant_regex_site`] over every constant regex and adds
@@ -221,8 +240,10 @@ mod tests {
         // Duplicate-only classes additionally receive the concise rewrite.
         assert_eq!(count_key(&duplicated, "javascript:S6353"), 1);
 
+        // Both duplicates anchor at the first member's span, so the two
+        // findings are byte-identical and collapse to one (#787).
         let twice = js_keys("const re = /[aaa]/;\n");
-        assert_eq!(count_key(&twice, "javascript:S5869"), 2);
+        assert_eq!(count_key(&twice, "javascript:S5869"), 1);
 
         let clean = js_keys("const re = /[ab]/;\n");
         assert_eq!(count_key(&clean, "javascript:S5869"), 0);
@@ -300,5 +321,73 @@ mod tests {
 
         let not_global = js_keys("while (more) {\n  found = /\\d+/.test(input);\n}\n");
         assert_eq!(count_key(&not_global, "javascript:S6351"), 0);
+    }
+
+    /// #787: two nested unbounded quantifiers in one literal produced two
+    /// byte-identical `S5852` findings at the same source range.
+    #[test]
+    fn one_regex_range_yields_at_most_one_finding_per_rule() {
+        let report = js(
+            "export function isSafeSlug(value) {\n  return /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(\n    value,\n  );\n}\n",
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S5852")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        let finding = findings[0];
+        assert_eq!(finding.range.start, pos(2, 9));
+        assert_eq!(finding.range.end, pos(2, 68));
+        assert_eq!(
+            finding.message,
+            "Make sure the regex used here, which is vulnerable to super-linear runtime due to backtracking, cannot lead to denial of service."
+        );
+
+        // Distinct vulnerable sites keep their own findings.
+        let two_sites = js_keys("const a = /(x+)+/;\nconst b = /(y+)+/;\n");
+        assert_eq!(count_key(&two_sites, "javascript:S5852"), 2);
+
+        // The same guard covers other site-span rules: two Unicode
+        // constructs in one literal still report once.
+        let unicode = js_keys("const re = /\\p{L}\\p{N}/;\n");
+        assert_eq!(count_key(&unicode, "javascript:S5867"), 1);
+    }
+
+    /// #792: the reference `S5843` scorer charges nesting-aware costs for
+    /// quantifiers, lookarounds, and multi-branch disjunctions only; the
+    /// slug regex scores 16 and stays under the budget of 20.
+    #[test]
+    fn regex_complexity_matches_reference_scoring() {
+        // Nested optional groups, repeated separators, anchors, and
+        // character classes: 16 <= 20, no finding.
+        let slug =
+            js_keys("const re = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/;\n");
+        assert_eq!(count_key(&slug, "javascript:S5843"), 0);
+
+        // Anchors, literals, dots, and shorthand escapes are free.
+        let free = js_keys("const re = /^\\w.\\d+$/;\n");
+        assert_eq!(count_key(&free, "javascript:S5843"), 0);
+
+        // SonarJS unit-test anchors: `/(?:a|b|c)*/` scores 4 and
+        // `|/?[a-z]` scores 4 (disjunction 1 + quantifier 2 + class 1).
+        let nested_alternation = js_keys("const re = /(?:a|b|c)*/;\n");
+        assert_eq!(count_key(&nested_alternation, "javascript:S5843"), 0);
+        let leading_branch = js_keys("const re = /|\\/?[a-z]/;\n");
+        assert_eq!(count_key(&leading_branch, "javascript:S5843"), 0);
+
+        // Boundary: 20 stays clean, 21 reports.
+        let at_budget = js_keys("const re = /(?:a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u)/;\n");
+        assert_eq!(count_key(&at_budget, "javascript:S5843"), 0);
+        let over_budget =
+            js_keys("const re = /(?:a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v)/;\n");
+        assert_eq!(count_key(&over_budget, "javascript:S5843"), 1);
+
+        // TypeScript shares the same scoring for equivalent syntax.
+        let slug_ts =
+            ts_keys("const re = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/;\n");
+        assert_eq!(count_key(&slug_ts, "typescript:S5843"), 0);
+        let over_ts = ts_keys("const re = /(?:a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v)/;\n");
+        assert_eq!(count_key(&over_ts, "typescript:S5843"), 1);
     }
 }
