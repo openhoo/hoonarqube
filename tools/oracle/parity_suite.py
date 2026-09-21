@@ -53,6 +53,7 @@ from parity import (
     hoonarqube_findings,
     input_paths_sha256,
     load_infra_boundaries,
+    ours_native_rule_keys,
     parse_json,
     parse_report_task,
     read_json as strict_read_json,
@@ -1834,6 +1835,11 @@ def validate_artifact_provenance(
         or evidence.get("provenance_sha256") != manifest["manifest_sha256"]
     ):
         raise ValueError(f"{kind} artifact provenance evidence mismatch")
+    if evidence.get("native_context") != manifest.get("native_context"):
+        raise ValueError(
+            f"{kind} artifact evidence native_context diverges from the "
+            "digested provenance copy"
+        )
     return manifest
 
 
@@ -2689,6 +2695,44 @@ def _ours_command(proj: str) -> list[str] | None:
     ]
 
 
+def _native_rule_keys(command: list[str]) -> list[str]:
+    """Return the exact native rule registry of the analyzed binary.
+
+    The comparator declares only these keys as native output; anything else
+    remains an invalid artifact. The registry is queried from the same
+    executable that performs the analysis so the recorded whitelist cannot
+    drift from the binary under test.
+    """
+    try:
+        result = subprocess.run(
+            [*command, "rules", "native", "--json"],
+            capture_output=True,
+            text=True,
+            cwd=REPO,
+            timeout=SCAN_TIMEOUT_SECONDS,
+        )
+    except (subprocess.TimeoutExpired, OSError) as error:
+        raise ValueError(f"native rule registry query failed: {error}") from error
+    if result.returncode != 0:
+        raise ValueError(
+            "native rule registry query exited "
+            f"{result.returncode}: {_native_stream(result.stderr)[-500:]}"
+        )
+    rules = parse_json(result.stdout, context="hoonarqube rules native report")
+    if not isinstance(rules, list):
+        raise ValueError("hoonarqube rules native report must be a list")
+    keys: list[str] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict) or not isinstance(rule.get("external_key"), str):
+            raise ValueError(
+                f"hoonarqube rules native entry {index} lacks external_key"
+            )
+        keys.append(rule["external_key"])
+    if len(keys) != len(set(keys)):
+        raise ValueError("hoonarqube rules native report contains duplicate keys")
+    return sorted(keys)
+
+
 def _ours_native_context(proj: str) -> dict[str, object]:
     try:
         if proj == "oracle-ts":
@@ -2722,13 +2766,35 @@ def _csharp_timeout_override() -> int | None:
     return timeout_ms
 
 
+# Oracle projects whose reference expectations cover rules that the default
+# `sonar-parity` profile does not activate (issues #780-#782). These projects
+# must run the cumulative `strict` profile so every Sonar detector stays
+# active; the remaining projects keep the default profile.
+_STRICT_ORACLE_PROJECTS = frozenset(
+    {"oracle-py", "oracle-js", "oracle-ts", "oracle-cs"}
+)
+
+
 def _append_ours_command(
     command: list[str],
     proj: str,
     src: Path,
     native_context: dict[str, object],
 ) -> None:
-    command.extend(["analyze", "--format", "json"])
+    command.append("analyze")
+    if proj in _STRICT_ORACLE_PROJECTS:
+        # The oracle reference profiles ("Hoonarqube Oracle All <language>")
+        # activate every cataloged rule, so the native side must run the
+        # cumulative `strict` profile: it keeps every Sonar detector active
+        # and adds the hoonarqube-* native rules, which the comparator
+        # accepts as declared native findings. The default `sonar-parity`
+        # profile tracks the default reference profile and does not activate
+        # every cataloged rule.
+        command.extend(["--profile", "strict"])
+        native_context["profile"] = "strict"
+    else:
+        native_context["profile"] = "sonar-parity"
+    command.extend(["--format", "json"])
     if proj == "oracle-ts":
         command.extend(
             [
@@ -3017,10 +3083,27 @@ def run_ours(proj):
         )
         print(f"  ours {proj}: FAILED (native context unavailable: {reason})")
         return None
+    base_command = list(command)
     try:
         _append_ours_command(command, proj, src, native_context)
     except (KeyError, TypeError, ValueError) as error:
         reason = f"native context is invalid: {error}"
+        _native_execution(
+            native_context,
+            status="NOT_ATTEMPTED",
+            exit_code=None,
+            stdout="",
+            stderr="",
+            project_complete=None,
+            reason=reason,
+            argv=[str(argument) for argument in command],
+        )
+        print(f"  ours {proj}: FAILED ({reason})")
+        return None
+    try:
+        native_context["native_rule_keys"] = _native_rule_keys(base_command)
+    except ValueError as error:
+        reason = f"native rule registry is unavailable: {error}"
         _native_execution(
             native_context,
             status="NOT_ATTEMPTED",
@@ -3065,6 +3148,7 @@ def diff(proj, lang, sq_json, ours_json):
         catalog_keys=catalog_keys,
         available_files=available_files,
         enterprise_unverified=enterprise_unverified,
+        native_rule_keys=ours_native_rule_keys(ours),
     )
     return counts(rows), rows
 

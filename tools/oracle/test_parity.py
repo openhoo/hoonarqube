@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from parity import (
     build_hoonarqube_security_evidence,
     canonical_sonar_issue,
@@ -17,6 +16,7 @@ from parity import (
     counts,
     failure_count,
     input_paths_sha256,
+    ours_native_rule_keys,
     parse_report_task,
     read_json,
     read_secret_file,
@@ -270,6 +270,222 @@ class StrictParityTests(unittest.TestCase):
             any("absent from oracle contract" in row["reason"] for row in invalid)
         )
         self.assertTrue(any("unknown fixture" in row["reason"] for row in invalid))
+
+    def test_registered_native_keys_are_declared_for_ours_only(self):
+        registered = "hoonarqube-python:request-without-timeout"
+        native = {
+            "rule_key": registered,
+            "message": "native-only detector",
+            "range": {
+                "start": {"line": 3, "column": 0},
+                "end": {"line": 3, "column": 4},
+            },
+        }
+        ours = {
+            "files": [{"path": f"/fixture/{BAD}", "issues": [ours_issue(), native]}]
+        }
+        rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            ours,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+            native_rule_keys=[registered],
+        )
+        self.assertEqual(counts(rows), {"PASS": 1})
+        self.assertEqual(failure_count(rows), 0)
+
+        sonar_native = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue(), oracle_issue(rule=registered)),
+            ours_report(ours_issue()),
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+            native_rule_keys=[registered],
+        )
+        invalid = [row for row in sonar_native if row["status"] == "INVALID_ARTIFACT"]
+        self.assertEqual(len(invalid), 1)
+        self.assertIn("Sonar: rule absent from oracle contract", invalid[0]["reason"])
+
+        unknown_file = {
+            "files": [
+                {"path": f"/fixture/{BAD}", "issues": [ours_issue()]},
+                {"path": "/fixture/other.py", "issues": [native]},
+            ]
+        }
+        unknown_rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            unknown_file,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+            native_rule_keys=[registered],
+        )
+        invalid = [row for row in unknown_rows if row["status"] == "INVALID_ARTIFACT"]
+        self.assertEqual(len(invalid), 1)
+        self.assertIn("unknown fixture", invalid[0]["reason"])
+
+    def test_unregistered_or_absent_native_keys_fail_closed(self):
+        unregistered = {
+            "rule_key": "hoonarqube-python:S9999",
+            "message": "unregistered native-looking key",
+            "range": {
+                "start": {"line": 3, "column": 0},
+                "end": {"line": 3, "column": 4},
+            },
+        }
+        ours = {
+            "files": [
+                {"path": f"/fixture/{BAD}", "issues": [ours_issue(), unregistered]}
+            ]
+        }
+        for label, keys in (
+            ("absent", None),
+            ("empty", []),
+            ("different", ["hoonarqube-python:request-without-timeout"]),
+        ):
+            with self.subTest(native_rule_keys=label):
+                rows = compare_reports(
+                    [expectation()],
+                    oracle_report(oracle_issue()),
+                    ours,
+                    catalog_keys=[RULE],
+                    available_files=[BAD, GOOD],
+                    native_rule_keys=keys,
+                )
+                invalid = [row for row in rows if row["status"] == "INVALID_ARTIFACT"]
+                self.assertEqual(len(invalid), 1)
+                self.assertIn(
+                    "hoonarqube: rule absent from oracle contract",
+                    invalid[0]["reason"],
+                )
+
+    def test_ours_native_rule_keys_extraction_fails_closed(self):
+        self.assertIsNone(ours_native_rule_keys({}))
+        self.assertIsNone(ours_native_rule_keys({"oracle_evidence": {}}))
+        self.assertIsNone(
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {},
+                    "oracle_evidence": {},
+                }
+            )
+        )
+        context = {"native_rule_keys": ["hoonarqube-go:G110"]}
+        self.assertEqual(
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {"native_context": context},
+                    "oracle_evidence": {"native_context": dict(context)},
+                }
+            ),
+            ["hoonarqube-go:G110"],
+        )
+        with self.assertRaisesRegex(ValueError, "must be strings"):
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {
+                        "native_context": {"native_rule_keys": ["ok", 1]}
+                    },
+                    "oracle_evidence": {
+                        "native_context": {"native_rule_keys": ["ok", 1]}
+                    },
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "duplicates"):
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-go:G110"] * 2
+                        }
+                    },
+                    "oracle_evidence": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-go:G110"] * 2
+                        }
+                    },
+                }
+            )
+
+    def test_ours_native_rule_keys_rejects_undigested_or_divergent_context(self):
+        # An evidence-only native_context is not bound by the manifest digest
+        # and must never widen the declared native set.
+        with self.assertRaisesRegex(ValueError, "undigested evidence-only"):
+            ours_native_rule_keys(
+                {
+                    "oracle_evidence": {
+                        "native_context": {
+                            "native_rule_keys": ["hoonarqube-python:S9999"]
+                        }
+                    }
+                }
+            )
+        # A divergent evidence copy is tampering even when the digested
+        # provenance context is well-formed.
+        with self.assertRaisesRegex(ValueError, "diverges"):
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {
+                        "native_context": {"native_rule_keys": ["hoonarqube-go:G110"]}
+                    },
+                    "oracle_evidence": {
+                        "native_context": {
+                            "native_rule_keys": [
+                                "hoonarqube-go:G110",
+                                "hoonarqube-python:S9999",
+                            ]
+                        }
+                    },
+                }
+            )
+        # A missing evidence copy is equally divergent.
+        with self.assertRaisesRegex(ValueError, "diverges"):
+            ours_native_rule_keys(
+                {
+                    "oracle_provenance": {
+                        "native_context": {"native_rule_keys": ["hoonarqube-go:G110"]}
+                    },
+                    "oracle_evidence": {},
+                }
+            )
+        # Tampering cannot smuggle an undeclared key into a comparison.
+        tampered = {
+            "files": [
+                {
+                    "path": f"/fixture/{BAD}",
+                    "issues": [
+                        ours_issue(),
+                        {
+                            "rule_key": "hoonarqube-python:S9999",
+                            "message": "injected",
+                            "range": {
+                                "start": {"line": 2, "column": 0},
+                                "end": {"line": 2, "column": 4},
+                            },
+                        },
+                    ],
+                }
+            ],
+            "oracle_evidence": {
+                "native_context": {"native_rule_keys": ["hoonarqube-python:S9999"]}
+            },
+        }
+        with self.assertRaisesRegex(ValueError, "undigested evidence-only"):
+            ours_native_rule_keys(tampered)
+        rows = compare_reports(
+            [expectation()],
+            oracle_report(oracle_issue()),
+            tampered,
+            catalog_keys=[RULE],
+            available_files=[BAD, GOOD],
+            native_rule_keys=ours_native_rule_keys({"files": tampered["files"]}),
+        )
+        invalid = [row for row in rows if row["status"] == "INVALID_ARTIFACT"]
+        self.assertEqual(len(invalid), 1)
+        self.assertIn(
+            "hoonarqube: rule absent from oracle contract", invalid[0]["reason"]
+        )
 
     def test_each_missing_side_and_both_missing_are_distinct_failures(self):
         ours_missing = self.compare(

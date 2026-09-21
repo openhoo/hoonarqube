@@ -969,7 +969,12 @@ impl FixAnalysisContext {
         path: &Path,
         source: &str,
     ) -> Result<Option<FileReport>, String> {
-        let report = context.analyze(path, source, &self.options)?;
+        let mut report = context.analyze(path, source, &self.options)?;
+        if let Some(report) = report.as_mut() {
+            // Semantic reports bypass `hoonarqube_core::analyze`, so the
+            // shared profile-membership policy is applied here as well.
+            hoonarqube_core::retain_profile_active_issues(self.options.profile, report);
+        }
         if hoonarqube_core::is_razor_path(path)
             && context.razor_source_facts(path, source).is_none()
         {
@@ -1284,6 +1289,39 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.contains("not valid UTF-8"))
         );
+    }
+
+    /// A Razor path whose semantic context produced no report must still hit
+    /// the missing-compiler-facts refusal; the profile-membership filter must
+    /// not turn the `None` report into an early success.
+    #[test]
+    fn analyze_context_refuses_razor_without_compiler_facts() {
+        let root =
+            std::env::temp_dir().join(format!("hoonarqube-razor-refusal-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let semantic = SemanticOptions {
+            python_project: Some(root.clone()),
+            ..SemanticOptions::default()
+        };
+        let options = AnalyzerOptionsBundle::default();
+        let base = ProjectSemanticContext::load(&[], &semantic, &options, &[])
+            .expect("unsupported profiles are the only hard load error");
+        let context = FixAnalysisContext {
+            options,
+            semantic,
+            sources: Vec::new(),
+            context_sources: Vec::new(),
+            base,
+        };
+        let razor = Path::new("Component.razor");
+        let error = context
+            .analyze_context(&context.base, razor, "@code { }\n")
+            .expect_err("Razor without compiler facts must refuse");
+        assert!(
+            error.contains("compiler-backed Razor source facts"),
+            "unexpected error: {error}"
+        );
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

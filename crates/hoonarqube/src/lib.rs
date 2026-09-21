@@ -141,6 +141,8 @@ pub use hoonarqube_core::RuleProfile;
 pub use hoonarqube_core::analyze;
 /// Maps a file path to its analyzed [`Language`], or `None` if unknown.
 pub use hoonarqube_core::language_for_path;
+/// Drops findings whose rules are inactive in the selected profile.
+pub use hoonarqube_core::retain_profile_active_issues;
 /// Per-language analyzer knobs for field-by-field [`AnalyzerOptions`] construction.
 pub use hoonarqube_core::{
     CSharpAnalyzerOptions, GoAnalyzerOptions, JavaAnalyzerOptions, JstsAnalyzerOptions,

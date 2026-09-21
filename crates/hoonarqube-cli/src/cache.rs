@@ -81,6 +81,9 @@ struct CacheKey {
     dependency: String,
     path: String,
     content: String,
+    /// Scope classification at analysis time; a reclassified input must not
+    /// reuse findings recorded under a different scope.
+    classification: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -399,8 +402,9 @@ impl Cache {
         path: &Path,
         source_len: usize,
         content_digest: [u8; 32],
+        classification: hoonarqube_ir::FileClassification,
     ) -> Option<CacheEntry> {
-        let key = self.key(path, content_digest);
+        let key = self.key(path, content_digest, classification);
         let entry_path = self.entry_path(&key);
         let metadata = fs::symlink_metadata(&entry_path).ok()?;
         if !metadata.file_type().is_file() {
@@ -470,14 +474,14 @@ impl Cache {
             },
         };
         let Ok(header_bytes) = serde_json::to_vec(&CacheHeader {
-            key: self.key(path, content_digest),
+            key: self.key(path, content_digest, project_file.classification),
         }) else {
             return;
         };
         let Some(frame) = make_frame(&header_bytes, &payload) else {
             return;
         };
-        let key = self.key(path, content_digest);
+        let key = self.key(path, content_digest, project_file.classification);
         let entry_path = self.entry_path(&key);
         let Some(parent) = entry_path.parent() else {
             return;
@@ -499,7 +503,12 @@ impl Cache {
         }
     }
 
-    fn key(&self, path: &Path, content_digest: [u8; 32]) -> CacheKey {
+    fn key(
+        &self,
+        path: &Path,
+        content_digest: [u8; 32],
+        classification: hoonarqube_ir::FileClassification,
+    ) -> CacheKey {
         CacheKey {
             executable: self.executable_fingerprint.clone(),
             options: self.options_fingerprint.clone(),
@@ -511,6 +520,7 @@ impl Cache {
             dependency: self.dependency_fingerprint.clone(),
             path: path_key(path),
             content: digest_hex(&content_digest),
+            classification: classification_key(classification).to_owned(),
         }
     }
 
@@ -826,6 +836,7 @@ fn key_digest(key: &CacheKey) -> [u8; 32] {
         &key.dependency,
         &key.path,
         &key.content,
+        &key.classification,
     ] {
         let length = u64::try_from(part.len()).unwrap_or(u64::MAX);
         hasher.update(length.to_le_bytes());
@@ -864,6 +875,19 @@ fn digest_hex(bytes: &[u8]) -> String {
 
 fn path_key(path: &Path) -> String {
     digest_hex(path.as_os_str().as_encoded_bytes())
+}
+
+/// Stable cache-key label for one scope classification. Kept as an explicit
+/// table rather than serde output so key identity survives representation
+/// changes in `FileClassification`.
+fn classification_key(classification: hoonarqube_ir::FileClassification) -> &'static str {
+    match classification {
+        hoonarqube_ir::FileClassification::Source => "source",
+        hoonarqube_ir::FileClassification::Test => "test",
+        hoonarqube_ir::FileClassification::Generated => "generated",
+        hoonarqube_ir::FileClassification::Vendor => "vendor",
+        hoonarqube_ir::FileClassification::Excluded => "excluded",
+    }
 }
 
 fn analyzer_options_fingerprint(options: &AnalyzerOptions) -> String {
@@ -1158,7 +1182,9 @@ mod tests {
         let analyzed =
             analyze_project_file(path, source, &options, FileClassification::Source, false);
         cache.store(path, digest, &analyzed);
-        let cached = cache.load(path, source.len(), digest).expect("cache hit");
+        let cached = cache
+            .load(path, source.len(), digest, FileClassification::Source)
+            .expect("cache hit");
         assert_eq!(
             serde_json::to_value(cached.report).unwrap(),
             serde_json::to_value(analyzed.report.as_ref().unwrap()).unwrap()
@@ -1166,24 +1192,50 @@ mod tests {
         assert_eq!(&cached.facts, analyzed.facts.as_ref().unwrap());
         assert!(
             cache
-                .load(path, source.len(), Cache::source_digest(b"changed"))
+                .load(
+                    path,
+                    source.len(),
+                    Cache::source_digest(b"changed"),
+                    FileClassification::Source,
+                )
                 .is_none()
         );
         assert!(
             cache
-                .load(Path::new("renamed.py"), source.len(), digest)
+                .load(
+                    Path::new("renamed.py"),
+                    source.len(),
+                    digest,
+                    FileClassification::Source,
+                )
                 .is_none()
         );
         cache.options_fingerprint.push('x');
-        assert!(cache.load(path, source.len(), digest).is_none());
+        assert!(
+            cache
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_none()
+        );
         cache.options_fingerprint.pop();
         cache.executable_fingerprint.push('x');
-        assert!(cache.load(path, source.len(), digest).is_none());
+        assert!(
+            cache
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_none()
+        );
         cache.executable_fingerprint.pop();
         cache.context_fingerprint.push('x');
         assert!(
-            cache.load(path, source.len(), digest).is_none(),
+            cache
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_none(),
             "semantic context fingerprint changes must invalidate cached files"
+        );
+        assert!(
+            cache
+                .load(path, source.len(), digest, FileClassification::Test)
+                .is_none(),
+            "a reclassified input must not reuse findings recorded under a different scope"
         );
     }
 
@@ -1200,15 +1252,27 @@ mod tests {
         let mut analyzed =
             analyze_project_file(path, source, &options, FileClassification::Source, false);
         cache.store(path, digest, &analyzed);
-        let entry = cache.entry_path(&cache.key(path, digest));
+        let entry = cache.entry_path(&cache.key(path, digest, FileClassification::Source));
         let mut bytes = fs::read(&entry).expect("stored entry");
         *bytes.last_mut().unwrap() ^= 1;
         fs::write(&entry, bytes).unwrap();
-        assert!(cache.load(path, source.len(), digest).is_none());
+        assert!(
+            cache
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_none()
+        );
         cache.store(path, digest, &analyzed);
-        assert!(cache.load(path, source.len(), digest).is_some());
+        assert!(
+            cache
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_some()
+        );
         fs::write(&entry, b"truncated").unwrap();
-        assert!(cache.load(path, source.len(), digest).is_none());
+        assert!(
+            cache
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_none()
+        );
         fs::remove_file(&entry).unwrap();
         analyzed.facts.as_mut().unwrap().error = Some("incomplete facts".into());
         cache.store(path, digest, &analyzed);
@@ -1234,7 +1298,9 @@ mod tests {
         assert!(!facts.units.is_empty(), "fixture must exercise Java units");
         let digest = Cache::source_digest(source.as_bytes());
         cache.store(path, digest, &analyzed);
-        let cached = cache.load(path, source.len(), digest).expect("cache hit");
+        let cached = cache
+            .load(path, source.len(), digest, FileClassification::Source)
+            .expect("cache hit");
         assert_eq!(cached.facts, *facts);
     }
 }

@@ -29,6 +29,52 @@ The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
 
+## `sonar-parity` profile membership
+
+`sonar-parity` is the default compatibility profile. It runs the Sonar-rule
+detector batteries and disables every `hoonarqube-*` native rule. Its
+membership is corrected only by pinned reference evidence, one rule/language
+combination at a time; it is not a claim that the profile mirrors the complete
+default "Sonar way" profile of any SonarQube version.
+
+Reporter-derived evidence from SonarQube Server `2025.4.4.119049` default
+"Sonar way" exports (`/api/qualityprofiles/export`, issues #780, #781, #782)
+records these rules as inactive in the default profile, so `sonar-parity`
+does not activate them:
+
+| rule | languages | reporter-derived default-profile state |
+|---|---|---|
+| `S1441` | `javascript`, `typescript` | absent from js/ts "Sonar way" exports |
+| `S1537` | `javascript`, `typescript` | absent from js/ts "Sonar way" exports |
+| `S1720` | `python` | absent from py "Sonar way" export |
+| `S6542` | `python` | absent from py "Sonar way" export |
+| `S3216` | `csharpsquid` | absent from cs "Sonar way" export |
+| `S4261` | `csharpsquid` | absent from cs "Sonar way" export |
+
+This evidence is reporter-derived: the referenced default-profile exports are
+not attached to the repository, and no independently captured XML export is
+claimed. The repository's own oracle captures come from a different source:
+the SonarQube Community `26.8` "Hoonarqube Oracle All" quality profiles, which
+activate every cataloged rule including the six above. The all-rules oracle
+contract is unchanged; `tools/oracle/parity_suite.py` runs the native side of
+the affected projects (Python, JavaScript, TypeScript, C#) under the
+cumulative `strict` profile so every Sonar detector stays active, while the
+remaining projects keep the default profile. Each native run records the
+analyzed binary's own `rules native` registry into the artifact, and the
+comparator declares only those exact `hoonarqube-*` keys as native output;
+unregistered or Sonar-side occurrences remain invalid artifacts.
+
+The cumulative `recommended`, `extended`, and `strict` profiles keep every
+Sonar detector active, including the six rules above; only `sonar-parity`
+omits them. Language-level detector APIs and defaults are unchanged.
+
+C# scope is a separate contract from profile membership. `csharpsquid:S3216`
+is MAIN-scoped and stays suppressed on sources explicitly classified as test
+(for example via `--test-include`), independent of convention paths.
+`csharpsquid:S4261` is ALL-scoped and TEST-scoped rules keep their existing
+scope semantics. Under `sonar-parity` neither rule emits because it is
+inactive in the reporter-derived default profile.
+
 ## Rust S1612 coverage contract, version 1
 
 The Rust analyzer owns `rust:S1612`, but its current executable coverage is

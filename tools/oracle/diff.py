@@ -11,6 +11,7 @@ from parity import (
     counts,
     failure_count,
     load_infra_boundaries,
+    ours_native_rule_keys,
     read_json,
     read_jsonl,
     validate_oracle_report,
@@ -107,6 +108,7 @@ def main(
         catalog_keys=catalog_keys,
         available_files=available_files,
         enterprise_unverified=enterprise_unverified,
+        native_rule_keys=ours_native_rule_keys(ours),
     )
     rendered = json.dumps(rows, indent=1) + "\n"
     if out_path:

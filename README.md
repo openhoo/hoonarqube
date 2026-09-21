@@ -196,10 +196,17 @@ Sonar facts.
 Profiles are cumulative:
 
 - `sonar-parity` — default compatibility contract; disables all native rules.
-- `recommended` — 37 high-value, conservative native rules.
-- `extended` — 46 rules, including broader local-flow checks.
+  Six Sonar rules absent from the reporter-exported SonarQube 2025.4.4 default
+  "Sonar way" profiles (javascript/typescript S1441 and S1537, python S1720
+  and S6542, csharpsquid S3216 and S4261) stay inactive; see
+  [PARITY.md](PARITY.md) for the bounded membership contract.
+- `recommended` — 37 high-value, conservative native rules; every Sonar
+  detector stays active.
+- `extended` — 46 rules, including broader local-flow checks; every Sonar
+  detector stays active.
 - `strict` — all 47 rules; additionally enforces explicit `0600` file creation
-  instead of `os.Create`'s umask-dependent `0666` mode.
+  instead of `os.Create`'s umask-dependent `0666` mode. Every Sonar detector
+  stays active.
 
 The shared CFG engine now provides deterministic taint facts; Go G110 is its
 first taint-fact consumer and emits ordered source-to-sink locations. Rules needing

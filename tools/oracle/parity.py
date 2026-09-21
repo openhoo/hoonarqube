@@ -1680,6 +1680,7 @@ class _ComparisonContext:
     catalog: set[str] | None
     files: set[str] | None
     enterprise_unverified: set[str]
+    native: set[str] | None
 
 
 @dataclass(frozen=True)
@@ -1941,12 +1942,14 @@ def compare_reports(
     catalog_keys: Iterable[str] | None = None,
     available_files: Iterable[str] | None = None,
     enterprise_unverified: Iterable[str] = (),
+    native_rule_keys: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Compare exact finding equality, never certifying an incomplete native report."""
     if not isinstance(expected, list):
         raise ValueError("oracle expectations must be a list")
     catalog = _unique_set(catalog_keys, "catalog key")
     files = _unique_set(available_files, "available fixture")
+    native = _unique_set(native_rule_keys, "native rule key")
     native_incomplete, native_reason = _native_incomplete_details(hoonarqube_report)
     context = _ComparisonContext(
         sonar=sonar_findings(sonar_report),
@@ -1955,6 +1958,7 @@ def compare_reports(
         catalog=catalog,
         files=files,
         enterprise_unverified=set(enterprise_unverified),
+        native=native,
     )
     seen: set[str] = set()
     rows: list[dict[str, Any]] = []
@@ -2008,7 +2012,17 @@ def _unexpected_finding_rows(
     for source, findings in (("Sonar", context.sonar), ("hoonarqube", context.ours)):
         for finding in findings:
             rule, file_name = finding[:2]
-            if rule not in declared_rules:
+            # The oracle contract covers Sonar rule keys only. Findings whose
+            # key is an exact registered hoonarqube-* native rule (recorded
+            # from the analyzed binary's own registry) are declared native
+            # output, not contract violations; a Sonar artifact can never
+            # legitimately carry them.
+            native_rule = (
+                source == "hoonarqube"
+                and context.native is not None
+                and rule in context.native
+            )
+            if rule not in declared_rules and not native_rule:
                 unexpected.add((str(rule), source, "rule absent from oracle contract"))
             elif context.files is not None and file_name not in context.files:
                 unexpected.add(
@@ -2022,6 +2036,52 @@ def _unexpected_finding_rows(
         _terminal_row(key, "INVALID_ARTIFACT", f"{source}: {reason}")
         for key, source, reason in sorted(unexpected)
     ]
+
+
+def ours_native_rule_keys(report: Any) -> list[str] | None:
+    """Return the registered native rule keys recorded in a native artifact.
+
+    The oracle harness records the analyzed binary's own `rules native`
+    registry into `native_context`, which is embedded in both the digested
+    `oracle_provenance` manifest and the `oracle_evidence` convenience copy.
+    Only the digested provenance copy is authoritative: an evidence-only or
+    divergent context is rejected as tampering instead of silently widening
+    the declared set. Artifacts recorded before the registry was captured
+    have no context and return ``None`` so comparisons fail closed.
+    """
+    if not isinstance(report, dict):
+        return None
+    manifest = report.get("oracle_provenance")
+    manifest_context = (
+        manifest.get("native_context") if isinstance(manifest, dict) else None
+    )
+    evidence = report.get("oracle_evidence")
+    evidence_context = (
+        evidence.get("native_context") if isinstance(evidence, dict) else None
+    )
+    if manifest_context is None:
+        if evidence_context is not None:
+            raise ValueError(
+                "native artifact carries an undigested evidence-only native_context"
+            )
+        return None
+    if not isinstance(manifest_context, dict):
+        raise ValueError("native artifact provenance native_context is invalid")
+    if evidence_context != manifest_context:
+        raise ValueError(
+            "native artifact evidence native_context diverges from the "
+            "digested provenance copy"
+        )
+    keys = manifest_context.get("native_rule_keys")
+    if keys is None:
+        return None
+    if not isinstance(keys, list) or any(
+        not isinstance(key, str) or not key for key in keys
+    ):
+        raise ValueError("native artifact native_rule_keys must be strings")
+    if len(keys) != len(set(keys)):
+        raise ValueError("native artifact native_rule_keys contains duplicates")
+    return list(keys)
 
 
 def _unique_set(values: Iterable[str] | None, label: str) -> set[str] | None:

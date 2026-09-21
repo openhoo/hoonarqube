@@ -475,6 +475,108 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
                     {"files": [{"path": context_paths[0]}]}, native_context
                 )
 
+    def test_ours_command_selects_strict_only_for_all_rule_projects(self):
+        for proj in ("oracle-py", "oracle-js", "oracle-go", "oracle-rust"):
+            with self.subTest(proj=proj):
+                command: list[str] = []
+                context: dict[str, object] = {}
+                parity_suite._append_ours_command(
+                    command, proj, Path("/fixture/src"), context
+                )
+                if proj in parity_suite._STRICT_ORACLE_PROJECTS:
+                    self.assertEqual(
+                        command[:5],
+                        ["analyze", "--profile", "strict", "--format", "json"],
+                    )
+                    self.assertEqual(context["profile"], "strict")
+                else:
+                    self.assertEqual(command[:3], ["analyze", "--format", "json"])
+                    self.assertNotIn("--profile", command)
+                    self.assertEqual(context["profile"], "sonar-parity")
+
+        ts_command: list[str] = []
+        ts_context: dict[str, object] = {
+            "typescript_project_path": "/fixture/tsconfig.json",
+            "typescript_module": "/fixture/node_modules/typescript",
+        }
+        parity_suite._append_ours_command(
+            ts_command, "oracle-ts", Path("/fixture/src"), ts_context
+        )
+        self.assertEqual(
+            ts_command[:5],
+            ["analyze", "--profile", "strict", "--format", "json"],
+        )
+        self.assertEqual(ts_context["profile"], "strict")
+
+        with tempfile.TemporaryDirectory() as directory:
+            (
+                workspace,
+                static_files,
+                mapping,
+                fixture,
+                _expected_context_paths,
+            ) = self._write_csharp_context_workspace(Path(directory))
+            current_static = parity_suite._csharp_metadata_map(static_files, workspace)
+            context_paths, context_hashes = (
+                parity_suite._csharp_workspace_context_sources(
+                    workspace, static_files, current_static, [mapping]
+                )
+            )
+            cs_command: list[str] = []
+            cs_context: dict[str, object] = {
+                "status": "READY",
+                "workspace": str(workspace),
+                "solution": str(workspace / "Oracle.slnx"),
+                "source_mapping": [mapping],
+                "source_paths": [str(fixture)],
+                "context_source_paths": context_paths,
+                "context_source_hashes": context_hashes,
+            }
+            with mock.patch.dict(parity_suite.os.environ, {}, clear=True):
+                parity_suite._append_ours_command(
+                    cs_command, "oracle-cs", fixture, cs_context
+                )
+            self.assertEqual(
+                cs_command[:5],
+                ["analyze", "--profile", "strict", "--format", "json"],
+            )
+            self.assertEqual(cs_context["profile"], "strict")
+
+    def test_native_rule_keys_comes_from_the_analyzed_binary(self):
+        payload = json.dumps(
+            [
+                {"external_key": "hoonarqube-go:G110"},
+                {"external_key": "hoonarqube-python:S113"},
+            ]
+        )
+        completed = mock.Mock(returncode=0, stdout=payload, stderr="")
+        with mock.patch.object(
+            parity_suite.subprocess, "run", return_value=completed
+        ) as run:
+            keys = parity_suite._native_rule_keys(["/bin/hoonarqube"])
+        self.assertEqual(keys, ["hoonarqube-go:G110", "hoonarqube-python:S113"])
+        self.assertEqual(
+            run.call_args.args[0],
+            ["/bin/hoonarqube", "rules", "native", "--json"],
+        )
+
+        for bad in (
+            mock.Mock(returncode=1, stdout="", stderr="boom"),
+            mock.Mock(returncode=0, stdout="{}", stderr=""),
+            mock.Mock(
+                returncode=0,
+                stdout='[{"external_key": "hoonarqube-go:G110"},'
+                '{"external_key": "hoonarqube-go:G110"}]',
+                stderr="",
+            ),
+            mock.Mock(returncode=0, stdout='[{"name": "no-key"}]', stderr=""),
+        ):
+            with (
+                mock.patch.object(parity_suite.subprocess, "run", return_value=bad),
+                self.assertRaises(ValueError),
+            ):
+                parity_suite._native_rule_keys(["/bin/hoonarqube"])
+
     def test_csharp_context_sources_reject_changed_or_unowned_auxiliary_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             (

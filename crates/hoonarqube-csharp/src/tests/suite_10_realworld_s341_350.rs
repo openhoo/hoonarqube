@@ -3,7 +3,10 @@
 //! resolution, and the frozen catalog's MAIN rule scope enforced centrally on
 //! the Sonar surface.
 
-use super::{AnalyzerOptions, CsLanguage, PathBuf, analyze, analyze_default, with_key};
+use super::{
+    AnalyzerOptions, CsLanguage, PathBuf, analyze, analyze_default, retain_test_scope_issues,
+    with_key,
+};
 
 fn analyze_at(path: &str, source: &str) -> hoonarqube_ir::FileReport {
     analyze(
@@ -136,4 +139,46 @@ fn benchmark_sources_stay_in_the_main_scope() {
     let report = analyze_at("benchmarks/Dapper.Tests.Performance/Legacy.cs", source);
     assert_eq!(with_key(&report, "csharpsquid:S106").len(), 1);
     assert_eq!(with_key(&report, "csharpsquid:S109").len(), 1);
+}
+
+// --- #781 — explicit test classification reuses the MAIN-scope drop --------
+
+/// Issue #781: `--test-include` classifies sources as tests outside the
+/// conventional `test`/`tests`/`testing` directories, so the analyzer's
+/// path convention alone cannot suppress MAIN-scope rules there. The shared
+/// [`retain_test_scope_issues`] helper applies the same drop to an explicitly
+/// test-classified report: the reporter's `ExampleTests.cs` fixture keeps
+/// `csharpsquid:S3216` (MAIN) and `csharpsquid:S4261` (ALL) at the project
+/// root, and the filtered report must match the conventional `tests/` report
+/// finding-for-finding — S3216 gone, S4261 retained.
+#[test]
+fn retain_test_scope_issues_matches_conventional_test_report() {
+    let source = "using System.Threading.Tasks;\n\npublic static class ExampleTests\n{\n    public static async Task ReturnsValue()\n    {\n        await Task.Delay(1);\n    }\n}\n";
+    let mut report = analyze_at("ExampleTests.cs", source);
+    assert_eq!(with_key(&report, "csharpsquid:S3216").len(), 1);
+    assert_eq!(with_key(&report, "csharpsquid:S4261").len(), 1);
+
+    retain_test_scope_issues(&mut report);
+
+    assert!(with_key(&report, "csharpsquid:S3216").is_empty());
+    assert_eq!(with_key(&report, "csharpsquid:S4261").len(), 1);
+    let conventional = analyze_at("tests/ExampleTests.cs", source);
+    assert_eq!(report.issues, conventional.issues);
+}
+
+/// The helper drops only MAIN-scope keys: TEST-scope findings (S3415) and
+/// ALL-scope findings (S4261) already present in a test report survive, and
+/// a repeated call is a no-op.
+#[test]
+fn retain_test_scope_issues_preserves_test_and_all_scope_findings() {
+    let source = "class OrderTests\n{\n    void M(Order order)\n    {\n        Assert.Equal(order.Id, 1);\n    }\n\n    async System.Threading.Tasks.Task ReturnsValue()\n    {\n        await System.Threading.Tasks.Task.Delay(1);\n    }\n}\n";
+    let mut report = analyze_at("tests/OrderTests.cs", source);
+    assert_eq!(with_key(&report, "csharpsquid:S3415").len(), 1);
+    assert_eq!(with_key(&report, "csharpsquid:S4261").len(), 1);
+    // The conventional path already dropped MAIN-scope S3216.
+    assert!(with_key(&report, "csharpsquid:S3216").is_empty());
+
+    let before = report.issues.clone();
+    retain_test_scope_issues(&mut report);
+    assert_eq!(report.issues, before);
 }
