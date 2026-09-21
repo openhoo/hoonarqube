@@ -7,11 +7,11 @@ use crate::support::IssueSink;
 use crate::support::LineIndex;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    Expression, JSXAttribute, JSXAttributeItem, JSXAttributeValue, JSXElement, JSXOpeningElement,
-    JSXText,
+    Expression, JSXAttribute, JSXAttributeItem, JSXAttributeValue, JSXChild, JSXElement,
+    JSXExpression, JSXOpeningElement, JSXText,
 };
 use oxc_ast_visit::Visit;
-use oxc_ast_visit::walk::walk_jsx_element;
+use oxc_ast_visit::walk::{walk_jsx_child, walk_jsx_element};
 use oxc_span::{GetSpan, Span};
 use std::collections::BTreeSet;
 
@@ -144,6 +144,21 @@ impl Visit<'_> for SubtreeFacts {
         if !it.value.trim().is_empty() {
             self.has_visible_text = true;
         }
+    }
+
+    /// Expression children (`{title}`, `{user.name}`) are potential content:
+    /// their rendered text is unknown at analysis time, matching the
+    /// reference `hasAccessibleChild` semantics. Empty containers (`{}`) and
+    /// `{undefined}` cannot render text. Only children count — attribute
+    /// values never reach `visit_jsx_child`.
+    fn visit_jsx_child(&mut self, it: &JSXChild<'_>) {
+        if let JSXChild::ExpressionContainer(container) = it
+            && !matches!(container.expression, JSXExpression::EmptyExpression(_))
+            && !container.expression.is_undefined()
+        {
+            self.has_visible_text = true;
+        }
+        walk_jsx_child(self, it);
     }
 }
 

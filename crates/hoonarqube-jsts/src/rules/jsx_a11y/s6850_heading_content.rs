@@ -58,6 +58,31 @@ mod tests {
     }
 
     #[test]
+    fn s6850_accepts_expression_children() {
+        let identifier = jsx_keys("const el = <h2>{title}</h2>;\n");
+        assert_eq!(count_key(&identifier, "javascript:S6850"), 0);
+
+        let member = jsx_keys("const el = <h2>{user.name}</h2>;\n");
+        assert_eq!(count_key(&member, "javascript:S6850"), 0);
+
+        let nested = jsx_keys("const el = <h3><b>{label}</b></h3>;\n");
+        assert_eq!(count_key(&nested, "javascript:S6850"), 0);
+    }
+
+    #[test]
+    fn s6850_flags_non_rendering_expression_children() {
+        let empty_container = jsx_keys("const el = <h2>{/* nothing */}</h2>;\n");
+        assert_eq!(count_key(&empty_container, "javascript:S6850"), 1);
+
+        let undefined = jsx_keys("const el = <h2>{undefined}</h2>;\n");
+        assert_eq!(count_key(&undefined, "javascript:S6850"), 1);
+
+        // Attribute expressions are not heading content.
+        let attribute_only = jsx_keys("const el = <h2 data-note={note}/>;\n");
+        assert_eq!(count_key(&attribute_only, "javascript:S6850"), 1);
+    }
+
+    #[test]
     fn s6850_ignores_non_heading_elements() {
         let paragraph = jsx_keys("const el = <p/>;\n");
         assert_eq!(count_key(&paragraph, "javascript:S6850"), 0);
