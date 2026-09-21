@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.1 (2026-09-21)
+
+### Bug Fixes
+
+- **jsts:** stop JSX false positives in S6850, S6747, and S5254 (#808) (e6e1958)
+- **hoonarqube-jsts:** cover explicit union returns, suppress ts S3800 (#809) (ff5f6e0)
+- **jsts:** make S7060 self-import resolution extension-aware (#810) (92e9b9a)
+- **jsts:** report one precise diagnostic for unsupported TypeScript compilers (#811) (0d84bbc)
+
 ## 0.10.0 (2026-09-21)
 
 ### Features
