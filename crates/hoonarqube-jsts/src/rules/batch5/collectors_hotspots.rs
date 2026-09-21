@@ -25,7 +25,7 @@ use oxc_ast_visit::walk::{
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 /// Fragments whose absence in a callback body means `S2699` flags it.
 pub(crate) const ASSERTION_MARKERS: [&str; 4] = ["expect(", "assert.", "assert(", "should"];
@@ -167,19 +167,51 @@ pub(crate) fn check_default_export_name(
     issues
 }
 
-/// Module specifier of an import, stripped of its relative marker.
-fn relative_module_stem(specifier: &str) -> Option<String> {
-    let stripped = specifier.strip_prefix("./").unwrap_or(specifier);
-    if stripped.starts_with('.') || specifier.starts_with('/') {
-        return None;
+/// Lexically normalized form of `path`: `.` segments dropped and `..`
+/// segments resolved against the preceding normal component, without
+/// touching the filesystem. `..` segments that escape the path's own root
+/// are preserved so relative paths stay comparable.
+fn normalized_lexical(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match normalized.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normalized.pop();
+                }
+                Some(Component::RootDir) => {}
+                _ => normalized.push(".."),
+            },
+            _ => normalized.push(component.as_os_str()),
+        }
     }
-    Path::new(stripped)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .map(ToOwned::to_owned)
+    normalized
+}
+
+/// `specifier` interpreted as a module path relative to `importing_file`,
+/// compared extension-insensitively so `./x` matches `x.ts`/`x.js` siblings.
+/// A trailing directory specifier also matches the file's `index` module.
+fn relative_specifier_resolves_to_self(specifier: &str, importing_file: &Path) -> bool {
+    let relative = specifier.starts_with("./")
+        || specifier.starts_with("../")
+        || specifier == "."
+        || specifier == "..";
+    if !relative {
+        return false;
+    }
+    let directory = importing_file.parent().unwrap_or_else(|| Path::new(""));
+    let resolved = normalized_lexical(&directory.join(specifier));
+    let target = normalized_lexical(importing_file);
+    let target_extensionless = target.with_extension("");
+    resolved.with_extension("") == target_extensionless
+        || resolved.join("index").with_extension("") == target_extensionless
 }
 
 /// `S7060`: imports whose specifier resolves to the importing file itself.
+/// Only relative specifiers (`./`, `../`, `.`, `..`) can resolve to the
+/// importing file; bare package specifiers such as `@playwright/test` name
+/// external packages and are never self-imports.
 pub(crate) fn check_self_imports(
     program: &oxc_ast::ast::Program<'_>,
     path: &Path,
@@ -187,13 +219,9 @@ pub(crate) fn check_self_imports(
     language: JstsLanguage,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let Some(self_stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-        return issues;
-    };
     for statement in &program.body {
         if let Statement::ImportDeclaration(import) = statement
-            && relative_module_stem(&import.source.value)
-                .is_some_and(|stem| normalized_name(&stem) == normalized_name(self_stem))
+            && relative_specifier_resolves_to_self(&import.source.value, path)
         {
             issues.push(span_issue(
                 index,
@@ -965,6 +993,72 @@ const upload = multer(options);
                 .issues
                 .iter()
                 .all(|issue| issue.rule_key != "javascript:S7060")
+        );
+
+        // A `..` specifier that climbs back to the importing file is still a
+        // genuine self-import.
+        let parent_self_import = analyze(
+            PathBuf::from("sub/app.js"),
+            "import '../sub/app';\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            count_key(&report_keys(&parent_self_import), "javascript:S7060"),
+            1
+        );
+
+        // A directory specifier resolves through its `index` module.
+        let index_self_import = analyze(
+            PathBuf::from("pkg/index.js"),
+            "import './';\n",
+            JstsLanguage::JavaScript,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            index_self_import
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S7060")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn package_specifiers_are_never_self_imports() {
+        // #790: a bare package specifier resolves through the package
+        // registry, not the importing file's directory, even when its final
+        // path segment matches the importing file's stem.
+        for specifier in ["@playwright/test", "test", "lodash/test", "@scope/sub/test"] {
+            let report = analyze(
+                PathBuf::from("test.ts"),
+                &format!("import {{ expect }} from \"{specifier}\";\nexpect(1);\n"),
+                JstsLanguage::TypeScript,
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "typescript:S7060"),
+                "{specifier} must not be treated as a self-import"
+            );
+        }
+
+        // A relative specifier whose basename matches but resolves to a
+        // different file is not a self-import either.
+        let sibling = analyze(
+            PathBuf::from("test.ts"),
+            "import './sub/test';\n",
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            sibling
+                .issues
+                .iter()
+                .all(|issue| issue.rule_key != "typescript:S7060")
         );
     }
 }
