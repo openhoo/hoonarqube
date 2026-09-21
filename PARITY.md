@@ -56,10 +56,13 @@ not attached to the repository, and no independently captured XML export is
 claimed. The repository's own oracle captures come from a different source:
 the SonarQube Community `26.8` "Hoonarqube Oracle All" quality profiles, which
 activate every cataloged rule including the six above. The all-rules oracle
-contract is unchanged; `tools/oracle/parity_suite.py` runs the native side
-under the cumulative `strict` profile so every Sonar detector stays active,
-and the comparator accepts `hoonarqube-*` findings from the native report as
-declared native output rather than reference findings.
+contract is unchanged; `tools/oracle/parity_suite.py` runs the native side of
+the affected projects (Python, JavaScript, TypeScript, C#) under the
+cumulative `strict` profile so every Sonar detector stays active, while the
+remaining projects keep the default profile. Each native run records the
+analyzed binary's own `rules native` registry into the artifact, and the
+comparator declares only those exact `hoonarqube-*` keys as native output;
+unregistered or Sonar-side occurrences remain invalid artifacts.
 
 The cumulative `recommended`, `extended`, and `strict` profiles keep every
 Sonar detector active, including the six rules above; only `sonar-parity`

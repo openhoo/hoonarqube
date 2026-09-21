@@ -17,9 +17,9 @@
   detector active (#780, #781, #782)
 - **csharp:** keep MAIN-scope rules such as csharpsquid:S3216 suppressed on
   explicitly test-classified sources (#781)
-- **oracle:** run the native all-rules comparison under `--profile strict`
-  and accept declared `hoonarqube-*` native findings in the comparator
-  (#780, #781, #782)
+- **oracle:** run the affected native all-rules comparisons under
+  `--profile strict` and declare only the analyzed binary's exact registered
+  `hoonarqube-*` keys as native findings in the comparator (#780, #781, #782)
 
 ### Performance
 
