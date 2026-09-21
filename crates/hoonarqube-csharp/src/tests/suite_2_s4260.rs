@@ -1788,6 +1788,41 @@ fn s2629_requires_constant_templates() {
     assert_eq!(flagged[1].range.start.line, 6);
 }
 
+// --- #793 — constant templates after exception arguments stay clean -------
+
+/// Issue #793: `LogWarning(exception, "Operation {Id} failed.", id)` passes a
+/// constant message template after the leading exception argument, with `id`
+/// as a structured value. The template argument is the string literal, not
+/// the exception, so no `S2629` finding may appear. The same holds for the
+/// `EventId` + exception shape and for a caught exception variable.
+#[test]
+fn s2629_accepts_constant_templates_after_exception_arguments() {
+    let report = analyze_default(
+        "class A\n{\n    void M(dynamic logger, Exception exception, string id)\n    {\n        logger.LogWarning(exception, \"Operation {Id} failed.\", id);\n        logger.LogError(new EventId(7), exception, \"Operation {Id} failed.\", id);\n        logger.LogInformation($\"Value {id}\");\n    }\n}\n\nclass B\n{\n    void M(dynamic logger)\n    {\n        try { Run(); } catch (Exception ex) { logger.LogError(ex, \"Failed {Id}\", id); }\n    }\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S2629");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 7);
+}
+
+/// The template slot, not the exception slot, is reported: concatenated and
+/// non-literal templates after a leading exception argument are flagged on
+/// the template expression itself.
+#[test]
+fn s2629_flags_computed_templates_after_exception_arguments() {
+    let report = analyze_default(
+        "class A\n{\n    void M(dynamic logger, Exception exception, string id, string template)\n    {\n        logger.LogWarning(exception, \"Operation \" + id);\n        logger.LogError(exception, $\"Failed {id}\");\n        logger.LogInformation(exception, template);\n    }\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S2629");
+    assert_eq!(flagged.len(), 3);
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.column, 37);
+    assert_eq!(flagged[1].range.start.line, 6);
+    assert_eq!(flagged[1].range.start.column, 35);
+    assert_eq!(flagged[2].range.start.line, 7);
+    assert_eq!(flagged[2].range.start.column, 41);
+}
+
 #[test]
 fn s1312_shapes_logger_fields() {
     let flagged_report = analyze_default("class A\n{\n    ILogger _logger;\n}\n");
