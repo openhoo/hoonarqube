@@ -304,8 +304,12 @@ Project/compiler contexts use these existing flags:
 - TypeScript semantic analysis requires an installed Node.js `node` executable
   and runs a helper that resolves a project-local TypeScript package; it never
   searches a global compiler or downloads one. The loaded compiler must be
-  exactly the pinned **6.0.3** release. `HOONARQUBE_TYPESCRIPT_PACKAGE` can
-  point the helper at a specific TypeScript package directory.
+  exactly the pinned **6.0.3** release; any other version is rejected with a
+  single compatibility diagnostic. A project may keep a different TypeScript
+  dependency of its own (for example 7.x): point the helper at a separate
+  supported compiler with `--typescript-module PATH` or the
+  `HOONARQUBE_TYPESCRIPT_PACKAGE` environment variable instead of changing the
+  analyzed project.
 - `--typescript-dependency-whitelist PACKAGE` supplies a repeatable S4328
   allowlist entry as a package name or scope. It requires
   `--typescript-project`; when omitted, the whitelist remains empty.

@@ -35,8 +35,13 @@ pub struct TypeScriptProjectConfig {
     /// The root tsconfig. `None` requests compiler defaults with the supplied
     /// snapshots as roots; a missing configured file is incomplete.
     pub tsconfig: Option<PathBuf>,
-    /// Directory containing the project-local `typescript` package.  The
-    /// helper never searches globally and never downloads a compiler.
+    /// Directory containing the `typescript` package the helper loads.  The
+    /// helper never searches globally and never downloads a compiler.  This is
+    /// the documented compatibility mechanism for projects whose own
+    /// TypeScript dependency is not the pinned version: point it at a separate
+    /// supported compiler (the CLI exposes it as `--typescript-module` or the
+    /// `HOONARQUBE_TYPESCRIPT_PACKAGE` environment variable) without changing
+    /// the analyzed project.
     pub typescript_package: Option<PathBuf>,
     /// Executable used to run the helper, normally `node`.
     pub helper_program: PathBuf,
@@ -47,7 +52,10 @@ pub struct TypeScriptProjectConfig {
     pub helper_args: Vec<OsString>,
     /// Owned deterministic location for the embedded helper source.
     pub helper_cache_dir: PathBuf,
-    /// Exact compiler version accepted by this context.
+    /// Exact compiler version accepted by this context.  Only the pinned
+    /// version is exercised by the test suite, so the helper deliberately
+    /// rejects every other version instead of trusting untested compiler
+    /// output.
     pub expected_compiler_version: String,
     /// Maximum helper stdout accepted by the loader.
     pub max_output_bytes: usize,
@@ -594,9 +602,18 @@ fn validate_response_metadata(
     expected_compiler_version: &str,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) {
-    match response.compiler_version.as_deref() {
-        Some(version) if version == expected_compiler_version => {}
-        Some(version) => diagnostics.push(SemanticDiagnostic {
+    // The helper already reports compiler resolution and version failures as
+    // precise `TS_HELPER_*` diagnostics; synthesizing a second compiler
+    // diagnostic here would only cascade the same failure.
+    let helper_reported_compiler = diagnostics
+        .iter()
+        .any(|item| item.code.starts_with("TS_HELPER_") && item.code.contains("COMPILER"));
+    match (
+        response.compiler_version.as_deref(),
+        helper_reported_compiler,
+    ) {
+        (Some(version), _) if version == expected_compiler_version => {}
+        (Some(version), false) => diagnostics.push(SemanticDiagnostic {
             code: "JS_CONTEXT_COMPILER_VERSION".to_owned(),
             message: format!(
                 "Helper reported TypeScript {version}, expected {expected_compiler_version}."
@@ -606,7 +623,7 @@ fn validate_response_metadata(
             start: None,
             end: None,
         }),
-        None => diagnostics.push(SemanticDiagnostic {
+        (None, false) => diagnostics.push(SemanticDiagnostic {
             code: "JS_CONTEXT_MISSING_COMPILER_VERSION".to_owned(),
             message: "Helper omitted the TypeScript compiler version.".to_owned(),
             category: "error".to_owned(),
@@ -614,6 +631,7 @@ fn validate_response_metadata(
             start: None,
             end: None,
         }),
+        _ => {}
     }
     for dependency in &response.dependencies {
         if !dependency.path.is_absolute()
@@ -638,6 +656,10 @@ fn collect_helper_facts(
     snapshots: &BTreeMap<PathBuf, SemanticSourceSnapshot>,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> BTreeMap<PathBuf, SemanticFileFacts> {
+    // When the helper aborted before producing file facts, the abort error it
+    // already reported (for example an unsupported compiler version) is the
+    // precise diagnostic; an empty result set must not cascade a second one.
+    let helper_returned_files = !files.is_empty();
     let expected_paths: BTreeSet<_> = snapshots.keys().cloned().collect();
     let mut facts = BTreeMap::new();
     for item in files {
@@ -676,7 +698,9 @@ fn collect_helper_facts(
             });
         }
     }
-    if facts.keys().cloned().collect::<BTreeSet<_>>() != expected_paths {
+    if facts.keys().cloned().collect::<BTreeSet<_>>() != expected_paths
+        && (helper_returned_files || !diagnostics.iter().any(|item| item.category == "error"))
+    {
         diagnostics.push(SemanticDiagnostic {
             code: "JS_CONTEXT_INCOMPLETE_SOURCES".to_owned(),
             message: "TypeScript helper did not return exactly one fact set per source snapshot."
@@ -1712,5 +1736,309 @@ mod materialization_tests {
                 .expect_err("unsupported");
         assert_eq!(error.code, "JS_CONTEXT_HELPER_PREPARE");
         assert!(error.message.contains("unsupported"));
+    }
+}
+
+#[cfg(test)]
+mod compiler_version_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Scenario {
+        root: PathBuf,
+    }
+
+    impl Scenario {
+        fn new(name: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock must be after the Unix epoch")
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "hoonarqube-issue804-{name}-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&root).expect("scenario root");
+            Self { root }
+        }
+
+        fn write(&self, relative: &str, content: &str) -> PathBuf {
+            let path = self.root.join(relative);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("fixture parent");
+            }
+            fs::write(&path, content).expect("fixture file");
+            path
+        }
+    }
+
+    impl Drop for Scenario {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn node_available() -> bool {
+        Command::new("node")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    fn project(scenario: &Scenario) -> (TypeScriptProjectConfig, ProjectSemanticSources) {
+        let root = scenario.root.join("project");
+        scenario.write(
+            "project/tsconfig.json",
+            r#"{
+  "compilerOptions": { "strict": true, "noEmit": true },
+  "files": ["src/main.ts"]
+}"#,
+        );
+        let source = scenario.write("project/src/main.ts", "export const value: number = 1;\n");
+        let sources = ProjectSemanticSources::from_pairs([(
+            source,
+            "export const value: number = 1;\n".to_owned(),
+        )]);
+        (TypeScriptProjectConfig::new(&root), sources)
+    }
+
+    fn fake_typescript_package(scenario: &Scenario, version: &str, index: &str) -> PathBuf {
+        let package = scenario.root.join("fake-typescript");
+        scenario.write(
+            "fake-typescript/package.json",
+            &format!(r#"{{"name":"typescript","version":"{version}","main":"index.js"}}"#),
+        );
+        scenario.write("fake-typescript/index.js", index);
+        package
+    }
+
+    fn error_codes(context: &ProjectSemanticContext) -> Vec<&str> {
+        context
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| diagnostic.category == "error")
+            .map(|diagnostic| diagnostic.code.as_str())
+            .collect()
+    }
+
+    /// Issue #804: a project-local TypeScript 7.0.2 must produce exactly one
+    /// precise compatibility diagnostic while still recording the loaded
+    /// compiler identity for reproducibility.
+    #[test]
+    fn unsupported_project_compiler_reports_one_precise_diagnostic() {
+        if !node_available() {
+            eprintln!("skipping compiler-version regression: node is unavailable");
+            return;
+        }
+        let scenario = Scenario::new("unsupported-compiler");
+        let (config, sources) = project(&scenario);
+        scenario.write(
+            "project/node_modules/typescript/package.json",
+            r#"{"name":"typescript","version":"7.0.2","main":"index.js"}"#,
+        );
+        scenario.write(
+            "project/node_modules/typescript/index.js",
+            "module.exports = { version: '7.0.2' };\n",
+        );
+        let context = ProjectSemanticContext::load(&config, &sources)
+            .expect("unsupported compiler still returns a context");
+        assert!(!context.is_complete());
+        assert_eq!(
+            error_codes(&context),
+            ["TS_HELPER_COMPILER_VERSION"],
+            "one precise compatibility diagnostic, no cascade: {:?}",
+            context.diagnostics()
+        );
+        let diagnostic = &context.diagnostics()[0];
+        assert!(diagnostic.message.contains("7.0.2"));
+        assert!(diagnostic.message.contains("6.0.3"));
+        assert!(
+            diagnostic.message.contains("--typescript-module"),
+            "diagnostic must name the documented mechanism: {}",
+            diagnostic.message
+        );
+        assert_eq!(context.compiler_version(), Some("7.0.2"));
+        assert!(
+            context
+                .compiler_path()
+                .is_some_and(|path| path.ends_with("index.js")),
+            "compiler identity must be recorded: {:?}",
+            context.compiler_path()
+        );
+    }
+
+    /// The same collapse applies when the resolved compiler cannot even be
+    /// loaded: the helper's precise diagnostic stands alone.
+    #[test]
+    fn unloadable_project_compiler_reports_one_precise_diagnostic() {
+        if !node_available() {
+            eprintln!("skipping compiler-load regression: node is unavailable");
+            return;
+        }
+        let scenario = Scenario::new("unloadable-compiler");
+        let (mut config, sources) = project(&scenario);
+        let package =
+            fake_typescript_package(&scenario, "6.0.3", "throw new Error('broken compiler');\n");
+        config = config.with_typescript_package(package);
+        let context = ProjectSemanticContext::load(&config, &sources)
+            .expect("unloadable compiler still returns a context");
+        assert!(!context.is_complete());
+        assert_eq!(
+            error_codes(&context),
+            ["TS_HELPER_LOAD_COMPILER"],
+            "one precise load diagnostic, no cascade: {:?}",
+            context.diagnostics()
+        );
+        assert_eq!(context.compiler_version(), None);
+    }
+
+    /// A foreign helper that reports a mismatched version without its own
+    /// diagnostic still gets the synthesized Rust-side diagnostic.
+    #[test]
+    fn response_metadata_synthesizes_version_mismatch_without_helper_diagnostic() {
+        let response = HelperResponse {
+            schema_version: HELPER_PROTOCOL_VERSION,
+            complete: false,
+            compiler_version: Some("7.0.2".to_owned()),
+            compiler_path: None,
+            files: Vec::new(),
+            dependencies: Vec::new(),
+            diagnostics: Vec::new(),
+            fingerprint: String::new(),
+        };
+        let mut diagnostics = Vec::new();
+        validate_response_metadata(&response, "6.0.3", &mut diagnostics);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>(),
+            ["JS_CONTEXT_COMPILER_VERSION"]
+        );
+    }
+
+    /// A foreign helper that omits the version without any diagnostic still
+    /// gets the synthesized missing-version diagnostic.
+    #[test]
+    fn response_metadata_synthesizes_missing_version_without_helper_diagnostic() {
+        let response = HelperResponse {
+            schema_version: HELPER_PROTOCOL_VERSION,
+            complete: false,
+            compiler_version: None,
+            compiler_path: None,
+            files: Vec::new(),
+            dependencies: Vec::new(),
+            diagnostics: Vec::new(),
+            fingerprint: String::new(),
+        };
+        let mut diagnostics = Vec::new();
+        validate_response_metadata(&response, "6.0.3", &mut diagnostics);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>(),
+            ["JS_CONTEXT_MISSING_COMPILER_VERSION"]
+        );
+    }
+
+    /// When the helper already reported a compiler diagnostic, the Rust side
+    /// must not synthesize a second compiler diagnostic for the same response.
+    #[test]
+    fn response_metadata_does_not_duplicate_helper_compiler_diagnostic() {
+        for (version, code) in [
+            (Some("7.0.2"), "TS_HELPER_COMPILER_VERSION"),
+            (None, "TS_HELPER_MISSING_COMPILER"),
+            (None, "TS_HELPER_LOAD_COMPILER"),
+        ] {
+            let response = HelperResponse {
+                schema_version: HELPER_PROTOCOL_VERSION,
+                complete: false,
+                compiler_version: version.map(str::to_owned),
+                compiler_path: None,
+                files: Vec::new(),
+                dependencies: Vec::new(),
+                diagnostics: Vec::new(),
+                fingerprint: String::new(),
+            };
+            let mut diagnostics = vec![SemanticDiagnostic {
+                code: code.to_owned(),
+                message: "helper diagnostic".to_owned(),
+                category: "error".to_owned(),
+                path: None,
+                start: None,
+                end: None,
+            }];
+            validate_response_metadata(&response, "6.0.3", &mut diagnostics);
+            assert_eq!(
+                diagnostics.len(),
+                1,
+                "{code} must not gain a synthesized compiler diagnostic"
+            );
+        }
+    }
+
+    /// The incomplete-sources diagnostic is suppressed only when the helper
+    /// aborted with an error before returning any file facts; a helper that
+    /// silently returns nothing, or returns a partial set, still gets it.
+    #[test]
+    fn incomplete_sources_only_when_helper_returned_without_error() {
+        let scenario = Scenario::new("incomplete-sources");
+        let source = scenario.write("project/src/main.ts", "export {};\n");
+        let snapshot = SemanticSourceSnapshot::new(&source, "export {};\n".to_owned());
+        let snapshots = BTreeMap::from([(snapshot.path.clone(), snapshot.clone())]);
+
+        // Helper aborted with an error and returned no files: no cascade.
+        let mut diagnostics = vec![SemanticDiagnostic {
+            code: "TS_HELPER_COMPILER_VERSION".to_owned(),
+            message: "unsupported compiler".to_owned(),
+            category: "error".to_owned(),
+            path: None,
+            start: None,
+            end: None,
+        }];
+        let facts = collect_helper_facts(Vec::new(), &snapshots, &mut diagnostics);
+        assert!(facts.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+
+        // Helper returned nothing without explanation: still diagnosed.
+        let mut diagnostics = Vec::new();
+        let facts = collect_helper_facts(Vec::new(), &snapshots, &mut diagnostics);
+        assert!(facts.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>(),
+            ["JS_CONTEXT_INCOMPLETE_SOURCES"]
+        );
+
+        // Helper returned a partial set without explanation: still diagnosed.
+        let other = scenario.write("project/src/other.ts", "export {};\n");
+        let other_snapshot = SemanticSourceSnapshot::new(&other, "export {};\n".to_owned());
+        let two_snapshots = BTreeMap::from([
+            (snapshot.path.clone(), snapshot.clone()),
+            (other_snapshot.path.clone(), other_snapshot),
+        ]);
+        let mut diagnostics = Vec::new();
+        let facts = collect_helper_facts(
+            vec![SemanticFileFacts {
+                path: snapshot.path.clone(),
+                source_digest: snapshot.digest.clone(),
+                ..SemanticFileFacts::default()
+            }],
+            &two_snapshots,
+            &mut diagnostics,
+        );
+        assert_eq!(facts.len(), 1);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>(),
+            ["JS_CONTEXT_INCOMPLETE_SOURCES"]
+        );
     }
 }
