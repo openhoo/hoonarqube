@@ -1044,6 +1044,7 @@ mod tests {
                     diagnostics: vec!["unavailable".to_owned()],
                 }),
             }),
+            parity: None,
         };
         assert_eq!(assessment_exit_status(&report), 2);
     }
@@ -1086,6 +1087,7 @@ mod tests {
                 roots: vec![root.clone()],
             },
             assessment: Some(assessment.clone()),
+            parity: None,
         };
         let path = root.join("baseline.json");
         write_baseline_atomically(&path, &reference, &root, &[])
@@ -1148,6 +1150,7 @@ mod tests {
                 roots: Vec::new(),
             },
             assessment: None,
+            parity: None,
         };
 
         let error = write_baseline_atomically(
@@ -1212,6 +1215,7 @@ mod tests {
                 roots: Vec::new(),
             },
             assessment: None,
+            parity: None,
         };
 
         let error = write_baseline_atomically(
@@ -1269,6 +1273,7 @@ mod tests {
                 roots: vec![root.clone()],
             },
             assessment: None,
+            parity: None,
         };
 
         write_baseline_atomically(

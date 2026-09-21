@@ -191,6 +191,7 @@ pub fn build_project_report(
             roots,
         },
         assessment: None,
+        parity: None,
     })
 }
 

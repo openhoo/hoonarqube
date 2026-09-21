@@ -319,7 +319,7 @@ pub fn analyze(
 /// observations for these keys only; the cumulative `recommended`,
 /// `extended`, and `strict` profiles keep every catalog detector available,
 /// and the isolated `github-code-quality` profile never reaches this filter.
-const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
+pub const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
     "csharpsquid:S3216",
     "csharpsquid:S4261",
     "javascript:S1441",

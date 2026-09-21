@@ -1161,6 +1161,7 @@ mod tests {
                 roots: vec![PathBuf::from(".")],
             },
             assessment: None,
+            parity: None,
         }
     }
 

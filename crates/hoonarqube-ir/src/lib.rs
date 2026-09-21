@@ -14,6 +14,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Deserializer, Serialize, de};
 /// Versioned optional baseline, coverage, and gate assessment.
 pub mod assessment;
+/// Machine-verifiable `sonar-parity` contract types.
+pub mod parity;
 
 /// Source position. `line` is 1-based, `column` is 0-based (`SonarQube`
 /// text-range convention).
@@ -809,6 +811,9 @@ pub struct AnalysisReport {
     pub project: ProjectReport,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assessment: Option<assessment::AssessmentReport>,
+    /// `sonar-parity` contract block; present only for that profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parity: Option<parity::ParityReport>,
 }
 
 #[cfg(test)]
