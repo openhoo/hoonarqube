@@ -1296,10 +1296,8 @@ mod tests {
     /// not turn the `None` report into an early success.
     #[test]
     fn analyze_context_refuses_razor_without_compiler_facts() {
-        let root = std::env::temp_dir().join(format!(
-            "hoonarqube-razor-refusal-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("hoonarqube-razor-refusal-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let semantic = SemanticOptions {
             python_project: Some(root.clone()),

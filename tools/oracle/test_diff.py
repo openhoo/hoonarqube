@@ -145,9 +145,7 @@ class DiffArtifactValidationTests(unittest.TestCase):
 
     def test_divergent_native_context_copies_are_rejected(self):
         manifest = self._manifest("ours")
-        manifest["native_context"] = {
-            "native_rule_keys": ["hoonarqube-go:G110"]
-        }
+        manifest["native_context"] = {"native_rule_keys": ["hoonarqube-go:G110"]}
         manifest["manifest_sha256"] = manifest_digest(manifest)
         report = {
             "oracle_provenance": manifest,
@@ -167,14 +165,10 @@ class DiffArtifactValidationTests(unittest.TestCase):
             ),
             self.assertRaisesRegex(ValueError, "native_context diverges"),
         ):
-            parity_suite.validate_artifact_provenance(
-                report, "oracle-py", "ours"
-            )
+            parity_suite.validate_artifact_provenance(report, "oracle-py", "ours")
 
         # Identical digested and evidence copies validate cleanly.
-        report["oracle_evidence"]["native_context"] = dict(
-            manifest["native_context"]
-        )
+        report["oracle_evidence"]["native_context"] = dict(manifest["native_context"])
         with mock.patch.object(
             parity_suite, "artifact_input_sha256", return_value="current"
         ):
