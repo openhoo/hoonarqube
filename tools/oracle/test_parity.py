@@ -282,9 +282,7 @@ class StrictParityTests(unittest.TestCase):
             },
         }
         ours = {
-            "files": [
-                {"path": f"/fixture/{BAD}", "issues": [ours_issue(), native]}
-            ]
+            "files": [{"path": f"/fixture/{BAD}", "issues": [ours_issue(), native]}]
         }
         rows = compare_reports(
             [expectation()],
@@ -305,9 +303,7 @@ class StrictParityTests(unittest.TestCase):
             available_files=[BAD, GOOD],
             native_rule_keys=[registered],
         )
-        invalid = [
-            row for row in sonar_native if row["status"] == "INVALID_ARTIFACT"
-        ]
+        invalid = [row for row in sonar_native if row["status"] == "INVALID_ARTIFACT"]
         self.assertEqual(len(invalid), 1)
         self.assertIn("Sonar: rule absent from oracle contract", invalid[0]["reason"])
 
@@ -325,9 +321,7 @@ class StrictParityTests(unittest.TestCase):
             available_files=[BAD, GOOD],
             native_rule_keys=[registered],
         )
-        invalid = [
-            row for row in unknown_rows if row["status"] == "INVALID_ARTIFACT"
-        ]
+        invalid = [row for row in unknown_rows if row["status"] == "INVALID_ARTIFACT"]
         self.assertEqual(len(invalid), 1)
         self.assertIn("unknown fixture", invalid[0]["reason"])
 
@@ -359,9 +353,7 @@ class StrictParityTests(unittest.TestCase):
                     available_files=[BAD, GOOD],
                     native_rule_keys=keys,
                 )
-                invalid = [
-                    row for row in rows if row["status"] == "INVALID_ARTIFACT"
-                ]
+                invalid = [row for row in rows if row["status"] == "INVALID_ARTIFACT"]
                 self.assertEqual(len(invalid), 1)
                 self.assertIn(
                     "hoonarqube: rule absent from oracle contract",
@@ -380,9 +372,7 @@ class StrictParityTests(unittest.TestCase):
             ours_native_rule_keys(
                 {
                     "oracle_evidence": {
-                        "native_context": {
-                            "native_rule_keys": ["hoonarqube-go:G110"]
-                        }
+                        "native_context": {"native_rule_keys": ["hoonarqube-go:G110"]}
                     }
                 }
             ),
@@ -390,11 +380,7 @@ class StrictParityTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "must be strings"):
             ours_native_rule_keys(
-                {
-                    "oracle_evidence": {
-                        "native_context": {"native_rule_keys": ["ok", 1]}
-                    }
-                }
+                {"oracle_evidence": {"native_context": {"native_rule_keys": ["ok", 1]}}}
             )
         with self.assertRaisesRegex(ValueError, "duplicates"):
             ours_native_rule_keys(

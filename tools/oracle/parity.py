@@ -1933,6 +1933,7 @@ def _mark_native_incomplete(row: dict[str, Any], reason: str) -> None:
     row["status"] = "ORACLE_UNVERIFIED"
     row["reason"] = reason
 
+
 def compare_reports(
     expected: list[dict[str, Any]],
     sonar_report: Any,

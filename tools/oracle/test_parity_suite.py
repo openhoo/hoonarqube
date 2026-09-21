@@ -554,9 +554,7 @@ class ParitySuiteFailClosedTests(unittest.TestCase):
             parity_suite.subprocess, "run", return_value=completed
         ) as run:
             keys = parity_suite._native_rule_keys(["/bin/hoonarqube"])
-        self.assertEqual(
-            keys, ["hoonarqube-go:G110", "hoonarqube-python:S113"]
-        )
+        self.assertEqual(keys, ["hoonarqube-go:G110", "hoonarqube-python:S113"])
         self.assertEqual(
             run.call_args.args[0],
             ["/bin/hoonarqube", "rules", "native", "--json"],

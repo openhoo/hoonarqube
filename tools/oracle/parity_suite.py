@@ -2689,6 +2689,7 @@ def _ours_command(proj: str) -> list[str] | None:
         "--",
     ]
 
+
 def _native_rule_keys(command: list[str]) -> list[str]:
     """Return the exact native rule registry of the analyzed binary.
 
@@ -2717,9 +2718,7 @@ def _native_rule_keys(command: list[str]) -> list[str]:
         raise ValueError("hoonarqube rules native report must be a list")
     keys: list[str] = []
     for index, rule in enumerate(rules):
-        if not isinstance(rule, dict) or not isinstance(
-            rule.get("external_key"), str
-        ):
+        if not isinstance(rule, dict) or not isinstance(rule.get("external_key"), str):
             raise ValueError(
                 f"hoonarqube rules native entry {index} lacks external_key"
             )
