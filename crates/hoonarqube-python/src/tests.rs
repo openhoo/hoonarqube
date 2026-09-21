@@ -1265,6 +1265,48 @@ fn s1226_flags_parameters_overwritten_before_read() {
 }
 
 #[test]
+fn s1226_augmented_assignment_reads_initial_value_issue_791() {
+    // Issue #791: `param op= value` reads the incoming parameter value before
+    // writing the combined result, so it is never an overwrite-before-read.
+    let issue_fixture = scan(concat!(
+        "def pad(pcm: bytes) -> bytes:\n",
+        "    pcm += b\"\\0\"\n",
+        "    return pcm\n",
+    ));
+    assert!(findings(&issue_fixture, "python:S1226").is_empty());
+
+    // Every augmented operator counts as a read across mutable and
+    // immutable operand types.
+    for operator in [
+        "+=", "-=", "*=", "/=", "//=", "%=", "**=", "<<=", ">>=", "&=", "|=", "^=", "@=",
+    ] {
+        let source = format!("def grow(value):\n    value {operator} 1\n    return value\n");
+        assert!(
+            findings(&scan(&source), "python:S1226").is_empty(),
+            "{operator} must count as reading the initial value"
+        );
+    }
+    for operand in ["b\"x\"", "\"text\"", "[1]", "1", "1.5"] {
+        let source = format!("def grow(value):\n    value += {operand}\n    return value\n");
+        assert!(
+            findings(&scan(&source), "python:S1226").is_empty(),
+            "+= {operand} must count as reading the initial value"
+        );
+    }
+
+    // A plain overwrite before any read stays reportable, even when an
+    // augmented assignment follows it.
+    let plain_then_aug =
+        scan("def render(mode):\n    mode = 'fast'\n    mode += '!'\n    return mode\n");
+    assert_eq!(findings(&plain_then_aug, "python:S1226").len(), 1);
+
+    // A walrus binding inside an augmented statement is still a plain
+    // overwrite of the parameter, not a read-modify-write.
+    let walrus = scan("def render(mode):\n    other += (mode := 1)\n    return mode\n");
+    assert_eq!(findings(&walrus, "python:S1226").len(), 1);
+}
+
+#[test]
 fn s1854_flags_dead_final_stores() {
     let flagged = scan(concat!(
         "def tally(items):\n",

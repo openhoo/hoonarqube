@@ -115,6 +115,16 @@ pub(crate) fn field_declarator_names<'a>(field: Node<'_>, source: &'a str) -> Ve
         .collect()
 }
 
+/// The declared variable name of a catch clause (`catch (Exception ex)`).
+pub(crate) fn caught_exception_name<'a>(clause: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let mut cursor = clause.walk();
+    clause
+        .children(&mut cursor)
+        .find(|child| child.kind() == "catch_declaration")
+        .and_then(|declaration| declaration.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{template_placeholder_spans, template_placeholders};

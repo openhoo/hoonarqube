@@ -22,14 +22,25 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         {
             continue;
         }
-        let fields_hold_state = type_members(class_node)
-            .into_iter()
-            .filter(|member| matches!(member.kind(), "field_declaration"))
-            .any(|field| {
-                let modifiers = modifiers_of(field, source);
-                !has_modifier(&modifiers, "static") && !has_modifier(&modifiers, "const")
-            });
-        if fields_hold_state {
+        // Any instance member — state (fields, properties, events) or
+        // behavior bound to an instance (indexers, destructors) — means the
+        // class is instantiated and its public constructor is required, no
+        // matter how many constants or static helpers it also carries.
+        let holds_instance_members =
+            type_members(class_node)
+                .into_iter()
+                .any(|member| match member.kind() {
+                    "indexer_declaration" | "destructor_declaration" => true,
+                    "field_declaration"
+                    | "property_declaration"
+                    | "event_declaration"
+                    | "event_field_declaration" => {
+                        let modifiers = modifiers_of(member, source);
+                        !has_modifier(&modifiers, "static") && !has_modifier(&modifiers, "const")
+                    }
+                    _ => false,
+                });
+        if holds_instance_members {
             continue;
         }
         for constructor in member_declarations_of_kind(class_node, "constructor_declaration") {
