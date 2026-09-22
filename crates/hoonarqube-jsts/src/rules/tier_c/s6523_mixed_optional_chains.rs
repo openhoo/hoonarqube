@@ -1,27 +1,52 @@
 // Rule module s6523_mixed_optional_chains (generated).
 use crate::engine::scope_model::member_optional;
 use crate::support::{IssueSink, RuleScope, member_object, unparenthesized};
-use oxc_ast::ast::MemberExpression;
+use oxc_ast::ast::{Expression, LogicalOperator, MemberExpression};
 use oxc_span::Span;
 
-/// Whether the member chain rooted at `member` performs a plain access
-/// above an optional one. Parenthesized objects end the analyzed chain:
-/// `(a?.b).c` re-introduces a value boundary that this structural subset
-/// deliberately does not cross.
-pub(crate) fn chain_mixes_optional(member: &MemberExpression<'_>) -> bool {
-    let mut seen_plain = false;
-    let mut current = Some(member);
-    while let Some(node) = current {
-        if member_optional(node) {
-            if seen_plain {
-                return true;
+/// `S6523` (`no-unsafe-optional-chaining`): whether `expression` can
+/// evaluate to `undefined` because an optional chain inside it
+/// short-circuited. Parentheses are transparent in this parser's AST, so
+/// `(a?.b)` resolves through to its chain. `||`/`??` only propagate the
+/// right operand's undefined result; `&&` propagates either side's.
+/// Mirrors the reference's `checkUndefinedShortCircuit`.
+fn resolves_to_chain(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::ChainExpression(_) => true,
+        Expression::LogicalExpression(logical) => match logical.operator {
+            LogicalOperator::Or | LogicalOperator::Coalesce => resolves_to_chain(&logical.right),
+            LogicalOperator::And => {
+                resolves_to_chain(&logical.left) || resolves_to_chain(&logical.right)
             }
-        } else {
-            seen_plain = true;
+        },
+        Expression::SequenceExpression(sequence) => sequence
+            .expressions
+            .last()
+            .is_some_and(|last| resolves_to_chain(last)),
+        Expression::ConditionalExpression(conditional) => {
+            resolves_to_chain(&conditional.consequent) || resolves_to_chain(&conditional.alternate)
         }
-        current = unparenthesized(member_object(node)).as_member_expression();
+        Expression::AwaitExpression(await_expression) => {
+            resolves_to_chain(&await_expression.argument)
+        }
+        _ => false,
     }
-    false
+}
+
+/// Whether the member access `member` applies a plain `.`/`[]` to a value
+/// that can be `undefined` from a short-circuited optional chain — the
+/// chain was broken by a new expression scope such as parentheses
+/// (`(a?.b).c`). A continuous chain like `a?.b.c` short-circuits the
+/// remaining segments, so it is safe and stays clean (#820).
+pub(crate) fn member_access_on_short_circuited_chain(member: &MemberExpression<'_>) -> bool {
+    !member_optional(member) && resolves_to_chain(member_object(member))
+}
+
+/// Whether the call `callee` expression can be `undefined` from a
+/// short-circuited optional chain, e.g. `(a?.b)()`. Optional call
+/// segments (`a?.()`) short-circuit instead of throwing.
+pub(crate) fn call_on_short_circuited_chain(callee: &Expression<'_>, optional: bool) -> bool {
+    !optional && resolves_to_chain(callee)
 }
 
 /// Keeps only spans not contained in another candidate: whenever a chain

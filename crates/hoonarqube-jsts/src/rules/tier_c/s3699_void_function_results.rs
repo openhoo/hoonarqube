@@ -8,7 +8,7 @@ impl<'a> TierCCallUsageCollector<'_, '_> {
     /// `S3699`: the result of a call whose census facts say it returns
     /// nothing is used in a value position.
     pub(crate) fn check_void_result(&mut self, it: &CallExpression<'a>) {
-        if self.suppress_span != Some(it.span())
+        if !self.discarded_spans.contains(&it.span())
             && let Some(name) = callee_name(it)
             && let Some(facts) = self.census.resolve(name, it.callee.span().start)
             && facts.is_void()

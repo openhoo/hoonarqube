@@ -28,11 +28,12 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrayExpression, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
-    AssignmentTarget, BinaryExpression, BinaryOperator, CallExpression, ConditionalExpression,
-    DoWhileStatement, Expression, ForStatement, Function, IfStatement, ImportExpression,
-    LogicalExpression, LogicalOperator, MemberExpression, NewExpression, NumericLiteral,
-    ParenthesizedExpression, RegExpLiteral, SequenceExpression, StaticBlock, StringLiteral, TSType,
-    TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclarator, WhileStatement,
+    AssignmentTarget, BinaryExpression, BinaryOperator, CallExpression, ChainElement,
+    ConditionalExpression, DoWhileStatement, Expression, ForStatement, Function, IfStatement,
+    ImportExpression, LogicalExpression, LogicalOperator, MemberExpression, NewExpression,
+    NumericLiteral, ParenthesizedExpression, RegExpLiteral, SequenceExpression, StaticBlock,
+    StringLiteral, TSType, TemplateLiteral, UnaryExpression, UnaryOperator, VariableDeclarator,
+    WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -429,12 +430,17 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
         self.mark_required_parentheses(&it.argument, Precedence::Prefix, true);
         match it.operator {
             UnaryOperator::Void => {
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S3735",
-                    "Remove this use of the \"void\" operator.",
-                    it.span(),
-                );
+                // #819: `void <call>` is the sanctioned fire-and-forget
+                // idiom — without type information the reference treats
+                // every call-like operand as a possible promise discard.
+                if !is_call_like(&it.argument) {
+                    self.sink.emit_span(
+                        RuleScope::Both,
+                        "S3735",
+                        "Remove this use of the \"void\" operator.",
+                        it.span(),
+                    );
+                }
             }
             UnaryOperator::LogicalNot => {
                 if let Expression::BinaryExpression(binary) = unparenthesized(&it.argument)
@@ -723,6 +729,22 @@ fn has_octal_escape(text: &str) -> bool {
         .any(|window| window[0] == b'\\' && (b'1'..=b'7').contains(&window[1]))
 }
 
+/// `S3735`: whether `void <expr>` applies `void` to a call-like operand —
+/// a direct call or an optionally chained call. Mirrors the reference's
+/// no-type-services path, which accepts every call-like operand as a
+/// possible promise discard (IIFEs included, since their callee is a
+/// function expression). `void 0` and other non-call operands keep
+/// reporting.
+fn is_call_like(expression: &Expression<'_>) -> bool {
+    match unparenthesized(expression) {
+        Expression::CallExpression(_) => true,
+        Expression::ChainExpression(chain) => {
+            matches!(chain.expression, ChainElement::CallExpression(_))
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn numeric_literal_value(expression: &Expression<'_>) -> Option<f64> {
     match expression {
         Expression::NumericLiteral(literal) => Some(literal.value),
@@ -817,6 +839,42 @@ host = '10.0.0.1';
 
         let nested = js_keys("const v = a ? b : (c ? d : e);\n");
         assert_eq!(count_key(&nested, "javascript:S1774"), 2);
+    }
+
+    #[test]
+    fn s3735_accepts_void_applied_to_call_like_operands() {
+        // #819: `void <call>` is the sanctioned fire-and-forget idiom —
+        // the reference treats every call-like operand as a possible
+        // promise discard when no type information is available.
+        let signal_handler = js_keys(
+            "async function shutdown() {\n  console.log('bye');\n}\nexport function onSignal(process) {\n  process.once('SIGTERM', () => void shutdown());\n}\n",
+        );
+        assert_eq!(count_key(&signal_handler, "javascript:S3735"), 0);
+
+        // Event callbacks and chained calls are call-like too.
+        let event_callback = js_keys(
+            "export function register(emitter, page) {\n  emitter.on('exit', () => void page.close().catch(() => {}));\n}\n",
+        );
+        assert_eq!(count_key(&event_callback, "javascript:S3735"), 0);
+
+        // Parenthesized calls, optionally chained calls, and IIFEs are
+        // call-like as well.
+        let call_shapes =
+            js_keys("void (work());\nvoid service?.stop();\nvoid (() => init())();\n");
+        assert_eq!(count_key(&call_shapes, "javascript:S3735"), 0);
+
+        // Non-call operands keep reporting: `void 0`, identifiers, and
+        // literals are not promise discards.
+        let non_calls = js_keys("const u = void 0;\nconst v = void value;\nconst w = void 'x';\n");
+        assert_eq!(count_key(&non_calls, "javascript:S3735"), 3);
+
+        // TypeScript shares the same operator check.
+        let ts_handler = ts_keys(
+            "async function shutdown(): Promise<void> {}\nexport function onSignal(process: { once(s: string, f: () => void): void }) {\n  process.once('SIGTERM', () => void shutdown());\n}\n",
+        );
+        assert_eq!(count_key(&ts_handler, "typescript:S3735"), 0);
+        let ts_void_zero = ts_keys("const u = void 0;\n");
+        assert_eq!(count_key(&ts_void_zero, "typescript:S3735"), 1);
     }
 
     #[test]

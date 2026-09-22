@@ -93,16 +93,30 @@ fn is_ipv6_address(text: &str) -> bool {
 }
 
 /// A backslash followed by a character that does not need escaping.
+/// `\\` is always necessary — it encodes a literal backslash — so the
+/// scan consumes it as a pair instead of treating the second backslash
+/// as a fresh escape start (#827). Quote escapes are only meaningful
+/// when they match the literal's own delimiter.
 fn has_unnecessary_escape(raw: &str) -> bool {
-    let meaningful = [
+    const MEANINGFUL: [u8; 13] = [
         b'n', b't', b'r', b'b', b'f', b'v', b'x', b'u', b'\\', b'\'', b'"', b'`', b'0',
     ];
-    // Byte windows match the former `Vec<char>` windows exactly: `\` is
-    // ASCII and `is_ascii_alphanumeric` is false for every byte ≥ 0x80, so
-    // multi-byte characters behave identically.
-    raw.as_bytes().windows(2).any(|window| {
-        window[0] == b'\\' && window[1].is_ascii_alphanumeric() && !meaningful.contains(&window[1])
-    })
+    let delimiter = raw.as_bytes().first().copied().unwrap_or(b'"');
+    let bytes = raw.as_bytes();
+    let mut index = 0;
+    while index + 1 < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
+            continue;
+        }
+        let escaped = bytes[index + 1];
+        let useless_quote = matches!(escaped, b'\'' | b'"' | b'`') && escaped != delimiter;
+        if useless_quote || (escaped.is_ascii_alphanumeric() && !MEANINGFUL.contains(&escaped)) {
+            return true;
+        }
+        index += 2;
+    }
+    false
 }
 
 #[cfg(test)]
@@ -163,5 +177,30 @@ mod tests {
         assert_eq!(count_key(&flagged, "javascript:S6535"), 1);
         let clean = js_keys("let s = \"tab\\there\";\n");
         assert_eq!(count_key(&clean, "javascript:S6535"), 0);
+    }
+
+    #[test]
+    fn s6535_treats_escaped_backslash_as_necessary() {
+        // #827: `\\` encodes a literal backslash; removing it changes the
+        // value, so it is never an unnecessary escape — in double-quoted,
+        // single-quoted, and template literals alike.
+        let windows_paths = js_keys(
+            "const a = \"C:\\\\Windows\";\nconst b = 'C:\\\\Windows';\nconst c = `C:\\\\Windows`;\n",
+        );
+        assert_eq!(count_key(&windows_paths, "javascript:S6535"), 0);
+
+        // A backslash pair followed by a real escape still scans the
+        // remainder correctly.
+        let pair_then_escape = js_keys("const s = \"x\\\\\\\\\\ay\";\n");
+        assert_eq!(count_key(&pair_then_escape, "javascript:S6535"), 1);
+
+        // Genuinely unnecessary escapes stay reportable: `\a`, and quote
+        // escapes that do not match the literal's own delimiter.
+        let useless = js_keys("const a = \"x\\ay\";\nconst b = 'a\\\"b';\nconst c = \"a\\'b\";\n");
+        assert_eq!(count_key(&useless, "javascript:S6535"), 3);
+
+        // Delimiter-matching quote escapes are necessary and stay clean.
+        let needed_quotes = js_keys("const a = \"a\\\"b\";\nconst b = 'a\\'b';\n");
+        assert_eq!(count_key(&needed_quotes, "javascript:S6535"), 0);
     }
 }

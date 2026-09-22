@@ -1,5 +1,6 @@
-// Family walker for 'tier_c' (generated).
-use super::s6523_mixed_optional_chains::{chain_mixes_optional, report_mixed_chains};
+use super::s6523_mixed_optional_chains::{
+    call_on_short_circuited_chain, member_access_on_short_circuited_chain, report_mixed_chains,
+};
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::ClassCensus;
@@ -10,13 +11,16 @@ use crate::support::span_issue;
 use crate::support::unparenthesized;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    AwaitExpression, BinaryExpression, CallExpression, Expression, ExpressionStatement,
-    MemberExpression, TemplateLiteral,
+    ArrowFunctionExpression, AwaitExpression, BinaryExpression, CallExpression,
+    ConditionalExpression, Expression, ExpressionStatement, LogicalExpression, MemberExpression,
+    NewExpression, SequenceExpression, TemplateLiteral, ThrowStatement, UnaryExpression,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_await_expression, walk_binary_expression, walk_call_expression, walk_expression_statement,
-    walk_member_expression, walk_template_literal,
+    walk_arrow_function_expression, walk_await_expression, walk_binary_expression,
+    walk_call_expression, walk_conditional_expression, walk_expression_statement,
+    walk_logical_expression, walk_member_expression, walk_new_expression, walk_sequence_expression,
+    walk_template_literal, walk_throw_statement, walk_unary_expression,
 };
 use oxc_span::{GetSpan, Span};
 
@@ -87,7 +91,7 @@ fn call_usage_collector_issues(
     let mut usage_collector = TierCCallUsageCollector {
         sink: tier_c_sink(index, language),
         census,
-        suppress_span: None,
+        discarded_spans: Vec::new(),
     };
     usage_collector.visit_program(program);
     usage_collector.sink.issues
@@ -187,23 +191,86 @@ fn flag_behavior_selector_parameters(
 pub(crate) struct TierCCallUsageCollector<'census, 'index> {
     pub(crate) sink: IssueSink<'index>,
     pub(crate) census: &'census FunctionCensus,
-    /// Span of the direct call of the enclosing expression statement, whose
-    // value legitimately goes unused.
-    pub(crate) suppress_span: Option<Span>,
+    /// Spans of calls whose result is discarded by the parent construct,
+    /// mirroring the reference's `isReturnValueUsed` exemptions: bare
+    /// expression statements, expression-bodied arrows (#823), unary and
+    /// `await` operands, `throw` arguments, the right operand of logical
+    /// expressions, both branches of a conditional, and every
+    /// non-final element of a sequence.
+    pub(crate) discarded_spans: Vec<Span>,
+}
+
+impl TierCCallUsageCollector<'_, '_> {
+    /// Marks calls inside `expression` whose result the parent discards.
+    /// Parentheses are transparent; a discarded conditional or sequence
+    /// discards its value-producing branches.
+    fn mark_discarded(&mut self, expression: &Expression<'_>) {
+        match unparenthesized(expression) {
+            Expression::CallExpression(call) => self.discarded_spans.push(call.span()),
+            Expression::ConditionalExpression(conditional) => {
+                self.mark_discarded(&conditional.consequent);
+                self.mark_discarded(&conditional.alternate);
+            }
+            Expression::SequenceExpression(sequence) => {
+                for element in &sequence.expressions {
+                    self.mark_discarded(element);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 impl<'a> Visit<'a> for TierCCallUsageCollector<'_, '_> {
     fn visit_expression_statement(&mut self, it: &ExpressionStatement<'a>) {
-        let direct_call = match unparenthesized(&it.expression) {
-            Expression::CallExpression(call) => Some(call.span()),
-            _ => None,
-        };
-        let saved = self.suppress_span;
-        if direct_call.is_some() {
-            self.suppress_span = direct_call;
-        }
+        self.mark_discarded(&it.expression);
         walk_expression_statement(self, it);
-        self.suppress_span = saved;
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        // An expression-bodied arrow's implicit return is ignored by the
+        // callee contract, so the body never "uses" the call's output.
+        if let Some(body) = it.get_expression() {
+            self.mark_discarded(body);
+        }
+        walk_arrow_function_expression(self, it);
+    }
+
+    fn visit_logical_expression(&mut self, it: &LogicalExpression<'a>) {
+        self.mark_discarded(&it.right);
+        walk_logical_expression(self, it);
+    }
+
+    fn visit_conditional_expression(&mut self, it: &ConditionalExpression<'a>) {
+        self.mark_discarded(&it.consequent);
+        self.mark_discarded(&it.alternate);
+        walk_conditional_expression(self, it);
+    }
+
+    fn visit_sequence_expression(&mut self, it: &SequenceExpression<'a>) {
+        for element in it
+            .expressions
+            .iter()
+            .take(it.expressions.len().saturating_sub(1))
+        {
+            self.mark_discarded(element);
+        }
+        walk_sequence_expression(self, it);
+    }
+
+    fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
+        self.mark_discarded(&it.argument);
+        walk_unary_expression(self, it);
+    }
+
+    fn visit_await_expression(&mut self, it: &AwaitExpression<'a>) {
+        self.mark_discarded(&it.argument);
+        walk_await_expression(self, it);
+    }
+
+    fn visit_throw_statement(&mut self, it: &ThrowStatement<'a>) {
+        self.mark_discarded(&it.argument);
+        walk_throw_statement(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
@@ -254,22 +321,39 @@ impl<'a> Visit<'a> for TierCLiteralCollector<'_> {
     }
 }
 
-/// Tier-C collector for mixed optional chains (`S6523`): an optional `?.`
-/// access followed, toward the result side, by a plain member or index
-/// access of the same chain.
+/// Tier-C collector for `S6523` (`no-unsafe-optional-chaining`): a plain
+/// member, index, or call applied to a value that can be `undefined`
+/// because an optional chain inside it short-circuited — the chain was
+/// broken by a new expression scope such as parentheses. Continuous
+/// chains like `a?.b.c` short-circuit their remaining segments and stay
+/// clean (#820).
 struct TierCOptionalChainCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
-    /// Spans of every analyzed suffix whose optional flags mix; reduced to
-    /// the maximal chains once traversal finishes.
+    /// Spans of every unsafe access; reduced to the maximal spans once
+    /// traversal finishes.
     mixed_chains: Vec<Span>,
 }
 
 impl<'a> Visit<'a> for TierCOptionalChainCollector<'_> {
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        if chain_mixes_optional(it) {
+        if member_access_on_short_circuited_chain(it) {
             self.mixed_chains.push(it.span());
         }
         walk_member_expression(self, it);
+    }
+
+    fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        if call_on_short_circuited_chain(&it.callee, it.optional) {
+            self.mixed_chains.push(it.span());
+        }
+        walk_call_expression(self, it);
+    }
+
+    fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
+        if call_on_short_circuited_chain(&it.callee, false) {
+            self.mixed_chains.push(it.span());
+        }
+        walk_new_expression(self, it);
     }
 }
 
@@ -599,17 +683,121 @@ mod tests {
     }
 
     #[test]
-    fn mixed_optional_chains_are_flagged() {
+    fn expression_bodied_callbacks_do_not_use_void_results() {
+        // #823: an expression-bodied arrow's implicit return is ignored
+        // by the callee contract, so the body never "uses" the output of
+        // a void call — matching the reference's ArrowFunctionExpression
+        // exemption.
+        let listener = js_keys(
+            "function cleanup(code) {\n  console.log(code);\n}\nexport function register(emitter) {\n  emitter.once('exit', (code) => cleanup(code));\n}\n",
+        );
+        assert_eq!(count_key(&listener, "javascript:S3699"), 0);
+
+        let for_each = js_keys(
+            "function cleanup(item) {\n  console.log(item);\n}\nexport function drain(items) {\n  items.forEach((item) => cleanup(item));\n}\n",
+        );
+        assert_eq!(count_key(&for_each, "javascript:S3699"), 0);
+
+        // A ternary in the arrow body is still the arrow's implicit
+        // return; neither branch uses the void output.
+        let ternary = js_keys(
+            "function close() {}\nfunction openAt(index) {}\nexport function handler(open) {\n  register(() => (open ? close() : openAt(0)));\n}\n",
+        );
+        assert_eq!(count_key(&ternary, "javascript:S3699"), 0);
+
+        // JSX event handlers are expression-bodied callbacks too.
+        let jsx = jsx_keys(
+            "function close() {}\nfunction openAt(index) {}\nexport const button = (open) => <button onClick={() => (open ? close() : openAt(0))} />;\n",
+        );
+        assert_eq!(count_key(&jsx, "javascript:S3699"), 0);
+
+        // Block-bodied arrows have no implicit return; a bare call inside
+        // was never a use, and `return cleanup()` stays reportable.
+        let block = js_keys(
+            "function cleanup() {}\nexport function register(emitter) {\n  emitter.once('exit', (code) => {\n    cleanup(code);\n  });\n}\n",
+        );
+        assert_eq!(count_key(&block, "javascript:S3699"), 0);
+        let block_return = js_keys(
+            "function cleanup() {}\nexport function register(emitter) {\n  emitter.once('exit', (code) => {\n    return cleanup(code);\n  });\n}\n",
+        );
+        assert_eq!(count_key(&block_return, "javascript:S3699"), 1);
+
+        // TypeScript shares the census-driven check.
+        let ts_listener = ts_keys(
+            "function cleanup(code: number): void {\n  console.log(code);\n}\nexport function register(emitter: { once(s: string, f: (c: number) => void): void }) {\n  emitter.once('exit', (code) => cleanup(code));\n}\n",
+        );
+        assert_eq!(count_key(&ts_listener, "typescript:S3699"), 0);
+    }
+
+    #[test]
+    fn discarded_positions_do_not_use_void_results() {
+        // #823 follow-through: the reference's `isReturnValueUsed` also
+        // exempts conditional branches, logical right operands, sequence
+        // elements, unary operands, `await` operands, and `throw`
+        // arguments — none of them consume the call's output directly.
+        let conditional = js_keys(
+            "function cleanup() {}\nexport function run(flag) {\n  flag ? cleanup() : cleanup();\n}\n",
+        );
+        assert_eq!(count_key(&conditional, "javascript:S3699"), 0);
+
+        let logical = js_keys(
+            "function cleanup() {}\nexport function run(flag) {\n  flag && cleanup();\n}\n",
+        );
+        assert_eq!(count_key(&logical, "javascript:S3699"), 0);
+
+        let sequenced =
+            js_keys("function cleanup() {}\nexport function run() {\n  start(), cleanup();\n}\n");
+        assert_eq!(count_key(&sequenced, "javascript:S3699"), 0);
+
+        // Actual uses remain reportable: assignment, `return`, chaining
+        // on the result, and passing the result to another call.
+        let assigned = js_keys("function cleanup() {}\nconst x = cleanup();\n");
+        assert_eq!(count_key(&assigned, "javascript:S3699"), 1);
+
+        let returned =
+            js_keys("function cleanup() {}\nfunction main() {\n  return cleanup();\n}\n");
+        assert_eq!(count_key(&returned, "javascript:S3699"), 1);
+
+        let chained = js_keys("function cleanup() {}\nconst n = cleanup().length;\n");
+        assert_eq!(count_key(&chained, "javascript:S3699"), 1);
+
+        let argument = js_keys("function cleanup() {}\nconst s = String(cleanup());\n");
+        assert_eq!(count_key(&argument, "javascript:S3699"), 1);
+
+        // The left operand of a logical expression is evaluated for its
+        // value, so it still counts as a use.
+        let logical_left = js_keys("function cleanup() {}\nconst x = cleanup() || fallback;\n");
+        assert_eq!(count_key(&logical_left, "javascript:S3699"), 1);
+    }
+
+    #[test]
+    fn optional_chains_broken_by_a_new_scope_are_flagged() {
+        // #820: a continuous chain short-circuits its remaining segments,
+        // so `a?.b.c` cannot throw — only chains broken by a new
+        // expression scope (parentheses, call results) are unsafe.
         const CLEAN_ALL_OPTIONAL: &str = "const value = a?.b?.c;\n";
         const CLEAN_OPTIONAL_LAST: &str = "const value = a.b.c?.d;\n";
-        let violating: &str = "const value = a?.b.c;\n";
+        const CLEAN_CONTINUOUS: &str = "const value = a?.b.c;\nconst deep = a.b?.c.d;\nconst computed = a?.b[0].c;\nconst called = a?.b.c();\n";
+        const CLEAN_CALL_RESULT: &str = "const value = foo(a?.b).c;\n";
+        const CLEAN_STILL_OPTIONAL: &str = "const value = (a?.b)?.c;\n";
+        const CLEAN_FALLBACK: &str = "const value = (a?.b || c).d;\nconst other = (a?.b ?? c).d;\n";
+        let violating: &str = "const value = (a?.b).c;\n";
         assert_eq!(count_key(&js_keys(violating), "javascript:S6523"), 1);
 
-        let deep: &str = "const value = a.b?.c.d;\n";
-        assert_eq!(count_key(&js_keys(deep), "javascript:S6523"), 1);
+        let indexed: &str = "const value = (a?.b)[0];\n";
+        assert_eq!(count_key(&js_keys(indexed), "javascript:S6523"), 1);
 
-        let computed: &str = "const value = a?.b[0].c;\n";
-        assert_eq!(count_key(&js_keys(computed), "javascript:S6523"), 1);
+        let invoked: &str = "const value = (a?.b)();\n";
+        assert_eq!(count_key(&js_keys(invoked), "javascript:S6523"), 1);
+
+        let constructed: &str = "const value = new (a?.b)();\n";
+        assert_eq!(count_key(&js_keys(constructed), "javascript:S6523"), 1);
+
+        let short_circuit: &str = "const value = (a?.b && c).d;\n";
+        assert_eq!(count_key(&js_keys(short_circuit), "javascript:S6523"), 1);
+
+        let sequenced: &str = "const value = (x, a?.b).d;\n";
+        assert_eq!(count_key(&js_keys(sequenced), "javascript:S6523"), 1);
 
         assert_eq!(
             count_key(&js_keys(CLEAN_ALL_OPTIONAL), "javascript:S6523"),
@@ -620,6 +808,20 @@ mod tests {
             count_key(&js_keys(CLEAN_OPTIONAL_LAST), "javascript:S6523"),
             0
         );
+
+        assert_eq!(count_key(&js_keys(CLEAN_CONTINUOUS), "javascript:S6523"), 0);
+
+        assert_eq!(
+            count_key(&js_keys(CLEAN_CALL_RESULT), "javascript:S6523"),
+            0
+        );
+
+        assert_eq!(
+            count_key(&js_keys(CLEAN_STILL_OPTIONAL), "javascript:S6523"),
+            0
+        );
+
+        assert_eq!(count_key(&js_keys(CLEAN_FALLBACK), "javascript:S6523"), 0);
 
         // Both catalog scopes carry S6523.
         assert_eq!(count_key(&ts_keys(violating), "typescript:S6523"), 1);

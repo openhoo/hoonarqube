@@ -1,1 +1,1 @@
-const value = a?.b.c;
+const value = (a?.b).c;
