@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.4 (2026-09-22)
+
+### Bug Fixes
+
+- **hoonarqube:** pin rebuild-assets job to ubuntu-22.04 (#835) (1537b24)
+
+### Other Changes
+
+- **release:** build Linux binaries on ubuntu-22.04 for glibc 2.35 floor (#834) (41aac82)
+
 ## 0.10.3 (2026-09-22)
 
 ### Bug Fixes
