@@ -1,9 +1,8 @@
 // Rule module s5856_constant_regex_site (generated).
 use crate::engine::pattern_parser::{
     AnchorKind, ClassItem, GraphemeComponentKind, ParsedRegex, PatternNode, RegexSite,
-    ShorthandClass, contains_unbounded_quantifier, for_each_unicode_surrogate_pair_in_class,
-    grapheme_component_kind, node_can_match_empty, parse_regex_pattern, pattern_complexity,
-    walk_pattern_nodes,
+    ShorthandClass, for_each_unicode_surrogate_pair_in_class, grapheme_component_kind,
+    node_can_match_empty, parse_regex_pattern, pattern_complexity, walk_pattern_nodes,
 };
 use crate::rules::regex_family::collectors::{
     REGEX_COMPLEXITY_THRESHOLD, check_unnecessary_pattern_escapes, emit_concise_class_rewrite,
@@ -714,12 +713,14 @@ fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &Parse
     }
 }
 
-/// `S5852`: unbounded quantifiers nested inside unbounded quantifiers
-/// (`(a+)+`) risk exponential backtracking. Conservative subset: any
-/// containment counts; disjointness analysis stays out of scope. One
-/// regex site yields at most one finding: the reference reports the
-/// pattern once, and a second nested quantifier would only repeat the
-/// same site span and message (#787).
+/// `S5852`: an unbounded quantifier over a group whose body can match the
+/// same input in structurally different ways (`(a+)+`) risks super-linear
+/// backtracking. Mirrors the Python fix from #638: a lone repetition
+/// anchored by mandatory neighbors whose first characters are disjoint from
+/// the repeated atom (`(?:-[a-z0-9]+)*`) cannot overlap across iterations
+/// and is safe. One regex site yields at most one finding: the reference
+/// reports the pattern once, and a second nested quantifier would only
+/// repeat the same site span and message (#787).
 fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     let mut reported = false;
     for alternative in &parsed.alternatives {
@@ -730,10 +731,13 @@ fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed
             if let PatternNode::Quantified {
                 max: None,
                 node: target,
-                pos: _,
                 ..
             } = node
-                && contains_unbounded_quantifier(target)
+                && let PatternNode::Group {
+                    kind, alternatives, ..
+                } = target.as_ref()
+                && !kind.is_lookaround()
+                && regex_body_ambiguous(alternatives)
             {
                 sink.emit_span(
                     RuleScope::Both,
@@ -745,6 +749,296 @@ fn check_exponential_backtracking(sink: &mut IssueSink, site: &RegexSite, parsed
             }
         });
     }
+}
+
+/// Whether a repeated group body can match the same input in structurally
+/// different ways (port of the Python `rx_body_ambiguous` from #638).
+fn regex_body_ambiguous(alternatives: &[Vec<PatternNode>]) -> bool {
+    if alternatives.len() != 1 {
+        return true;
+    }
+    let sequence = &alternatives[0];
+    if sequence
+        .iter()
+        .any(|node| matches!(node, PatternNode::Quantified { min: 0, .. }))
+    {
+        return true;
+    }
+    let repetitive: Vec<usize> = sequence
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            matches!(node, PatternNode::Quantified { max, .. } if max.is_none_or(|max| max >= 2))
+        })
+        .map(|(index, _)| index)
+        .collect();
+    match repetitive.len() {
+        0 => false,
+        1 => {
+            let repeated = &sequence[repetitive[0]];
+            if sequence.len() == 1 {
+                // `(a+)+`: a lone repetition can split its input in many
+                // ways across outer iterations.
+                return true;
+            }
+            // One repetition plus mandatory neighbors: ambiguous only when
+            // a neighbor's first characters overlap the repeated atom
+            // (`(a+a)+`) rather than anchoring it (`(ba+)+`,
+            // `(?:-[a-z0-9]+)*`).
+            let Some(repeated_set) = node_first_set(repeated) else {
+                return true;
+            };
+            sequence.iter().enumerate().any(|(index, neighbor)| {
+                index != repetitive[0]
+                    && match node_first_set(neighbor) {
+                        Some(neighbor_set) => first_sets_intersect(&neighbor_set, &repeated_set),
+                        None => true,
+                    }
+            })
+        }
+        _ => true,
+    }
+}
+
+/// Approximate first-character set of a node; conservative intersections.
+enum FirstSet {
+    All,
+    Members {
+        exact: std::collections::BTreeSet<char>,
+        ranges: Vec<(char, char)>,
+    },
+    Excluding {
+        exact: std::collections::BTreeSet<char>,
+        ranges: Vec<(char, char)>,
+    },
+}
+
+fn node_first_set(node: &PatternNode) -> Option<FirstSet> {
+    match node {
+        PatternNode::Literal { ch, .. } => Some(FirstSet::Members {
+            exact: [*ch].into_iter().collect(),
+            ranges: vec![],
+        }),
+        PatternNode::CodeUnit { unit, .. } => {
+            char::from_u32(u32::from(*unit)).map(|ch| FirstSet::Members {
+                exact: [ch].into_iter().collect(),
+                ranges: vec![],
+            })
+        }
+        PatternNode::Dot => Some(FirstSet::All),
+        PatternNode::Class { negated, items, .. } => class_first_set(*negated, items),
+        PatternNode::ClassEscape { negated, kind, .. } => {
+            Some(shorthand_first_set(*kind, *negated))
+        }
+        PatternNode::Group { alternatives, .. } => alternatives_first_set(alternatives),
+        PatternNode::Quantified { node, .. } => node_first_set(node),
+        _ => None,
+    }
+}
+
+fn alternatives_first_set(alternatives: &[Vec<PatternNode>]) -> Option<FirstSet> {
+    let mut combined = None;
+    for alternative in alternatives {
+        let set = sequence_first_set(alternative)?;
+        combined = Some(match combined {
+            None => set,
+            Some(previous) => union_first_sets(previous, set)?,
+        });
+    }
+    combined
+}
+
+/// First mandatory character of a sequence: skip leading nullable nodes.
+fn sequence_first_set(sequence: &[PatternNode]) -> Option<FirstSet> {
+    for node in sequence {
+        if node_item_nullable(node) {
+            continue;
+        }
+        return node_first_set(node);
+    }
+    None
+}
+
+/// Whether a sequence node can match the empty string (anchors,
+/// backreferences, lookarounds, empty-capable groups, `min == 0`).
+fn node_item_nullable(node: &PatternNode) -> bool {
+    match node {
+        PatternNode::Anchor { .. } | PatternNode::BackReference { .. } => true,
+        PatternNode::Group {
+            kind, alternatives, ..
+        } => {
+            kind.is_lookaround()
+                || alternatives
+                    .iter()
+                    .any(|alternative| alternative.iter().all(node_item_nullable))
+        }
+        PatternNode::Quantified { min, node, .. } => *min == 0 || node_item_nullable(node),
+        _ => false,
+    }
+}
+
+fn shorthand_first_set(kind: ShorthandClass, negated: bool) -> FirstSet {
+    let members = |exact: &[char], ranges: &[(char, char)]| FirstSet::Members {
+        exact: exact.iter().copied().collect(),
+        ranges: ranges.to_vec(),
+    };
+    match (kind, negated) {
+        (ShorthandClass::Digit, false) => members(&[], &[('0', '9')]),
+        (ShorthandClass::Word, false) => members(&['_'], &[('0', '9'), ('A', 'Z'), ('a', 'z')]),
+        (ShorthandClass::Space, false) => {
+            members(&[' ', '\t', '\n', '\u{0b}', '\u{0c}', '\r'], &[])
+        }
+        (ShorthandClass::Digit, true) => FirstSet::Excluding {
+            exact: std::collections::BTreeSet::new(),
+            ranges: vec![('0', '9')],
+        },
+        (ShorthandClass::Word, true) => FirstSet::Excluding {
+            exact: ['_'].into_iter().collect(),
+            ranges: vec![('0', '9'), ('A', 'Z'), ('a', 'z')],
+        },
+        (ShorthandClass::Space, true) => FirstSet::Excluding {
+            exact: [' ', '\t', '\n', '\u{0b}', '\u{0c}', '\r']
+                .into_iter()
+                .collect(),
+            ranges: vec![],
+        },
+    }
+}
+
+fn class_first_set(negated: bool, items: &[ClassItem]) -> Option<FirstSet> {
+    let mut exact = std::collections::BTreeSet::new();
+    let mut ranges = Vec::new();
+    for item in items {
+        match item {
+            ClassItem::Char { ch, .. } => {
+                exact.insert(*ch);
+            }
+            ClassItem::CodeUnit { unit, .. } => {
+                exact.insert(char::from_u32(u32::from(*unit))?);
+            }
+            ClassItem::CodeUnitRange { low, high, .. } => {
+                ranges.push((
+                    char::from_u32(u32::from(*low))?,
+                    char::from_u32(u32::from(*high))?,
+                ));
+            }
+            ClassItem::Range { low, high, .. } => {
+                ranges.push((*low, *high));
+            }
+            ClassItem::Shorthand { negated, kind, .. } => {
+                match shorthand_first_set(*kind, *negated) {
+                    FirstSet::Members {
+                        exact: member_exact,
+                        ranges: member_ranges,
+                    } => {
+                        exact.extend(member_exact);
+                        ranges.extend(member_ranges);
+                    }
+                    _ => return None,
+                }
+            }
+            ClassItem::Property { .. } => return None,
+        }
+    }
+    if negated {
+        Some(FirstSet::Excluding { exact, ranges })
+    } else {
+        Some(FirstSet::Members { exact, ranges })
+    }
+}
+
+fn union_first_sets(left: FirstSet, right: FirstSet) -> Option<FirstSet> {
+    match (left, right) {
+        (FirstSet::All, _) | (_, FirstSet::All) => Some(FirstSet::All),
+        (
+            FirstSet::Members {
+                exact: mut left_exact,
+                ranges: mut left_ranges,
+            },
+            FirstSet::Members {
+                exact: right_exact,
+                ranges: right_ranges,
+            },
+        ) => {
+            left_exact.extend(right_exact);
+            left_ranges.extend(right_ranges);
+            Some(FirstSet::Members {
+                exact: left_exact,
+                ranges: left_ranges,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Conservative intersection test; undecidable shapes count as intersecting.
+fn first_sets_intersect(left: &FirstSet, right: &FirstSet) -> bool {
+    fn partly_outside(
+        ranges: &[(char, char)],
+        excluded_exact: &std::collections::BTreeSet<char>,
+        excluded_ranges: &[(char, char)],
+    ) -> bool {
+        ranges.iter().any(|(low, high)| {
+            [*low, *high]
+                .into_iter()
+                .any(|ch| !excluded_exact.contains(&ch) && !member_in_ranges(ch, excluded_ranges))
+                || !excluded_ranges
+                    .iter()
+                    .any(|(l2, h2)| *l2 <= *low && *high <= *h2)
+        })
+    }
+    if matches!(left, FirstSet::All) || matches!(right, FirstSet::All) {
+        return true;
+    }
+    match (left, right) {
+        (
+            FirstSet::Members {
+                exact: left_exact,
+                ranges: left_ranges,
+            },
+            FirstSet::Members {
+                exact: right_exact,
+                ranges: right_ranges,
+            },
+        ) => {
+            left_exact
+                .iter()
+                .any(|ch| right_exact.contains(ch) || member_in_ranges(*ch, right_ranges))
+                || right_exact
+                    .iter()
+                    .any(|ch| member_in_ranges(*ch, left_ranges))
+                || ranges_overlap(left_ranges, right_ranges)
+        }
+        (
+            FirstSet::Members { exact, ranges },
+            FirstSet::Excluding {
+                exact: excluded_exact,
+                ranges: excluded_ranges,
+            },
+        )
+        | (
+            FirstSet::Excluding {
+                exact: excluded_exact,
+                ranges: excluded_ranges,
+            },
+            FirstSet::Members { exact, ranges },
+        ) => {
+            exact
+                .iter()
+                .any(|ch| !excluded_exact.contains(ch) && !member_in_ranges(*ch, excluded_ranges))
+                || partly_outside(ranges, excluded_exact, excluded_ranges)
+        }
+        _ => true,
+    }
+}
+
+fn member_in_ranges(ch: char, ranges: &[(char, char)]) -> bool {
+    ranges.iter().any(|(low, high)| *low <= ch && ch <= *high)
+}
+
+fn ranges_overlap(left: &[(char, char)], right: &[(char, char)]) -> bool {
+    left.iter()
+        .any(|(l1, h1)| right.iter().any(|(l2, h2)| l1 <= h2 && l2 <= h1))
 }
 
 #[cfg(test)]
@@ -1233,6 +1527,52 @@ mod tests {
 
         let typescript = findings("const re = /[0-9]/;\n", JstsLanguage::TypeScript);
         assert_eq!(count_key(&typescript, "typescript:S6353"), 1);
+    }
+
+    /// #822: repetitions delimited by a mandatory separator disjoint from
+    /// the inner character class cannot overlap, so the nested-quantifier
+    /// heuristic stays silent (same fix as Python #638).
+    #[test]
+    fn s5852_ignores_repetitions_anchored_by_mandatory_separators() {
+        // The reported fixture: single- and multi-character separators.
+        let slug =
+            js_keys("const re = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/;\n");
+        assert_eq!(count_key(&slug, "javascript:S5852"), 0);
+        let slug_ts =
+            ts_keys("const re = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/;\n");
+        assert_eq!(count_key(&slug_ts, "typescript:S5852"), 0);
+
+        // Single-character mandatory separator.
+        let single = js_keys("const re = /^(?:-[a-z0-9]+)*$/;\n");
+        assert_eq!(count_key(&single, "javascript:S5852"), 0);
+        // Multi-character mandatory separator.
+        let multi = js_keys("const re = /^(?:--[a-z0-9]+)*$/;\n");
+        assert_eq!(count_key(&multi, "javascript:S5852"), 0);
+        // Mandatory trailing literal disjoint from the repeated atom.
+        let trailing = js_keys("const re = /^(ba+)+$/;\n");
+        assert_eq!(count_key(&trailing, "javascript:S5852"), 0);
+        let suffix = js_keys("const re = /^(a+b)+$/;\n");
+        assert_eq!(count_key(&suffix, "javascript:S5852"), 0);
+        let digit_dash = js_keys("const re = /^(\\d+-)+\\d+$/;\n");
+        assert_eq!(count_key(&digit_dash, "javascript:S5852"), 0);
+    }
+
+    /// #822: bodies that genuinely match the same input in different ways
+    /// remain reportable.
+    #[test]
+    fn s5852_still_flags_overlapping_repetitions() {
+        for pattern in [
+            "/^(a+)+$/",
+            "/^(a*)*b$/",
+            "/^(a|b)+$/",
+            "/^(a?b)+$/",
+            "/^(a+a)+$/",
+            "/^((a+)+)+$/",
+            "/^(a+)+b$/",
+        ] {
+            let findings = js_keys(&format!("const re = {pattern};\n"));
+            assert_eq!(count_key(&findings, "javascript:S5852"), 1, "{pattern}");
+        }
     }
 
     #[test]

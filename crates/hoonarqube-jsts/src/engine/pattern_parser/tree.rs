@@ -238,14 +238,3 @@ fn node_complexity(node: &PatternNode, nesting: u32) -> u32 {
         }
     }
 }
-pub(crate) fn contains_unbounded_quantifier(node: &PatternNode) -> bool {
-    match node {
-        PatternNode::Quantified { max: None, .. } => true,
-        PatternNode::Quantified { node: inner, .. } => contains_unbounded_quantifier(inner),
-        PatternNode::Group { alternatives, .. } => alternatives
-            .iter()
-            .flatten()
-            .any(contains_unbounded_quantifier),
-        _ => false,
-    }
-}
