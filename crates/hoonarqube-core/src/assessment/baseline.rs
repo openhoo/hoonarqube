@@ -19,6 +19,12 @@ pub const BASELINE_SCHEMA_VERSION: u32 = ASSESSMENT_SCHEMA_VERSION;
 const MAX_NEW_CODE_LINES: u64 = 4_000_000;
 const MAX_NEW_CODE_WORK: u64 = 64_000_000;
 
+/// Path-independent finding key used for baseline matching: rule plus the
+/// digested source range and its context. Findings keep matching when their
+/// file is renamed, while the path-qualified `FindingIdentity::identity`
+/// digest keeps equivalent findings in distinct files distinct.
+type ContentKey<'a> = (&'a str, &'a str, &'a str);
+
 /// The only baseline mode implemented by this module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BaselineMode {
@@ -185,7 +191,7 @@ fn classify(
         &mut new_line_work,
     )?;
     let mut uncertain = line_mapping_uncertain;
-    let (current_identities, current_identity_counts) = current_identity_data(current);
+    let (current_content_keys, current_identity_counts) = current_identity_data(current);
     let findings = {
         let mut classification = FindingClassification {
             reference_by_identity: &reference_by_identity,
@@ -201,7 +207,7 @@ fn classify(
         current,
         reference,
         &pairing,
-        &current_identities,
+        &current_content_keys,
         line_mapping_uncertain,
     );
     let lines = new_lines
@@ -232,12 +238,12 @@ fn classify(
 
 fn reference_identity_index<'a>(
     reference: &[&'a SourceSnapshot],
-) -> BTreeMap<String, Vec<&'a FindingIdentity>> {
-    let mut identities = BTreeMap::<String, Vec<&FindingIdentity>>::new();
+) -> BTreeMap<ContentKey<'a>, Vec<&'a FindingIdentity>> {
+    let mut identities = BTreeMap::<ContentKey<'_>, Vec<&FindingIdentity>>::new();
     for source in reference {
         for finding in &source.findings {
             identities
-                .entry(finding.identity.clone())
+                .entry(finding.content_key())
                 .or_default()
                 .push(finding);
         }
@@ -245,22 +251,22 @@ fn reference_identity_index<'a>(
     identities
 }
 
-fn current_identity_data(
-    current: &[&SourceSnapshot],
-) -> (BTreeSet<String>, BTreeMap<String, usize>) {
-    let mut identities = BTreeSet::<String>::new();
+fn current_identity_data<'a>(
+    current: &[&'a SourceSnapshot],
+) -> (BTreeSet<ContentKey<'a>>, BTreeMap<String, usize>) {
+    let mut content_keys = BTreeSet::<ContentKey<'_>>::new();
     let mut counts = BTreeMap::<String, usize>::new();
     for source in current {
         for finding in &source.findings {
-            identities.insert(finding.identity.clone());
+            content_keys.insert(finding.content_key());
             *counts.entry(finding.identity.clone()).or_default() += 1;
         }
     }
-    (identities, counts)
+    (content_keys, counts)
 }
 
 struct FindingClassification<'map, 'finding> {
-    reference_by_identity: &'map BTreeMap<String, Vec<&'finding FindingIdentity>>,
+    reference_by_identity: &'map BTreeMap<ContentKey<'finding>, Vec<&'finding FindingIdentity>>,
     current_identity_counts: &'map BTreeMap<String, usize>,
     new_lines: &'map mut BTreeMap<PathBuf, BTreeSet<u32>>,
     total_new_lines: &'map mut u64,
@@ -298,11 +304,10 @@ fn classify_finding(
     reference_source: Option<&SourceSnapshot>,
     classification: &mut FindingClassification<'_, '_>,
 ) -> Result<FindingStatus, String> {
-    let (local_candidates, local_candidate) =
-        local_identity_candidates(reference_source, &finding.identity);
+    let (local_candidates, local_candidate) = local_identity_candidates(reference_source, finding);
     let known_reference_identity = classification
         .reference_by_identity
-        .contains_key(&finding.identity);
+        .contains_key(&finding.content_key());
     if finding.ambiguous
         || classification
             .current_identity_counts
@@ -336,28 +341,28 @@ fn classify_finding(
 
 fn local_identity_candidates<'a>(
     source: Option<&'a SourceSnapshot>,
-    identity: &str,
+    finding: &FindingIdentity,
 ) -> (usize, Option<&'a FindingIdentity>) {
     let Some(source) = source else {
         return (0, None);
     };
+    let content_key = finding.content_key();
     let candidates = source
         .findings
         .iter()
-        .filter(|candidate| candidate.identity == identity)
+        .filter(|candidate| candidate.content_key() == content_key)
         .count();
     let candidate = source
         .findings
         .iter()
-        .find(|candidate| candidate.identity == identity);
+        .find(|candidate| candidate.content_key() == content_key);
     (candidates, candidate)
 }
-
 fn collect_resolved(
     current: &[&SourceSnapshot],
     reference: &[&SourceSnapshot],
     pairing: &CounterpartPairs,
-    current_identities: &BTreeSet<String>,
+    current_content_keys: &BTreeSet<ContentKey<'_>>,
     line_mapping_uncertain: bool,
 ) -> Vec<(PathBuf, FindingIdentity)> {
     if line_mapping_uncertain {
@@ -369,7 +374,7 @@ fn collect_resolved(
             continue;
         };
         let current_source = current[current_index];
-        collect_source_resolved(source, current_source, current_identities, &mut resolved);
+        collect_source_resolved(source, current_source, current_content_keys, &mut resolved);
     }
     resolved
 }
@@ -377,7 +382,7 @@ fn collect_resolved(
 fn collect_source_resolved(
     reference_source: &SourceSnapshot,
     current_source: &SourceSnapshot,
-    current_identities: &BTreeSet<String>,
+    current_content_keys: &BTreeSet<ContentKey<'_>>,
     resolved: &mut Vec<(PathBuf, FindingIdentity)>,
 ) {
     if current_source
@@ -388,7 +393,7 @@ fn collect_source_resolved(
         return;
     }
     for finding in &reference_source.findings {
-        if !finding.ambiguous && !current_identities.contains(&finding.identity) {
+        if !finding.ambiguous && !current_content_keys.contains(&finding.content_key()) {
             resolved.push((reference_source.path.clone(), finding.clone()));
         }
     }
@@ -1149,6 +1154,102 @@ mod tests {
         let result = compare_reports(&current, Some(&reference));
         assert_eq!(result.status, AssessmentStatus::Incomplete);
         assert_eq!(result.findings.len(), 2);
+        // The same-path finding resolves against its reference counterpart;
+        // the copy in the new file stays uncertain because its content key is
+        // already claimed by a different reference path.
+        let same_path = result
+            .findings
+            .iter()
+            .find(|finding| finding.path == Path::new("src/a.py"))
+            .expect("src/a.py finding");
+        let copied = result
+            .findings
+            .iter()
+            .find(|finding| finding.path == Path::new("src/b.py"))
+            .expect("src/b.py finding");
+        assert_eq!(same_path.status, FindingStatus::Existing);
+        assert_eq!(copied.status, FindingStatus::Uncertain);
+    }
+
+    #[test]
+    fn equivalent_findings_in_distinct_files_resolve_existing() {
+        // Issue #814: an unchanged baseline over two files with equivalent
+        // findings must classify every finding existing with zero new.
+        let reference = AssessmentReport::new(
+            context(),
+            report("src/First.py", "bad\n", "message")
+                .sources
+                .into_iter()
+                .chain(report("src/Second.py", "bad\n", "message").sources)
+                .collect(),
+        )
+        .expect("reference assessment");
+        let current = AssessmentReport::new(
+            context(),
+            report("src/First.py", "bad\n", "message")
+                .sources
+                .into_iter()
+                .chain(report("src/Second.py", "bad\n", "message").sources)
+                .collect(),
+        )
+        .expect("current assessment");
+        assert_ne!(
+            current.sources[0].findings[0].identity, current.sources[1].findings[0].identity,
+            "distinct normalized paths must receive distinct identities"
+        );
+        let result = compare_reports(&current, Some(&reference));
+        assert_eq!(result.status, AssessmentStatus::Complete);
+        assert_eq!(result.findings.len(), 2);
+        assert!(
+            result
+                .findings
+                .iter()
+                .all(|finding| finding.status == FindingStatus::Existing)
+        );
+        assert!(result.lines.is_empty());
+        assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn same_file_duplicate_identities_stay_uncertain() {
+        // Boundary control for #814: identical findings inside one file still
+        // share an identity and remain ambiguous.
+        let reference = AssessmentReport::new(
+            context(),
+            vec![
+                SourceSnapshot::from_source(
+                    "src/a.py",
+                    b"bad\nbad\n",
+                    &[finding("message"), {
+                        let mut second = finding("message");
+                        second.range.start.line = 2;
+                        second.range.end.line = 2;
+                        second
+                    }],
+                )
+                .expect("reference source"),
+            ],
+        )
+        .expect("reference assessment");
+        let current = AssessmentReport::new(
+            context(),
+            vec![
+                SourceSnapshot::from_source(
+                    "src/a.py",
+                    b"bad\nbad\n",
+                    &[finding("message"), {
+                        let mut second = finding("message");
+                        second.range.start.line = 2;
+                        second.range.end.line = 2;
+                        second
+                    }],
+                )
+                .expect("current source"),
+            ],
+        )
+        .expect("current assessment");
+        let result = compare_reports(&current, Some(&reference));
+        assert_eq!(result.status, AssessmentStatus::Incomplete);
         assert!(
             result
                 .findings
@@ -1156,7 +1257,6 @@ mod tests {
                 .all(|finding| finding.status == FindingStatus::Uncertain)
         );
     }
-
     #[test]
     fn rival_fuzzy_renames_remain_uncertain() {
         let reference = clean("old.py", "common\nold\n");

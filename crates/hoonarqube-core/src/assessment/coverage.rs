@@ -19,7 +19,7 @@ use md5::{Digest as Md5Digest, Md5};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 use sha2::{Digest as ShaDigest, Sha256};
-const COVERAGE_SCHEMA_VERSION: u32 = 1;
+const COVERAGE_SCHEMA_VERSION: u32 = hoonarqube_ir::assessment::ASSESSMENT_SCHEMA_VERSION;
 const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_XML_DEPTH: usize = 256;
 const MAX_XML_TEXT: usize = 16 * 1024 * 1024;
