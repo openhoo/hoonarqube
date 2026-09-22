@@ -1212,20 +1212,16 @@ mod tests {
 
     #[test]
     fn same_file_duplicate_identities_stay_uncertain() {
-        // Boundary control for #814: identical findings inside one file still
-        // share an identity and remain ambiguous.
+        // Boundary control for #813/#818: byte-identical duplicate emissions
+        // of the same range still share one identity and remain ambiguous.
+        // Identical content on distinct ranges resolves distinctly instead.
         let reference = AssessmentReport::new(
             context(),
             vec![
                 SourceSnapshot::from_source(
                     "src/a.py",
-                    b"bad\nbad\n",
-                    &[finding("message"), {
-                        let mut second = finding("message");
-                        second.range.start.line = 2;
-                        second.range.end.line = 2;
-                        second
-                    }],
+                    b"bad\n",
+                    &[finding("message"), finding("message")],
                 )
                 .expect("reference source"),
             ],
@@ -1236,13 +1232,8 @@ mod tests {
             vec![
                 SourceSnapshot::from_source(
                     "src/a.py",
-                    b"bad\nbad\n",
-                    &[finding("message"), {
-                        let mut second = finding("message");
-                        second.range.start.line = 2;
-                        second.range.end.line = 2;
-                        second
-                    }],
+                    b"bad\n",
+                    &[finding("message"), finding("message")],
                 )
                 .expect("current source"),
             ],

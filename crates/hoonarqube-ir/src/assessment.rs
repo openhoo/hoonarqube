@@ -14,11 +14,14 @@ use sha2::{Digest as _, Sha256};
 
 /// The assessment artifact schema currently understood by this crate.
 ///
-/// Version 2 binds each [`FindingIdentity::identity`] digest to the
-/// normalized source path so equivalent findings in distinct files no longer
-/// collide.  Version-1 artifacts are rejected rather than silently
-/// reinterpreted under the new identity derivation.
-pub const ASSESSMENT_SCHEMA_VERSION: u32 = 2;
+/// Version 3 binds an occurrence ordinal into each finding's content
+/// identity so same-file findings of one rule on distinct ranges stay
+/// distinct even when their reported source bytes are identical.  Version 2
+/// bound [`FindingIdentity::identity`] to the normalized source path so
+/// equivalent findings in distinct files no longer collide.  Version-1 and
+/// version-2 artifacts are rejected rather than silently reinterpreted
+/// under the new identity derivation.
+pub const ASSESSMENT_SCHEMA_VERSION: u32 = 3;
 
 /// Borrowed source input used when the caller already owns the source bytes.
 #[derive(Debug, Clone, Copy)]
@@ -165,8 +168,14 @@ impl AnalysisContext {
 /// excludes line, message, and issue index so harmless movement and message
 /// wording changes do not manufacture a new finding, but it includes the
 /// normalized source path so equivalent findings in distinct files stay
-/// distinct. If the same identity occurs more than once within a source,
-/// `ambiguous` is true and baseline matching must remain conservative.
+/// distinct. `content_identity` is the path-independent counterpart and
+/// additionally binds the finding's `occurrence` ordinal — its rank among
+/// the distinct ranges sharing the same rule and digested content — so
+/// same-file findings on different lines stay distinct even when their
+/// reported bytes are identical. Byte-identical duplicates of one range
+/// share an ordinal and therefore one identity; if the same identity occurs
+/// more than once within a source, `ambiguous` is true and baseline
+/// matching must remain conservative.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindingIdentity {
     pub issue_index: usize,
@@ -174,6 +183,17 @@ pub struct FindingIdentity {
     pub message: String,
     pub source_digest: String,
     pub context_digest: String,
+    /// Rank of this finding's range among the distinct ranges that share the
+    /// same rule, source digest, and context digest within the file. The
+    /// ordinal is position-derived, not a line number, so a finding keeps
+    /// its identity when edits elsewhere move it to a different line.
+    #[serde(default)]
+    pub occurrence: u32,
+    /// Path-independent identity: rule, digested source range and context,
+    /// and the occurrence ordinal. Baseline matching compares this digest so
+    /// a finding keeps resolving as `existing` when its file is renamed.
+    #[serde(default)]
+    pub content_identity: String,
     pub start_line: u32,
     pub end_line: u32,
     pub identity: String,
@@ -183,16 +203,17 @@ pub struct FindingIdentity {
 }
 
 impl FindingIdentity {
-    /// The path-independent portion of this finding's identity: rule plus the
-    /// digested source range and its surrounding context. Baseline matching
-    /// compares content keys so a finding keeps resolving as `existing` when
-    /// its file is renamed, while `identity` stays path-qualified so
-    /// equivalent findings in distinct files never collide.
+    /// The path-independent portion of this finding's identity: rule plus
+    /// the occurrence-qualified content digest and its surrounding context.
+    /// Baseline matching compares content keys so a finding keeps resolving
+    /// as `existing` when its file is renamed, while `identity` stays
+    /// path-qualified so equivalent findings in distinct files never
+    /// collide.
     #[must_use]
     pub fn content_key(&self) -> (&str, &str, &str) {
         (
             self.rule_key.as_str(),
-            self.source_digest.as_str(),
+            self.content_identity.as_str(),
             self.context_digest.as_str(),
         )
     }
@@ -318,6 +339,7 @@ impl SourceSnapshot {
                 finding_identity(issue_index, issue, path, text, source, &starts, line_style)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        bind_occurrence_ordinals(&mut findings, issues);
 
         let mut counts = BTreeMap::<String, usize>::new();
         for finding in &findings {
@@ -1130,6 +1152,7 @@ fn validate_finding(finding: &FindingIdentity) -> Result<(), AssessmentError> {
     if finding.rule_key.trim().is_empty()
         || !is_digest(&finding.source_digest)
         || !is_digest(&finding.context_digest)
+        || !is_digest(&finding.content_identity)
         || !is_digest(&finding.identity)
         || ((finding.start_line == 0) != (finding.end_line == 0))
         || finding.start_line > finding.end_line
@@ -1147,22 +1170,33 @@ fn validate_finding(finding: &FindingIdentity) -> Result<(), AssessmentError> {
             reason: "finding path must be normalized".to_string(),
         });
     }
-    if finding.identity
-        != digest_parts(&[
-            b"finding",
-            finding.path.as_os_str().as_encoded_bytes(),
-            finding.rule_key.as_bytes(),
-            finding.source_digest.as_bytes(),
-            finding.context_digest.as_bytes(),
-        ])
+    if finding.content_identity != content_identity(finding)
+        || finding.identity
+            != digest_parts(&[
+                b"finding",
+                finding.path.as_os_str().as_encoded_bytes(),
+                finding.content_identity.as_bytes(),
+            ])
     {
         return Err(AssessmentError::Invalid {
             artifact: "finding identity",
-            reason: "identity does not match its path, rule, and source/context digests"
-                .to_string(),
+            reason: "identity does not match its path, rule, digests, and occurrence".to_string(),
         });
     }
     Ok(())
+}
+
+/// The path-independent finding identity: rule, digested source range and
+/// context, and the occurrence ordinal that keeps same-file findings on
+/// distinct ranges distinct.
+fn content_identity(finding: &FindingIdentity) -> String {
+    digest_parts(&[
+        b"finding-content",
+        finding.rule_key.as_bytes(),
+        finding.source_digest.as_bytes(),
+        finding.context_digest.as_bytes(),
+        &finding.occurrence.to_be_bytes(),
+    ])
 }
 
 fn finding_identity(
@@ -1231,25 +1265,78 @@ fn finding_identity(
             ]),
         )
     };
-    let identity = digest_parts(&[
-        b"finding",
-        path.as_os_str().as_encoded_bytes(),
-        issue.rule_key.as_bytes(),
-        source_digest.as_bytes(),
-        context_digest.as_bytes(),
-    ]);
-    Ok(FindingIdentity {
+    let mut finding = FindingIdentity {
         issue_index,
         rule_key: issue.rule_key.clone(),
         message: issue.message.clone(),
         source_digest,
         context_digest,
+        occurrence: 0,
+        content_identity: String::new(),
         start_line,
         end_line,
-        identity,
+        identity: String::new(),
         ambiguous: false,
         path: path.to_path_buf(),
-    })
+    };
+    refresh_finding_digests(&mut finding);
+    Ok(finding)
+}
+
+/// Recomputes a finding's content and path-qualified identity digests from
+/// its stored rule, digests, occurrence ordinal, and normalized path.
+fn refresh_finding_digests(finding: &mut FindingIdentity) {
+    finding.content_identity = content_identity(finding);
+    finding.identity = digest_parts(&[
+        b"finding",
+        finding.path.as_os_str().as_encoded_bytes(),
+        finding.content_identity.as_bytes(),
+    ]);
+}
+
+/// Binds each finding's occurrence ordinal into its identity.
+///
+/// Findings are grouped by rule and digested content — the pre-ordinal
+/// content key. Within a group sharing more than one distinct range, the
+/// ordinal is the rank of the finding's range among the group's sorted
+/// distinct ranges, so same-file findings on different lines receive
+/// distinct identities even when their reported bytes are identical.
+/// Byte-identical duplicates of one range share an ordinal and therefore
+/// one identity, so `ambiguous` still marks true duplicate emissions.
+/// Ordinals follow ranges, not line numbers, so a finding keeps its
+/// identity when edits elsewhere move it to a different line.
+fn bind_occurrence_ordinals(findings: &mut [FindingIdentity], issues: &[crate::Issue]) {
+    let member_lists: Vec<Vec<usize>> = {
+        let mut groups = BTreeMap::<(&str, &str, &str), Vec<usize>>::new();
+        for (index, finding) in findings.iter().enumerate() {
+            groups
+                .entry((
+                    finding.rule_key.as_str(),
+                    finding.source_digest.as_str(),
+                    finding.context_digest.as_str(),
+                ))
+                .or_default()
+                .push(index);
+        }
+        groups.into_values().collect()
+    };
+    for members in member_lists {
+        let mut ranges: Vec<(crate::Pos, crate::Pos)> = members
+            .iter()
+            .map(|index| (issues[*index].range.start, issues[*index].range.end))
+            .collect();
+        ranges.sort();
+        ranges.dedup();
+        if ranges.len() <= 1 {
+            continue;
+        }
+        for index in members {
+            let range = (issues[index].range.start, issues[index].range.end);
+            findings[index].occurrence =
+                crate::u32_saturating(ranges.binary_search(&range).unwrap_or_default());
+            refresh_finding_digests(&mut findings[index]);
+        }
+    }
 }
 
 fn split_lines(source: &[u8], line_style: SourceLineStyle) -> impl Iterator<Item = &[u8]> {
@@ -1544,19 +1631,159 @@ mod tests {
         let repeat =
             SourceSnapshot::from_source("First.py", b"bad(1)\n", &[identity_issue(1, 0)]).unwrap();
         assert_eq!(first.findings[0].identity, repeat.findings[0].identity);
-        // Equivalent findings in the same file still share one identity and
-        // stay ambiguous.
+        // Equivalent findings on distinct ranges of the same file receive
+        // distinct occurrence ordinals and therefore distinct identities
+        // (issue #818); only byte-identical duplicates of one range share an
+        // identity and stay ambiguous.
         let duplicates = SourceSnapshot::from_source(
             "a.py",
             b"bad(1)\nbad(1)\n",
             &[identity_issue(1, 0), identity_issue(2, 0)],
         )
         .unwrap();
-        assert_eq!(
+        assert_ne!(
             duplicates.findings[0].identity,
             duplicates.findings[1].identity
         );
-        assert!(duplicates.findings.iter().all(|finding| finding.ambiguous));
+        assert!(duplicates.findings.iter().all(|finding| !finding.ambiguous));
+    }
+
+    #[test]
+    fn identical_lines_on_different_lines_receive_distinct_stable_identities() {
+        // Issue #818: two findings of one rule on different lines of the
+        // same file must not collide when the line content is identical.
+        let issues = [identity_issue(2, 0), identity_issue(4, 0)];
+        let snapshot =
+            SourceSnapshot::from_source("a.py", b"ok()\nbad(1)\nok()\nbad(1)\n", &issues).unwrap();
+        let (first, second) = (&snapshot.findings[0], &snapshot.findings[1]);
+        assert_eq!(first.source_digest, second.source_digest);
+        assert_eq!(first.context_digest, second.context_digest);
+        assert_ne!(first.occurrence, second.occurrence);
+        assert_ne!(first.content_identity, second.content_identity);
+        assert_ne!(first.identity, second.identity);
+        assert_ne!(first.content_key(), second.content_key());
+        assert!(snapshot.findings.iter().all(|finding| !finding.ambiguous));
+        snapshot.validate().expect("distinct findings validate");
+
+        // An unchanged re-scan reproduces the same identities, so a baseline
+        // comparison resolves every finding as existing.
+        let rescan =
+            SourceSnapshot::from_source("a.py", b"ok()\nbad(1)\nok()\nbad(1)\n", &issues).unwrap();
+        assert_eq!(snapshot.findings, rescan.findings);
+
+        // Edits elsewhere move both findings without changing their
+        // identities: the ordinal follows the range order, not the line.
+        let moved_issues = [identity_issue(4, 0), identity_issue(6, 0)];
+        let moved = SourceSnapshot::from_source(
+            "a.py",
+            b"new()\nok()\nnew()\nbad(1)\nok()\nbad(1)\n",
+            &moved_issues,
+        )
+        .unwrap();
+        assert_eq!(first.identity, moved.findings[0].identity);
+        assert_eq!(second.identity, moved.findings[1].identity);
+        assert_eq!(first.occurrence, moved.findings[0].occurrence);
+        assert_eq!(second.occurrence, moved.findings[1].occurrence);
+        // Inserting a line between the two findings keeps both stable too.
+        let split_issues = [identity_issue(2, 0), identity_issue(5, 0)];
+        let split = SourceSnapshot::from_source(
+            "a.py",
+            b"ok()\nbad(1)\nok()\nnew()\nbad(1)\n",
+            &split_issues,
+        )
+        .unwrap();
+        assert_eq!(first.identity, split.findings[0].identity);
+        assert_eq!(second.identity, split.findings[1].identity);
+    }
+
+    #[test]
+    fn byte_identical_duplicate_ranges_stay_ambiguous() {
+        // Issue #813: a rule emitting the same finding twice for one range
+        // must keep sharing one identity so `ambiguous` stays conservative.
+        let issue = identity_issue(1, 0);
+        let snapshot =
+            SourceSnapshot::from_source("a.py", b"bad(1)\n", &[issue.clone(), issue.clone()])
+                .unwrap();
+        assert_eq!(snapshot.findings[0].identity, snapshot.findings[1].identity);
+        assert_eq!(
+            snapshot.findings[0].occurrence,
+            snapshot.findings[1].occurrence
+        );
+        assert!(snapshot.findings.iter().all(|finding| finding.ambiguous));
+        // File-level findings share one range and stay ambiguous as well.
+        let file_level = crate::Issue::new(
+            "python:S1",
+            "finding",
+            crate::Range {
+                start: crate::Pos { line: 0, column: 0 },
+                end: crate::Pos { line: 0, column: 0 },
+            },
+        );
+        let file_level_snapshot = SourceSnapshot::from_source(
+            "a.py",
+            b"bad(1)\n",
+            &[file_level.clone(), file_level.clone()],
+        )
+        .unwrap();
+        assert_eq!(
+            file_level_snapshot.findings[0].identity,
+            file_level_snapshot.findings[1].identity
+        );
+        assert!(
+            file_level_snapshot
+                .findings
+                .iter()
+                .all(|finding| finding.ambiguous)
+        );
+    }
+
+    #[test]
+    fn occurrence_ordinals_follow_range_order_not_issue_order() {
+        // A rule emitting findings out of source order still assigns
+        // ordinals by range rank, keeping identities deterministic.
+        let issues = [identity_issue(4, 0), identity_issue(2, 0)];
+        let snapshot =
+            SourceSnapshot::from_source("a.py", b"ok()\nbad(1)\nok()\nbad(1)\n", &issues).unwrap();
+        assert_eq!(snapshot.findings[0].occurrence, 1);
+        assert_eq!(snapshot.findings[1].occurrence, 0);
+        let ordered = SourceSnapshot::from_source(
+            "a.py",
+            b"ok()\nbad(1)\nok()\nbad(1)\n",
+            &[identity_issue(2, 0), identity_issue(4, 0)],
+        )
+        .unwrap();
+        assert_eq!(snapshot.findings[0].identity, ordered.findings[1].identity);
+        assert_eq!(snapshot.findings[1].identity, ordered.findings[0].identity);
+        // Same-line occurrences on distinct columns are distinct too.
+        let columns = SourceSnapshot::from_source(
+            "a.py",
+            b"bad(1); bad(1)\n",
+            &[identity_issue(1, 0), identity_issue(1, 8)],
+        )
+        .unwrap();
+        assert_ne!(columns.findings[0].identity, columns.findings[1].identity);
+        assert!(columns.findings.iter().all(|finding| !finding.ambiguous));
+    }
+
+    #[test]
+    fn older_assessment_schemas_are_rejected_explicitly() {
+        // Version-1 and version-2 artifacts predate the occurrence ordinal
+        // and must fail closed instead of being reinterpreted.
+        let context =
+            AnalysisContext::new("test/v1", "catalog", "options", "scope", None::<String>);
+        let report = AssessmentReport::new(context, Vec::new()).expect("report");
+        let mut value = serde_json::to_value(&report).expect("serialize");
+        for version in [1_u64, 2] {
+            value["schema_version"] = serde_json::Value::from(version);
+            let error = serde_json::from_value::<AssessmentReport>(value.clone())
+                .expect_err("older schema must be rejected");
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsupported assessment schema version"),
+                "{error}"
+            );
+        }
     }
 
     #[test]
