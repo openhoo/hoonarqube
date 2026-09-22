@@ -111,9 +111,14 @@ jobs:
           docker run --rm -v "$PWD/dist/$package:/work:ro" \
             docker.io/library/debian:bookworm-slim \
             /work/hoonarqube --version
+          status=0
           docker run --rm -v "$PWD/dist/$package:/work:ro" \
+            -e HOONARQUBE_SERVICE_CREDENTIALS='[{"user_id":"smoke","token":"smoke-token","projects":{},"global_admin":false}]' \
+            -e HOONARQUBE_SERVICE_DB=/tmp/smoke.sqlite3 \
+            -e HOONARQUBE_SERVICE_BIND=127.0.0.1:18080 \
             docker.io/library/debian:bookworm-slim \
-            /work/hoonarqube-service --version
+            timeout 5 /work/hoonarqube-service || status=$?
+          test "$status" -eq 124
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
