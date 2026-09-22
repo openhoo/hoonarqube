@@ -869,6 +869,63 @@ fn s121_requires_curly_braces_on_embedded_statements() {
 }
 
 #[test]
+fn s121_reports_else_alternative_at_else_keyword() {
+    // Issue #813: one unbraced `if/else` must not emit two byte-identical
+    // findings; the consequence anchors on `if`, the alternative on `else`.
+    let report = analyze_default(
+        "public static class Braces\n{\n    public static void Select(bool condition)\n    {\n        if (condition)\n            Use(\"yes\");\n        else\n            Use(\"no\");\n    }\n\n    private static void Use(string value) { }\n}\n",
+    );
+    let flagged = with_key(&report, "csharpsquid:S121");
+    assert_eq!(flagged.len(), 2);
+    assert_eq!(
+        flagged[0].message,
+        "Add curly braces around the nested statement(s) in this 'if' block."
+    );
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[0].range.start.column, 8);
+    assert_eq!(flagged[0].range.end.column, 10);
+    assert_eq!(
+        flagged[1].message,
+        "Add curly braces around the nested statement(s) in this 'else' block."
+    );
+    assert_eq!(flagged[1].range.start.line, 7);
+    assert_eq!(flagged[1].range.start.column, 8);
+    assert_eq!(flagged[1].range.end.column, 12);
+    assert_ne!(flagged[0].range, flagged[1].range);
+
+    // Boundary: an unbraced `if` without `else` reports once at `if`.
+    let no_else = analyze_default(
+        "class A\n{\n    void M(bool x)\n    {\n        if (x)\n            DoIt();\n    }\n}\n",
+    );
+    let flagged = with_key(&no_else, "csharpsquid:S121");
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].range.start.line, 5);
+
+    // Boundary: `else if` chains exempt the else clause per reference
+    // semantics; the nested `if` and the final `else` still report at their
+    // own keywords.
+    let chained = analyze_default(
+        "class A\n{\n    void M(bool x, bool y)\n    {\n        if (x)\n            DoIt();\n        else if (y)\n            DoIt();\n        else\n            DoIt();\n    }\n}\n",
+    );
+    let flagged = with_key(&chained, "csharpsquid:S121");
+    assert_eq!(flagged.len(), 3);
+    assert_eq!(flagged[0].range.start.line, 5);
+    assert_eq!(flagged[1].range.start.line, 7);
+    assert_eq!(flagged[1].range.start.column, 13);
+    assert_eq!(flagged[2].range.start.line, 9);
+    assert_eq!(
+        flagged[2].message,
+        "Add curly braces around the nested statement(s) in this 'else' block."
+    );
+
+    // Clean control: fully braced `if/else` reports nothing.
+    let clean = analyze_default(
+        "class A\n{\n    void M(bool x)\n    {\n        if (x)\n        {\n            DoIt();\n        }\n        else\n        {\n            DoIt();\n        }\n    }\n}\n",
+    );
+    assert!(with_key(&clean, "csharpsquid:S121").is_empty());
+}
+
+#[test]
 fn s108_flags_empty_blocks_but_not_commented_ones() {
     let report = analyze_default(
         "class A\n{\n    void M(bool x)\n    {\n        if (x)\n        {\n        }\n        if (x)\n        {\n            /* note */\n        }\n    }\n}\n",
