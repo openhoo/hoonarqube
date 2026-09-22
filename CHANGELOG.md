@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2 (2026-09-22)
+
+### Bug Fixes
+
+- **csharp:** anchor S121 else-alternative findings at the else keyword (#815) (fa4689d)
+- **hoonarqube-ir:** bind finding identity to normalized path (#816) (e897643)
+
 ## 0.10.1 (2026-09-21)
 
 ### Bug Fixes
