@@ -167,7 +167,7 @@ jobs:
   rebuild-assets:
     name: Rebuild release assets
     if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main' && inputs.tag != '' && !inputs.dry_run
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       REBUILD_TAG: ${{ inputs.tag }}
     permissions:
@@ -240,6 +240,24 @@ jobs:
           install -m 0755 target/release/hoonarqube-service "dist/$package/hoonarqube-service"
           install -m 0644 LICENSE README.md "dist/$package/"
           tar -C dist -czf "dist/$package.tar.gz" "$package"
+
+      - name: Smoke packaged binaries on Debian bookworm
+        env:
+          RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          package="hoonarqube-${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
+          docker run --rm -v "$PWD/dist/$package:/work:ro" \
+            docker.io/library/debian:bookworm-slim \
+            /work/hoonarqube --version
+          status=0
+          docker run --rm -v "$PWD/dist/$package:/work:ro" \
+            -e HOONARQUBE_SERVICE_CREDENTIALS='[{"user_id":"smoke","token":"smoke-token","projects":{},"global_admin":false}]' \
+            -e HOONARQUBE_SERVICE_DB=/tmp/smoke.sqlite3 \
+            -e HOONARQUBE_SERVICE_BIND=127.0.0.1:18080 \
+            docker.io/library/debian:bookworm-slim \
+            timeout 5 /work/hoonarqube-service || status=$?
+          test "$status" -eq 124
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
