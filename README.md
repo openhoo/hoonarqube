@@ -854,6 +854,11 @@ service/dashboard), plus the SPDX SBOM, sorted SHA-256 checksums, keyless
 Sigstore bundles, and GitHub artifact attestations from the immutable release
 tag.
 
+The published `x86_64-unknown-linux-gnu` binaries are built on Ubuntu 22.04 and
+require glibc 2.35 or newer (Debian 12 bookworm, Ubuntu 22.04, and later). The
+release workflow smoke-tests both executables inside a Debian bookworm
+container before upload.
+
 ### Installing from a release archive
 
 Download the Linux x86_64 archive and its matching assets from the official
