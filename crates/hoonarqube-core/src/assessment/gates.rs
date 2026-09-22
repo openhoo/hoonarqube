@@ -524,7 +524,7 @@ fn complete_coverage(
         .assessment
         .as_ref()
         .ok_or_else(|| "coverage is unavailable because no assessment is attached".to_string())?;
-    if assessment.schema_version != 1 {
+    if assessment.schema_version != ASSESSMENT_SCHEMA_VERSION {
         return Err(format!(
             "assessment schema_version {} is unsupported",
             assessment.schema_version
@@ -534,7 +534,7 @@ fn complete_coverage(
         .coverage
         .as_ref()
         .ok_or_else(|| "coverage report is missing".to_string())?;
-    if coverage.schema_version != 1 {
+    if coverage.schema_version != ASSESSMENT_SCHEMA_VERSION {
         return Err(format!(
             "coverage schema_version {} is unsupported",
             coverage.schema_version
@@ -568,7 +568,7 @@ fn complete_new_code(
     let assessment = report.assessment.as_ref().ok_or_else(|| {
         "new-code data is unavailable because no assessment is attached".to_string()
     })?;
-    if assessment.schema_version != 1 {
+    if assessment.schema_version != ASSESSMENT_SCHEMA_VERSION {
         return Err(format!(
             "assessment schema_version {} is unsupported",
             assessment.schema_version
@@ -581,7 +581,7 @@ fn complete_new_code(
         .new_code
         .as_ref()
         .ok_or_else(|| "new-code report is missing; baseline is unavailable".to_string())?;
-    if new_code.schema_version != 1 {
+    if new_code.schema_version != ASSESSMENT_SCHEMA_VERSION {
         return Err(format!(
             "new-code schema_version {} is unsupported",
             new_code.schema_version
@@ -1067,9 +1067,9 @@ fn format_number(value: f64) -> String {
 mod tests {
     use super::{GateCondition, GateConfig, compare_u64_f64, evaluate_gate};
     use hoonarqube_ir::assessment::{
-        AssessmentReport, AssessmentStatus, CoverageCounter, CoverageReport, FileCoverage,
-        FindingMatch, FindingStatus, GateOperator, GateScope, GateStatus, LineCoverage,
-        NewCodeLines, NewCodeReport, SourceSnapshot,
+        ASSESSMENT_SCHEMA_VERSION, AssessmentReport, AssessmentStatus, CoverageCounter,
+        CoverageReport, FileCoverage, FindingMatch, FindingStatus, GateOperator, GateScope,
+        GateStatus, LineCoverage, NewCodeLines, NewCodeReport, SourceSnapshot,
     };
     use hoonarqube_ir::{
         AnalysisReport, DuplicateGroup, DuplicateOccurrence, DuplicationMetrics,
@@ -1170,7 +1170,7 @@ mod tests {
         new_code: Option<NewCodeReport>,
     ) -> AssessmentReport {
         AssessmentReport {
-            schema_version: 1,
+            schema_version: ASSESSMENT_SCHEMA_VERSION,
             context: context(),
             sources: Vec::new(),
             coverage,
@@ -1199,7 +1199,7 @@ mod tests {
         findings: Vec<FindingMatch>,
     ) -> NewCodeReport {
         NewCodeReport {
-            schema_version: 1,
+            schema_version: ASSESSMENT_SCHEMA_VERSION,
             status,
             reference_context,
             findings,
@@ -1214,7 +1214,7 @@ mod tests {
 
     fn coverage_report(lines: CoverageCounter, file_lines: Vec<LineCoverage>) -> CoverageReport {
         CoverageReport {
-            schema_version: 1,
+            schema_version: ASSESSMENT_SCHEMA_VERSION,
             status: AssessmentStatus::Complete,
             files: vec![FileCoverage {
                 path: PathBuf::from("src/main.rs"),
@@ -1344,7 +1344,7 @@ mod tests {
         let mut report = report(true);
         report.assessment = Some(assessment(
             Some(CoverageReport {
-                schema_version: 1,
+                schema_version: ASSESSMENT_SCHEMA_VERSION,
                 status: AssessmentStatus::Complete,
                 files: vec![FileCoverage {
                     path: PathBuf::from("src/main.rs"),

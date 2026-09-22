@@ -13,7 +13,12 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 use sha2::{Digest as _, Sha256};
 
 /// The assessment artifact schema currently understood by this crate.
-pub const ASSESSMENT_SCHEMA_VERSION: u32 = 1;
+///
+/// Version 2 binds each [`FindingIdentity::identity`] digest to the
+/// normalized source path so equivalent findings in distinct files no longer
+/// collide.  Version-1 artifacts are rejected rather than silently
+/// reinterpreted under the new identity derivation.
+pub const ASSESSMENT_SCHEMA_VERSION: u32 = 2;
 
 /// Borrowed source input used when the caller already owns the source bytes.
 #[derive(Debug, Clone, Copy)]
@@ -157,10 +162,11 @@ impl AnalysisContext {
 }
 
 /// One finding's stable, source-derived identity. `identity` intentionally
-/// excludes path, line, message, and issue index so harmless movement and
-/// message wording changes do not manufacture a new finding. If the same
-/// identity occurs more than once, `ambiguous` is true and baseline matching
-/// must remain conservative.
+/// excludes line, message, and issue index so harmless movement and message
+/// wording changes do not manufacture a new finding, but it includes the
+/// normalized source path so equivalent findings in distinct files stay
+/// distinct. If the same identity occurs more than once within a source,
+/// `ambiguous` is true and baseline matching must remain conservative.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindingIdentity {
     pub issue_index: usize,
@@ -172,6 +178,24 @@ pub struct FindingIdentity {
     pub end_line: u32,
     pub identity: String,
     pub ambiguous: bool,
+    /// The normalized path of the source this finding was reported in.
+    pub path: PathBuf,
+}
+
+impl FindingIdentity {
+    /// The path-independent portion of this finding's identity: rule plus the
+    /// digested source range and its surrounding context. Baseline matching
+    /// compares content keys so a finding keeps resolving as `existing` when
+    /// its file is renamed, while `identity` stays path-qualified so
+    /// equivalent findings in distinct files never collide.
+    #[must_use]
+    pub fn content_key(&self) -> (&str, &str, &str) {
+        (
+            self.rule_key.as_str(),
+            self.source_digest.as_str(),
+            self.context_digest.as_str(),
+        )
+    }
 }
 
 /// Line-boundary contract used to map raw source bytes to 1-based
@@ -291,7 +315,7 @@ impl SourceSnapshot {
             .iter()
             .enumerate()
             .map(|(issue_index, issue)| {
-                finding_identity(issue_index, issue, text, source, &starts, line_style)
+                finding_identity(issue_index, issue, path, text, source, &starts, line_style)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -342,12 +366,13 @@ impl SourceSnapshot {
         for (index, finding) in self.findings.iter().enumerate() {
             validate_finding(finding)?;
             if finding.issue_index != index
+                || finding.path != self.path
                 || usize::try_from(finding.end_line)
                     .is_ok_and(|line| line > self.line_digests.len().saturating_add(1))
             {
                 return Err(AssessmentError::Invalid {
                     artifact: "source snapshot",
-                    reason: "finding index or source line is inconsistent".to_string(),
+                    reason: "finding index, path, or source line is inconsistent".to_string(),
                 });
             }
         }
@@ -1114,9 +1139,18 @@ fn validate_finding(finding: &FindingIdentity) -> Result<(), AssessmentError> {
             reason: "rule, digests, identity, and line range are invalid".to_string(),
         });
     }
+    if finding.path.as_os_str().is_empty()
+        || normalize_path(&finding.path).ok().as_ref() != Some(&finding.path)
+    {
+        return Err(AssessmentError::Invalid {
+            artifact: "finding identity",
+            reason: "finding path must be normalized".to_string(),
+        });
+    }
     if finding.identity
         != digest_parts(&[
             b"finding",
+            finding.path.as_os_str().as_encoded_bytes(),
             finding.rule_key.as_bytes(),
             finding.source_digest.as_bytes(),
             finding.context_digest.as_bytes(),
@@ -1124,7 +1158,8 @@ fn validate_finding(finding: &FindingIdentity) -> Result<(), AssessmentError> {
     {
         return Err(AssessmentError::Invalid {
             artifact: "finding identity",
-            reason: "identity does not match its rule and source/context digests".to_string(),
+            reason: "identity does not match its path, rule, and source/context digests"
+                .to_string(),
         });
     }
     Ok(())
@@ -1133,6 +1168,7 @@ fn validate_finding(finding: &FindingIdentity) -> Result<(), AssessmentError> {
 fn finding_identity(
     issue_index: usize,
     issue: &crate::Issue,
+    path: &Path,
     text: &str,
     source: &[u8],
     line_starts: &[usize],
@@ -1197,6 +1233,7 @@ fn finding_identity(
     };
     let identity = digest_parts(&[
         b"finding",
+        path.as_os_str().as_encoded_bytes(),
         issue.rule_key.as_bytes(),
         source_digest.as_bytes(),
         context_digest.as_bytes(),
@@ -1211,6 +1248,7 @@ fn finding_identity(
         end_line,
         identity,
         ambiguous: false,
+        path: path.to_path_buf(),
     })
 }
 
@@ -1468,8 +1506,7 @@ mod tests {
         let original =
             SourceSnapshot::from_source("a.py", b"bad(1)\n", &[identity_issue(1, 0)]).unwrap();
         let moved =
-            SourceSnapshot::from_source("renamed.py", b"\n\nbad(1)\n", &[identity_issue(3, 0)])
-                .unwrap();
+            SourceSnapshot::from_source("a.py", b"\n\nbad(1)\n", &[identity_issue(3, 0)]).unwrap();
         let changed =
             SourceSnapshot::from_source("a.py", b"bad(2)\n", &[identity_issue(1, 0)]).unwrap();
         assert_eq!(original.findings[0].identity, moved.findings[0].identity);
@@ -1484,6 +1521,42 @@ mod tests {
             unicode_lf.findings[0].identity,
             unicode_crlf.findings[0].identity
         );
+    }
+
+    #[test]
+    fn finding_identity_binds_the_normalized_path_but_content_key_tracks_renames() {
+        // Issue #814: equivalent findings in distinct normalized paths must
+        // receive distinct identities so an unchanged baseline cannot collide.
+        let first =
+            SourceSnapshot::from_source("First.py", b"bad(1)\n", &[identity_issue(1, 0)]).unwrap();
+        let second =
+            SourceSnapshot::from_source("Second.py", b"bad(1)\n", &[identity_issue(1, 0)]).unwrap();
+        assert_ne!(first.findings[0].identity, second.findings[0].identity);
+        assert_eq!(first.findings[0].path, PathBuf::from("First.py"));
+        assert_eq!(second.findings[0].path, PathBuf::from("Second.py"));
+        // The path-independent content key still matches so rename tracking
+        // keeps resolving a moved file's findings as existing.
+        assert_eq!(
+            first.findings[0].content_key(),
+            second.findings[0].content_key()
+        );
+        // Identities are deterministic for identical inputs.
+        let repeat =
+            SourceSnapshot::from_source("First.py", b"bad(1)\n", &[identity_issue(1, 0)]).unwrap();
+        assert_eq!(first.findings[0].identity, repeat.findings[0].identity);
+        // Equivalent findings in the same file still share one identity and
+        // stay ambiguous.
+        let duplicates = SourceSnapshot::from_source(
+            "a.py",
+            b"bad(1)\nbad(1)\n",
+            &[identity_issue(1, 0), identity_issue(2, 0)],
+        )
+        .unwrap();
+        assert_eq!(
+            duplicates.findings[0].identity,
+            duplicates.findings[1].identity
+        );
+        assert!(duplicates.findings.iter().all(|finding| finding.ambiguous));
     }
 
     #[test]
@@ -1509,7 +1582,7 @@ mod tests {
     #[test]
     fn coverage_rejects_forged_totals_and_duplicate_measurements() {
         let mut report = CoverageReport {
-            schema_version: 1,
+            schema_version: ASSESSMENT_SCHEMA_VERSION,
             status: AssessmentStatus::Complete,
             files: vec![FileCoverage {
                 path: PathBuf::from("a.py"),
