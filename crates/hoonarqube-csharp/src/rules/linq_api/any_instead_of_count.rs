@@ -1,8 +1,7 @@
 use crate::CsLanguage;
 use crate::cst::{collect_kinds, is_error_tainted, issue, node_text, range_of};
 use crate::rules::expressions::{
-    binary_operands, callee_name, expression_name, invocation_function, invocation_receiver,
-    operator_of,
+    binary_operands, callee_name, invocation_function, invocation_receiver, operator_of,
 };
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
@@ -29,14 +28,10 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             _ => None,
         };
         if let Some(count) = count {
-            let anchor = match count.kind() {
-                "invocation_expression" => invocation_function(count)
-                    .and_then(|function| function.child_by_field_name("name")),
-                "member_access_expression" => count.child_by_field_name("name"),
-                _ => None,
-            }
-            .unwrap_or(count);
-            let collection_type = count_receiver(count)
+            let anchor = invocation_function(count)
+                .and_then(|function| function.child_by_field_name("name"))
+                .unwrap_or(count);
+            let collection_type = invocation_receiver(count)
                 .filter(|receiver| receiver.kind() == "identifier")
                 .and_then(|receiver| declared_type(root, node_text(receiver, source), source))
                 .unwrap_or("IEnumerable");
@@ -49,14 +44,6 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
-}
-
-fn count_receiver(count: Node<'_>) -> Option<Node<'_>> {
-    match count.kind() {
-        "invocation_expression" => invocation_receiver(count),
-        "member_access_expression" => count.child_by_field_name("expression"),
-        _ => None,
-    }
 }
 
 fn declared_type<'a>(root: Node<'_>, name: &str, source: &'a str) -> Option<&'a str> {
@@ -81,13 +68,12 @@ fn declared_type<'a>(root: Node<'_>, name: &str, source: &'a str) -> Option<&'a 
     None
 }
 
-/// Whether the operand reads a collection size (`.Count()` / `.Count`).
+/// Whether the operand invokes the LINQ `Count()` method. The reference
+/// only reports when `Count` resolves to an extension method on
+/// `IEnumerable<T>`/`IQueryable`; a `.Count` property access is
+/// constant-time (`List<T>`, arrays, `ICollection<T>`) and never matches.
 fn is_count_expression(operand: Node<'_>, source: &str) -> bool {
-    match operand.kind() {
-        "invocation_expression" => callee_name(operand, source) == Some("Count"),
-        "member_access_expression" => expression_name(operand, source) == Some("Count"),
-        _ => false,
-    }
+    operand.kind() == "invocation_expression" && callee_name(operand, source) == Some("Count")
 }
 
 #[cfg(test)]
@@ -111,5 +97,37 @@ mod tests {
             "class A\n{\n    void M()\n    {\n        if (items.Count() == 1) return;\n        if (items.Count >= 0) return;\n        if (items.Any()) return;\n    }\n}\n",
         );
         assert!(with_key(&report, "csharpsquid:S1155").is_empty());
+    }
+
+    #[test]
+    fn s1155_keeps_constant_time_count_property_clean() {
+        // `List<T>.Count`, `ICollection<T>.Count`, and array `.Length` are
+        // O(1) property reads; the reference only reports the LINQ `Count()`
+        // extension method, so property access is never flagged.
+        let report = analyze_default(
+            "using System.Collections.Generic;\n\
+             public static class CountCheck\n{\n\
+                 public static bool IsEmpty(List<string> values)\n\
+                 {\n        return values.Count == 0;\n    }\n}\n",
+        );
+        assert!(with_key(&report, "csharpsquid:S1155").is_empty());
+
+        let comparisons = analyze_default(
+            "class A\n{\n    void M()\n    {\n        if (items.Count == 0) return;\n        if (items.Count > 0) return;\n        if (items.Count != 0) return;\n        if (0 == items.Count) return;\n        if (items.Length == 0) return;\n    }\n}\n",
+        );
+        assert!(with_key(&comparisons, "csharpsquid:S1155").is_empty());
+    }
+
+    #[test]
+    fn s1155_still_flags_linq_count_invocations() {
+        // The invocation form stays reportable even on `List<T>` receivers:
+        // the reference flags the `Enumerable.Count()` extension call.
+        let report = analyze_default(
+            "using System.Collections.Generic;\n\
+             class A\n{\n    bool M(List<string> values)\n    {\n        return values.Count() == 0;\n    }\n}\n",
+        );
+        let flagged = with_key(&report, "csharpsquid:S1155");
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].range.start.line, 6);
     }
 }

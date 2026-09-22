@@ -1861,7 +1861,7 @@ fn s6672_matches_ilogger_generic_to_type() {
 #[test]
 fn s1155_prefers_any_for_emptiness() {
     let report = analyze_default(
-        "class A\n{\n    void M()\n    {\n        if (items.Count() == 0) return;\n        if (0 == items.Count) return;\n        if (items.Count > 0) return;\n    }\n}\n",
+        "class A\n{\n    void M()\n    {\n        if (items.Count() == 0) return;\n        if (0 == items.Count()) return;\n        if (items.Count > 0) return;\n    }\n}\n",
     );
     let flagged = with_key(&report, "csharpsquid:S1155");
     assert_eq!(flagged.len(), 2);
