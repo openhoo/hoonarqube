@@ -65,6 +65,54 @@ fn is_valid_regex(pattern: &str) -> bool {
     state.depth == 0
 }
 
+/// Whether a string literal's content is dominated by regular-expression
+/// syntax: the text must be a syntactically valid pattern and contain at
+/// least two regex constructs (anchors, classes, groups, quantifiers,
+/// alternation, or escapes). `S6418` uses this to keep pattern constants
+/// such as `"^[A-Za-z0-9_-]{43}$"` out of the hard-coded-secret heuristic.
+pub(super) fn is_regex_pattern(value: &str) -> bool {
+    is_valid_regex(value) && regex_construct_count(value) >= 2
+}
+
+/// Counts regex constructs outside character classes. A lone `{` or `}`
+/// only counts when it forms a `{n}`/`{n,}`/`{n,m}` quantifier.
+fn regex_construct_count(pattern: &str) -> usize {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut count = 0;
+    let mut in_class = false;
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => {
+                count += usize::from(!in_class);
+                i += 2;
+            }
+            '[' => {
+                count += usize::from(!in_class);
+                in_class = true;
+                i += 1;
+            }
+            '{' | '}' if !in_class => {
+                if let Some(end) = bounded_repeat_end(&chars, i) {
+                    count += 1;
+                    i = end + 1;
+                } else {
+                    i += 1;
+                }
+            }
+            '(' | ')' | '|' | '^' | '$' | '*' | '+' | '?' if !in_class => {
+                count += 1;
+                i += 1;
+            }
+            _ => {
+                in_class = in_class && chars[i] != ']';
+                i += 1;
+            }
+        }
+    }
+    count
+}
+
 #[derive(Default)]
 struct RegexScanState {
     index: usize,
