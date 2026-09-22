@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.3 (2026-09-22)
+
+### Bug Fixes
+
+- **hoonarqube-csharp:** exempt regex literals in S6418, restrict S1155 to Count() calls (#829) (b0a27a0)
+- **hoonarqube-jsts:** correct S3735/S3699/S6523/S6535 false positives (#830) (87a9376)
+- **hoonarqube-jsts:** correct S5852/S6544/S6772 false positives (#831) (ef9604e)
+- **hoonarqube-ir:** bind occurrence ordinals into finding identities (#828) (684d3aa)
+
 ## 0.10.2 (2026-09-22)
 
 ### Bug Fixes
