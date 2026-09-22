@@ -1271,8 +1271,9 @@ mod tests {
         let constructor = js_keys("const re = new RegExp('[a\\\\-\\\\.]');\n");
         assert_eq!(count_key(&constructor, "javascript:S6535"), 1);
 
-        // String-literal escape behavior is unchanged.
-        let string_form = js_keys("const s = \"a\\\\a\";\n");
+        // String-literal escape behavior is unchanged: `\q` is useless,
+        // while `\\` is a necessary literal backslash (#827).
+        let string_form = js_keys("const s = \"a\\qa\";\nconst t = \"a\\\\a\";\n");
         assert_eq!(count_key(&string_form, "javascript:S6535"), 1);
     }
 }
