@@ -998,13 +998,35 @@ impl<'p> Visit<'p> for UnstableKeyCollector {
 
 impl<'p> Visit<'p> for PromiseChainCollector {
     fn visit_call_expression(&mut self, call: &CallExpression<'p>) {
-        if let Some(link) = call.callee.as_member_expression()
-            && let Expression::CallExpression(receiver) = unparenthesized(member_object(link))
-            && let Some(then_member) = receiver.callee.as_member_expression()
-            && static_property_name(then_member) == Some("then")
-            && then_callback_returns_nothing(receiver)
-        {
-            self.sites.push(receiver.span());
+        // Decompose the member-call chain ending at `call`, outermost link
+        // first: `chain[i]` is one call and its own method name, and
+        // `chain[i + 1]` is the receiver call it was invoked on. A `.then()`
+        // callback that returns nothing is reportable only when a later
+        // `.then()` can observe its fulfillment value; `.catch()` consumes
+        // rejections and `.finally()` passes the value through, so chains
+        // that continue only with those (or end) leave the missing return
+        // unobserved (#826).
+        let mut chain: Vec<(&CallExpression<'p>, &str)> = Vec::new();
+        let mut current = call;
+        while let Some(member) = current.callee.as_member_expression() {
+            let Some(name) = static_property_name(member) else {
+                break;
+            };
+            chain.push((current, name));
+            let Expression::CallExpression(receiver) = unparenthesized(member_object(member))
+            else {
+                break;
+            };
+            current = receiver;
+        }
+        for (index, (link, name)) in chain.iter().enumerate() {
+            if *name != "then"
+                || !then_callback_returns_nothing(link)
+                || !chain[..index].iter().any(|(_, later)| *later == "then")
+            {
+                continue;
+            }
+            self.sites.insert((link.span().start, link.span().end));
         }
         walk_call_expression(self, call);
     }

@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn one_regex_range_yields_at_most_one_finding_per_rule() {
         let report = js(
-            "export function isSafeSlug(value) {\n  return /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(\n    value,\n  );\n}\n",
+            "export function isUnsafeSlug(value) {\n  return /^((a+)+)+$/.test(\n    value,\n  );\n}\n",
         );
         let findings: Vec<_> = report
             .issues
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         let finding = findings[0];
         assert_eq!(finding.range.start, pos(2, 9));
-        assert_eq!(finding.range.end, pos(2, 68));
+        assert_eq!(finding.range.end, pos(2, 21));
         assert_eq!(
             finding.message,
             "Make sure the regex used here, which is vulnerable to super-linear runtime due to backtracking, cannot lead to denial of service."

@@ -1,5 +1,5 @@
-export function isSafeSlug(value) {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(
+export function isUnsafeSlug(value) {
+  return /^((a+)+)+$/.test(
     value,
   );
 }
