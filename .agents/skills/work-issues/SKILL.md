@@ -15,6 +15,10 @@ stays read-only. Coordinate with [fix-issue](../fix-issue/SKILL.md) and use
 - “All open issues” means the finite list of OPEN issue IDs captured at the
   start. A filter also becomes a frozen list. New issues do not enter that run
   automatically. With no scope at all, select one ready issue by priority/age.
+  The explicitly enabled HooFlow Cube queue is a separate recurring mode:
+  each poll captures eligible current receipts, and each claimed issue becomes
+  one bounded assignment. It does not turn an interactive backlog request into
+  an endless campaign.
 - Source work includes isolated worktrees, focused checks and local commits
   needed for a reviewable handoff. Preserve the user's dirty checkout.
 - Record the user's authorized publication actions once. Reuse an earlier
@@ -48,6 +52,25 @@ An unready selected issue gets bounded triage from existing evidence. A missing
 label alone is not a reason to discard it from an “all” request: record the
 triage result, synchronize labels only when authorized, or report that exact
 boundary. Do not invent labels or treat catalog presence as executable coverage.
+
+For the explicitly enabled [automatic Cube queue](../../../docs/automated-triage.md),
+eligibility instead requires `triage:complete` and a current trusted applied
+v2 receipt from `openhoo-hooflow[bot]`, with `queueEligible: true`, validated
+decisions and a repository/issue-bound input fingerprint. Preserve all
+maintainer exclusions. This allows the Cube to investigate an issue still
+in `needs-triage`; it does not assert that evidence has already been verified
+or grant `ready-for-agent`. Pin the behavior and acceptance before work, resolve
+technical gaps inside the Cube, and retain the normal regression/control
+requirements. If those gaps cannot be resolved, record a blocked run without
+asking reporter questions. Never infer requirements or evidence from the label.
+
+This recurring mode has its own persistent broker ledger and one active Cube
+job at a time. It checks linked/open PRs and existing ownership before pickup;
+it does not use the interactive local queue helper to bypass receipt checks.
+Its saved publication contract ends at a draft PR with related-issue references,
+or a concrete blocker. It never merges, uses automatic closing keywords,
+closes issues or publishes releases. Those limits override the optional
+merge/closure steps below for automatic assignments.
 
 An existing PR is work to reconcile, not a reason to send the issue back to
 triage. Inspect failed checks, missing acceptance, review and merge state.
@@ -107,9 +130,12 @@ See [references/queue.md](references/queue.md) for commands and receipt format.
 Save each transition, not merely a final chat summary: issue IDs, owner,
 worktree, paths, base/head, next action, verification receipt, PR and blocker.
 The local states (`working`, `verified`, `pr-open`, `blocked`, tracker `closed`)
-are execution bookkeeping, not new GitHub labels. A stale heartbeat requires
-owner/process inspection; it never authorizes automatic reassignment or deletion.
-Blocked work keeps its path ownership until explicitly reconciled.
+are execution bookkeeping. The explicitly enabled Cube broker may separately
+maintain only the manifest's `agent:working`, `agent:pr-open` and `agent:blocked`
+supplemental GitHub labels; these do not change canonical triage states or
+prove resolution. A stale heartbeat requires owner/process inspection; it
+never authorizes automatic reassignment or deletion. Blocked work keeps its
+path ownership until explicitly reconciled.
 
 For each completed package:
 

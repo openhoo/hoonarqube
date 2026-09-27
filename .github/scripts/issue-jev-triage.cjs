@@ -1,5 +1,8 @@
 'use strict';
 
+// Historical v1 policy reference. No repository workflow invokes this writer.
+// Current no-question classification and independent Cube pickup are maintained
+// in hooapps-gitops; see docs/automated-triage.md. Do not restore this transport.
 const policy = require('./jev-triage-policy.cjs');
 const ENDPOINT = 'https://ai.openhoo.ai/v1/decisions';
 

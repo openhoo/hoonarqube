@@ -10,6 +10,11 @@ Use after the user selects an issue to fix, or the authorized work-issues
 coordinator assigns that issue as a bounded package. The parent assignment
 inherits its existing action contract; it does not require the user to invoke
 this skill again. An issue label or notification alone is not authorization.
+An explicitly enabled HooFlow Cube picker may also supply a bounded assignment
+under the [automatic queue contract](../../../docs/automated-triage.md). It
+must validate the trusted current v2 receipt and persistent ownership before
+pickup; `triage:complete` alone is insufficient. That contract authorizes
+investigation, a tested fix and a draft PR, never merge or issue closure.
 
 This is a repository-specific adaptation of the feedback-loop and red/green
 principles in [implement](https://github.com/mattpocock/skills/blob/main/skills/engineering/implement/SKILL.md),
@@ -38,7 +43,9 @@ skills or tracker conventions.
   vulnerability-reporting route and record only the minimum safe status.
 - Use only these GitHub readiness states: `needs-triage`, `needs-info`,
   `ready-for-agent`, and `wontfix`. Local execution checkpoints are separate
-  bookkeeping, never new tracker labels. Missing evidence, unavailable
+  bookkeeping. The explicitly enabled Cube broker may maintain the manifest's
+  supplemental `agent:working`, `agent:pr-open` and `agent:blocked` labels;
+  they describe execution, not readiness. Missing evidence, unavailable
   dependencies, and unresolved authority are described in the issue text and
   normally remain `needs-info`; they are not silently made agent-ready.
 - Readiness is not authorization. A fix may begin only under the explicit user
@@ -104,6 +111,15 @@ record the decision; do not infer new requirements from a linked PR, a
 reference analyzer, or a casual comment. If the authority, provenance, API
 evidence, or acceptance is missing, stop honestly at `needs-info` with the
 exact missing fact instead of guessing.
+
+For a validated automatic Cube assignment, the saved action contract permits
+investigation; `triage:complete` does not claim this evidence already exists.
+Establish missing provenance, reproduction and technical context from the
+repository and bounded runs while preserving the stated behavior and
+acceptance. Do not ask the reporter questions. If required facts, authority or
+acceptance remain unavailable, record `agent:blocked` with the precise
+limitation and preserve the canonical state. This mode never invents evidence
+or silently upgrades the issue to `ready-for-agent`.
 
 Read the local triage brief and its evidence before implementation:
 
@@ -301,7 +317,9 @@ The issue is complete only when the observable acceptance criteria pass, the
 original repro is green, relevant controls remain correct, and repository
 checks are recorded. A linked PR may use `Closes #N` only when it contains the
 complete actual fix. A partial fix, investigation, refusal, or `needs-info`
-state must not auto-close the issue.
+state must not auto-close the issue. Automatic Cube assignments always use
+related-issue references without closing keywords, including for a verified
+fix. Their endpoint is a draft PR or a blocked run, not merge or closure.
 
 Reuse the authorized action contract from the user or coordinator.
 
@@ -351,3 +369,5 @@ Do not hand off an invented success. If evidence or authority is still missing,
 use `needs-info` and name the precise missing input. If the request conflicts
 with repository policy or cannot be implemented without weakening a contract,
 record the evidence and use `wontfix` only with an explicit, bounded reason.
+For an automatic Cube assignment, preserve the canonical state and record
+`agent:blocked` instead of requesting information or deciding `wontfix`.

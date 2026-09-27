@@ -1,5 +1,7 @@
 'use strict';
 
+// Historical v1 regression reference, not the deployed HooFlow classifier.
+// The current classification-only policy is documented in docs/automated-triage.md.
 const crypto = require('node:crypto');
 const intake = require('./issue-intake.cjs');
 const MODEL = 'typesafe/jev-1.13';
