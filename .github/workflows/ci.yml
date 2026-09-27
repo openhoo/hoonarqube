@@ -83,6 +83,9 @@ jobs:
           python3 -m unittest scripts/test_shell_scripts.py
           python3 -m unittest scripts/test_issue_queue.py
 
+      - name: Cube triage broker regressions
+        run: python3 -m unittest discover -s deploy/jev-cube -p 'test_*.py' -v
+
       - name: Issue intake regressions
         run: node --test .github/scripts/issue-intake.test.cjs .github/scripts/issue-jev-triage.test.cjs
 

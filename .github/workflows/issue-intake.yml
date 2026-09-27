@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read
   issues: write
+  id-token: write
 
 concurrency:
   group: issue-intake-${{ github.repository }}-${{ github.event.issue.number || inputs.issue_number }}
@@ -30,17 +31,16 @@ jobs:
     name: Validate issue intake
     if: >-
       github.repository == 'openhoo/hoonarqube' &&
+      github.ref == 'refs/heads/main' &&
       !github.event.issue.pull_request &&
       (github.event_name != 'issue_comment' || github.event.comment.user.type != 'Bot')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Checkout trusted intake or maintainer-dispatched verification revision
+      - name: Checkout trusted default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Only a maintainer's manual synthetic verification may select a ref.
-          # Every issue-reading/writing run always uses the default branch.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'verify' && github.ref || github.event.repository.default_branch }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -52,6 +52,15 @@ jobs:
           script: |
             const intake = require('./.github/scripts/issue-intake.cjs');
             await intake.run({ github, context, core });
+
+      - name: Connect this trusted workflow to the Cube triage service
+        if: vars.HOONARQUBE_JEV_TRIAGE_ENABLED == 'true' || inputs.mode == 'verify'
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.HOONARQUBE_CUBE_CLIENT_ID }}
+          audience: ${{ vars.HOONARQUBE_CUBE_AUDIENCE }}
+          tags: tag:hoonarqube-triage
+          version: 1.102.4
 
       - name: Triage report content with Jev
         if: inputs.mode != 'verify'

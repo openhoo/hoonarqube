@@ -1,14 +1,14 @@
 'use strict';
 
 const policy = require('./jev-triage-policy.cjs');
-const ENDPOINT = 'https://ai.openhoo.ai/v1/decisions';
+const ENDPOINT = 'http://100.114.173.91:9138/v1/decisions';
 
 async function evaluate(payload, { key, fetchImpl = fetch } = {}) {
   if (typeof key !== 'string' || !key.trim()) throw new Error('Jev intake key is not configured.');
   let response;
   try {
     response = await fetchImpl(ENDPOINT, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(45000),
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(110000),
       headers: { Authorization: `Bearer ${key.trim()}`, 'Content-Type': 'application/json',
         'User-Agent': 'Hoonarqube-Jev-Triage/1.0 (+https://github.com/openhoo/hoonarqube)' },
       body: JSON.stringify(payload),
