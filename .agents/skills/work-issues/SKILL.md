@@ -55,7 +55,7 @@ boundary. Do not invent labels or treat catalog presence as executable coverage.
 
 For the explicitly enabled [automatic Cube queue](../../../docs/automated-triage.md),
 eligibility instead requires `triage:complete` and a current trusted applied
-v2 receipt from `openhoo-hooflow[bot]`, with `queueEligible: true`, validated
+v3 receipt from `openhoo-hooflow[bot]`, with `queueEligible: true`, validated
 decisions and a repository/issue-bound input fingerprint. Preserve all
 maintainer exclusions. This allows the Cube to investigate an issue still
 in `needs-triage`; it does not assert that evidence has already been verified

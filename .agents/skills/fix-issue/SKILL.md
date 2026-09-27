@@ -12,7 +12,7 @@ inherits its existing action contract; it does not require the user to invoke
 this skill again. An issue label or notification alone is not authorization.
 An explicitly enabled HooFlow Cube picker may also supply a bounded assignment
 under the [automatic queue contract](../../../docs/automated-triage.md). It
-must validate the trusted current v2 receipt and persistent ownership before
+must validate the trusted current v3 receipt and persistent ownership before
 pickup; `triage:complete` alone is insufficient. That contract authorizes
 investigation, a tested fix and a draft PR, never merge or issue closure.
 

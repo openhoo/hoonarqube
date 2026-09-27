@@ -122,7 +122,7 @@ may maintain its own provisional scope/impact labels and `triage:complete`
 receipt under the repository's configured automation policy. It asks no
 reporter questions, makes no semantic `needs-info` transition, never grants
 `ready-for-agent`, and never dispatches a Cube. An independent, explicitly
-enabled HooFlow queue picker may claim a current trusted v2 classification
+enabled HooFlow queue picker may claim a current trusted v3 classification
 receipt for investigation and fixing in a Cube. Classification is not this
 evidence-bound readiness assessment: the Cube must establish missing evidence
 before implementing a verified fix. Maintainer labels and decisions take
