@@ -55,8 +55,11 @@ workflow does not change provider order, credentials or fallback behavior.
 Set repository Actions variable `HOONARQUBE_JEV_TRIAGE_ENABLED=true` to enable
 the semantic stage. Removing it or setting it to `false` disables Jev without
 disabling structural intake. The only repository permissions are
-`contents: read` and `issues: write`. The job checks out the trusted default
-branch, never a contributor's ref or code from an issue.
+`contents: read` and `issues: write`. All issue-reading/writing runs check out
+the trusted default branch, never a ref or code supplied by an issue. A
+maintainer's manual `verify` dispatch checks out the explicitly selected
+repository ref so a connection fix can be verified before merge. This mode
+only runs the committed synthetic fixtures and does not read or write issues.
 
 Use the Issue intake workflow's manual `verify` mode to run eight synthetic
 cases against the configured key without creating or editing an issue.
@@ -72,6 +75,11 @@ API failures and malformed replies fail the job without semantic label or
 comment writes. A suspected vulnerability in Hoonarqube itself, or uncertain
 security routing, skips semantic writes for private/manual review. An analyzer
 report concerning a security rule is not itself classified as a vulnerability.
+
+The HTTP client identifies itself with a fixed Hoonarqube application user
+agent. Failure messages distinguish an API response, HTML edge response or
+explicit edge challenge using response headers; response bodies and keys are
+never logged.
 
 The bot stores its ownership intent before mutations. Interrupted writes keep
 the note incomplete and can be retried. Current issue content, labels and

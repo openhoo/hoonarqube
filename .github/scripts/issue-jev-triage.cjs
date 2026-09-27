@@ -9,13 +9,18 @@ async function evaluate(payload, { key, fetchImpl = fetch } = {}) {
   try {
     response = await fetchImpl(ENDPOINT, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(45000),
-      headers: { Authorization: `Bearer ${key.trim()}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${key.trim()}`, 'Content-Type': 'application/json',
+        'User-Agent': 'Hoonarqube-Jev-Triage/1.0 (+https://github.com/openhoo/hoonarqube)' },
       body: JSON.stringify(payload),
     });
   } catch {
     throw new Error('Jev intake request failed or timed out; no retry or alternative model was attempted.');
   }
-  if (!response.ok) throw new Error(`Jev intake HTTP ${response.status}; response details suppressed.`);
+  if (!response.ok) {
+    const responseKind = response.headers.get('cf-mitigated') === 'challenge' ? 'edge challenge' :
+      response.headers.get('content-type')?.includes('text/html') ? 'HTML edge response' : 'API response';
+    throw new Error(`Jev intake HTTP ${response.status} (${responseKind}); response details suppressed.`);
+  }
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;

@@ -25,7 +25,7 @@ async function main() {
       results.push(result);
       console.log(JSON.stringify(result));
     } catch (error) {
-      const safeMessage = /^(Jev intake HTTP \d+; response details suppressed\.|Jev intake request failed or timed out; no retry or alternative model was attempted\.|Unexpected Jev model or answer set\.|Malformed Jev choice answer\.|Invalid Jev probabilities\.|Jev returned an unreadable or oversized response\.)$/.test(error.message) ? error.message : 'Model request or typed validation failed; details suppressed.';
+      const safeMessage = /^(Jev intake HTTP \d+ \((?:edge challenge|HTML edge response|API response)\); response details suppressed\.|Jev intake request failed or timed out; no retry or alternative model was attempted\.|Unexpected Jev model or answer set\.|Malformed Jev choice answer\.|Invalid Jev probabilities\.|Jev returned an unreadable or oversized response\.)$/.test(error.message) ? error.message : 'Model request or typed validation failed; details suppressed.';
       console.log(JSON.stringify({ fixture: fixture.id, passed: false, error: safeMessage }));
       process.exitCode = 1;
       return;

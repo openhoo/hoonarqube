@@ -251,12 +251,15 @@ test('HTTP client pins endpoint and model payload, forbids redirects, bounds out
   const payload = { model: policy.MODEL, state: 'synthetic fixture', questions: policy.QUESTIONS };
   const result = await evaluate(payload, { key: 'test-only', fetchImpl: async (url, options) => {
     assert.equal(url, ENDPOINT); assert.equal(options.redirect, 'error'); assert.ok(options.signal);
+    assert.match(options.headers['User-Agent'], /^Hoonarqube-Jev-Triage\/1\.0 /);
     assert.equal(options.headers.Authorization, 'Bearer test-only'); assert.deepEqual(JSON.parse(options.body), payload);
     return new Response(JSON.stringify(answer()), { status: 200 });
   } });
   assert.equal(result.model, answer().model);
   await assert.rejects(evaluate(payload, { key: 'test-only', fetchImpl: async () => new Response('secret test-only', { status: 429 }) }),
     (error) => error.message.includes('HTTP 429') && !error.message.includes('test-only'));
+  await assert.rejects(evaluate(payload, { key: 'test-only', fetchImpl: async () => new Response('secret test-only', { status: 403, headers: { 'cf-mitigated': 'challenge', 'content-type': 'text/html' } }) }),
+    (error) => error.message.includes('HTTP 403 (edge challenge)') && !error.message.includes('test-only'));
   await assert.rejects(evaluate(payload, { key: 'test-only', fetchImpl: async () => new Response('x'.repeat(140000)) }), /oversized/);
   await assert.rejects(evaluate(payload, { key: 'test-only', fetchImpl: async () => { throw new Error('test-only'); } }), /no retry/);
 });
