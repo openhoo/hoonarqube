@@ -1,9 +1,16 @@
 # Automated issue intake with Jev
 
-The first automation stage extends the existing Issue intake workflow. It
-evaluates the content of new, edited and reopened issues and follows up when
-people add, edit or delete discussion comments. It uses the existing HooLLM
-`typesafe/jev-1.13` route at `https://ai.openhoo.ai/v1/decisions`.
+The first automation stage runs in [HooFlow](https://hooapps-01.char-lenok.ts.net:8443/workflow/HoonarqubeJevTriage), reachable through Tailscale.
+Its five-minute schedule evaluates new, edited and reopened issues and follows
+up on discussion changes using HooLLM `typesafe/jev-1.13` at
+`https://ai.openhoo.ai/v1/decisions`. The existing GitHub Actions Issue intake
+continues to validate form structure and the reporter's category.
+
+Production source, workflow definition, deployment and operational limits are
+versioned in the [HooApps triage runbook](https://github.com/openhoo/hooapps-gitops/blob/main/services/hooflow-triage/README.md).
+The semantic writer is `openhoo-hooflow[bot]`; structural intake retains
+`github-actions[bot]`. No inbound GitHub webhook or GitHub-to-tailnet identity
+is required.
 
 Jev answers fixed Choice questions; it cannot execute commands or author free
 text. Each answer must match the expected schema, known Jev 1.13 model identity,
@@ -40,35 +47,40 @@ this intake stage. Multiple or protected states stop automatic processing.
 This stage does not verify linked artifacts, reproduce defects, establish
 runtime coverage, give an implementation brief, assign work, set
 `ready-for-agent` or `wontfix`, close issues, create fixes or review PRs.
-Those steps remain separate. Cube execution can be connected when actual
-reproductions and implementation are introduced; metadata intake runs in the
-repository's existing GitHub Actions workflow.
+Those steps remain separate. This stage performs metadata intake through
+HooFlow; no issue-supplied code runs on the server or in a Cube.
 
 ## Operation
 
-The operator stores a dedicated Jev-only HooLLM virtual key as the repository
-Actions secret `HOONARQUBE_JEV_KEY`. Provider keys and the HooLLM master key are
-never placed in GitHub. The virtual key should have a small budget and request
-limit. The existing HooLLM route determines the enabled Jev providers; this
-workflow does not change provider order, credentials or fallback behavior.
+Publish or unpublish `HoonarqubeJevTriage` in HooFlow to enable or stop the
+schedule. Its `Jetzt prüfen` manual trigger runs the same bounded pass.
+Execution results show issue numbers, fixed decisions, label changes and defer
+reasons. The dispatcher runs only on loopback within the private HooFlow pod.
 
-Set repository Actions variable `HOONARQUBE_JEV_TRIAGE_ENABLED=true` to enable
-the semantic stage. Removing it or setting it to `false` disables Jev without
-disabling structural intake. The only repository permissions are
-`contents: read` and `issues: write`. The job checks out the trusted default
-branch, never a contributor's ref or code from an issue.
+The installed GitHub App is restricted to `openhoo/hoonarqube`. Its per-run
+installation token is further restricted to `issues:write` and `metadata:read`.
+Jev uses the existing dedicated HooFlow key with its $1/30-day budget and request
+limits. Keys are held in KeePass, encrypted HooFlow storage and SealedSecrets;
+provider credentials are never passed in workflow data.
 
-Use the Issue intake workflow's manual `verify` mode to run eight synthetic
-cases against the configured key without creating or editing an issue.
-The `triage` mode requires an existing open issue number. Events and manual
-triage for the same issue share a concurrency group. A rerun with unchanged
-input is a no-op after verified completion.
+Keep `HOONARQUBE_JEV_TRIAGE_ENABLED` absent or false. The earlier semantic
+GitHub Actions transport and the unmerged Cube proposal are superseded by
+HooFlow. The `.github/scripts/issue-jev-triage*` files remain historical policy
+and regression references, not the deployed writer. Do not enable a second
+semantic writer or use its old manual dispatch to operate HooFlow.
+
+The poller inspects at most 20 reports and makes at most two new Jev calls per
+pass. It rotates larger queues. Successful unchanged input and unchanged
+security abstentions do not call the model again. Failed requests are visible
+as failed HooFlow executions and retry after a persisted ten-minute backoff.
+The complete current issue/discussion is reread on later passes; the schedule
+also catches edits and deleted comments without relying on webhook delivery.
 
 There is one bounded provider request per new input, no client-side retry,
 no request-supplied endpoint/model override and no redirect following. Input
 over 48,000 UTF-8 bytes is left for manual handling rather than truncated;
 provider output is capped at 128 KiB and the request timeout is 45 seconds.
-API failures and malformed replies fail the job without semantic label or
+API failures and malformed replies fail the HooFlow execution without semantic label or
 comment writes. A suspected vulnerability in Hoonarqube itself, or uncertain
 security routing, skips semantic writes for private/manual review. An analyzer
 report concerning a security rule is not itself classified as a vulnerability.
@@ -80,6 +92,10 @@ the run for inspection. GitHub's comment/label operations are not atomic, so
 maintainers should inspect a failed run before retrying after concurrent edits.
 
 ## Validation
+
+The deployed writer has additional polling, App-identity, dispatch and
+ownership-handoff tests in the HooApps runbook. The following command exercises
+the original repository policy and structural intake:
 
 ```sh
 node --test .github/scripts/issue-intake.test.cjs .github/scripts/issue-jev-triage.test.cjs
