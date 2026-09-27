@@ -117,6 +117,13 @@ rule name, a CodeQL definition, a static pattern, or a reporter's concern.
 
 ## Canonical taxonomy
 
+The separately enabled [Jev intake stage](../../../docs/automated-triage.md)
+may maintain its own provisional scope/impact labels, information questions
+and `needs-info` transitions under the repository's configured automation
+policy. It is not this evidence-bound readiness assessment and never grants
+`ready-for-agent`. Maintainer labels and decisions take precedence. This
+opt-in automation does not broaden permissions for an interactive agent.
+
 After triage, propose or apply exactly one category and exactly one state. Keep
 unrelated existing labels, including historical `duplicate`, `invalid`, and
 `question`; those labels are not silently deleted or used as substitutes for
