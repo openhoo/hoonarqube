@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0 (2026-09-27)
+
+### Features
+
+- **ci:** add conservative Jev issue triage (#838) (6032c22)
+
 ## 0.10.4 (2026-09-22)
 
 ### Bug Fixes
