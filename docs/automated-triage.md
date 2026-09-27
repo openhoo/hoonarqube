@@ -56,15 +56,17 @@ An issue enters the automatic queue only when all of these hold:
 - the issue is open, the canonical form is valid, and the category is singular;
 - the confident classification agrees with the form's classification;
 - security routing confidently says ordinary issue;
-- expected/actual behavior and acceptance criteria are present;
 - there is no protected or conflicting state, manual `needs-info`, or other
   maintainer decision that excludes automatic work; and
 - the final classification receipt has been applied and read back successfully.
 
 Unknown language, area or priority leaves that label unset and does not by
-itself prevent queue eligibility. Missing reproduction, provenance or other
-technical context is for the Cube to investigate within the stated behavior
-and acceptance; the classifier does not manufacture that evidence. A security
+itself prevent queue eligibility. Provenance, reproduction, behavior, evidence
+and acceptance are recorded as present, missing or unknown; none is an
+implementation-readiness gate in the classification queue. The Cube must
+independently establish bounded behavior, acceptance and evidence from the
+report and source, or stop with a factual blocked result. It must not invent
+requirements. A security
 case or uncertain security routing is withheld for private/manual handling.
 A security-rule analyzer report is not itself a vulnerability in Hoonarqube.
 
@@ -76,11 +78,11 @@ worker. It is **not** a canonical state, evidence certification, or a synonym
 for `ready-for-agent`. An eligible issue can therefore retain `needs-triage`
 while its Cube establishes the evidence needed for a safe fix.
 
-The label alone grants no work. The picker requires the completed v2 receipt
+The label alone grants no work. The picker requires the completed v3 receipt
 from the real `openhoo-hooflow[bot]` identity: `applied: true`,
 `queueEligible: true`, validated decisions, and a repository/issue-bound
 fingerprint matching the current issue body and discussion. Forged markers,
-old v1 notes, incomplete writes and stale receipts are not queue authority.
+old v1/v2 notes, incomplete writes and stale receipts are not queue authority.
 A new edit or discussion invalidates the old input until classification is
 refreshed. Maintainer exclusions are checked again at pickup.
 
