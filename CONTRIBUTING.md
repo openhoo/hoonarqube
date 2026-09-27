@@ -50,6 +50,11 @@ the durable brief and synchronize the category/state labels. Then choose
 `/skill:work-issues` for a bounded `ready-for-agent` backlog; work-issues
 composes fix-issue. Do not apply fixes automatically.
 
+The opt-in [Jev intake stage](docs/automated-triage.md) adds provisional
+language, area and impact labels and asks specific information questions in
+one bot-owned note. It preserves maintainer decisions and does not certify
+evidence or make an issue ready for implementation.
+
 The only canonical state labels are `needs-triage`, `needs-info`,
 `ready-for-agent`, and explicitly authorized `wontfix`; keep blockers and
 external constraints in issue text. Every campaign-created issue requires the
