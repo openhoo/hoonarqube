@@ -144,7 +144,12 @@ function plan(issue, decisions, prior, events) {
     else for (const name of owned) if (name.startsWith(`${group}:`)) desired.add(name);
   }
   const manualNeedsInfo = current.has('needs-info') && !owned.has('needs-info');
-  const stateOverride = suppressed('needs-info') || suppressed('needs-triage');
+  const triageEvent = history.get('needs-triage');
+  // The issue form applies needs-triage at creation under the reporter's actor.
+  // That initial queue label is not a later maintainer override.
+  const initialQueueLabel = triageEvent?.event === 'labeled' &&
+    Date.parse(triageEvent.created_at) === Date.parse(issue.created_at);
+  const stateOverride = suppressed('needs-info') || (suppressed('needs-triage') && !initialQueueLabel);
   if (missing.length && !manualNeedsInfo && !stateOverride) desired.add('needs-info');
   const remove = [...owned].filter((name) => !desired.has(name) && (name !== 'needs-info' || !stateOverride));
   const add = [...desired].filter((name) => !current.has(name));
@@ -155,10 +160,13 @@ function plan(issue, decisions, prior, events) {
 
 function recoverableState(issue, prior, events) {
   const states = STATES.filter((name) => labels(issue).includes(name));
-  const event = latestLabelEvents(events).get('needs-info');
+  const history = latestLabelEvents(events);
+  const event = history.get('needs-info');
+  const triageEvent = history.get('needs-triage');
   return states.length === 2 && states.includes('needs-info') && states.includes('needs-triage') &&
     prior?.metadata.applied === false && prior.metadata.owned.includes('needs-info') &&
-    event?.event === 'labeled' && isBot(event.actor);
+    event?.event === 'labeled' && isBot(event.actor) &&
+    (!triageEvent || isBot(triageEvent.actor) || Date.parse(triageEvent.created_at) < Date.parse(event.created_at));
 }
 
 function buildNote({ fingerprint, decisions, changes, sourceSha, applied }) {

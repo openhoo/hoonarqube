@@ -93,6 +93,17 @@ test('preserves maintainer labels and never assumes ownership of manual needs-in
   assert.match(h.state.comments[0].body, /belongs to another triage decision/);
 });
 
+test('distinguishes the form creation queue label from a later human queue override', async () => {
+  for (const initial of [true, false]) {
+    const h = harness(); h.event('needs-triage', 'labeled', HUMAN);
+    h.state.issue.created_at = initial ? h.state.events[0].created_at : '2020-01-01T00:00:00Z';
+    h.options.evaluator = async () => answer({ reproduction: 'missing' });
+    await run(h.options);
+    assert.equal(h.state.issue.labels.includes('needs-info'), initial);
+    assert.equal(h.state.issue.labels.includes('needs-triage'), !initial);
+  }
+});
+
 test('a human re-add of a bot label transfers ownership; an explicit removal is not undone', async () => {
   const h = harness();
   await run(h.options);

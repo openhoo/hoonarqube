@@ -62,7 +62,8 @@ jobs:
           retries: 0
           script: |
             const triage = require('./.github/scripts/issue-jev-triage.cjs');
-            const result = await triage.run({ github, context, core });
+            const sourceSha = require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            const result = await triage.run({ github, context: { ...context, repo: context.repo, sha: sourceSha }, core });
             if (result.skipped) core.info(`Jev intake skipped: ${result.reason}`);
 
       - name: Verify the production Jev connection with synthetic reports
