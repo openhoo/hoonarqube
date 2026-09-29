@@ -83,8 +83,8 @@ jobs:
           python3 -m unittest scripts/test_shell_scripts.py
           python3 -m unittest scripts/test_issue_queue.py
 
-      - name: Issue intake regressions
-        run: node --test .github/scripts/issue-intake.test.cjs .github/scripts/issue-jev-triage.test.cjs
+      - name: Validate issue forms
+        run: node --test .github/scripts/issue-intake.test.cjs
 
       - name: Source-only publication policy
         run: |

@@ -50,26 +50,6 @@
     "description": "Evidence, scope, and acceptance criteria are ready for agent implementation"
   },
   {
-    "name": "triage:complete",
-    "color": "0e8a16",
-    "description": "Semantic classification complete; Cube pickup needs a current trusted receipt; evidence unverified"
-  },
-  {
-    "name": "agent:working",
-    "color": "fbca04",
-    "description": "Execution status: a Cube run owns this issue; not a canonical triage state"
-  },
-  {
-    "name": "agent:pr-open",
-    "color": "5319e7",
-    "description": "Execution status: a Cube run has a draft PR awaiting review; not resolved or merged"
-  },
-  {
-    "name": "agent:blocked",
-    "color": "b60205",
-    "description": "Execution status: a Cube run stopped with a recorded blocker; not a request for reporter input"
-  },
-  {
     "name": "false-positive",
     "color": "cf222e",
     "description": "Confirmed finding reported where the code is valid"
