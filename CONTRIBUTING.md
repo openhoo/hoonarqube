@@ -3,6 +3,7 @@
 Open an issue before changing rule identity, analyzer semantics, catalog
 evidence, fixes, or oracle contracts. Small fixes may go directly to a pull
 request.
+
 ## Issue intake and agent workflow
 
 Use the repository's [canonical issue form](.github/ISSUE_TEMPLATE/issue.yml)
@@ -64,7 +65,6 @@ without new evidence; and record the campaign snapshot cutoff so later issues
 can be caught up deliberately.
 Report suspected vulnerabilities through the [private security policy](SECURITY.md),
 never as a public issue.
-
 
 ## Development
 

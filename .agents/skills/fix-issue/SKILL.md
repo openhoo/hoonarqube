@@ -10,6 +10,7 @@ Use after the user selects an issue to fix, or the authorized work-issues
 coordinator assigns that issue as a bounded package. The parent assignment
 inherits its existing action contract; it does not require the user to invoke
 this skill again. An issue label or notification alone is not authorization.
+
 This is a repository-specific adaptation of the feedback-loop and red/green
 principles in [implement](https://github.com/mattpocock/skills/blob/main/skills/engineering/implement/SKILL.md),
 [diagnosing-bugs](https://github.com/mattpocock/skills/blob/main/skills/engineering/diagnosing-bugs/SKILL.md),
@@ -37,8 +38,8 @@ skills or tracker conventions.
   vulnerability-reporting route and record only the minimum safe status.
 - Use only these GitHub readiness states: `needs-triage`, `needs-info`,
   `ready-for-agent`, and `wontfix`. Local execution checkpoints are separate
-  bookkeeping. Missing evidence, unavailable
-  dependencies, and unresolved authority are described in the issue text and
+  bookkeeping. Missing evidence, unavailable dependencies, and unresolved
+  authority are described in the issue text and
   normally remain `needs-info`; they are not silently made agent-ready.
 - Readiness is not authorization. A fix may begin only under the explicit user
   request or authorized coordinator assignment, with scope and acceptance pinned.
