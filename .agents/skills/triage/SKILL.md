@@ -88,9 +88,9 @@ The `Classification` section's entire trimmed value must be exactly one plain
 choice: `Bug`, `Coverage request`, `Enhancement`, or `Documentation`. Do not
 put rationale, markdown emphasis, metadata, state, or labels in that value;
 put those details in the other sections or the triage brief. `gh`/CLI, API,
-and agent creation cannot be blocked by this form contract: default-branch
-intake should flag missing or malformed sections while preserving the
-maintainer's state, and form completeness does not certify semantic truth.
+and agent creation cannot be blocked by this form contract. Validate missing
+or malformed sections while preserving the maintainer's state. Form
+completeness does not certify semantic truth.
 Before any `gh`/CLI/API create or update, save the proposed body and run this
 validator; run it again on the body read back from the live issue. A nonzero
 exit or error stops the operation; do not substitute heading-count checks:
@@ -116,18 +116,6 @@ private vulnerability reporting instead. Do not infer a vulnerability from a
 rule name, a CodeQL definition, a static pattern, or a reporter's concern.
 
 ## Canonical taxonomy
-
-The separately enabled [Jev classification stage](../../../docs/automated-triage.md)
-may maintain its own provisional scope/impact labels and `triage:complete`
-receipt under the repository's configured automation policy. It asks no
-reporter questions, makes no semantic `needs-info` transition, never grants
-`ready-for-agent`, and never dispatches a Cube. An independent, explicitly
-enabled HooFlow queue picker may claim a current trusted v3 classification
-receipt for investigation and fixing in a Cube. Classification is not this
-evidence-bound readiness assessment: the Cube must establish missing evidence
-before implementing a verified fix. Maintainer labels and decisions take
-precedence. This automation does not broaden permissions for an interactive
-agent or remove its default assessment and authorization rules.
 
 After triage, propose or apply exactly one category and exactly one state. Keep
 unrelated existing labels, including historical `duplicate`, `invalid`, and
@@ -177,14 +165,6 @@ explicit authorization. Do not create substitute states for judgment,
 external access, or other blockers; explain those blockers in the issue text.
 An open triaged issue has exactly one of the four states above, while
 supplemental labels remain independent.
-
-The manifest's `triage:complete`, `agent:working`, `agent:pr-open` and
-`agent:blocked` labels are supplemental automation signals, never additional
-canonical states. `triage:complete` certifies completed semantic
-classification for the recorded input, not verified evidence or readiness.
-The independent Cube picker must validate the trusted current receipt; a
-label or copied marker alone cannot authorize work. The three `agent:*`
-labels describe execution status without changing the canonical state.
 
 ## Bounded triage procedure
 
@@ -288,12 +268,6 @@ finding/range, compiler or runtime version, or a minimal clean control. Do not
 write "please provide more information" without saying which fact is missing
 and why it changes the decision.
 
-This question-asking rule applies to interactive evidence triage, not the
-explicitly enabled automatic Jev/Cube mode. In that mode Jev only classifies;
-the Cube investigates technical gaps itself and records `agent:blocked` with
-the concrete limitation if it cannot establish the required evidence. Neither
-automation asks the reporter questions or invents the missing facts.
-
 ## Durable handoff brief
 
 When recommending `ready-for-agent`, write a brief that another repository
@@ -332,10 +306,8 @@ risks/blockers rather than hiding them behind a ready state.
 
 The next interactive workflow is [the fix-issue skill](skill://fix-issue) for
 one selected ready ticket, followed by [the work-issues skill](skill://work-issues)
-for a bounded ready backlog. In the explicitly enabled automatic mode, the
-independent Cube picker supplies a bounded assignment under its saved action
-contract. Triage itself never implements or dispatches the change; a
-recommendation or `triage:complete` label alone does not authorize a fix.
+for a bounded ready backlog. Triage itself never implements or dispatches the
+change. A recommendation or issue label alone does not authorize a fix.
 
 ## Compact output checklist
 

@@ -26,8 +26,8 @@ Triage maps `Bug` to `bug`; `Coverage request` to `enhancement` plus
 `coverage`; `Enhancement` to `enhancement`; and `Documentation` to
 `enhancement` plus `documentation`. Preserve verified legacy evidence rather
 than rewriting it wholesale. `gh`/CLI and API issue creation cannot be blocked
-by this intake contract; default-branch tooling flags incomplete forms while
-preserving maintainer state and does not certify semantic truth. Validate the
+by this intake contract. Maintainers validate forms and preserve existing
+state; form completeness does not certify semantic truth. Validate the
 canonical body before publication and after live readback; headings alone are
 not sufficient.
 
@@ -50,26 +50,11 @@ the durable brief and synchronize the category/state labels. Then choose
 `/skill:work-issues` for a bounded `ready-for-agent` backlog; work-issues
 composes fix-issue. Interactive triage does not authorize automatic fixes.
 
-The explicitly enabled [automatic workflow](docs/automated-triage.md) has two
-independent HooFlow schedules. Jev only classifies: it maintains supported
-language, area and impact labels and a trusted `triage:complete` receipt,
-without asking questions or dispatching work. The Cube queue separately picks
-eligible current receipts, investigates missing technical context, fixes and
-tests in isolation, then publishes a draft PR or records a blocker. It never
-merges or closes issues automatically. Classification does not certify evidence
-or grant `ready-for-agent`; maintainer decisions remain authoritative.
-
 The only canonical state labels are `needs-triage`, `needs-info`,
 `ready-for-agent`, and explicitly authorized `wontfix`; keep blockers and
 external constraints in issue text. Every campaign-created issue requires the
 immediate readiness assessment, including when the publishing agent is also
 the triage author.
-
-`triage:complete` and the execution labels `agent:working`, `agent:pr-open`
-and `agent:blocked` are supplemental signals, not additional canonical states.
-A label alone cannot authorize pickup: the automatic mode requires a current
-trusted receipt and the broker's ownership checks. Its Cube investigates gaps
-itself and records a concrete blocker if needed, without reporter questions.
 
 Keep intake bounded by the canonical form and triage skill: one observable
 request, all seven required sections, immutable provenance, and a bounded
