@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 (2026-10-07)
+
+### Features
+
+- **ci:** add conservative Jev issue triage (#838) (6032c22)
+
+### Bug Fixes
+
+- harden rewrite safety, report ingestion and dashboard state (#862) (9b47ad0)
+- improve analyzer parity against five real SonarQube projects (#863) (605f7c8)
+
+### Other Changes
+
+- **triage:** document HooFlow as the deployed Jev writer (#842) (99f278d)
+- Separate Jev classification from independent Cube fixes (#843) (2437552)
+- separate classification from Cube actionability checks (#845) (f6ad02a)
+- remove retired automatic issue intake (#861) (74cef7e)
+
 ## 0.10.4 (2026-09-22)
 
 ### Bug Fixes
