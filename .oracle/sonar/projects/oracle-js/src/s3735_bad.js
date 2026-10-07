@@ -1,1 +1,1 @@
-let u = void 0;
+let u = void 1;
