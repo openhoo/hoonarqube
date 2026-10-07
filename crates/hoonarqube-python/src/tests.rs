@@ -411,6 +411,7 @@ fn s5828_flags_invalid_open_modes_only() {
 #[test]
 fn s4790_flags_weak_hashes_unless_not_used_for_security() {
     let flagged = scan(concat!(
+        "import hashlib\n",
         "hashlib.md5(b\"x\")\n",
         "hashlib.new(\"sha1\")\n",
         "hashlib.sha1(b\"y\", usedforsecurity=False)\n"
@@ -2108,13 +2109,14 @@ fn s5850_flags_ungrouped_anchored_alternations() {
 #[test]
 fn s2092_requires_secure_cookie_flag() {
     let flagged = concat!(
+        "from flask import Response\nresp = Response()\n",
         "resp.set_cookie(\"k\", \"v\")\n",
         "resp.set_cookie(\"k\", \"v\", secure=False)\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S2092").len(), 2);
     assert!(
         findings(
-            &scan("resp.set_cookie(\"k\", \"v\", secure=True)\n"),
+            &scan("from flask import Response\nresp = Response()\nresp.set_cookie(\"k\", \"v\", secure=True)\n"),
             "python:S2092"
         )
         .is_empty()
@@ -2123,13 +2125,12 @@ fn s2092_requires_secure_cookie_flag() {
 
 #[test]
 fn s3330_requires_httponly_cookie_flag() {
-    // Sonar treats any present httponly kwarg as compliant — the value
-    // need not be a literal True.
-    let flagged = "resp.set_cookie(\"k\", \"v\")\n";
+    // Unknown flags stay conservative, but explicit False disables HttpOnly.
+    let flagged = "from flask import Response\nresp = Response()\nresp.set_cookie(\"k\", \"v\")\n";
     assert_eq!(findings(&scan(flagged), "python:S3330").len(), 1);
     assert!(
         findings(
-            &scan("resp.set_cookie(\"k\", \"v\", httponly=False)\n"),
+            &scan("from flask import Response\nresp = Response()\nresp.set_cookie(\"k\", \"v\", httponly=settings.HTTPONLY)\n"),
             "python:S3330"
         )
         .is_empty()
@@ -5209,4 +5210,27 @@ fn s9083_require_parentheses_parameter_inverts_style() {
         &options,
     );
     assert!(findings(&clean, "python:S9083").is_empty());
+}
+
+#[test]
+fn production_test_module_keeps_main_rules_like_werkzeug() {
+    // Werkzeug 3.1.3 src/werkzeug/test.py:68 is a production multipart
+    // encoder, not a pytest module. Live Sonar reports its random() call.
+    let source = "from random import random\nfrom time import time\ndef encode_multipart():\n    boundary = f'WerkzeugFormPart_{time()}{random()}'\n    return boundary\n";
+    for path in [
+        "src/werkzeug/test.py",
+        "src/testimony.py",
+        "src/testing_helpers.py",
+    ] {
+        let report = scan_at(PathBuf::from(path), source);
+        assert_eq!(findings(&report, "python:S2245").len(), 1, "{path}");
+    }
+    for path in [
+        "tests/test_encoder.py",
+        "src/test_encoder.py",
+        "src/encoder_test.py",
+    ] {
+        let report = scan_at(PathBuf::from(path), source);
+        assert!(findings(&report, "python:S2245").is_empty(), "{path}");
+    }
 }

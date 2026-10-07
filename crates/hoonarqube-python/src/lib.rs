@@ -64,7 +64,7 @@ use crate::rules::trailing_whitespace::check_trailing_whitespace;
 /// Sonar rules from the frozen catalog that declare scope `MAIN`.
 /// `SonarQube` never reports MAIN-scope rules on test sources, so these
 /// findings are dropped for test-scoped files (conventional test directories,
-/// `test*`/`conftest*`/`*_test.py` names, per the reference's test
+/// `test_*`/`conftest.py`/`*_test.py` names, per the reference's test
 /// detection). The remaining rules declare scope `ALL` (or `TEST`) and still
 /// apply; documentation trees such as `docs/` stay MAIN scope because the
 /// reference keeps reporting MAIN rules there.

@@ -12,6 +12,15 @@ use std::collections::HashMap;
 /// name. `Unknown` is intentionally distinct from an unresolved builtin name:
 /// any local binding wins over Python's builtin fallback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CookieApi {
+    Django,
+    Flask,
+    Werkzeug,
+    WerkzeugSansio,
+    Starlette,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KnownBinding {
     Unknown,
     BuiltinRepr,
@@ -38,6 +47,12 @@ pub(crate) enum KnownBinding {
     AnyioModule,
     TimeModule,
     TimeSleep,
+    HashlibModule,
+    HashlibWeakHash,
+    HashlibNew,
+    CookieResponseModule(CookieApi),
+    CookieResponseClass(CookieApi),
+    CookieResponse(CookieApi),
     DjangoModule,
     DjangoDbModule,
     DjangoDbConnection,
@@ -484,6 +499,14 @@ impl KnownBindings {
             let lexical = self.activation_range(scope, statement);
             self.bind_targets(scope, target, KnownBinding::Unknown, lexical);
         }
+        // Sonar retains hashlib identity on imported symbols, but does not
+        // assign that FQN to aliases created by ordinary assignments.
+        let value = match value {
+            KnownBinding::HashlibModule
+            | KnownBinding::HashlibWeakHash
+            | KnownBinding::HashlibNew => KnownBinding::Unknown,
+            other => other,
+        };
         let end = TextRange::new(statement.end(), statement.end());
         self.bind_targets_with_static(scope, target, value, static_text, end);
     }
@@ -524,6 +547,8 @@ impl KnownBindings {
         match expr {
             Expr::Name(name) => self.resolve_name(scope, name.id.as_str(), expr.range().start()),
             Expr::Call(call) => match self.resolve_expr_in_scope(scope, &call.func) {
+                KnownBinding::CookieResponseClass(api) => KnownBinding::CookieResponse(api),
+                KnownBinding::DjangoHttpResponse => KnownBinding::CookieResponse(CookieApi::Django),
                 KnownBinding::DjangoConnectionCursor => KnownBinding::DjangoCursor,
                 KnownBinding::FlaskClass => KnownBinding::FlaskInstance,
                 KnownBinding::OAuth2SessionClass => KnownBinding::OAuth2SessionInstance,
@@ -764,6 +789,16 @@ fn module_binding(module: &str) -> KnownBinding {
         "trio" => KnownBinding::TrioModule,
         "anyio" => KnownBinding::AnyioModule,
         "time" => KnownBinding::TimeModule,
+        "hashlib" => KnownBinding::HashlibModule,
+        "werkzeug" | "werkzeug.wrappers" | "werkzeug.wrappers.response" => {
+            KnownBinding::CookieResponseModule(CookieApi::Werkzeug)
+        }
+        "werkzeug.sansio" | "werkzeug.sansio.response" => {
+            KnownBinding::CookieResponseModule(CookieApi::WerkzeugSansio)
+        }
+        "fastapi" | "fastapi.responses" | "starlette" | "starlette.responses" => {
+            KnownBinding::CookieResponseModule(CookieApi::Starlette)
+        }
         "django" => KnownBinding::DjangoModule,
         "django.db" => KnownBinding::DjangoDbModule,
         "django.http" => KnownBinding::DjangoHttpModule,
@@ -809,6 +844,28 @@ fn from_import_binding(module: Option<&str>, name: &str) -> KnownBinding {
         (Some("asyncio"), "TaskGroup") => KnownBinding::AsyncioTaskGroup,
         (Some("asyncio"), "sleep") => KnownBinding::AsyncioSleep,
         (Some("time"), "sleep") => KnownBinding::TimeSleep,
+        (Some("hashlib"), "md5" | "sha1" | "sha224") => KnownBinding::HashlibWeakHash,
+        (Some("hashlib"), "new") => KnownBinding::HashlibNew,
+        (
+            Some("flask" | "flask.wrappers" | "flask.helpers"),
+            "Response" | "make_response" | "jsonify",
+        ) => KnownBinding::CookieResponseClass(CookieApi::Flask),
+        (
+            Some("werkzeug" | "werkzeug.wrappers" | "werkzeug.wrappers.response"),
+            "Response" | "BaseResponse",
+        ) => KnownBinding::CookieResponseClass(CookieApi::Werkzeug),
+        (Some("werkzeug.sansio.response"), "Response") => {
+            KnownBinding::CookieResponseClass(CookieApi::WerkzeugSansio)
+        }
+        (
+            Some("fastapi" | "fastapi.responses" | "starlette.responses"),
+            "Response" | "HTMLResponse" | "JSONResponse" | "PlainTextResponse"
+            | "StreamingResponse" | "FileResponse" | "ORJSONResponse" | "UJSONResponse",
+        ) => KnownBinding::CookieResponseClass(CookieApi::Starlette),
+        (
+            Some("django.http" | "django.http.response"),
+            "HttpResponseBase" | "JsonResponse" | "StreamingHttpResponse" | "FileResponse",
+        ) => KnownBinding::CookieResponseClass(CookieApi::Django),
         (Some("django"), "db") => KnownBinding::DjangoDbModule,
         (Some("django"), "http") => KnownBinding::DjangoHttpModule,
         (Some("django.http"), "HttpResponse") => KnownBinding::DjangoHttpResponse,
@@ -849,6 +906,26 @@ fn attribute_binding(base: KnownBinding, attribute: &str) -> KnownBinding {
         (KnownBinding::AsyncioModule, "TaskGroup") => KnownBinding::AsyncioTaskGroup,
         (KnownBinding::AsyncioModule, "sleep") => KnownBinding::AsyncioSleep,
         (KnownBinding::TimeModule, "sleep") => KnownBinding::TimeSleep,
+        (KnownBinding::HashlibModule, "md5" | "sha1" | "sha224") => KnownBinding::HashlibWeakHash,
+        (KnownBinding::HashlibModule, "new") => KnownBinding::HashlibNew,
+        (KnownBinding::FlaskModule, "Response" | "make_response" | "jsonify") => {
+            KnownBinding::CookieResponseClass(CookieApi::Flask)
+        }
+        (KnownBinding::CookieResponseModule(CookieApi::Werkzeug), "sansio") => {
+            KnownBinding::CookieResponseModule(CookieApi::WerkzeugSansio)
+        }
+        (KnownBinding::CookieResponseModule(api), "wrappers" | "response" | "responses") => {
+            KnownBinding::CookieResponseModule(api)
+        }
+        (
+            KnownBinding::CookieResponseModule(api),
+            "Response" | "BaseResponse" | "HTMLResponse" | "JSONResponse" | "PlainTextResponse"
+            | "StreamingResponse" | "FileResponse" | "ORJSONResponse" | "UJSONResponse",
+        ) => KnownBinding::CookieResponseClass(api),
+        (
+            KnownBinding::DjangoHttpModule,
+            "HttpResponseBase" | "JsonResponse" | "StreamingHttpResponse" | "FileResponse",
+        ) => KnownBinding::CookieResponseClass(CookieApi::Django),
         (KnownBinding::DjangoModule, "db") => KnownBinding::DjangoDbModule,
         (KnownBinding::DjangoModule, "http") => KnownBinding::DjangoHttpModule,
         (KnownBinding::DjangoHttpModule, "HttpResponse") => KnownBinding::DjangoHttpResponse,

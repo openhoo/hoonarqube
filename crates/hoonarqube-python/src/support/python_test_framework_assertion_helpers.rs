@@ -47,8 +47,8 @@ pub(crate) fn is_test_scope_file(path: &Path) -> bool {
         return in_test_directory;
     };
     in_test_directory
-        || name.starts_with("test")
-        || name.starts_with("conftest")
+        || name.starts_with("test_")
+        || name == "conftest.py"
         || name.ends_with("_test.py")
 }
 
@@ -79,7 +79,7 @@ impl<'a> TestScope<'a> {
     /// name, `test*` function, and no direct class or a `Test*` class.
     pub(crate) fn is_pytest_style_function(&self, pytest_file: bool) -> bool {
         pytest_file
-            && self.function.is_some_and(|name| name.starts_with("test"))
+            && self.function.is_some_and(|name| name.starts_with("test_"))
             && self
                 .function_class
                 .is_none_or(|name| name.starts_with("Test"))

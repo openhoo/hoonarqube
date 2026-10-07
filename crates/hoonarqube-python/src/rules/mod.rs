@@ -858,7 +858,7 @@ fn tier_c_core_security_checks(
         index,
         source,
         "python:S2092",
-        "Add the \"secure\" flag to this cookie.",
+        "Make sure creating this cookie without the \"secure\" flag is safe.",
         "secure",
         file_ctx,
     ));
@@ -866,7 +866,7 @@ fn tier_c_core_security_checks(
         index,
         source,
         "python:S3330",
-        "Add the \"HttpOnly\" flag to this cookie.",
+        "Make sure creating this cookie without the \"HttpOnly\" flag is safe.",
         "httponly",
         file_ctx,
     ));
