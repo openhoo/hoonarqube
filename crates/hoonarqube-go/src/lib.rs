@@ -4130,17 +4130,14 @@ fn cognitive_complexity(
                 previous = actual;
             }
         }
-        // SonarGo adds +1 for each jump to a label (labeled break/continue and
-        // goto); unlabeled jumps are free.
-        if matches!(
-            current.kind(),
-            "break_statement" | "continue_statement" | "goto_statement"
-        ) && first_named(current).is_some()
+        // SonarGo charges labeled break/continue. Its Go frontend does not
+        // model goto as a cognitive jump; unlabeled jumps are free too.
+        if matches!(current.kind(), "break_statement" | "continue_statement")
+            && first_named(current).is_some()
         {
             let keyword = match current.kind() {
                 "break_statement" => "break",
-                "continue_statement" => "continue",
-                _ => "goto",
+                _ => "continue",
             };
             if let Some(token) = direct_keyword(current, keyword) {
                 add_cognitive_contribution(token, 0, source, &mut total, &mut contributions);
@@ -6532,6 +6529,19 @@ mod tests {
                 (4, 10, 12, "+3 (incl 2 for nesting)"),
                 (5, 28, 32, "+1"),
             ]
+        );
+    }
+    #[test]
+    fn s3776_goto_is_not_a_labeled_break_or_continue() {
+        let source = "package p\nfunc f(a bool) { if a { goto done }; done: println(1) }\n";
+        assert_eq!(guard_score(source), 1);
+        assert_eq!(
+            guard_score("package p\nfunc f(a bool) { outer: for a { if a { break outer } } }\n"),
+            4
+        );
+        assert_eq!(
+            guard_score("package p\nfunc f(a bool) { outer: for a { if a { continue outer } } }\n"),
+            4
         );
     }
 }
