@@ -52,7 +52,9 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
     "js/yield-outside-generator",
 ];
 mod rules;
+mod source_metrics;
 mod support;
+pub use source_metrics::comment_line_count;
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
@@ -295,14 +297,16 @@ pub fn analyze_github_quality_report(
             move || {
                 let metrics = {
                     let allocator = Allocator::default();
-                    let parsed =
-                        Parser::new(&allocator, source, source_type_for(language, &path)).parse();
+                    let parsed = Parser::new(&allocator, source, source_type_for(language, &path))
+                        .with_config(TokensParserConfig)
+                        .parse();
                     let index = LineIndex::new(source);
                     file_metrics(
                         parsed.program.body.as_slice(),
                         source,
                         &index,
                         &scan_comments(source),
+                        source_metrics::first_code_token_start(&parsed.tokens),
                     )
                 };
                 hoonarqube_ir::FileReport {
@@ -641,7 +645,13 @@ fn analyze_with_rules_and_facts(
     }
     rules::quickfix::attach(&ctx, &mut issues);
     sort_issues(&mut issues);
-    let metrics = file_metrics(body, source, &index, &ctx.comments);
+    let metrics = file_metrics(
+        body,
+        source,
+        &index,
+        &ctx.comments,
+        source_metrics::first_code_token_start(ctx.tokens),
+    );
 
     hoonarqube_ir::FileReport {
         path,

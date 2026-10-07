@@ -744,14 +744,14 @@ fn comment_lines_are_counted_separately_from_code() {
     let report = ts("// leading note\nconst X: number = 1;\n/* block\nstill block */\n");
     assert_eq!(report.metrics.lines, 4);
     assert_eq!(report.metrics.code_lines, 1);
-    assert_eq!(report.metrics.comment_lines, 3);
+    assert_eq!(report.metrics.comment_lines, 2);
 }
 
 #[test]
-fn comment_on_code_line_counts_as_code_only() {
+fn comment_on_code_line_counts_as_both_code_and_comment() {
     let report = js("let a = 1; // trailing\n");
     assert_eq!(report.metrics.code_lines, 1);
-    assert_eq!(report.metrics.comment_lines, 0);
+    assert_eq!(report.metrics.comment_lines, 1);
 }
 
 #[test]
@@ -780,7 +780,7 @@ fn scanner_finds_comments_around_regex_and_division() {
         "let d = a / b;\n",
     );
     let report = js(source);
-    assert_eq!(report.metrics.comment_lines, 2);
+    assert_eq!(report.metrics.comment_lines, 1);
     assert_eq!(report.metrics.code_lines, 4);
 }
 
