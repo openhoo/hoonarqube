@@ -100,6 +100,7 @@ test('disconnect keeps pending analysis history hidden', async () => {
   ui.requests[2].respond({analyses: []});
   await settle();
   assert.equal(ui.get('history-panel').hidden, true);
+  assert.equal(ui.get('scope-badge').children.map((child) => child.textContent).join(''), 'No project selected');
 });
 
 test('a current connection failure remains visible', async () => {
@@ -168,4 +169,17 @@ test('a current audit refresh error remains visible', async () => {
   ui.requests[0].respond({error: {message: 'current failure'}}, 500);
   await settle();
   assert.equal(ui.get('review-error').hidden, false);
+});
+
+test('reconnecting clears the previous project badge immediately', async () => {
+  const ui = dashboard();
+  ui.connect('token');
+  ui.requests[0].respond({projects: [{project: 'a'}]});
+  await settle();
+  ui.get('project').value = 'a'; ui.fire('project');
+  ui.requests[1].respond({branches: [{name: 'main'}]});
+  await settle();
+  assert.equal(ui.get('scope-badge').children.map((child) => child.textContent).join(''), 'a');
+  ui.connect('new-token');
+  assert.equal(ui.get('scope-badge').children.map((child) => child.textContent).join(''), 'No project selected');
 });

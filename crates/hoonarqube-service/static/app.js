@@ -820,6 +820,7 @@
     elements.token.value = "";
     resetSelect(elements.project, "Connect to load projects");
     resetSelect(elements.branch, "Select a project first");
+    setBadge(elements.scopeBadge, "No project selected");
     hideNotice(elements.connectionError);
     hideNotice(elements.scopeError);
     hideNotice(elements.globalError);
