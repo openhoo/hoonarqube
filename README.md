@@ -155,9 +155,12 @@ Active-profile differences, hotspots, source scope, and duplication are recorded
 separately. The integrated CLI replay matches all
 20 aggregate file/line/code/comment metrics and all 717 corresponding per-file
 metric cells across 239 identical source files. Primary identity matches rise
-from 525 to 535; remaining finding differences are retained. This evidence
-does not replace
-the historical full-corpus qualifications or establish complete parity.
+from 525 to 574; remaining finding differences are retained. Python S1172
+qualifies 39 exact primary identities/messages and Zod S101 removes 345 false
+positives while retaining all 13 reference findings. Four project duplication
+line/block totals and rounded density displays match; Zod CPD remains different.
+This evidence does not replace the historical full-corpus qualifications or
+establish complete parity.
 
 ### Qualification and publication boundaries
 

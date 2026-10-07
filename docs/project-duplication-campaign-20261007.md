@@ -17,8 +17,8 @@ Python/JavaScript/TypeScript/Go minimum-token or minimum-line settings. This
 confirms the captured configuration rather than certifying lexical equivalence.
 
 The accepted integrated executable SHA-256 is
-`bf961ee874b9022370fda084a78868249e8b8393db3822e0f1b0a03a941802a8`, recorded
-as `second-pass` at source head `22df162`, including fix `e2124e9`.
+`ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56`, recorded
+as `acceptance` at source head `96a282c`, including fix `e2124e9`.
 Native and reference duplicated line/block counts are compared exactly.
 Native density uses full precision; Sonar's one-decimal display is compared
 with a rounded native percentage. A rounding match is not a bitwise JSON match.

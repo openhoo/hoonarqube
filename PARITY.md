@@ -46,7 +46,10 @@ differences. The reference version is separate from the frozen catalog snapshot.
 The integrated CLI replay matches all
 20 aggregate file/line/code/comment metrics and all 717 corresponding per-file
 metric cells across 239 identical source files. Primary identity matches rise
-from 525 to 535; remaining finding differences are retained.
+from 525 to 574; remaining finding differences are retained. Python S1172
+qualifies 39 exact primary identities/messages and Zod S101 removes 345 false
+positives while retaining all 13 reference findings. Four project duplication
+line/block totals and rounded density displays match; Zod CPD remains different.
 The campaign's identity comparison covers primary rule/path/range multisets;
 messages, secondary flows, fixes, hotspots, and duplication require their own
 evidence. Historical qualifications below retain their original versions and

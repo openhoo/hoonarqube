@@ -8,6 +8,8 @@ from this newer behavioral reference.
 ## Reference environment and source scope
 
 The reference server reported Community Build `26.9.0.129388` and `UP`.
+The campaign container used server image
+`sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1`.
 Installed analyzer versions were Go `1.43.0.7704`, JavaScript/TypeScript
 `13.8 (build 44569)`, and Python `5.31 (build 36502)`. The scanner image is
 `sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1`, pinned to digest
@@ -82,12 +84,13 @@ from that executable-bound CLI result.
 
 ## Integrated acceptance
 
-The `final-integrated` replay binds executable SHA-256
-`0e138d97c6e20b8d24b4fe962b553602656d48066d05bdfc87d60047c00fd00e`.
+The final `acceptance` replay binds source commit
+`96a282c05c40fae1bc73b7a8cc8b351f7653bef7` and executable SHA-256
+`ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56`.
 All five native scans completed with the same 239 indexed source files as the
 reference and no native-only or reference-only source paths. All 20 aggregate
 comparisons (`files`, `lines`, `ncloc`, `comment_lines` per project) match.
-An additional live file-measure check matches all 717 physical/code/comment
+The replay also checks live file measures and matches all 717 physical/code/comment
 cells across those 239 files. The portable
 [qualification receipt](../tools/oracle/real-project-qualification-20261007.json)
 retains the source pins, executable digests, capture digests, metric comparisons,
@@ -101,9 +104,9 @@ per-rule primary-finding counts, and profile classifications.
 | Chi | 35 | 4435 | 2841 | 888 |
 | Zod | 125 | 37850 | 30336 | 4057 |
 
-Finding identity matches increase from 525 to 535. Ten fewer reference-only
-identities remain (437 to 427), while native-only identities decrease from
-6665 to 6652. These counts retain the broad frozen native profile. The table
+Finding identity matches increase from 525 to 574. Forty-nine fewer
+reference-only identities remain (437 to 388), while native-only identities
+decrease from 6665 to 6273. These counts retain the broad frozen native profile. The table
 below separates findings on rules absent from the captured reference profiles
 from residual differences on active rules. Absence from a profile explains why
 that reference did not execute the rule; it does not prove the native detector
@@ -111,18 +114,18 @@ correct or incorrect.
 
 | Project | Matched baseline → final | Native-only final | Of which reference-profile inactive | Of which reference-profile active | Reference-only final |
 |---|---:|---:|---:|---:|---:|
-| Requests | 66 → 66 | 148 | 118 | 30 | 11 |
-| Werkzeug aligned | 164 → 172 | 412 | 251 | 161 | 69 |
+| Requests | 66 → 68 | 146 | 118 | 28 | 9 |
+| Werkzeug aligned | 164 → 209 | 380 | 251 | 129 | 32 |
 | Commander | 27 → 29 | 281 | 263 | 18 | 7 |
 | Chi | 14 → 14 | 21 | 21 | 0 | 0 |
-| Zod | 254 → 254 | 5790 | 4966 | 824 | 340 |
+| Zod | 254 → 254 | 5445 | 4966 | 479 | 340 |
 
 Chi therefore matches the captured active-profile primary issue multiset,
 while its broad native profile emits 21 additional findings on inactive rules.
-Werkzeug gains matches while also gaining native-only findings; the complete
-non-pass inventory remains in the raw captures; per-rule counts and capture
-digests are retained in the portable receipt. Requests and Zod retain substantial active-rule
-differences. None of these totals establishes full behavioral parity.
+Werkzeug gains 45 matches while retaining 380 native-only and 32 reference-only
+identities. The complete non-pass inventory remains in the raw captures;
+per-rule counts and capture digests are retained in the portable receipt.
+Requests and Zod retain active-rule differences. None of these totals establishes full behavioral parity.
 
 ## Repairs qualified during the campaign
 
@@ -144,7 +147,8 @@ differences. None of these totals establishes full behavioral parity.
 For Chi, the 35-file source scope measures `lines=4435`, `ncloc=2841`, and
 `comment_lines=888`, matching the captured reference. All ten S3776 primary
 findings and messages match after the fixes, including `addChild` score 16 and
-`walk` score 19. This does not certify cognitive secondary flows or CPD.
+`walk` score 19. This does not certify cognitive secondary flows. Project CPD
+is qualified separately below.
 
 ### Python
 
@@ -165,6 +169,22 @@ metrics in Requests (19 files: 6413/3564/1869) and Werkzeug's Python subset
 (52 files: 21418/11882/6635). These helper qualifications are distinct from the
 integrated CLI replay above and from duplication metrics.
 
+Python S1172 now reports the complete unused-parameter declaration, including
+its annotation/default expression, at the reference primary range. Callback
+exemptions resolve to the actual function or method; unrelated same-name
+bindings do not suppress findings. The final replay matches all 39 primary
+identities and messages: two in Requests and 37 in Werkzeug.
+
+The parser validation path preserves the qualified legacy syntax while rejecting
+genuinely malformed input. Accepted controls include Python 2 `print`/`exec`,
+redirected print, backtick expressions, and `<>`. Negative controls include
+non-default parameters after default parameters, positional arguments after
+keyword arguments, invalid f-string conversions, truncated legacy expressions,
+and malformed legacy statements mixed with modern code. The regressions
+`standalone_source_metrics_accept_supported_python2_syntax` and
+`standalone_source_metrics_reject_invalid_source_even_with_legacy_statements`
+keep this bounded compatibility separate from the five modern project scans.
+
 ### JavaScript and TypeScript
 
 - S4158 follows scoped empty-collection bindings, invalidates facts on mutations,
@@ -177,11 +197,30 @@ integrated CLI replay above and from duplication metrics.
   inline comments, ignores empty decoration/NOSONAR, and handles comment-only
   sources. Shebangs do not count as code or start the body-comment region.
 - Multiline literal spans include interior blank code rows in project metrics.
+- S101 uses the qualified class-naming defaults and declaration scope. Zod
+  retains all 13 exact reference findings while removing 345 false positives;
+  anonymous/default-export and non-class declaration controls remain distinct.
 
 The comment helper matches all seven Commander files (`comment_lines=1485`)
 and all 125 Zod files (`comment_lines=4057`). The independently checked token
 measurement gives reference ncloc 2345 and 30336 respectively. The integrated
 CLI replay above subsequently confirms those aggregate and file metric values.
+
+### Duplication threshold repair and qualification
+
+The [duplication investigation](project-duplication-campaign-20261007.md) and
+[portable CPD receipt](../tools/oracle/project-duplication-qualification-20261007.json)
+document the repaired physical-span threshold. Zero-byte structure markers
+previously let reported eight- or nine-line Python clones pass a ten-line
+minimum. Eligibility now uses the same source-bearing endpoints as reporting.
+Werkzeug duplication drops from 59 lines/six blocks to the reference 32 lines/
+two blocks, with the two reference source ranges retained.
+
+Requests, Commander, Chi, and Werkzeug now match duplicated line/block counts
+and the rounded one-decimal density display for these scopes. Zod remains
+7177 native duplicated lines/424 blocks versus 5084 reference lines/1130 blocks.
+Captured import/token exclusions and overlapping maximal-group differences are
+retained as concrete unresolved boundaries. No full CPD equivalence is claimed.
 
 ## Remaining limits
 
@@ -191,8 +230,8 @@ repository's historical full-corpus non-pass evidence remains valid for its
 recorded source and reference versions.
 
 Unresolved differences include compiler-type-dependent Commander S6551 and
-S7755 cases, broader Python/JS/TS detector differences, and project duplication
-metrics/grouping. Go error-type inference remains conservative for unknown
+S7755 cases, broader Python/JS/TS detector differences, and Zod duplication
+token/grouping semantics. Go error-type inference remains conservative for unknown
 imported signatures and cross-file callbacks. S4158 retains observed upstream
 name-based constructor recognition and its limited indexed-assignment treatment;
 those limits are documented rather than hidden behind exact-parity language.

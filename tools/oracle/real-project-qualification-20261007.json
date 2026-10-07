@@ -137,9 +137,9 @@
         "claim": "observed_identity_differences",
         "native_total": 214,
         "reference_total": 77,
-        "matched": 66,
-        "native_only": 148,
-        "reference_only": 11
+        "matched": 68,
+        "native_only": 146,
+        "reference_only": 9
       },
       "final_scope_counts": {
         "matched": 19,
@@ -169,14 +169,14 @@
         }
       },
       "profile_classified_residuals": {
-        "native_only_on_captured_active_rules": 30,
+        "native_only_on_captured_active_rules": 28,
         "native_only_on_rules_absent_from_captured_profiles": 118,
-        "reference_only_on_captured_active_rules": 11
+        "reference_only_on_captured_active_rules": 9
       },
       "identity_change": {
-        "matched": 0,
-        "native_only": -12,
-        "reference_only": 0
+        "matched": 2,
+        "native_only": -14,
+        "reference_only": -2
       },
       "baseline_to_final_metrics": {
         "comment_lines": {
@@ -201,10 +201,10 @@
         }
       },
       "accepted_capture_digests": {
-        "final-integrated.json": "07514658be6892981f16fa6bb5ee28e9af43f66f70b251e692ddd7504272ef2e",
-        "final-integrated-comparison.json": "678ef46e44d3258c3a3797dbcb2ddac52caf7b8c63978305e21417d79bb7de9f",
-        "final-integrated-execution.json": "531ee09f17f0ead9036fa3293abec0190f440104fc661f87e6629a41efced011",
-        "final-integrated-source-files.json": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538"
+        "acceptance.json": "6a64f2c886b7101ad40a4b5669029890906de37e6294f39f0dd6d404e73a3465",
+        "acceptance-comparison.json": "987c65ae6959e7579bf1d6785e0e909482f3a9c966e5a5569a9c7a2892331390",
+        "acceptance-execution.json": "85f3ad568cc2295ca85c2084c813027d45d3367b00572f2c8cb8909f9cbe81fd",
+        "acceptance-source-files.json": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538"
       },
       "per_rule_identity_counts": [
         {
@@ -266,9 +266,9 @@
         {
           "rule": "python:S1172",
           "captured_profile_active": true,
-          "matched": 0,
-          "native_only": 2,
-          "reference_only": 2
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
         },
         {
           "rule": "python:S1309",
@@ -496,6 +496,13 @@
         "active-rust-page-1.json": "1c6dacd825cd7f52d03521e678ffe8034a3aec217c3fd386cf4d14f01585e35b",
         "active-php-page-1.json": "8a28fa4c232f81f79a8ae51125365ed9ee90129fd89912fa4d45fb9d6ee33c13",
         "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 19,
+        "matched_cells": 57,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
       }
     },
     {
@@ -542,11 +549,11 @@
       },
       "final_identity_comparison": {
         "claim": "observed_identity_differences",
-        "native_total": 584,
+        "native_total": 589,
         "reference_total": 241,
-        "matched": 172,
-        "native_only": 412,
-        "reference_only": 69
+        "matched": 209,
+        "native_only": 380,
+        "reference_only": 32
       },
       "final_scope_counts": {
         "matched": 53,
@@ -576,14 +583,14 @@
         }
       },
       "profile_classified_residuals": {
-        "native_only_on_captured_active_rules": 161,
+        "native_only_on_captured_active_rules": 129,
         "native_only_on_rules_absent_from_captured_profiles": 251,
-        "reference_only_on_captured_active_rules": 69
+        "reference_only_on_captured_active_rules": 32
       },
       "identity_change": {
-        "matched": 8,
-        "native_only": 6,
-        "reference_only": -8
+        "matched": 45,
+        "native_only": -26,
+        "reference_only": -45
       },
       "baseline_to_final_metrics": {
         "comment_lines": {
@@ -608,10 +615,10 @@
         }
       },
       "accepted_capture_digests": {
-        "final-integrated.json": "a8e2f77124173c89e088dfb683bfa9d48422e12a32f97f75867084a0d6c0d277",
-        "final-integrated-comparison.json": "d573a2a32bfb9aa6f4190154145b2aa7069cadb90f2217c048dea2ff132c30a5",
-        "final-integrated-execution.json": "38f298f2a4dc04432cd57cbd37eb32085773118bbd0d86e393470a51186ce96d",
-        "final-integrated-source-files.json": "2cf8115eb7a20b8624070a54a4f8cd358b80d14a84ca311401176e38f124121d"
+        "acceptance.json": "38547bdbaf548cc8e72e9acd5a98938b388ae043bae14e2460fffeeb0c01bdd5",
+        "acceptance-comparison.json": "4476139447acd4ec2f1a71ae67d0ba2d343aa22ac57f250db0372b85ef2c56b4",
+        "acceptance-execution.json": "132f9931fde60df373ca20f27a956f857d797d60bdad5885003b3f8a0e5d0909",
+        "acceptance-source-files.json": "2cf8115eb7a20b8624070a54a4f8cd358b80d14a84ca311401176e38f124121d"
       },
       "per_rule_identity_counts": [
         {
@@ -848,9 +855,9 @@
         {
           "rule": "python:S1172",
           "captured_profile_active": true,
-          "matched": 0,
-          "native_only": 32,
-          "reference_only": 37
+          "matched": 37,
+          "native_only": 0,
+          "reference_only": 0
         },
         {
           "rule": "python:S1186",
@@ -1218,6 +1225,13 @@
         "active-rust-page-1.json": "e30b687a27944763256739f422d57c4177e436bcf9b5de4c248736ac1f443966",
         "active-php-page-1.json": "de01406c641095633f639c44847428343b58011e158f1671d209067720987897",
         "active-scala-page-1.json": "e0eaa858c4cf5e2994c27cca6a2655c18876d43d2fc452317b02d316a576f206"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 53,
+        "matched_cells": 159,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
       }
     },
     {
@@ -1329,10 +1343,10 @@
         }
       },
       "accepted_capture_digests": {
-        "final-integrated.json": "22e4c2d20282e95e1b3fb9974b9d23c22f2de21c63302f32b37c9bc23e05ae32",
-        "final-integrated-comparison.json": "617524dc48e8732192fd2fdb16728c2f899f46b2b69ab0c5ef63705c8fd360c4",
-        "final-integrated-execution.json": "858a7c8e5faa85d16c09cef8c5cf043061d8dd12fdaead43f6e0a208c3d66905",
-        "final-integrated-source-files.json": "ccaa96ac92b5ebe9407388880c7f96d3a475ea883de7e8227f1c779962deeed0"
+        "acceptance.json": "22e4c2d20282e95e1b3fb9974b9d23c22f2de21c63302f32b37c9bc23e05ae32",
+        "acceptance-comparison.json": "a5a4fc369531a43587cbad1b8ae8bfcc27626c679e097d704a69bbf4f0ec9c8a",
+        "acceptance-execution.json": "078559bae7709c451fa7740e463a2dcf46a781587d0e51e0f46963573ac9efd3",
+        "acceptance-source-files.json": "ccaa96ac92b5ebe9407388880c7f96d3a475ea883de7e8227f1c779962deeed0"
       },
       "per_rule_identity_counts": [
         {
@@ -1694,6 +1708,13 @@
         "active-rust-page-1.json": "1c6dacd825cd7f52d03521e678ffe8034a3aec217c3fd386cf4d14f01585e35b",
         "active-php-page-1.json": "85a9406e54eb60f3de0f84967a36dade96969625acc1e3ac2900a69cb93c2d4f",
         "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 7,
+        "matched_cells": 21,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
       }
     },
     {
@@ -1807,10 +1828,10 @@
         }
       },
       "accepted_capture_digests": {
-        "final-integrated.json": "ec694590d92ed143f5e87494065f71e6768818cd900973a02ded16cb89ecc996",
-        "final-integrated-comparison.json": "3958e5fc8d482036fd5c641aaa8b89fb5d749eb4d78493e217d098e000e4ff85",
-        "final-integrated-execution.json": "2953fb84a6cc93d9073dc9d44182332b9f30fa00bfdd9e8255e8e3177eae63d4",
-        "final-integrated-source-files.json": "20a4fd734e54c14a1aba7344c32112874e7ec3ec1ba3a516f43d8c5d72d3399c"
+        "acceptance.json": "ec694590d92ed143f5e87494065f71e6768818cd900973a02ded16cb89ecc996",
+        "acceptance-comparison.json": "f9f7a10292e325c07ea879b6a26e8318d18f56db398a3e594829c802077f9e7d",
+        "acceptance-execution.json": "0512ad350c4385c8790df22b55335c8c0974a060158325b984a80bfee0dbe257",
+        "acceptance-source-files.json": "20a4fd734e54c14a1aba7344c32112874e7ec3ec1ba3a516f43d8c5d72d3399c"
       },
       "per_rule_identity_counts": [
         {
@@ -1899,6 +1920,13 @@
         "active-rust-page-1.json": "3529b9a076ee1a86715d8fc8ae0434f33083666a715c635ccd828ee94a63b54f",
         "active-php-page-1.json": "2f23afe8a5c17ea0f3c3306265be74c2640a475684d072ee76994d08fe8a381e",
         "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 35,
+        "matched_cells": 105,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
       }
     },
     {
@@ -1946,10 +1974,10 @@
       },
       "final_identity_comparison": {
         "claim": "observed_identity_differences",
-        "native_total": 6044,
+        "native_total": 5699,
         "reference_total": 594,
         "matched": 254,
-        "native_only": 5790,
+        "native_only": 5445,
         "reference_only": 340
       },
       "final_scope_counts": {
@@ -1980,13 +2008,13 @@
         }
       },
       "profile_classified_residuals": {
-        "native_only_on_captured_active_rules": 824,
+        "native_only_on_captured_active_rules": 479,
         "native_only_on_rules_absent_from_captured_profiles": 4966,
         "reference_only_on_captured_active_rules": 340
       },
       "identity_change": {
         "matched": 0,
-        "native_only": 0,
+        "native_only": -345,
         "reference_only": 0
       },
       "baseline_to_final_metrics": {
@@ -2012,10 +2040,10 @@
         }
       },
       "accepted_capture_digests": {
-        "final-integrated.json": "100a7bb1c12ec715b2aa113cbf6c73d4e012956c9b50b63a1d5003174c69f400",
-        "final-integrated-comparison.json": "e714886d590300b3250e5a06907a510247de6fbe57f1e8260006f94bd577b3fc",
-        "final-integrated-execution.json": "edce8d9ae835d159fcf8a81f33e6ea0efd07d8a23561589915cadf73eccd0b65",
-        "final-integrated-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672"
+        "acceptance.json": "ebe50cbc2105c928db685c9d2202531057f7439349668b7f35014df1187a2692",
+        "acceptance-comparison.json": "6bd50a9fe3375a6112c6a9a84215a2025a5b60da51cd67f1c21bbdb1e9f2a09a",
+        "acceptance-execution.json": "30e54a4b33bd75a27c21157901a6de8acbe1ef66a5915569e1d37164d363c9de",
+        "acceptance-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672"
       },
       "per_rule_identity_counts": [
         {
@@ -2029,7 +2057,7 @@
           "rule": "typescript:S101",
           "captured_profile_active": true,
           "matched": 13,
-          "native_only": 345,
+          "native_only": 0,
           "reference_only": 0
         },
         {
@@ -2937,6 +2965,13 @@
         "active-rust-page-1.json": "8410ec8fea90d805006720b6ef1c4d45b70df0c1be510de07d06e948a6127cdb",
         "active-php-page-1.json": "f97d5b361d6a96e417a9d4b08654a3caaede79494730c78d6346615e2d9c895a",
         "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 125,
+        "matched_cells": 375,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
       }
     }
   ],
@@ -2948,8 +2983,8 @@
     "Raw captures referenced by digests are retained outside Git; this summary contains no source text or credentials.",
     "Detailed primary identity inventories remain in external raw captures; per-rule counts and their SHA-256 digests are retained here."
   ],
-  "accepted_native_binary_sha256": "0e138d97c6e20b8d24b4fe962b553602656d48066d05bdfc87d60047c00fd00e",
-  "acceptance_label": "final-integrated",
+  "accepted_native_binary_sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
+  "acceptance_label": "acceptance",
   "file_metric_acceptance": {
     "requests": {
       "files": 19,
@@ -2972,15 +3007,75 @@
       "differences": []
     }
   },
-  "file_metric_acceptance_sha256": "1bc31ce868c0fadd61c4f8062992723db8eb607690448cec47d393c7d919b09f",
   "totals": {
     "matched_scope_files": 239,
     "matched_aggregate_metrics": 20,
     "matched_file_metrics": 717,
     "baseline_aggregate_metric_differences": 13,
     "baseline_matched_identities": 525,
-    "final_matched_identities": 535,
-    "final_native_only": 6652,
-    "final_reference_only": 427
-  }
+    "final_matched_identities": 574,
+    "final_native_only": 6273,
+    "final_reference_only": 388
+  },
+  "previous_acceptance": {
+    "label": "final-integrated",
+    "binary_sha256": "0e138d97c6e20b8d24b4fe962b553602656d48066d05bdfc87d60047c00fd00e",
+    "identity_totals": {
+      "final_matched_identities": 535,
+      "final_native_only": 6652,
+      "final_reference_only": 427
+    }
+  },
+  "accepted_native_source_head": "96a282c05c40fae1bc73b7a8cc8b351f7653bef7",
+  "target_rule_qualifications": {
+    "python:S1172": {
+      "requests": {
+        "matched_primary_identities_and_messages": 2
+      },
+      "werkzeug-python": {
+        "matched_primary_identities_and_messages": 37
+      },
+      "reference_only": 0,
+      "native_only": 0,
+      "verification": "Independently compared acceptance report and captured reference multisets including full primary range and message.",
+      "regression_tests": [
+        "s1172_reports_complete_parameter_declaration",
+        "s1172_dynamic_lookups_do_not_hide_unrelated_parameters",
+        "s1172_callback_usage_resolves_to_the_defined_function",
+        "s1172_preserves_methods_used_as_callbacks_or_reassigned",
+        "s1172_branch_definitions_do_not_share_a_callback_exemption",
+        "s1172_same_named_member_of_another_class_does_not_hide_parameter"
+      ]
+    },
+    "typescript:S101": {
+      "zod_reference": 13,
+      "zod_native": 13,
+      "matched": 13,
+      "reference_only": 0,
+      "native_only": 0,
+      "removed_false_positives": 345,
+      "worker_receipt_sha256": "065b144b8c88090a5c1104ba11733eea7e2f91252ea3e745edbe51e98ff8eaf7"
+    }
+  },
+  "legacy_parser_controls": {
+    "positive_regression": "standalone_source_metrics_accept_supported_python2_syntax",
+    "negative_regression": "standalone_source_metrics_reject_invalid_source_even_with_legacy_statements",
+    "accepted_shapes": [
+      "print statement",
+      "exec statement including globals/locals form",
+      "redirected print",
+      "backtick expression",
+      "<> comparison"
+    ],
+    "rejected_shapes": [
+      "non-default parameter after default",
+      "positional argument after keyword argument",
+      "invalid f-string conversion",
+      "malformed or truncated legacy statements",
+      "invalid modern statement alongside legacy statement"
+    ],
+    "qualification": "bounded local parser controls, separate from real-project Sonar captures",
+    "test_log_sha256": "e1ae8622d7e857f526af977c37e6bfa4f0de122fbaf41f645cc6f5b30da3906f"
+  },
+  "reference_server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
 }

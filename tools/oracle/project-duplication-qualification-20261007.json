@@ -3,10 +3,10 @@
   "claim": "bounded_project_duplication_observations_not_full_cpd_parity",
   "date": "2026-10-07",
   "reference_version": "26.9.0.129388",
-  "native_source_head": "22df1621f28893eca6bbb5e57cb1f45029382029",
+  "native_source_head": "96a282c05c40fae1bc73b7a8cc8b351f7653bef7",
   "integrated_fix_commit": "e2124e96d5622f98263bacce5bdc4d7b09f16fd5",
   "worker_fix_commit": "6f6eb373b61e9ab52ab9d73930ab3b012b2194a1",
-  "accepted_native_binary_sha256": "bf961ee874b9022370fda084a78868249e8b8393db3822e0f1b0a03a941802a8",
+  "accepted_native_binary_sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
   "native_options": {
     "min_tokens": 100,
     "min_lines": 10,
@@ -44,9 +44,9 @@
       "line_and_block_counts_match": true,
       "density_matches_reference_display": true,
       "capture_digests": {
-        "second-pass.json": "07514658be6892981f16fa6bb5ee28e9af43f66f70b251e692ddd7504272ef2e",
-        "second-pass-comparison.json": "d4f9fb433bdc380f4e1fff0aa6a83c766ca615c3f239459200d28f97fe628c44",
-        "second-pass-source-files.json": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538",
+        "acceptance.json": "6a64f2c886b7101ad40a4b5669029890906de37e6294f39f0dd6d404e73a3465",
+        "acceptance-comparison.json": "987c65ae6959e7579bf1d6785e0e909482f3a9c966e5a5569a9c7a2892331390",
+        "acceptance-source-files.json": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538",
         "measures.json": "3cc95b455c8865404f5a558cbf0373ad5eb8d0f6472418802a8c72a1e7f67a2d"
       }
     },
@@ -79,9 +79,9 @@
       "line_and_block_counts_match": true,
       "density_matches_reference_display": true,
       "capture_digests": {
-        "second-pass.json": "7ab8773fb06a9adbb0cee5fd9d0bf601edfc92488ffcdace4f071224677b9bc5",
-        "second-pass-comparison.json": "61fdce4ad38a2c25eba943a574d3417f77545f150dff732f00b711a266d8e8bd",
-        "second-pass-source-files.json": "2cf8115eb7a20b8624070a54a4f8cd358b80d14a84ca311401176e38f124121d",
+        "acceptance.json": "38547bdbaf548cc8e72e9acd5a98938b388ae043bae14e2460fffeeb0c01bdd5",
+        "acceptance-comparison.json": "4476139447acd4ec2f1a71ae67d0ba2d343aa22ac57f250db0372b85ef2c56b4",
+        "acceptance-source-files.json": "2cf8115eb7a20b8624070a54a4f8cd358b80d14a84ca311401176e38f124121d",
         "measures.json": "5ffb43cc434150c051c5fe2fbf22829bc23f8e7df813f16214015488c851006d"
       }
     },
@@ -113,9 +113,9 @@
       "line_and_block_counts_match": true,
       "density_matches_reference_display": true,
       "capture_digests": {
-        "second-pass.json": "22e4c2d20282e95e1b3fb9974b9d23c22f2de21c63302f32b37c9bc23e05ae32",
-        "second-pass-comparison.json": "a5a4fc369531a43587cbad1b8ae8bfcc27626c679e097d704a69bbf4f0ec9c8a",
-        "second-pass-source-files.json": "ccaa96ac92b5ebe9407388880c7f96d3a475ea883de7e8227f1c779962deeed0",
+        "acceptance.json": "22e4c2d20282e95e1b3fb9974b9d23c22f2de21c63302f32b37c9bc23e05ae32",
+        "acceptance-comparison.json": "a5a4fc369531a43587cbad1b8ae8bfcc27626c679e097d704a69bbf4f0ec9c8a",
+        "acceptance-source-files.json": "ccaa96ac92b5ebe9407388880c7f96d3a475ea883de7e8227f1c779962deeed0",
         "measures.json": "c0cc5ceff5b76e01245166e964a3c7fa823783d99d4bbf405f39d9f3f15c936c"
       }
     },
@@ -149,9 +149,9 @@
       "line_and_block_counts_match": true,
       "density_matches_reference_display": true,
       "capture_digests": {
-        "second-pass.json": "ec694590d92ed143f5e87494065f71e6768818cd900973a02ded16cb89ecc996",
-        "second-pass-comparison.json": "f9f7a10292e325c07ea879b6a26e8318d18f56db398a3e594829c802077f9e7d",
-        "second-pass-source-files.json": "20a4fd734e54c14a1aba7344c32112874e7ec3ec1ba3a516f43d8c5d72d3399c",
+        "acceptance.json": "ec694590d92ed143f5e87494065f71e6768818cd900973a02ded16cb89ecc996",
+        "acceptance-comparison.json": "f9f7a10292e325c07ea879b6a26e8318d18f56db398a3e594829c802077f9e7d",
+        "acceptance-source-files.json": "20a4fd734e54c14a1aba7344c32112874e7ec3ec1ba3a516f43d8c5d72d3399c",
         "measures.json": "27285ede229c14a8a5af03a5c6ff0b0fc69a002ba644a545505e2d42c9a2d9ee"
       }
     },
@@ -185,9 +185,9 @@
       "line_and_block_counts_match": false,
       "density_matches_reference_display": false,
       "capture_digests": {
-        "second-pass.json": "100a7bb1c12ec715b2aa113cbf6c73d4e012956c9b50b63a1d5003174c69f400",
-        "second-pass-comparison.json": "1d8022e2e6a15329ca0a96baac1b40ebb30d5ed7b526935df02b2b3ef3754296",
-        "second-pass-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672",
+        "acceptance.json": "ebe50cbc2105c928db685c9d2202531057f7439349668b7f35014df1187a2692",
+        "acceptance-comparison.json": "6bd50a9fe3375a6112c6a9a84215a2025a5b60da51cd67f1c21bbdb1e9f2a09a",
+        "acceptance-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672",
         "measures.json": "06f4421d409ce0eed95d21f214544611b960065d570967a1f4063e49cd4e766f"
       }
     }
@@ -235,5 +235,12 @@
     "zod-cpd-grouping-audit.json": "69ee60206ec898123d639c9ec11f5b7971848329e300635f8f15e541db096c03",
     "zod-cpd-selected-blocks-reference.json": "8333a817194856392005dee451ec3626fc9be98e4a655a272f1fbeb80a96f409",
     "duplication-effective-settings.json": "3f9eebbae797652d0303ab8b467bda5ea219cf426338d9e3081790140db57444"
-  }
+  },
+  "previous_acceptance": {
+    "label": "second-pass",
+    "native_source_head": "22df1621f28893eca6bbb5e57cb1f45029382029",
+    "binary_sha256": "bf961ee874b9022370fda084a78868249e8b8393db3822e0f1b0a03a941802a8"
+  },
+  "acceptance_label": "acceptance",
+  "reference_server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
 }
