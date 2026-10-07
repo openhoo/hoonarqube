@@ -4109,11 +4109,11 @@ fn cognitive_complexity(
                 add_cognitive_contribution(token, nesting, source, &mut total, &mut contributions);
             }
         }
-        if current.kind() == "if_statement" && current.child_by_field_name("alternative").is_some()
+        if current.kind() == "if_statement"
+            && current.child_by_field_name("alternative").is_some()
+            && let Some(token) = direct_keyword(current, "else")
         {
-            if let Some(token) = direct_keyword(current, "else") {
-                add_cognitive_contribution(token, 0, source, &mut total, &mut contributions);
-            }
+            add_cognitive_contribution(token, 0, source, &mut total, &mut contributions);
         }
         if current.kind() == "binary_expression"
             && is_logical_operator(operator_text(current, source))
