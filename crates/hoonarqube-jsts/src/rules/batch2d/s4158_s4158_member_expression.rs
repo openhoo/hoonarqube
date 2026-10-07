@@ -9,8 +9,8 @@ use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{AssignmentOperator, BindingPattern, Expression};
 use oxc_semantic::Semantic;
-use oxc_span::GetSpan;
-use oxc_syntax::node::NodeId;
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::{node::NodeId, symbol::SymbolId};
 
 const READING_METHODS: &[&str] = &[
     "copyWithin",
@@ -56,7 +56,6 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     let Some(semantic) = ctx.semantic else {
         return sink.issues;
     };
-    let scoping = semantic.scoping();
     for node in semantic.nodes().iter() {
         let AstKind::VariableDeclarator(declaration) = node.kind() else {
             continue;
@@ -67,7 +66,6 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         let Some(symbol) = binding.symbol_id.get() else {
             continue;
         };
-        let mut has_empty_assignment = declaration.init.as_ref().is_some_and(is_empty_collection);
         if declaration
             .init
             .as_ref()
@@ -75,37 +73,47 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
         {
             continue;
         }
-        let mut reads = Vec::new();
-        let mut unknown = false;
-        for reference in scoping.get_resolved_references(symbol) {
-            if reference.is_write() {
-                if reference.is_read() || !assigns_empty_collection(semantic, reference.node_id()) {
-                    unknown = true;
-                    break;
-                }
-                has_empty_assignment = true;
-            } else if is_reading_usage(semantic, reference.node_id()) {
-                reads.push(semantic.reference_span(reference));
-            } else {
-                unknown = true;
-                break;
-            }
-        }
-        if has_empty_assignment && !unknown {
-            for span in reads {
-                sink.emit_span(
-                    RuleScope::Both,
-                    "S4158",
-                    &format!(
-                        "Review this usage of \"{}\" as it can only be empty here.",
-                        binding.name
-                    ),
-                    span,
-                );
-            }
+        let has_empty_initializer = declaration.init.as_ref().is_some_and(is_empty_collection);
+        let Some(reads) = reads_of_always_empty(semantic, symbol, has_empty_initializer) else {
+            continue;
+        };
+        for span in reads {
+            sink.emit_span(
+                RuleScope::Both,
+                "S4158",
+                &format!(
+                    "Review this usage of \"{}\" as it can only be empty here.",
+                    binding.name
+                ),
+                span,
+            );
         }
     }
     sink.issues
+}
+
+/// Collect reads only when every resolved reference preserves emptiness.
+/// A failed proof invalidates all reads, including reads before the mutation.
+fn reads_of_always_empty(
+    semantic: &Semantic<'_>,
+    symbol: SymbolId,
+    mut has_empty_assignment: bool,
+) -> Option<Vec<Span>> {
+    let mut reads = Vec::new();
+    for reference in semantic.scoping().get_resolved_references(symbol) {
+        if reference.is_write() {
+            if reference.is_read() || !assigns_empty_collection(semantic, reference.node_id()) {
+                return None;
+            }
+            has_empty_assignment = true;
+            continue;
+        }
+        if !is_reading_usage(semantic, reference.node_id()) {
+            return None;
+        }
+        reads.push(semantic.reference_span(reference));
+    }
+    has_empty_assignment.then_some(reads)
 }
 
 fn is_empty_collection(expression: &Expression<'_>) -> bool {
