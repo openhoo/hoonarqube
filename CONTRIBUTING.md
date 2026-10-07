@@ -77,7 +77,15 @@ cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-targets --all-features
 python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
+python3 -m unittest discover -s actions/tests -v
+node --test crates/hoonarqube-service/tests/dashboard.test.cjs
 ```
+
+On macOS, use a canonical temporary directory (for example,
+`TMPDIR=/private/tmp`) when running write/refusal tests: `/var` can be a
+symlink, which the production write guard deliberately rejects. Action shell
+checks require GNU coreutils (`realpath` and `timeout`); the published action
+installer targets Linux X64 runners.
 
 Analyzer changes need bad and clean controls. Parity claims need normalized
 rule, file, message, and range evidence from the documented oracle; test counts

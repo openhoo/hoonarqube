@@ -2751,11 +2751,11 @@ mod tests {
         let fix = TempDir::new("unsupported-scope");
         let main = fix.write("main.py", "value = 1\n");
         let style_upper = fix.write("style.CSS", "body { color: red; }\n");
-        fix.write("style.css", "body { color: blue; }\n");
+        fix.write("other.css", "body { color: blue; }\n");
         fix.write("page.CSHTML", "<p>unsupported</p>\n");
-        fix.write("page.cshtml", "<p>unsupported</p>\n");
+        fix.write("other.cshtml", "<p>unsupported</p>\n");
         fix.write("Dockerfile", "FROM scratch\n");
-        fix.write("dockerfile", "FROM scratch\n");
+        fix.write("lower.dockerfile", "FROM scratch\n");
         fix.write("notes.txt", "ordinary notes\n");
 
         let mut baseline_warnings = Vec::new();
@@ -2787,11 +2787,11 @@ mod tests {
 
         for name in [
             "style.CSS",
-            "style.css",
+            "other.css",
             "page.CSHTML",
-            "page.cshtml",
+            "other.cshtml",
             "Dockerfile",
-            "dockerfile",
+            "lower.dockerfile",
         ] {
             let path = fix.0.join(name);
             let measurement = mixed
