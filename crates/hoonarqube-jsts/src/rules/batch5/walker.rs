@@ -452,6 +452,24 @@ mod tests {
     }
 
     #[test]
+    fn static_property_finding_uses_key_and_preserves_readonly_suggestion() {
+        let report = ts("class Registry { static instance = new Registry(); }");
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.rule_key == "typescript:S1444")
+            .unwrap();
+        assert_eq!(issue.range.start.column, 24);
+        assert_eq!(issue.range.end.column, 32);
+        assert!(
+            issue
+                .alternatives
+                .iter()
+                .any(|a| a.id == "s1444-add-readonly")
+        );
+    }
+
+    #[test]
     fn constructor_async_work_is_flagged() {
         let awaiting = ts_keys(
             "class Server {\n  constructor() {\n    const data = load();\n    void data;\n  }\n}\nasync function load() { return 1; }\n",

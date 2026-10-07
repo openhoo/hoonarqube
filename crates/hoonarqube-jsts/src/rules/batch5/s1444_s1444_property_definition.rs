@@ -19,7 +19,7 @@ impl TsTypeCollector<'_, '_> {
                 RuleScope::TsOnly,
                 "S1444",
                 "Add the readonly modifier to this static property.",
-                it.span(),
+                it.key.span(),
             );
         }
     }
