@@ -209,6 +209,14 @@ fn has_at_receiver(
     }
 }
 
+fn compiler_rejects_at_receiver(
+    ctx: &AnalysisContext,
+    semantic: &Semantic<'_>,
+    expression: &Expression<'_>,
+) -> bool {
+    ctx.semantic_facts.is_some() && !has_at_receiver(ctx, semantic, expression)
+}
+
 fn is_self_evident_at_receiver(semantic: &Semantic<'_>, expression: &Expression<'_>) -> bool {
     match unwrap_ts(unparenthesized(expression)) {
         Expression::ArrayExpression(_)
@@ -332,7 +340,7 @@ fn check_slice(
     let Some(member) = method_member(call, "slice") else {
         return;
     };
-    if ctx.semantic_facts.is_some() && !has_at_receiver(ctx, semantic, &member.object) {
+    if compiler_rejects_at_receiver(ctx, semantic, &member.object) {
         return;
     }
     if call.optional || call.arguments.is_empty() || call.arguments.len() > 2 {
