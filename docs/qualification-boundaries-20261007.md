@@ -16,8 +16,9 @@ Fresh SonarQube 26.9.0.129388 scans of pinned Chi commit
 `167e1e3bd039d060696b99c8da4e876ae04f42c1` yielded ten S3776 findings. The source
 library probe and integrated CLI matched their primary ranges and messages and
 all 129 supporting locations. This is a selected-rule result on pinned Chi.
-The additional switch/jump control exposes a separate supporting-location
-difference under investigation. The portable Chi receipt is
+The additional switch/jump control exposed an incorrect charge for `goto`;
+the committed regression and repaired CLI now match both findings and all
+18 supporting locations while labeled break/continue remain charged. The Chi receipt is
 `tools/oracle/go-secondary-qualification-20261007.json`.
 
 The comparator preserves finding/flow/location multiplicity. Distinct API flows
