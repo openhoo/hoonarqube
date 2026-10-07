@@ -19,6 +19,7 @@
     branchRequest: 0,
     analysisRequest: 0,
     reviewRequest: 0,
+    historyRequest: 0,
 
     busy: 0,
   };
@@ -268,6 +269,7 @@
 
   function clearReviewSelection() {
     state.reviewRequest += 1;
+    state.historyRequest += 1;
     state.selectedFinding = null;
     state.selectedReview = null;
     state.reviewAnalysisId = null;
@@ -684,6 +686,7 @@
 
   async function loadReviewHistory(requestToken = state.reviewRequest, contextId = state.reviewAnalysisId) {
     if (!reviewContextCurrent(contextId, requestToken)) return;
+    const historyToken = ++state.historyRequest;
     clear(elements.auditList);
     setHidden(elements.auditEmpty, true);
     if (!state.selectedFinding || !state.project || !state.branch) return;
@@ -694,7 +697,7 @@
     }
     try {
       const payload = await apiRequest(`${apiPath(state.project, `/reviews/${pathPart(review.id)}/history`)}`);
-      if (!reviewContextCurrent(contextId, requestToken)) return;
+      if (!reviewContextCurrent(contextId, requestToken) || historyToken !== state.historyRequest) return;
       const history = Array.isArray(payload.history) ? payload.history : [];
       setHidden(elements.auditEmpty, history.length !== 0);
       for (const record of history) {
@@ -716,7 +719,7 @@
         elements.auditList.appendChild(item);
       }
     } catch (error) {
-      if (!reviewContextCurrent(contextId, requestToken)) return;
+      if (!reviewContextCurrent(contextId, requestToken) || historyToken !== state.historyRequest) return;
       showNotice(elements.reviewError, error.message || "Unable to load review history.");
       displayError(error);
     }

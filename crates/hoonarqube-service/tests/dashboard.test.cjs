@@ -30,10 +30,11 @@ function dashboard() {
       }}));
     },
   };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8'), context);
+  const script = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
+  vm.runInNewContext(script.replace('  setSession(false);\n})();', '  globalThis.testState = state;\n  setSession(false);\n})();'), context);
   const fire = (id, event = 'change') => get(id).listeners[event]({preventDefault() {}, currentTarget: get(id)});
   const connect = (token) => { get('token').value = token; fire('connection-form', 'submit'); };
-  return {get, requests, fire, connect};
+  return {get, requests, fire, connect, state: context.testState};
 }
 const settle = () => new Promise(setImmediate);
 const optionValues = (node) => node.children.map((child) => child.value);
@@ -125,4 +126,46 @@ test('the current selected scope can render an empty history', async () => {
   await settle();
   assert.equal(ui.get('history-panel').hidden, false);
   assert.equal(ui.get('history-empty').hidden, false);
+});
+
+function selectedReview(ui) {
+  Object.assign(ui.state, {token: 'token', project: 'a', branch: 'main',
+    analysis: {id: 1}, reviewAnalysisId: 1,
+    selectedFinding: {identity: 'finding', review: {id: 2}}});
+}
+
+test('overlapping audit refreshes keep only the latest history response', async () => {
+  const ui = dashboard(); selectedReview(ui);
+  ui.fire('refresh-history-button', 'click');
+  ui.fire('refresh-history-button', 'click');
+  ui.requests[1].respond({history: [{actor: 'latest', version: 2}]});
+  await settle();
+  assert.equal(ui.get('audit-list').children.length, 1);
+  const latest = ui.get('audit-list').children[0];
+  ui.requests[0].respond({history: [{actor: 'stale', version: 1}]});
+  await settle();
+  assert.equal(ui.get('audit-list').children.length, 1);
+  assert.equal(ui.get('audit-list').children[0], latest);
+});
+
+test('an old audit refresh error cannot replace current success', async () => {
+  const ui = dashboard(); selectedReview(ui);
+  ui.get('review-error').hidden = true;
+  ui.fire('refresh-history-button', 'click');
+  ui.fire('refresh-history-button', 'click');
+  ui.requests[1].respond({history: [{actor: 'latest', version: 2}]});
+  await settle();
+  ui.requests[0].respond({error: {message: 'stale failure'}}, 500);
+  await settle();
+  assert.equal(ui.get('review-error').hidden, true);
+  assert.equal(ui.get('audit-list').children.length, 1);
+});
+
+test('a current audit refresh error remains visible', async () => {
+  const ui = dashboard(); selectedReview(ui);
+  ui.get('review-error').hidden = true;
+  ui.fire('refresh-history-button', 'click');
+  ui.requests[0].respond({error: {message: 'current failure'}}, 500);
+  await settle();
+  assert.equal(ui.get('review-error').hidden, false);
 });
