@@ -1,0 +1,3081 @@
+{
+  "schema_version": 1,
+  "campaign_date": "2026-10-07",
+  "claim": "bounded_real_project_observations_not_full_parity",
+  "reference_server_version": "26.9.0.129388",
+  "reference_plugins": {
+    "go": "1.43.0.7704",
+    "javascript": "13.8 (build 44569)",
+    "python": "5.31 (build 36502)"
+  },
+  "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "coverage_audit": {
+    "exit_code": 0,
+    "command": "cargo run --locked -q -j 2 -p xtask -- catalog coverage --strict --allow-infra",
+    "rows": [
+      {
+        "language": "csharp",
+        "implemented": 468,
+        "directly_tested": 468,
+        "missing": 0,
+        "untested": 0,
+        "infra": 0,
+        "total": 468
+      },
+      {
+        "language": "javascript",
+        "implemented": 445,
+        "directly_tested": 445,
+        "missing": 0,
+        "untested": 0,
+        "infra": 0,
+        "total": 445
+      },
+      {
+        "language": "typescript",
+        "implemented": 455,
+        "directly_tested": 455,
+        "missing": 0,
+        "untested": 0,
+        "infra": 0,
+        "total": 455
+      },
+      {
+        "language": "python",
+        "implemented": 442,
+        "directly_tested": 442,
+        "missing": 0,
+        "untested": 0,
+        "infra": 0,
+        "total": 442
+      },
+      {
+        "language": "go",
+        "implemented": 36,
+        "directly_tested": 36,
+        "missing": 0,
+        "untested": 0,
+        "infra": 0,
+        "total": 36
+      },
+      {
+        "language": "rust",
+        "implemented": 85,
+        "directly_tested": 85,
+        "missing": 0,
+        "untested": 0,
+        "infra": 0,
+        "total": 85
+      },
+      {
+        "language": "java",
+        "implemented": 0,
+        "directly_tested": 0,
+        "missing": 0,
+        "untested": 0,
+        "infra": 733,
+        "total": 733
+      },
+      {
+        "language": "ruby",
+        "implemented": 0,
+        "directly_tested": 0,
+        "missing": 0,
+        "untested": 0,
+        "infra": 42,
+        "total": 42
+      }
+    ],
+    "frozen_total": 2706,
+    "tested_implementations": 1931,
+    "infra_total": 775,
+    "raw_stdout_sha256": "71ddb46efaf3bcddb0ecd3e09cb68883f6ca006d81a0b0638767ef765dfbeeb5"
+  },
+  "baseline_binary_sha256": "5a00bf4df6796a5bf2222001fa59baf9ae888065cc76952ef72af3e8c72d58ce",
+  "projects": [
+    {
+      "name": "requests",
+      "commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "sources": [
+        "src/requests"
+      ],
+      "language": "py",
+      "exclude": [],
+      "reference_metrics": {
+        "duplicated_lines_density": 0.0,
+        "duplicated_lines": 0,
+        "comment_lines": 1869,
+        "duplicated_blocks": 0,
+        "ncloc": 3564,
+        "files": 19,
+        "lines": 6413
+      },
+      "reference_capture_digests": {
+        "source.json": "8b04da4c68a6406a3f19641e6deaf8d3f59bd20bf372aeb74952c080cdecc531",
+        "measures.json": "3cc95b455c8865404f5a558cbf0373ad5eb8d0f6472418802a8c72a1e7f67a2d",
+        "issues.json": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10",
+        "hotspots.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "profiles.json": "f6794a88e47b605b3ac51812a18707f6065520de84dfc17f5450fd7273a62c8a",
+        "indexed-files.json": "281e0eded8bce7c27c52bcf840e3a071a4956c31352beae350403e545b709715",
+        "reference-source-files.json": "ce5e64c9c6026af15cbd5b7fd74364f469bc80a663c75166b89c75b8dd5a6362"
+      },
+      "baseline_native_metrics": {
+        "files": 19,
+        "lines": 6394,
+        "code_lines": 4743,
+        "comment_lines": 443
+      },
+      "baseline_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 226,
+        "reference_total": 77,
+        "matched": 66,
+        "native_only": 160,
+        "reference_only": 11
+      },
+      "final_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 214,
+        "reference_total": 77,
+        "matched": 68,
+        "native_only": 146,
+        "reference_only": 9
+      },
+      "final_scope_counts": {
+        "matched": 19,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "final_metric_comparison": {
+        "comment_lines": {
+          "native": 1869,
+          "reference": 1869,
+          "matched": true
+        },
+        "ncloc": {
+          "native": 3564,
+          "reference": 3564,
+          "matched": true
+        },
+        "files": {
+          "native": 19,
+          "reference": 19,
+          "matched": true
+        },
+        "lines": {
+          "native": 6413,
+          "reference": 6413,
+          "matched": true
+        }
+      },
+      "profile_classified_residuals": {
+        "native_only_on_captured_active_rules": 28,
+        "native_only_on_rules_absent_from_captured_profiles": 118,
+        "reference_only_on_captured_active_rules": 9
+      },
+      "identity_change": {
+        "matched": 2,
+        "native_only": -14,
+        "reference_only": -2
+      },
+      "baseline_to_final_metrics": {
+        "comment_lines": {
+          "baseline": 443,
+          "final": 1869,
+          "reference": 1869
+        },
+        "ncloc": {
+          "baseline": 4743,
+          "final": 3564,
+          "reference": 3564
+        },
+        "files": {
+          "baseline": 19,
+          "final": 19,
+          "reference": 19
+        },
+        "lines": {
+          "baseline": 6394,
+          "final": 6413,
+          "reference": 6413
+        }
+      },
+      "accepted_capture_digests": {
+        "acceptance.json": "6a64f2c886b7101ad40a4b5669029890906de37e6294f39f0dd6d404e73a3465",
+        "acceptance-comparison.json": "987c65ae6959e7579bf1d6785e0e909482f3a9c966e5a5569a9c7a2892331390",
+        "acceptance-execution.json": "85f3ad568cc2295ca85c2084c813027d45d3367b00572f2c8cb8909f9cbe81fd",
+        "acceptance-source-files.json": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538"
+      },
+      "per_rule_identity_counts": [
+        {
+          "rule": "python:FunctionComplexity",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:LineLength",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 12,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1066",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 2
+        },
+        {
+          "rule": "python:S107",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S1128",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 27,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1135",
+          "captured_profile_active": true,
+          "matched": 5,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1142",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 11,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S117",
+          "captured_profile_active": true,
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1172",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1309",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S134",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S138",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S139",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 26,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1542",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1707",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1721",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1722",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 8,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1854",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1940",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S2325",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S3776",
+          "captured_profile_active": true,
+          "matched": 13,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S3801",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S3827",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S5332",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S5713",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S5797",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6019",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6538",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6543",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6659",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6792",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6794",
+          "captured_profile_active": true,
+          "matched": 28,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6796",
+          "captured_profile_active": true,
+          "matched": 5,
+          "native_only": 10,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S7500",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S7504",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 3
+        },
+        {
+          "rule": "python:S7519",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S8786",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 3
+        }
+      ],
+      "captured_active_profile_digests": {
+        "active-azureresourcemanager-page-1.json": "7abaf11901d6a12c07576dc877e615f17124c0e5aed2ec69dad621d3e901bb9a",
+        "active-py-page-1.json": "5f7be56f121f8688e8251fbe229591ff1775fbb0920b2edcc336cf4a7868afd4",
+        "active-kubernetes-page-1.json": "6c944b7e38adf829b4a31024d79fef545d0fdb54048f08a8162f0677161c1f5e",
+        "active-cloudformation-page-1.json": "855624e345cddd7f904c6d6dce277adc5173be9646af032c11c7003fc0fd07f6",
+        "active-flex-page-1.json": "fb8478cf31ac6ff6fef66e63252c573af97b0a3a65985ab03429a8ef96dafa8c",
+        "active-web-page-1.json": "83078b5b914b62b35a2f96d5b333934d766d4b86e4b974c793507c1f73bbb870",
+        "active-cs-page-1.json": "a125d5fea1c5bc23874509de0e688f3f82ed1be5bc117c4f759395ccb5f009b1",
+        "active-java-page-1.json": "c4b482125d120fa396b3feabbfa8e275a3fe0ee19584028eaf6d1680a00a1992",
+        "active-kotlin-page-1.json": "26ecb0911741741b4f95f5c5f5e3c39c939a0c4ca82db41c5e8d817fa7966750",
+        "active-text-page-1.json": "1dd11eb20c029609ceac5b17e753de3ce178fd3100562e7415023867af134403",
+        "active-secrets-page-1.json": "34dfcaa5a2d34797748d4904aa59119ee5831d36d88ce8def962cd0ed2d20b24",
+        "active-json-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-terraform-page-1.json": "1e6bf2c1cda907134c4b8639f395d6d064240884491393f4f6e0633a7268426d",
+        "active-vbnet-page-1.json": "f3a6956c5c8c2076912b1e8f7c3e4c4885631428340651e34faf48e8ad2ff48c",
+        "active-yaml-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-go-page-1.json": "bdb86c643c4c4014e604cbdc82e8d2bf4598545bf87a2cfa1d8f7f3e6f6f7c81",
+        "active-css-page-1.json": "5ee80d003a768e16c1cdad4afe2cb551a0529bf0e6bf0816f6ce4f47869897d1",
+        "active-js-page-1.json": "19d21dcd50e354dfe8cce7b30b442efcb6192ad6d9406f7125ad6185671f7c94",
+        "active-ts-page-1.json": "fdd76038ec8ef11f3487c5614e1c638da9d397ef96d783c19ea96b1879ca5212",
+        "active-jsp-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-docker-page-1.json": "a8f0f8ce7f49f4d208c235b06067ceaa8e2ca7f901b3c2e0a8c480dbf1647bda",
+        "active-xml-page-1.json": "e895726b15f03175b804030905b1addae046e46ffdb06c25542a7c1224a6d93b",
+        "active-java-page-2.json": "6c0d2367149c907fc9142f7b67725cf24c0092051fb08b8fc11a786921e014fe",
+        "active-ipynb-page-1.json": "5b722af1d3550c52f5aec42b538d73c2351070af23f675d83b6e1c67b399f831",
+        "active-ruby-page-1.json": "ea88c2c23aaeed6d2670ea4c2fd3df16ca55f744720f9c911bde7ad7094d32f7",
+        "active-rust-page-1.json": "1c6dacd825cd7f52d03521e678ffe8034a3aec217c3fd386cf4d14f01585e35b",
+        "active-php-page-1.json": "8a28fa4c232f81f79a8ae51125365ed9ee90129fd89912fa4d45fb9d6ee33c13",
+        "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 19,
+        "matched_cells": 57,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
+      }
+    },
+    {
+      "name": "werkzeug-python",
+      "commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "sources": [
+        "src/werkzeug"
+      ],
+      "language": "py",
+      "exclude": [
+        "**/*.css"
+      ],
+      "reference_metrics": {
+        "duplicated_lines_density": 0.1,
+        "duplicated_lines": 32,
+        "comment_lines": 6650,
+        "duplicated_blocks": 2,
+        "ncloc": 12174,
+        "files": 53,
+        "lines": 21763
+      },
+      "reference_capture_digests": {
+        "source.json": "515a49e86e5c644e502294e3f791ebea7032f41c292396f9efef8b4e153cceb7",
+        "measures.json": "5ffb43cc434150c051c5fe2fbf22829bc23f8e7df813f16214015488c851006d",
+        "issues.json": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c",
+        "hotspots.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "profiles.json": "dfae6fbb82ad775322546c14364c81521bb34c1163ca24ad8265e54abf0fea5f",
+        "indexed-files.json": "3b15426332dcf4e9a3c06c13472038f0a973974e406ecfeed982b543f5874ef9",
+        "reference-source-files.json": "32f8564ecd96b12a367a4db87dbe880ad43b158f3b1e8e06f26c455cb74c1b85"
+      },
+      "baseline_native_metrics": {
+        "files": 53,
+        "lines": 21710,
+        "code_lines": 16763,
+        "comment_lines": 749
+      },
+      "baseline_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 570,
+        "reference_total": 241,
+        "matched": 164,
+        "native_only": 406,
+        "reference_only": 77
+      },
+      "final_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 589,
+        "reference_total": 241,
+        "matched": 209,
+        "native_only": 380,
+        "reference_only": 32
+      },
+      "final_scope_counts": {
+        "matched": 53,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "final_metric_comparison": {
+        "comment_lines": {
+          "native": 6650,
+          "reference": 6650,
+          "matched": true
+        },
+        "ncloc": {
+          "native": 12174,
+          "reference": 12174,
+          "matched": true
+        },
+        "files": {
+          "native": 53,
+          "reference": 53,
+          "matched": true
+        },
+        "lines": {
+          "native": 21763,
+          "reference": 21763,
+          "matched": true
+        }
+      },
+      "profile_classified_residuals": {
+        "native_only_on_captured_active_rules": 129,
+        "native_only_on_rules_absent_from_captured_profiles": 251,
+        "reference_only_on_captured_active_rules": 32
+      },
+      "identity_change": {
+        "matched": 45,
+        "native_only": -26,
+        "reference_only": -45
+      },
+      "baseline_to_final_metrics": {
+        "comment_lines": {
+          "baseline": 749,
+          "final": 6650,
+          "reference": 6650
+        },
+        "ncloc": {
+          "baseline": 16763,
+          "final": 12174,
+          "reference": 12174
+        },
+        "files": {
+          "baseline": 53,
+          "final": 53,
+          "reference": 53
+        },
+        "lines": {
+          "baseline": 21710,
+          "final": 21763,
+          "reference": 21763
+        }
+      },
+      "accepted_capture_digests": {
+        "acceptance.json": "38547bdbaf548cc8e72e9acd5a98938b388ae043bae14e2460fffeeb0c01bdd5",
+        "acceptance-comparison.json": "4476139447acd4ec2f1a71ae67d0ba2d343aa22ac57f250db0372b85ef2c56b4",
+        "acceptance-execution.json": "132f9931fde60df373ca20f27a956f857d797d60bdad5885003b3f8a0e5d0909",
+        "acceptance-source-files.json": "2cf8115eb7a20b8624070a54a4f8cd358b80d14a84ca311401176e38f124121d"
+      },
+      "per_rule_identity_counts": [
+        {
+          "rule": "javascript:S106",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S109",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S125",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S126",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1438",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1442",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1451",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1774",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S2004",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S2703",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3353",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3512",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3524",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3723",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3798",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 22,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3827",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S4138",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 3
+        },
+        {
+          "rule": "javascript:S7728",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7731",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7735",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7741",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7762",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 2
+        },
+        {
+          "rule": "javascript:S7768",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "javascript:S7773",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7778",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:FileComplexity",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:FunctionComplexity",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 12,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1066",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S107",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 2
+        },
+        {
+          "rule": "python:S1128",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1135",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1142",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 30,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S117",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1172",
+          "captured_profile_active": true,
+          "matched": 37,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1186",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1192",
+          "captured_profile_active": true,
+          "matched": 8,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1226",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1309",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1313",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S134",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S138",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S139",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 21,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1481",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1707",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1721",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1722",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 59,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S1854",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 12,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S2068",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S2245",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S2325",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 22,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S2836",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S3776",
+          "captured_profile_active": true,
+          "matched": 42,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S3801",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S3827",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 16,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S4790",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S5332",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S5707",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S5747",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S5806",
+          "captured_profile_active": true,
+          "matched": 5,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S5843",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 3
+        },
+        {
+          "rule": "python:S5852",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S5855",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S5869",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S5886",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 6
+        },
+        {
+          "rule": "python:S5890",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S6019",
+          "captured_profile_active": true,
+          "matched": 4,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6353",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6395",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 1,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S6437",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6538",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 17,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6543",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6659",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6661",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6792",
+          "captured_profile_active": true,
+          "matched": 7,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S6796",
+          "captured_profile_active": true,
+          "matched": 79,
+          "native_only": 63,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S7494",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 2
+        },
+        {
+          "rule": "python:S7496",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S7498",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S7504",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 1
+        },
+        {
+          "rule": "python:S7941",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "python:S8786",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 3
+        },
+        {
+          "rule": "python:S930",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        }
+      ],
+      "captured_active_profile_digests": {
+        "active-azureresourcemanager-page-1.json": "389661826d7c7f6912a6ab62da02a7fa47e74717d84e2a566a220c80a91798ce",
+        "active-py-page-1.json": "cad9c251233cab179d1d6af8eff0291020effdd3700657868c39f004bd56f429",
+        "active-kubernetes-page-1.json": "74c55b4a5dccc3c0bb98e8ec5c07829dfc7b380ec7c2be3510a4733505c34267",
+        "active-cloudformation-page-1.json": "855624e345cddd7f904c6d6dce277adc5173be9646af032c11c7003fc0fd07f6",
+        "active-flex-page-1.json": "fb8478cf31ac6ff6fef66e63252c573af97b0a3a65985ab03429a8ef96dafa8c",
+        "active-web-page-1.json": "22e9fb0bd50691b849fc137777e50657f4ffd99e36040f77145aa3eab5c1b36c",
+        "active-cs-page-1.json": "ac4f06250f439f0d32edb16de48bec6309d2133e7b0693df50190bda4b3d6cdc",
+        "active-java-page-1.json": "ec7ab9daf028f65f0aca22501b1b2b8802b23de694ab5bd9264d87d39ff54d1f",
+        "active-kotlin-page-1.json": "8b00884baf560d3c8a32f597efe6917b481e84180b45171bd5c17c9bea321770",
+        "active-text-page-1.json": "1dd11eb20c029609ceac5b17e753de3ce178fd3100562e7415023867af134403",
+        "active-secrets-page-1.json": "fda8666455efefc7455c5d76cae9a20b6ad81cf50cc47f133e94cd421e305f5f",
+        "active-json-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-terraform-page-1.json": "55c55e6e81f841b1067fa8cb35a1a938c41862d00d8d98cc7c48c1751b7ac62f",
+        "active-vbnet-page-1.json": "286b1313ec518ca74ee2290b969811bcff5e30eaa2fe42c87991f848a1c0759d",
+        "active-yaml-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-go-page-1.json": "c4b0900c2122343538841da0170fe98a02551e2f2f45e14a69c456b78f38f900",
+        "active-css-page-1.json": "b888c5813fb0fa07da6cfef357f814a1e711d68f011b08acc59810898f753122",
+        "active-js-page-1.json": "bfb3e65c9d9fa8d5a0abc0f838efd10c9d03192a5e20ce3ae30a0647b0c77f66",
+        "active-ts-page-1.json": "8fc788ad3bc417e74326b43ae2d2d509aac45588d71e71d3dcd67055c5fb851b",
+        "active-jsp-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-docker-page-1.json": "7cdd53cf778d028a81ee12cd67bded27fabcabb87bef6c2985ff549039cc7411",
+        "active-xml-page-1.json": "929d91953d087725e6510d969d48ae67f0c4cd14685faa7dadc8acd4ccba2c6b",
+        "active-java-page-2.json": "476f3623defd7df8a235dfdcdf843ddff7b2a8ddb78ed2282140dab6d90eae1d",
+        "active-ipynb-page-1.json": "28c31d12b0f672e72456613c6f2bff43a31139a2ed525399161c06901a83ceea",
+        "active-ruby-page-1.json": "ea88c2c23aaeed6d2670ea4c2fd3df16ca55f744720f9c911bde7ad7094d32f7",
+        "active-rust-page-1.json": "e30b687a27944763256739f422d57c4177e436bcf9b5de4c248736ac1f443966",
+        "active-php-page-1.json": "de01406c641095633f639c44847428343b58011e158f1671d209067720987897",
+        "active-scala-page-1.json": "e0eaa858c4cf5e2994c27cca6a2655c18876d43d2fc452317b02d316a576f206"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 53,
+        "matched_cells": 159,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
+      }
+    },
+    {
+      "name": "commander",
+      "commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "sources": [
+        "index.js",
+        "lib"
+      ],
+      "language": "js",
+      "exclude": [],
+      "reference_metrics": {
+        "duplicated_lines_density": 0.0,
+        "duplicated_lines": 0,
+        "comment_lines": 1485,
+        "duplicated_blocks": 0,
+        "ncloc": 2345,
+        "files": 7,
+        "lines": 4208
+      },
+      "reference_capture_digests": {
+        "source.json": "6bdab6c0b419510b5747c3dfaa38d789ede50410462d44ef1bce173eaa660ec0",
+        "measures.json": "c0cc5ceff5b76e01245166e964a3c7fa823783d99d4bbf405f39d9f3f15c936c",
+        "issues.json": "f99919dd2627352b5f8d4948cc9cb971c738981409b687e5a9e305b2c2d34f3e",
+        "hotspots.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "profiles.json": "f0f78b7323681b709fcf9f929e35b64458940205846380c46e4ff050d364ba98",
+        "indexed-files.json": "d490932c32ae0118c1ace2808c4c746a273b71f377844b29d74d0b99a1141b07",
+        "reference-source-files.json": "9c402d30f35b60a6257e24a5ecf1b130de907b7ce3c752209eef2048926306f7"
+      },
+      "baseline_native_metrics": {
+        "files": 7,
+        "lines": 4201,
+        "code_lines": 2345,
+        "comment_lines": 1433
+      },
+      "baseline_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 314,
+        "reference_total": 36,
+        "matched": 27,
+        "native_only": 287,
+        "reference_only": 9
+      },
+      "final_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 310,
+        "reference_total": 36,
+        "matched": 29,
+        "native_only": 281,
+        "reference_only": 7
+      },
+      "final_scope_counts": {
+        "matched": 7,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "final_metric_comparison": {
+        "comment_lines": {
+          "native": 1485,
+          "reference": 1485,
+          "matched": true
+        },
+        "ncloc": {
+          "native": 2345,
+          "reference": 2345,
+          "matched": true
+        },
+        "files": {
+          "native": 7,
+          "reference": 7,
+          "matched": true
+        },
+        "lines": {
+          "native": 4208,
+          "reference": 4208,
+          "matched": true
+        }
+      },
+      "profile_classified_residuals": {
+        "native_only_on_captured_active_rules": 18,
+        "native_only_on_rules_absent_from_captured_profiles": 263,
+        "reference_only_on_captured_active_rules": 7
+      },
+      "identity_change": {
+        "matched": 2,
+        "native_only": -6,
+        "reference_only": -2
+      },
+      "baseline_to_final_metrics": {
+        "comment_lines": {
+          "baseline": 1433,
+          "final": 1485,
+          "reference": 1485
+        },
+        "ncloc": {
+          "baseline": 2345,
+          "final": 2345,
+          "reference": 2345
+        },
+        "files": {
+          "baseline": 7,
+          "final": 7,
+          "reference": 7
+        },
+        "lines": {
+          "baseline": 4201,
+          "final": 4208,
+          "reference": 4208
+        }
+      },
+      "accepted_capture_digests": {
+        "acceptance.json": "22e4c2d20282e95e1b3fb9974b9d23c22f2de21c63302f32b37c9bc23e05ae32",
+        "acceptance-comparison.json": "a5a4fc369531a43587cbad1b8ae8bfcc27626c679e097d704a69bbf4f0ec9c8a",
+        "acceptance-execution.json": "078559bae7709c451fa7740e463a2dcf46a781587d0e51e0f46963573ac9efd3",
+        "acceptance-source-files.json": "ccaa96ac92b5ebe9407388880c7f96d3a475ea883de7e8227f1c779962deeed0"
+      },
+      "per_rule_identity_counts": [
+        {
+          "rule": "javascript:S104",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1067",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S109",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 8,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1110",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1117",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1172",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1192",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S121",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 66,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S125",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S126",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 9,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1301",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S134",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S135",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S139",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 45,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1451",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1527",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1541",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 9,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S1774",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 19,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S2138",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 23,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S2427",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S2681",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3512",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3524",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3776",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S3801",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S4144",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S4624",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S6397",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S6551",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 4
+        },
+        {
+          "rule": "javascript:S6557",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S6582",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S6594",
+          "captured_profile_active": true,
+          "matched": 5,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S6959",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7721",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7728",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 31,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7735",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7740",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7754",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7755",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 3
+        },
+        {
+          "rule": "javascript:S7760",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7763",
+          "captured_profile_active": true,
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7773",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7781",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S7786",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S8786",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S881",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "javascript:S909",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        }
+      ],
+      "captured_active_profile_digests": {
+        "active-azureresourcemanager-page-1.json": "78574f442848ae83f863f578796f4c6fd66b5b3e07b701550b374f560b560316",
+        "active-py-page-1.json": "629b4520adcd0bf85a75e509dd7f6a0bd71615d8558de28033810d67d48921c7",
+        "active-kubernetes-page-1.json": "ee2b1d15baa52235ea24785e190913934445657a18cfad11d4eebba2266fd81b",
+        "active-cloudformation-page-1.json": "d3daf216bb6c41d5651a9a8e131a693899f58a5b9dedd3a560215047f83b0d95",
+        "active-flex-page-1.json": "fb8478cf31ac6ff6fef66e63252c573af97b0a3a65985ab03429a8ef96dafa8c",
+        "active-web-page-1.json": "ae3b0f916e71d71a1b1c61cd858a03387bfd263d1993ae8862692fcc75aaac21",
+        "active-cs-page-1.json": "9c5af0c3298dcd60ceb9c0080026005919d4363d3a3c7866075900f1b1d35561",
+        "active-java-page-1.json": "76eaa2c02b58e0f726ad2d6dcb4e5f414bee03550d16923ad53e202450e4c958",
+        "active-kotlin-page-1.json": "eec133bff4b3f5444366787a7310c9e04ca1223d0fdbc4e36dc8ee42429bbd6c",
+        "active-text-page-1.json": "1dd11eb20c029609ceac5b17e753de3ce178fd3100562e7415023867af134403",
+        "active-secrets-page-1.json": "0e100863e783c4928359ea8bd27db4915789eaa244448cd3a16dd55e908127da",
+        "active-json-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-terraform-page-1.json": "b1155ad681dc421e28cb9b189c57623a405de19c18a6c99a6668b6817b6d7dc0",
+        "active-vbnet-page-1.json": "0ec81ae018730345acff42aba4b49dbc10f2f806f5861d5e13d8b8a7718e2972",
+        "active-yaml-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-go-page-1.json": "c4b0900c2122343538841da0170fe98a02551e2f2f45e14a69c456b78f38f900",
+        "active-css-page-1.json": "b888c5813fb0fa07da6cfef357f814a1e711d68f011b08acc59810898f753122",
+        "active-js-page-1.json": "c1d99f74fb408fc833e54bf5a4e1f5d67a773173ef2260eedf4f3fd8e64acc16",
+        "active-ts-page-1.json": "576ff40d0c85a08a8a4c67f850282bc82ee9abd817359d065dfee3f445c5f0df",
+        "active-jsp-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-docker-page-1.json": "0879d7e1d034553c1ffd1a254c570d675236b5ae2a0aec7a54d179f48c38d29c",
+        "active-xml-page-1.json": "901743b8667f0e9b7ef0d672bb8a6f5c852f20ecd08e94b136e6a4ae357cb444",
+        "active-java-page-2.json": "48eac2c5ab5298994d5ca5e648402b6771f74e715bc79588d170c4c2e06fe9e1",
+        "active-ipynb-page-1.json": "dfd9afe2a33be88e27c2609df4cab7dd115413b38c34ebccebf5e0f9d59620b8",
+        "active-ruby-page-1.json": "ea88c2c23aaeed6d2670ea4c2fd3df16ca55f744720f9c911bde7ad7094d32f7",
+        "active-rust-page-1.json": "1c6dacd825cd7f52d03521e678ffe8034a3aec217c3fd386cf4d14f01585e35b",
+        "active-php-page-1.json": "85a9406e54eb60f3de0f84967a36dade96969625acc1e3ac2900a69cb93c2d4f",
+        "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 7,
+        "matched_cells": 21,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
+      }
+    },
+    {
+      "name": "chi",
+      "commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "sources": [
+        "."
+      ],
+      "language": "go",
+      "exclude": [
+        "**/*_test.go",
+        "_examples/**"
+      ],
+      "reference_metrics": {
+        "duplicated_lines_density": 1.3,
+        "duplicated_lines": 56,
+        "comment_lines": 888,
+        "duplicated_blocks": 2,
+        "ncloc": 2841,
+        "files": 35,
+        "lines": 4435
+      },
+      "reference_capture_digests": {
+        "source.json": "8f9ef3e1f5140a7cb477b8029910798e8d84be5f6c9cedb3bb2569ebf8c2605b",
+        "measures.json": "27285ede229c14a8a5af03a5c6ff0b0fc69a002ba644a545505e2d42c9a2d9ee",
+        "issues.json": "64812dc355141c3d58dbcb25a6de5dbad49b7dce5727b07443c683b9368a7f46",
+        "hotspots.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "profiles.json": "59db501653b6755bcbb3220e7c64fa07eb1e897d48543ec6a73488f35bda1ca5",
+        "indexed-files.json": "1c9ed42380f5319473a1df1d068a16885c3d5ca20db4a021de273a37a086e34d",
+        "reference-source-files.json": "51a520f421ba7e1f83f61f8fa9255df1800b78be8e57eb60bcd68e6e68374ee8"
+      },
+      "baseline_native_metrics": {
+        "files": 35,
+        "lines": 4400,
+        "code_lines": 2841,
+        "comment_lines": 967
+      },
+      "baseline_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 36,
+        "reference_total": 14,
+        "matched": 14,
+        "native_only": 22,
+        "reference_only": 0
+      },
+      "final_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 35,
+        "reference_total": 14,
+        "matched": 14,
+        "native_only": 21,
+        "reference_only": 0
+      },
+      "final_scope_counts": {
+        "matched": 35,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "final_metric_comparison": {
+        "comment_lines": {
+          "native": 888,
+          "reference": 888,
+          "matched": true
+        },
+        "ncloc": {
+          "native": 2841,
+          "reference": 2841,
+          "matched": true
+        },
+        "files": {
+          "native": 35,
+          "reference": 35,
+          "matched": true
+        },
+        "lines": {
+          "native": 4435,
+          "reference": 4435,
+          "matched": true
+        }
+      },
+      "profile_classified_residuals": {
+        "native_only_on_captured_active_rules": 0,
+        "native_only_on_rules_absent_from_captured_profiles": 21,
+        "reference_only_on_captured_active_rules": 0
+      },
+      "identity_change": {
+        "matched": 0,
+        "native_only": -1,
+        "reference_only": 0
+      },
+      "baseline_to_final_metrics": {
+        "comment_lines": {
+          "baseline": 967,
+          "final": 888,
+          "reference": 888
+        },
+        "ncloc": {
+          "baseline": 2841,
+          "final": 2841,
+          "reference": 2841
+        },
+        "files": {
+          "baseline": 35,
+          "final": 35,
+          "reference": 35
+        },
+        "lines": {
+          "baseline": 4400,
+          "final": 4435,
+          "reference": 4435
+        }
+      },
+      "accepted_capture_digests": {
+        "acceptance.json": "ec694590d92ed143f5e87494065f71e6768818cd900973a02ded16cb89ecc996",
+        "acceptance-comparison.json": "f9f7a10292e325c07ea879b6a26e8318d18f56db398a3e594829c802077f9e7d",
+        "acceptance-execution.json": "0512ad350c4385c8790df22b55335c8c0974a060158325b984a80bfee0dbe257",
+        "acceptance-source-files.json": "20a4fd734e54c14a1aba7344c32112874e7ec3ec1ba3a516f43d8c5d72d3399c"
+      },
+      "per_rule_identity_counts": [
+        {
+          "rule": "go:S103",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S1135",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S1151",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S1186",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S122",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S126",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S134",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "go:S3776",
+          "captured_profile_active": true,
+          "matched": 10,
+          "native_only": 0,
+          "reference_only": 0
+        }
+      ],
+      "captured_active_profile_digests": {
+        "active-azureresourcemanager-page-1.json": "6f422da60dae13dc77e2aca1f947f98a01182eb279dc0d0a2bf990ec64e52c06",
+        "active-py-page-1.json": "c06e98381e89cf240c86bc912a423214924765f59589138b6da5294591efb914",
+        "active-kubernetes-page-1.json": "0c15a390450c95ebcd093d07fdd6289f18c9df156ae76821f71b7524c10e6557",
+        "active-cloudformation-page-1.json": "fb9befe46a3df609366b752610ffc9d2e85cc64b202a128dc333ce3b8f2c71ea",
+        "active-flex-page-1.json": "fb8478cf31ac6ff6fef66e63252c573af97b0a3a65985ab03429a8ef96dafa8c",
+        "active-web-page-1.json": "c5869ebafc0d267a61f90559bd7eb870f26359787c542247f317db4c630df672",
+        "active-cs-page-1.json": "acf15758a427e471bb69f6bedf8c32626e9be9579f71d9d9d7c1533ae5f7f1dc",
+        "active-java-page-1.json": "42fd51562f4c7f102223934667c7e2cbd9c3737f14f4e93a24d56bd5e3dbb631",
+        "active-kotlin-page-1.json": "e086382e954a0f85ab599b6f9fdcdcadc745abca34bc8057dfffc3a501424d53",
+        "active-text-page-1.json": "1dd11eb20c029609ceac5b17e753de3ce178fd3100562e7415023867af134403",
+        "active-secrets-page-1.json": "ee7e90db3df88e1790aa6fe45892eb5a0eba10a199b512118a075ffe5cd6d08c",
+        "active-json-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-terraform-page-1.json": "46b0bcd606de23accc2212ef832d2db21354ab5d235f24f5943d667b9d80d9b0",
+        "active-vbnet-page-1.json": "c4f253e98a1aa567d4152711e5013f505f263d34610c9c3895efe2ed5ca36621",
+        "active-yaml-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-go-page-1.json": "deb9608963011ea8f500f3e03d39d965d161531f3922581ff4e43cc861a1345e",
+        "active-css-page-1.json": "5ee80d003a768e16c1cdad4afe2cb551a0529bf0e6bf0816f6ce4f47869897d1",
+        "active-js-page-1.json": "1a76f0bc2bf7457f3e69782292bdd2e55bc0853d6f8365b95e0aaf7abcf0b657",
+        "active-ts-page-1.json": "ca957e98445ffa714b24c53a33e225451c39bf3cab8e360b39697f8a0ae35919",
+        "active-jsp-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-docker-page-1.json": "e1a1dd74531ec6813ee2b30387205b679ee2522e284b8871ac175fd431d16928",
+        "active-xml-page-1.json": "1ff8d5358eaba046e38b1ba67a01b41b5fe8d889f5c2eb87b9bb3300b5a3a21b",
+        "active-java-page-2.json": "8e79d3e0884da861bf59a30d02a606cfe4fed46bdab5c78f04ade683ea3ea6c9",
+        "active-ipynb-page-1.json": "bfac04eb64c6bf1fc335b1c41a4ba888d52969b0991c79acb6e367ebfb091d87",
+        "active-ruby-page-1.json": "ea88c2c23aaeed6d2670ea4c2fd3df16ca55f744720f9c911bde7ad7094d32f7",
+        "active-rust-page-1.json": "3529b9a076ee1a86715d8fc8ae0434f33083666a715c635ccd828ee94a63b54f",
+        "active-php-page-1.json": "2f23afe8a5c17ea0f3c3306265be74c2640a475684d072ee76994d08fe8a381e",
+        "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 35,
+        "matched_cells": 105,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
+      }
+    },
+    {
+      "name": "zod",
+      "commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "sources": [
+        "packages/zod/src"
+      ],
+      "language": "ts",
+      "exclude": [
+        "**/tests/**",
+        "**/benchmarks/**"
+      ],
+      "reference_metrics": {
+        "duplicated_lines_density": 13.4,
+        "duplicated_lines": 5084,
+        "comment_lines": 4057,
+        "duplicated_blocks": 1130,
+        "ncloc": 30336,
+        "files": 125,
+        "lines": 37850
+      },
+      "reference_capture_digests": {
+        "source.json": "7b2a4349ce3a593c80c91f945ef60ce55d54de55c2c01ca4a2177b4f9ba41cf1",
+        "measures.json": "06f4421d409ce0eed95d21f214544611b960065d570967a1f4063e49cd4e766f",
+        "issues.json": "8400ca3ad2c03c2ae1ecb644e4b36495ba23c227fc8eaa53382bcc49653cd32f",
+        "hotspots.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "profiles.json": "1d2c7f508a9e4a4bdd20fffa67b6e6b14ef6a1d2401145d9bf38b4424d802d58",
+        "indexed-files.json": "2c3a30727333763944fb05aeab7ebe10cbe02113b356e304951297774a9056e6",
+        "reference-source-files.json": "25a970337df4a38b2a2a0a79ff08f0e00c6c64735f0ed279e366e3589880fec7"
+      },
+      "baseline_native_metrics": {
+        "files": 125,
+        "lines": 37725,
+        "code_lines": 30332,
+        "comment_lines": 3705
+      },
+      "baseline_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 6044,
+        "reference_total": 594,
+        "matched": 254,
+        "native_only": 5790,
+        "reference_only": 340
+      },
+      "final_identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 5699,
+        "reference_total": 594,
+        "matched": 254,
+        "native_only": 5445,
+        "reference_only": 340
+      },
+      "final_scope_counts": {
+        "matched": 125,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "final_metric_comparison": {
+        "comment_lines": {
+          "native": 4057,
+          "reference": 4057,
+          "matched": true
+        },
+        "ncloc": {
+          "native": 30336,
+          "reference": 30336,
+          "matched": true
+        },
+        "files": {
+          "native": 125,
+          "reference": 125,
+          "matched": true
+        },
+        "lines": {
+          "native": 37850,
+          "reference": 37850,
+          "matched": true
+        }
+      },
+      "profile_classified_residuals": {
+        "native_only_on_captured_active_rules": 479,
+        "native_only_on_rules_absent_from_captured_profiles": 4966,
+        "reference_only_on_captured_active_rules": 340
+      },
+      "identity_change": {
+        "matched": 0,
+        "native_only": -345,
+        "reference_only": 0
+      },
+      "baseline_to_final_metrics": {
+        "comment_lines": {
+          "baseline": 3705,
+          "final": 4057,
+          "reference": 4057
+        },
+        "ncloc": {
+          "baseline": 30332,
+          "final": 30336,
+          "reference": 30336
+        },
+        "files": {
+          "baseline": 125,
+          "final": 125,
+          "reference": 125
+        },
+        "lines": {
+          "baseline": 37725,
+          "final": 37850,
+          "reference": 37850
+        }
+      },
+      "accepted_capture_digests": {
+        "acceptance.json": "ebe50cbc2105c928db685c9d2202531057f7439349668b7f35014df1187a2692",
+        "acceptance-comparison.json": "6bd50a9fe3375a6112c6a9a84215a2025a5b60da51cd67f1c21bbdb1e9f2a09a",
+        "acceptance-execution.json": "30e54a4b33bd75a27c21157901a6de8acbe1ef66a5915569e1d37164d363c9de",
+        "acceptance-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672"
+      },
+      "per_rule_identity_counts": [
+        {
+          "rule": "typescript:S100",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S101",
+          "captured_profile_active": true,
+          "matched": 13,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S103",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 176,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S104",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1066",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 43,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1067",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S108",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S109",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 39,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1110",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 21,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1117",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 117,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S117",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 22,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1186",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1192",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 18,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S121",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 846,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S125",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 201,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S126",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 18,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1301",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S131",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S134",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 65,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S135",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 10,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S138",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S139",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 57,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1444",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 35,
+          "reference_only": 35
+        },
+        {
+          "rule": "typescript:S1451",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 125,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1479",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1488",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 16,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1523",
+          "captured_profile_active": true,
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1528",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1535",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 15,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1541",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 121,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1774",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 525,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1788",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1848",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1854",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 12,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1871",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S1874",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 56
+        },
+        {
+          "rule": "typescript:S2094",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 3
+        },
+        {
+          "rule": "typescript:S2138",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 27,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2201",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2208",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 255,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2245",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2301",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "typescript:S2310",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2486",
+          "captured_profile_active": true,
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2681",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 18,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S2871",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "typescript:S2933",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 1
+        },
+        {
+          "rule": "typescript:S2966",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 94,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3257",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 43,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3317",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3358",
+          "captured_profile_active": true,
+          "matched": 27,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3498",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 14,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3499",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 104,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3524",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 24,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3626",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3723",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 612,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3735",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 5
+        },
+        {
+          "rule": "typescript:S3776",
+          "captured_profile_active": true,
+          "matched": 25,
+          "native_only": 82,
+          "reference_only": 78
+        },
+        {
+          "rule": "typescript:S3801",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3863",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 10,
+          "reference_only": 6
+        },
+        {
+          "rule": "typescript:S3923",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S3973",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 11,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4023",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 140,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4123",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 5
+        },
+        {
+          "rule": "typescript:S4124",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4138",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4144",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 5
+        },
+        {
+          "rule": "typescript:S4157",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 191,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4204",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 869,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4323",
+          "captured_profile_active": true,
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4326",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 5,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4327",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4335",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 2
+        },
+        {
+          "rule": "typescript:S4622",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 28,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4624",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 28,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S4798",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S5332",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 6,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S5843",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 16,
+          "reference_only": 16
+        },
+        {
+          "rule": "typescript:S5850",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S5852",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 10,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S5869",
+          "captured_profile_active": true,
+          "matched": 5,
+          "native_only": 0,
+          "reference_only": 4
+        },
+        {
+          "rule": "typescript:S6019",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6353",
+          "captured_profile_active": true,
+          "matched": 67,
+          "native_only": 0,
+          "reference_only": 29
+        },
+        {
+          "rule": "typescript:S6534",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6535",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 7
+        },
+        {
+          "rule": "typescript:S6551",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 2
+        },
+        {
+          "rule": "typescript:S6564",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 11,
+          "reference_only": 2
+        },
+        {
+          "rule": "typescript:S6565",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 62,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6569",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 19,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6571",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6582",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6598",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 3
+        },
+        {
+          "rule": "typescript:S6606",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 5
+        },
+        {
+          "rule": "typescript:S6644",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6647",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6650",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 14,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S6654",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 3
+        },
+        {
+          "rule": "typescript:S6660",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 1
+        },
+        {
+          "rule": "typescript:S6757",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7719",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7722",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7723",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7724",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7726",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 63,
+          "reference_only": 63
+        },
+        {
+          "rule": "typescript:S7727",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7728",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7731",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 10,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7734",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 3
+        },
+        {
+          "rule": "typescript:S7735",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 18,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7737",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 3,
+          "reference_only": 3
+        },
+        {
+          "rule": "typescript:S7740",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7741",
+          "captured_profile_active": true,
+          "matched": 7,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7743",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        {
+          "rule": "typescript:S7744",
+          "captured_profile_active": true,
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7754",
+          "captured_profile_active": true,
+          "matched": 17,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7758",
+          "captured_profile_active": true,
+          "matched": 7,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7763",
+          "captured_profile_active": true,
+          "matched": 6,
+          "native_only": 3,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7765",
+          "captured_profile_active": true,
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7766",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7770",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7780",
+          "captured_profile_active": true,
+          "matched": 20,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7781",
+          "captured_profile_active": true,
+          "matched": 0,
+          "native_only": 11,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S7786",
+          "captured_profile_active": true,
+          "matched": 8,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S8786",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S881",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 7,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S905",
+          "captured_profile_active": true,
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        {
+          "rule": "typescript:S909",
+          "captured_profile_active": false,
+          "matched": 0,
+          "native_only": 46,
+          "reference_only": 0
+        }
+      ],
+      "captured_active_profile_digests": {
+        "active-azureresourcemanager-page-1.json": "5cb8403fd8ad649af77e4835e20f135f78c55df4ee0b6fc4b9337c4d2e5a89a2",
+        "active-py-page-1.json": "e4660d37b0cddfa4ea1c43baafb8491e6b2b2a2cc5df8fef5365c1ae4667500d",
+        "active-kubernetes-page-1.json": "407e38fe054f9f756dfde75241df7b5c041f587ef61fe051f8fdfe05d70bae1f",
+        "active-cloudformation-page-1.json": "1177a9b19ea6a8f3a6caa26c23f010967f2d85532acaee407a4d01de6f9b0126",
+        "active-flex-page-1.json": "fb8478cf31ac6ff6fef66e63252c573af97b0a3a65985ab03429a8ef96dafa8c",
+        "active-web-page-1.json": "392637ccf65e33f335ca862cd9343cf0dac756080fc89ba871c4119b11e00749",
+        "active-cs-page-1.json": "863708691e3afc5f1b751163eb9c1dc8bf2e30b4e94a32f6d70fadec499cf1ef",
+        "active-java-page-1.json": "0713e9dd20c311c17b617f8739d70193e6b46de33ca18edf202a7c7c8e07c5ae",
+        "active-kotlin-page-1.json": "4c5e9198cd3adcf9051c42a1d114c1f300f79ea0cda1a0be2eebd7fb2a04be19",
+        "active-text-page-1.json": "1dd11eb20c029609ceac5b17e753de3ce178fd3100562e7415023867af134403",
+        "active-secrets-page-1.json": "b764cce641c382355279983211c84950d1510c485f96eb6a8eb2a94d0cc16677",
+        "active-json-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-terraform-page-1.json": "d27117cbd78e4b4a6ea0ea8dd8f7a54b33d6030015a2bce2de1c0a838c0109a5",
+        "active-vbnet-page-1.json": "87b1ca98716052347b88e18aaed6f7e2f2c03eea6627af05948b457a808685dd",
+        "active-yaml-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-go-page-1.json": "c167648c52c3427d971bea60d6c5d68b1021a6fc97642920af95b4646e7750cf",
+        "active-css-page-1.json": "b888c5813fb0fa07da6cfef357f814a1e711d68f011b08acc59810898f753122",
+        "active-js-page-1.json": "f713dfea16146d53798d5016e873ef742aae3efba124ae05451408194026c268",
+        "active-ts-page-1.json": "ea472a2089d67e8d1fd0fbc78219820812757b30de69f1df4c2a4f47f9fc06a1",
+        "active-jsp-page-1.json": "d4c62e45efced76e266d3980690a8665aba2226ec055cb2e2a4b5530d5ba4d2a",
+        "active-docker-page-1.json": "7cdd53cf778d028a81ee12cd67bded27fabcabb87bef6c2985ff549039cc7411",
+        "active-xml-page-1.json": "ae778485b4866a92ca2245255e17eb47ee530e1485e42b93a35def63228f8064",
+        "active-java-page-2.json": "aae267638515ec63d309deec690ffafd44d4669a61eb239b5304fb79defb3244",
+        "active-ipynb-page-1.json": "21bcb017776e5c513793a156563f02e33af82cb9b135ca5610322b9b16ebc1cd",
+        "active-ruby-page-1.json": "ea88c2c23aaeed6d2670ea4c2fd3df16ca55f744720f9c911bde7ad7094d32f7",
+        "active-rust-page-1.json": "8410ec8fea90d805006720b6ef1c4d45b70df0c1be510de07d06e948a6127cdb",
+        "active-php-page-1.json": "f97d5b361d6a96e417a9d4b08654a3caaede79494730c78d6346615e2d9c895a",
+        "active-scala-page-1.json": "10b56f083c441d7ee6ce2a535e2e90e90567506907085cf8a5fbc3ff284edac5"
+      },
+      "final_file_metric_comparison": {
+        "matched_files": 125,
+        "matched_cells": 375,
+        "differences": [],
+        "native_only": [],
+        "reference_only": []
+      }
+    }
+  ],
+  "limitations": [
+    "Raw profile-active-set differences are not detector failures by themselves.",
+    "Ordinary issue identity multisets do not include separately captured security hotspots.",
+    "Messages, secondary flows, quickfixes, and duplication equivalence require separate comparisons.",
+    "Werkzeug aligned full scope includes JavaScript; the Python helper qualification covers only its 52 Python files.",
+    "Raw captures referenced by digests are retained outside Git; this summary contains no source text or credentials.",
+    "Detailed primary identity inventories remain in external raw captures; per-rule counts and their SHA-256 digests are retained here."
+  ],
+  "accepted_native_binary_sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
+  "acceptance_label": "acceptance",
+  "file_metric_acceptance": {
+    "requests": {
+      "files": 19,
+      "differences": []
+    },
+    "werkzeug-python": {
+      "files": 53,
+      "differences": []
+    },
+    "commander": {
+      "files": 7,
+      "differences": []
+    },
+    "chi": {
+      "files": 35,
+      "differences": []
+    },
+    "zod": {
+      "files": 125,
+      "differences": []
+    }
+  },
+  "totals": {
+    "matched_scope_files": 239,
+    "matched_aggregate_metrics": 20,
+    "matched_file_metrics": 717,
+    "baseline_aggregate_metric_differences": 13,
+    "baseline_matched_identities": 525,
+    "final_matched_identities": 574,
+    "final_native_only": 6273,
+    "final_reference_only": 388
+  },
+  "previous_acceptance": {
+    "label": "final-integrated",
+    "binary_sha256": "0e138d97c6e20b8d24b4fe962b553602656d48066d05bdfc87d60047c00fd00e",
+    "identity_totals": {
+      "final_matched_identities": 535,
+      "final_native_only": 6652,
+      "final_reference_only": 427
+    }
+  },
+  "accepted_native_source_head": "96a282c05c40fae1bc73b7a8cc8b351f7653bef7",
+  "target_rule_qualifications": {
+    "python:S1172": {
+      "requests": {
+        "matched_primary_identities_and_messages": 2
+      },
+      "werkzeug-python": {
+        "matched_primary_identities_and_messages": 37
+      },
+      "reference_only": 0,
+      "native_only": 0,
+      "verification": "Independently compared acceptance report and captured reference multisets including full primary range and message.",
+      "regression_tests": [
+        "s1172_reports_complete_parameter_declaration",
+        "s1172_dynamic_lookups_do_not_hide_unrelated_parameters",
+        "s1172_callback_usage_resolves_to_the_defined_function",
+        "s1172_preserves_methods_used_as_callbacks_or_reassigned",
+        "s1172_branch_definitions_do_not_share_a_callback_exemption",
+        "s1172_same_named_member_of_another_class_does_not_hide_parameter"
+      ]
+    },
+    "typescript:S101": {
+      "zod_reference": 13,
+      "zod_native": 13,
+      "matched": 13,
+      "reference_only": 0,
+      "native_only": 0,
+      "removed_false_positives": 345,
+      "worker_receipt_sha256": "065b144b8c88090a5c1104ba11733eea7e2f91252ea3e745edbe51e98ff8eaf7"
+    }
+  },
+  "legacy_parser_controls": {
+    "positive_regression": "standalone_source_metrics_accept_supported_python2_syntax",
+    "negative_regression": "standalone_source_metrics_reject_invalid_source_even_with_legacy_statements",
+    "accepted_shapes": [
+      "print statement",
+      "exec statement including globals/locals form",
+      "redirected print",
+      "backtick expression",
+      "<> comparison"
+    ],
+    "rejected_shapes": [
+      "non-default parameter after default",
+      "positional argument after keyword argument",
+      "invalid f-string conversion",
+      "malformed or truncated legacy statements",
+      "invalid modern statement alongside legacy statement"
+    ],
+    "qualification": "bounded local parser controls, separate from real-project Sonar captures",
+    "test_log_sha256": "e1ae8622d7e857f526af977c37e6bfa4f0de122fbaf41f645cc6f5b30da3906f"
+  },
+  "reference_server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+}

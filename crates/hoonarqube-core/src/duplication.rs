@@ -216,6 +216,8 @@ struct PreparedFile {
     ends: Vec<u32>,
     byte_starts: Vec<u32>,
     byte_ends: Vec<u32>,
+    /// Sorted source-bearing token indices, excluding zero-byte structure markers.
+    source_tokens: Vec<usize>,
     prefix_a: Vec<u64>,
     prefix_b: Vec<u64>,
 }
@@ -423,7 +425,11 @@ fn build_prepared_file(
     let mut ends = Vec::with_capacity(ids.len());
     let mut byte_starts = Vec::with_capacity(ids.len());
     let mut byte_ends = Vec::with_capacity(ids.len());
-    for token in &facts.tokens {
+    let mut source_tokens = Vec::with_capacity(ids.len());
+    for (index, token) in facts.tokens.iter().enumerate() {
+        if token.start_byte < token.end_byte {
+            source_tokens.push(index);
+        }
         starts.push(token.start_line);
         ends.push(token.end_line);
         byte_starts.push(token.start_byte);
@@ -440,6 +446,7 @@ fn build_prepared_file(
         ends,
         byte_starts,
         byte_ends,
+        source_tokens,
         prefix_a,
         prefix_b,
     })
@@ -1125,8 +1132,11 @@ fn eligible_span(
     let end = start
         .checked_add(length - 1)
         .ok_or_else(|| "duplication span index overflows usize".to_owned())?;
-    let start_line = file.starts[start];
-    let end_line = file.ends[end];
+    let Some((first, last)) = source_endpoints(file, start, end) else {
+        return Ok(false);
+    };
+    let start_line = file.starts[first];
+    let end_line = file.ends[last];
     let span = end_line
         .checked_sub(start_line)
         .and_then(|value| value.checked_add(1))
@@ -1328,23 +1338,26 @@ fn project_group_occurrences(
     projected
 }
 
+/// Select the exact source endpoints used by both eligibility and reporting.
+/// Binary searches keep marker-heavy candidates bounded without scanning their
+/// whole token ranges again. Synthetic tokens still count toward `min_tokens`.
+fn source_endpoints(file: &PreparedFile, start: usize, end: usize) -> Option<(usize, usize)> {
+    let first_index = file.source_tokens.partition_point(|&token| token < start);
+    let after_last = file.source_tokens.partition_point(|&token| token <= end);
+    if first_index >= after_last {
+        return None;
+    }
+    Some((
+        file.source_tokens[first_index],
+        file.source_tokens[after_last - 1],
+    ))
+}
+
 fn project_occurrence(
     occurrence: TokenOccurrence,
     file: &PreparedFile,
 ) -> Option<ProjectedOccurrence> {
-    let mut first_nonempty = None;
-    let mut last_nonempty = None;
-    for index in occurrence.start..=occurrence.end {
-        if file.byte_starts[index] < file.byte_ends[index] {
-            if first_nonempty.is_none() {
-                first_nonempty = Some(index);
-            }
-            last_nonempty = Some(index);
-        }
-    }
-    let (Some(first), Some(last)) = (first_nonempty, last_nonempty) else {
-        return None;
-    };
+    let (first, last) = source_endpoints(file, occurrence.start, occurrence.end)?;
     Some(ProjectedOccurrence {
         file: occurrence.file,
         path: file.path.clone(),
@@ -1661,6 +1674,51 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn empty_structure_markers_do_not_extend_minimum_physical_span() {
+        let symbols = &["enter", "code", "exit"];
+        let units = &[("enter", 1, 1), ("code", 2, 10), ("exit", 11, 11)];
+        let mut first = file("a.py", Language::Python, symbols, units, 11);
+        for index in [0, 2] {
+            first.facts.tokens[index].end_byte = first.facts.tokens[index].start_byte;
+        }
+        let mut second = first.clone();
+        second.path = PathBuf::from("b.py");
+        let inputs = [first, second];
+        let below = detect_duplications(&inputs, &options(3, 10)).expect("detection");
+        assert!(
+            below.groups.is_empty(),
+            "nine real rows cannot meet ten-row minimum"
+        );
+        assert!(
+            detect_duplications(&inputs, &options(4, 9))
+                .expect("detection")
+                .groups
+                .is_empty()
+        );
+        let at_limit = detect_duplications(&inputs, &options(3, 9)).expect("detection");
+        assert_eq!(at_limit.groups.len(), 1);
+        assert_eq!(at_limit.metrics.duplicated_lines, 18);
+        for occurrence in &at_limit.groups[0].occurrences {
+            assert_eq!((occurrence.start_line, occurrence.end_line), (2, 10));
+        }
+    }
+
+    #[test]
+    fn synthetic_only_matches_have_no_source_span() {
+        let symbols = &["enter", "exit"];
+        let units = &[("enter", 1, 1), ("exit", 20, 20)];
+        let mut first = file("a.py", Language::Python, symbols, units, 20);
+        for token in &mut first.facts.tokens {
+            token.end_byte = token.start_byte;
+        }
+        let mut second = first.clone();
+        second.path = PathBuf::from("b.py");
+        let result = detect_duplications(&[first, second], &options(2, 10)).expect("detection");
+        assert!(result.groups.is_empty());
+        assert_eq!(result.metrics.duplicated_lines, 0);
     }
 
     #[test]

@@ -31,5 +31,7 @@ use crate::context::AnalysisContext;
 
 /// Runs every rule of this family.
 pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
-    walker::run(ctx)
+    let mut issues = walker::run(ctx);
+    issues.extend(s4158_s4158_member_expression::check(ctx));
+    issues
 }

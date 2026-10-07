@@ -21,7 +21,7 @@ use crate::duplication::{
     DuplicationFile, DuplicationOptions, DuplicationResult, detect_duplications,
 };
 
-use crate::source_facts::{SourceFacts, collect_source_facts, source_exceeds_limits};
+use crate::source_facts::{SourceFacts, collect_source_facts_with_metrics, source_exceeds_limits};
 use crate::{AnalyzerOptions, Language, analyze, is_razor_path, language_for_path};
 
 /// One input file and the facts gathered from its single source snapshot.
@@ -68,6 +68,22 @@ pub fn analyze_project_file(
         };
     }
 
+    // Scope affects both MAIN-rule suppression and Go's test function name
+    // pattern. Pass the classification into analysis before either runs.
+    let scoped_options;
+    let options = if classification == FileClassification::Test
+        && language_for_path(path) == Some(Language::Go)
+    {
+        scoped_options = {
+            let mut scoped = options.clone();
+            scoped.go.test_scope = Some(true);
+            scoped
+        };
+        &scoped_options
+    } else {
+        options
+    };
+
     let mut report = if is_razor_path(path) || source_exceeds_limits(path, source) {
         // Razor and resource-sized input have no safe native-analysis path;
         // source facts still retain bounded metrics and the failure reason.
@@ -83,7 +99,18 @@ pub fn analyze_project_file(
         // outside the conventional test directories the analyzer recognizes.
         hoonarqube_csharp::retain_test_scope_issues(report);
     }
-    let facts = collect_source_facts(path, source);
+    let parsed_metrics = report
+        .as_ref()
+        .filter(|report| {
+            language_for_path(path) == Some(Language::Python)
+                && options.profile != crate::RuleProfile::GithubCodeQuality
+                && !report
+                    .issues
+                    .iter()
+                    .any(|issue| issue.rule_key == "python:ParsingError")
+        })
+        .map(|report| &report.metrics);
+    let facts = collect_source_facts_with_metrics(path, source, parsed_metrics);
     let mut error = None;
     if let Some(facts) = facts.as_ref() {
         if let Some(facts_error) = facts.error.as_ref() {
@@ -737,9 +764,9 @@ mod tests {
             false,
         );
         let file_report = input.report.as_ref().expect("JavaScript report");
-        assert_eq!(file_report.metrics.lines, 3);
+        assert_eq!(file_report.metrics.lines, 4);
         assert_eq!(file_report.metrics.code_lines, 2);
-        assert_eq!(file_report.metrics.comment_lines, 1);
+        assert_eq!(file_report.metrics.comment_lines, 0);
 
         let report = build_project_report(
             vec![input],
@@ -750,13 +777,117 @@ mod tests {
         .expect("valid options");
         assert!(report.project.complete);
         assert_eq!(report.project.metrics.files, 1);
-        assert_eq!(report.project.metrics.lines, 3);
+        assert_eq!(report.project.metrics.lines, 4);
         assert_eq!(report.project.metrics.code_lines, 2);
-        assert_eq!(report.project.metrics.comment_lines, 1);
-        assert_eq!(report.files[0].metrics.lines, 3);
+        assert_eq!(report.project.metrics.comment_lines, 0);
+        assert_eq!(report.files[0].metrics.lines, 4);
         assert_eq!(report.files[0].metrics.code_lines, 2);
-        assert_eq!(report.files[0].metrics.comment_lines, 1);
+        assert_eq!(report.files[0].metrics.comment_lines, 0);
     }
+    #[test]
+    fn python_native_parser_errors_fail_project_measurements() {
+        for source in [
+            "def f(a=1, b):\n    pass\n",
+            "f(a=1, 2)\n",
+            "x = f'{1!z}'\n",
+        ] {
+            for profile in [
+                crate::RuleProfile::SonarParity,
+                crate::RuleProfile::GithubCodeQuality,
+            ] {
+                let options = AnalyzerOptions {
+                    profile,
+                    ..AnalyzerOptions::default()
+                };
+                let input = analyze_project_file(
+                    Path::new("broken.py"),
+                    source,
+                    &options,
+                    FileClassification::Source,
+                    false,
+                );
+                assert!(input.error.is_some(), "{profile:?}: {source}");
+                assert!(input.facts.as_ref().unwrap().error.is_some());
+                if profile == crate::RuleProfile::SonarParity {
+                    assert!(
+                        input
+                            .report
+                            .as_ref()
+                            .unwrap()
+                            .issues
+                            .iter()
+                            .any(|issue| issue.rule_key == "python:ParsingError")
+                    );
+                }
+                let report = build_project_report(
+                    vec![input],
+                    Vec::new(),
+                    Vec::new(),
+                    &DuplicationOptions::default(),
+                )
+                .unwrap();
+                assert!(!report.project.complete);
+                assert_eq!(report.project.metrics.files, 0);
+                assert_eq!(report.project.files[0].status, MeasurementStatus::Failed);
+            }
+            assert!(
+                crate::source_facts::collect_source_facts(Path::new("broken.py"), source)
+                    .unwrap()
+                    .error
+                    .is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn language_metric_helpers_match_public_project_measurements() {
+        for (path, source, code, comments) in [
+            (
+                "sample.py",
+                "\"\"\"Module documentation.\"\"\"\nx = 1 # inline\n",
+                1,
+                2,
+            ),
+            (
+                "sample.js",
+                "#!/usr/bin/env node\n// header\nconst value = 1;\n// body\n",
+                1,
+                1,
+            ),
+            ("sample.ts", "const value = `first\n   \nlast`;\n", 3, 0),
+            ("empty.js", "", 0, 0),
+            ("empty.py", "", 0, 0),
+        ] {
+            let input = analyze_project_file(
+                Path::new(path),
+                source,
+                &AnalyzerOptions::default(),
+                FileClassification::Source,
+                false,
+            );
+            assert!(input.error.is_none(), "{path}: {:?}", input.error);
+            let standalone =
+                crate::source_facts::collect_source_facts(Path::new(path), source).unwrap();
+            assert_eq!(input.facts.as_ref().unwrap().metrics, standalone.metrics);
+            assert_eq!(standalone.metrics.code_lines, code, "{path}");
+            assert_eq!(standalone.metrics.comment_lines, comments, "{path}");
+            let report = build_project_report(
+                vec![input],
+                Vec::new(),
+                Vec::new(),
+                &DuplicationOptions::default(),
+            )
+            .unwrap();
+            assert!(report.project.complete);
+            assert_eq!(report.project.metrics.code_lines, u64::from(code));
+            assert_eq!(report.project.metrics.comment_lines, u64::from(comments));
+            assert_eq!(report.files[0].metrics, standalone.metrics);
+            if source.is_empty() {
+                assert_eq!(report.project.metrics.lines, 1);
+            }
+        }
+    }
+
     #[test]
     fn resource_limited_source_skips_native_analyzer() {
         let source = "\n".repeat(4 * 1024 * 1024 + 1);
@@ -770,7 +901,7 @@ mod tests {
         assert!(input.report.is_none());
         let facts = input.facts.as_ref().expect("bounded facts");
         assert!(facts.error.is_some());
-        assert_eq!(facts.metrics.lines, 4 * 1024 * 1024 + 1);
+        assert_eq!(facts.metrics.lines, 4 * 1024 * 1024 + 2);
         assert_eq!(facts.metrics.code_lines, 0);
         assert_eq!(facts.metrics.comment_lines, 0);
 
@@ -881,5 +1012,77 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn explicit_test_classification_suppresses_go_main_scope_rules() {
+        let source = "package p\nfunc empty() {}\nfunc Test_value() { println(1) }\nfunc same(x int) bool { return x == x }\n";
+        let analyze_scope = |classification| {
+            analyze_project_file(
+                Path::new("checks.go"),
+                source,
+                &AnalyzerOptions::default(),
+                classification,
+                false,
+            )
+            .report
+            .expect("Go report")
+            .issues
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect::<Vec<_>>()
+        };
+        let main = analyze_scope(FileClassification::Source);
+        assert!(main.iter().any(|key| key == "go:S1186"), "{main:?}");
+        assert!(main.iter().any(|key| key == "go:S100"), "{main:?}");
+        assert!(main.iter().any(|key| key == "go:S1764"), "{main:?}");
+        let tests = analyze_scope(FileClassification::Test);
+        assert!(!tests.iter().any(|key| key == "go:S1186"), "{tests:?}");
+        assert!(!tests.iter().any(|key| key == "go:S100"), "{tests:?}");
+        assert!(tests.iter().any(|key| key == "go:S1764"), "{tests:?}");
+    }
+
+    #[test]
+    fn go_test_filename_keeps_conventional_rule_scope_without_explicit_patterns() {
+        let source = "package p\nfunc empty() {}\nfunc Test_value() { println(1) }\n";
+        let report = analyze_project_file(
+            Path::new("value_test.go"),
+            source,
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        )
+        .report
+        .expect("Go report");
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| matches!(issue.rule_key.as_str(), "go:S1186" | "go:S100")),
+            "{:?}",
+            report.issues
+        );
+    }
+
+    #[test]
+    fn go_1_26_expression_new_produces_complete_project_measurements() {
+        let source = "package p\nfunc value() *int { return new(1 + 2) }\n";
+        let file = analyze_project_file(
+            Path::new("value.go"),
+            source,
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        );
+        assert!(file.error.is_none(), "{:?}", file.error);
+        let report = build_project_report(
+            vec![file],
+            vec![PathBuf::from(".")],
+            vec![],
+            &DuplicationOptions::default(),
+        )
+        .expect("project report");
+        assert!(report.project.complete, "{:?}", report.project.warnings);
+        assert_eq!(report.project.metrics.code_lines, 2);
+        assert!(report.project.duplication.is_some());
     }
 }

@@ -53,7 +53,7 @@ impl Default for RuleOptions {
             secret_entropy_sensibility: 5.0,
             secret_words: split_words("api[_.-]?key,auth,credential,secret,token"),
             format_functions: r"^[_a-z][a-zA-Z0-9]*$".to_string(),
-            format_classes: r"^[A-Z][a-zA-Z0-9]*$".to_string(),
+            format_classes: r"^\$?[A-Z][a-zA-Z0-9]*$".to_string(),
             format_variables: r"^[_$A-Za-z][$A-Za-z0-9]*$|^[_$A-Z][_$A-Z0-9]+$".to_string(),
             duplicate_string_threshold: 3,
             ignored_strings: split_words("application/json"),

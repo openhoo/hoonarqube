@@ -64,7 +64,7 @@ use crate::rules::trailing_whitespace::check_trailing_whitespace;
 /// Sonar rules from the frozen catalog that declare scope `MAIN`.
 /// `SonarQube` never reports MAIN-scope rules on test sources, so these
 /// findings are dropped for test-scoped files (conventional test directories,
-/// `test*`/`conftest*`/`*_test.py` names, per the reference's test
+/// `test_*`/`conftest.py`/`*_test.py` names, per the reference's test
 /// detection). The remaining rules declare scope `ALL` (or `TEST`) and still
 /// apply; documentation trees such as `docs/` stay MAIN scope because the
 /// reference keeps reporting MAIN rules there.
@@ -585,6 +585,25 @@ pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
 }
 
 mod github_quality;
+
+/// Computes Python file metrics without running detectors.
+///
+/// Standalone project facts use this entry point; normal analysis reuses its
+/// existing parse through the same helper. Invalid Python returns an error
+/// so callers cannot present recovered syntax as a complete measurement.
+///
+/// # Errors
+/// Returns an error when the Python parser reports malformed source. Supported
+/// Python 2 constructs are validated through a narrow syntax translation;
+/// measurements retain the original source tokens and positions.
+pub fn source_metrics(source: &str) -> Result<hoonarqube_ir::FileMetrics, String> {
+    let parsed = crate::support::parse(source);
+    if !parsed.errors().is_empty() && !crate::support::has_valid_legacy_syntax(&parsed, source) {
+        return Err("Python source contains parser errors".to_string());
+    }
+    let index = ruff_source_file::LineIndex::from_source_text(source);
+    Ok(file_metrics(&parsed, source, &index))
+}
 
 /// Runs GitHub Code Quality queries and computes file metrics from one parse.
 #[must_use]

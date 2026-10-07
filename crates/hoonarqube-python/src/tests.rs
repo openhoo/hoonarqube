@@ -17,11 +17,11 @@ fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
 
 #[test]
 fn metrics_count_code_comment_and_blank_lines() {
-    let report = scan("x = 1\n# only a comment\n\n");
+    let report = scan("# only a comment\nx = 1\n\n");
     assert_eq!(
         report.metrics,
         hoonarqube_ir::FileMetrics {
-            lines: 3,
+            lines: 4,
             code_lines: 1,
             comment_lines: 1,
         }
@@ -411,6 +411,7 @@ fn s5828_flags_invalid_open_modes_only() {
 #[test]
 fn s4790_flags_weak_hashes_unless_not_used_for_security() {
     let flagged = scan(concat!(
+        "import hashlib\n",
         "hashlib.md5(b\"x\")\n",
         "hashlib.new(\"sha1\")\n",
         "hashlib.sha1(b\"y\", usedforsecurity=False)\n"
@@ -2108,13 +2109,14 @@ fn s5850_flags_ungrouped_anchored_alternations() {
 #[test]
 fn s2092_requires_secure_cookie_flag() {
     let flagged = concat!(
+        "from flask import Response\nresp = Response()\n",
         "resp.set_cookie(\"k\", \"v\")\n",
         "resp.set_cookie(\"k\", \"v\", secure=False)\n"
     );
     assert_eq!(findings(&scan(flagged), "python:S2092").len(), 2);
     assert!(
         findings(
-            &scan("resp.set_cookie(\"k\", \"v\", secure=True)\n"),
+            &scan("from flask import Response\nresp = Response()\nresp.set_cookie(\"k\", \"v\", secure=True)\n"),
             "python:S2092"
         )
         .is_empty()
@@ -2123,13 +2125,12 @@ fn s2092_requires_secure_cookie_flag() {
 
 #[test]
 fn s3330_requires_httponly_cookie_flag() {
-    // Sonar treats any present httponly kwarg as compliant — the value
-    // need not be a literal True.
-    let flagged = "resp.set_cookie(\"k\", \"v\")\n";
+    // Unknown flags stay conservative, but explicit False disables HttpOnly.
+    let flagged = "from flask import Response\nresp = Response()\nresp.set_cookie(\"k\", \"v\")\n";
     assert_eq!(findings(&scan(flagged), "python:S3330").len(), 1);
     assert!(
         findings(
-            &scan("resp.set_cookie(\"k\", \"v\", httponly=False)\n"),
+            &scan("from flask import Response\nresp = Response()\nresp.set_cookie(\"k\", \"v\", httponly=settings.HTTPONLY)\n"),
             "python:S3330"
         )
         .is_empty()
@@ -5209,4 +5210,126 @@ fn s9083_require_parentheses_parameter_inverts_style() {
         &options,
     );
     assert!(findings(&clean, "python:S9083").is_empty());
+}
+
+#[test]
+fn production_test_module_keeps_main_rules_like_werkzeug() {
+    // Werkzeug 3.1.3 src/werkzeug/test.py:68 is a production multipart
+    // encoder, not a pytest module. Live Sonar reports its random() call.
+    let source = "from random import random\nfrom time import time\ndef encode_multipart():\n    boundary = f'WerkzeugFormPart_{time()}{random()}'\n    return boundary\n";
+    for path in [
+        "src/werkzeug/test.py",
+        "src/testimony.py",
+        "src/testing_helpers.py",
+    ] {
+        let report = scan_at(PathBuf::from(path), source);
+        assert_eq!(findings(&report, "python:S2245").len(), 1, "{path}");
+    }
+    for path in [
+        "tests/test_encoder.py",
+        "src/test_encoder.py",
+        "src/encoder_test.py",
+    ] {
+        let report = scan_at(PathBuf::from(path), source);
+        assert!(findings(&report, "python:S2245").is_empty(), "{path}");
+    }
+}
+
+#[test]
+fn metrics_match_live_python_docstrings_and_inline_comments() {
+    let source = concat!(
+        "\"\"\"Module docs.\n\nMore docs.\n\"\"\"\n",
+        "# comment text\n### ---\n# NOSONAR ignored text\n",
+        "x = 1  # inline text\n",
+        "class Example:\n    \"\"\"Class docs.\n    More.\n    \"\"\"\n",
+        "    def method(self):\n        \"\"\"Method docs.\n\n        More.\n        \"\"\"\n        return 1\n",
+        "text = \"\"\"Ordinary data.\n\nMore data.\n\"\"\"\n",
+    );
+    let report = scan(source);
+    assert_eq!(report.metrics.lines, 23);
+    assert_eq!(report.metrics.code_lines, 8);
+    assert_eq!(report.metrics.comment_lines, 13);
+}
+
+#[test]
+fn metrics_match_live_docstring_parentheses_and_comment_boundaries() {
+    let source = concat!(
+        "\"\"\"Module docs.\"\"\"; x = 1\n",
+        "#\n####\n# ☀️\n# 汉字\n# １２３\n# TODO\n# noqa\n# NOSONAR\n",
+        "x = 2  # useful inline\n",
+        "value = (\n    \"data one\"\n    \"data two\"\n)\n",
+        "def run():\n    (\n        \"doc one\"\n        \"doc two\"\n    )\n",
+        "    \"\"\"not a docstring anymore\"\"\"\n    return value\n",
+    );
+    let report = scan(source);
+    assert_eq!(report.metrics.lines, 22);
+    assert_eq!(report.metrics.code_lines, 12);
+    assert_eq!(report.metrics.comment_lines, 6);
+}
+
+#[test]
+fn standalone_source_metrics_preserve_parser_errors_and_line_endings() {
+    assert!(crate::source_metrics("def broken(:\n").is_err());
+    assert_eq!(crate::source_metrics("").unwrap().lines, 1);
+    for source in ["x = 1\n", "x = 1\r\n", "x = 1\r"] {
+        let metrics = crate::source_metrics(source).unwrap();
+        assert_eq!(metrics.lines, 2);
+        assert_eq!(metrics.code_lines, 1);
+    }
+}
+
+#[test]
+fn metrics_match_live_import_delimiters_and_trailing_comments() {
+    let imports = "from os import (\n    path,  # imported name inline\n    # before closing parenthesis\n)\n# EOF comment\n";
+    let report = scan(imports);
+    assert_eq!(report.metrics.lines, 6);
+    assert_eq!(report.metrics.code_lines, 2);
+    assert_eq!(report.metrics.comment_lines, 0);
+    let trailing = concat!(
+        "class Example:\n    x: int  # first annotation inline\n    y: str  # last annotation inline\n",
+        "    # class tail one\n    # class tail two\n\n# outer comment\nz = 1  # outer inline\n# EOF comment\n",
+    );
+    let report = scan(trailing);
+    assert_eq!(report.metrics.lines, 10);
+    assert_eq!(report.metrics.code_lines, 4);
+    assert_eq!(report.metrics.comment_lines, 6);
+}
+
+#[test]
+fn standalone_source_metrics_accept_supported_python2_syntax() {
+    let source = include_str!("../../../tools/oracle/fixtures/python2/source.py");
+    let metrics = crate::source_metrics(source).expect("supported Python 2 oracle fixture");
+    assert_eq!(metrics.lines, 6);
+    assert_eq!(metrics.code_lines, 5);
+    for source in [
+        "value = `a, b`\n",
+        "result = left <> right\n",
+        "if ready: print value\nx = 1; exec code\n",
+        "exec code in globals, locals\nprint >>stream, value\n",
+        "value = `1\n + 2`\n",
+        "print one, two, three,\n",
+        "print factory(one, *values)\n",
+    ] {
+        assert!(crate::source_metrics(source).is_ok(), "{source:?}");
+    }
+}
+
+#[test]
+fn standalone_source_metrics_reject_invalid_source_even_with_legacy_statements() {
+    for source in [
+        "def f(a=1, b):\n    pass\n",
+        "f(a=1, 2)\n",
+        "f'{1!z}'\n",
+        "print 1\ndef f(a=1, b):\n    pass\n",
+        "exec 'code'\nf(a=1, 2)\n",
+        "value = `x`\nf'{1!z}'\n",
+        "print value +\n",
+        "exec (code +\n",
+        "value = `broken\n",
+        "value = ``\n",
+        "exec code, other\n",
+        "print one, *values\n",
+    ] {
+        assert!(crate::source_metrics(source).is_err(), "{source:?}");
+    }
 }

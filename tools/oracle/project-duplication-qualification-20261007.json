@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "claim": "bounded_project_duplication_observations_not_full_cpd_parity",
+  "date": "2026-10-07",
+  "reference_version": "26.9.0.129388",
+  "native_source_head": "96a282c05c40fae1bc73b7a8cc8b351f7653bef7",
+  "integrated_fix_commit": "e2124e96d5622f98263bacce5bdc4d7b09f16fd5",
+  "worker_fix_commit": "6f6eb373b61e9ab52ab9d73930ab3b012b2194a1",
+  "accepted_native_binary_sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
+  "native_options": {
+    "min_tokens": 100,
+    "min_lines": 10,
+    "min_statements": 10
+  },
+  "reference_configuration": {
+    "cpd_exclusions": "scanner explicitly passes empty",
+    "project_settings": "no persisted overrides returned for CPD exclusions or py/js/ts/go min_tokens/min_lines"
+  },
+  "projects": [
+    {
+      "name": "requests",
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "sources": [
+        "src/requests"
+      ],
+      "exclude": [],
+      "native_before": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "native_after": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "reference": {
+        "duplicated_lines_density": "0.0",
+        "duplicated_lines": "0",
+        "duplicated_blocks": "0"
+      },
+      "line_and_block_counts_match": true,
+      "density_matches_reference_display": true,
+      "capture_digests": {
+        "acceptance.json": "6a64f2c886b7101ad40a4b5669029890906de37e6294f39f0dd6d404e73a3465",
+        "acceptance-comparison.json": "987c65ae6959e7579bf1d6785e0e909482f3a9c966e5a5569a9c7a2892331390",
+        "acceptance-source-files.json": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538",
+        "measures.json": "3cc95b455c8865404f5a558cbf0373ad5eb8d0f6472418802a8c72a1e7f67a2d"
+      }
+    },
+    {
+      "name": "werkzeug-python",
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "sources": [
+        "src/werkzeug"
+      ],
+      "exclude": [
+        "**/*.css"
+      ],
+      "native_before": {
+        "duplicated_lines": 59,
+        "duplicated_blocks": 6,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 0.27110232964205305
+      },
+      "native_after": {
+        "duplicated_lines": 32,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 0.14703855167026605
+      },
+      "reference": {
+        "duplicated_lines_density": "0.1",
+        "duplicated_lines": "32",
+        "duplicated_blocks": "2"
+      },
+      "line_and_block_counts_match": true,
+      "density_matches_reference_display": true,
+      "capture_digests": {
+        "acceptance.json": "38547bdbaf548cc8e72e9acd5a98938b388ae043bae14e2460fffeeb0c01bdd5",
+        "acceptance-comparison.json": "4476139447acd4ec2f1a71ae67d0ba2d343aa22ac57f250db0372b85ef2c56b4",
+        "acceptance-source-files.json": "2cf8115eb7a20b8624070a54a4f8cd358b80d14a84ca311401176e38f124121d",
+        "measures.json": "5ffb43cc434150c051c5fe2fbf22829bc23f8e7df813f16214015488c851006d"
+      }
+    },
+    {
+      "name": "commander",
+      "source_commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "sources": [
+        "index.js",
+        "lib"
+      ],
+      "exclude": [],
+      "native_before": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "native_after": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "reference": {
+        "duplicated_lines_density": "0.0",
+        "duplicated_lines": "0",
+        "duplicated_blocks": "0"
+      },
+      "line_and_block_counts_match": true,
+      "density_matches_reference_display": true,
+      "capture_digests": {
+        "acceptance.json": "22e4c2d20282e95e1b3fb9974b9d23c22f2de21c63302f32b37c9bc23e05ae32",
+        "acceptance-comparison.json": "a5a4fc369531a43587cbad1b8ae8bfcc27626c679e097d704a69bbf4f0ec9c8a",
+        "acceptance-source-files.json": "ccaa96ac92b5ebe9407388880c7f96d3a475ea883de7e8227f1c779962deeed0",
+        "measures.json": "c0cc5ceff5b76e01245166e964a3c7fa823783d99d4bbf405f39d9f3f15c936c"
+      }
+    },
+    {
+      "name": "chi",
+      "source_commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "sources": [
+        "."
+      ],
+      "exclude": [
+        "**/*_test.go",
+        "_examples/**"
+      ],
+      "native_before": {
+        "duplicated_lines": 56,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 1.2626832018038332
+      },
+      "native_after": {
+        "duplicated_lines": 56,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 1.2626832018038332
+      },
+      "reference": {
+        "duplicated_lines_density": "1.3",
+        "duplicated_lines": "56",
+        "duplicated_blocks": "2"
+      },
+      "line_and_block_counts_match": true,
+      "density_matches_reference_display": true,
+      "capture_digests": {
+        "acceptance.json": "ec694590d92ed143f5e87494065f71e6768818cd900973a02ded16cb89ecc996",
+        "acceptance-comparison.json": "f9f7a10292e325c07ea879b6a26e8318d18f56db398a3e594829c802077f9e7d",
+        "acceptance-source-files.json": "20a4fd734e54c14a1aba7344c32112874e7ec3ec1ba3a516f43d8c5d72d3399c",
+        "measures.json": "27285ede229c14a8a5af03a5c6ff0b0fc69a002ba644a545505e2d42c9a2d9ee"
+      }
+    },
+    {
+      "name": "zod",
+      "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "sources": [
+        "packages/zod/src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benchmarks/**"
+      ],
+      "native_before": {
+        "duplicated_lines": 7177,
+        "duplicated_blocks": 424,
+        "duplicated_files": 69,
+        "duplicated_lines_density": 18.961690885072656
+      },
+      "native_after": {
+        "duplicated_lines": 7177,
+        "duplicated_blocks": 424,
+        "duplicated_files": 69,
+        "duplicated_lines_density": 18.961690885072656
+      },
+      "reference": {
+        "duplicated_lines_density": "13.4",
+        "duplicated_lines": "5084",
+        "duplicated_blocks": "1130"
+      },
+      "line_and_block_counts_match": false,
+      "density_matches_reference_display": false,
+      "capture_digests": {
+        "acceptance.json": "ebe50cbc2105c928db685c9d2202531057f7439349668b7f35014df1187a2692",
+        "acceptance-comparison.json": "6bd50a9fe3375a6112c6a9a84215a2025a5b60da51cd67f1c21bbdb1e9f2a09a",
+        "acceptance-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672",
+        "measures.json": "06f4421d409ce0eed95d21f214544611b960065d570967a1f4063e49cd4e766f"
+      }
+    }
+  ],
+  "remaining_zod": {
+    "reference_blocks": 1130,
+    "reference_unique_file_line_ranges": 1130,
+    "native_blocks": 424,
+    "reference_lines": 5084,
+    "native_lines": 7177,
+    "selected_reference_samples": {
+      "classic/checks.ts": "6\u201330 versus native5\u201330; mini/checks.ts8\u201332 versus native7\u201332",
+      "classic/from-json-schema.ts": "reference no groups; native self-overlapping35\u2013101 versus36\u2013102 and additional later clone pair"
+    },
+    "interpretation": "Token exclusions, marker stream, normalization and retained overlapping maximal groups differ; no full CPD equivalence claim.",
+    "captures": [
+      "zod-cpd-all-blocks-reference.json",
+      "zod-cpd-grouping-audit.json",
+      "zod-cpd-selected-blocks-reference.json",
+      "duplication-effective-settings.json"
+    ],
+    "sonarjs_source_commit": "ab3d9f370626e3bf35fb6005962de9ce567cb845",
+    "sonarjs_source_file": "packages/analysis/src/jsts/analysis/file-artifacts.ts",
+    "sonarjs_source_sha256": "cce699684fe65f203478681fc3824a836f5ed29f65bccc39c37220c19401f163"
+  },
+  "validation": {
+    "regression_red": "observed exit101, nine real rows incorrectly accepted",
+    "duplication_tests": 18,
+    "duplication_tests_status": "passed",
+    "core_all_target_clippy": "passed -D warnings",
+    "fmt": "passed",
+    "diff_check": "passed"
+  },
+  "limitations": [
+    "Equality of empty/reference project measures is bounded to pinned source scopes.",
+    "Density comparisons round native percentages to the one-decimal reference display.",
+    "Zod lexical normalization, import exclusions and maximal-group semantics remain different.",
+    "Rejected cross-worktree cached binary replay is excluded from acceptance."
+  ],
+  "matched_projects": 4,
+  "reference_capture_digests": {
+    "werkzeug-cpd-blocks-reference.json": "d8d0c919494f258a982f0646ab7b9a5a5fda62478657484a6cfb9827030f6a26",
+    "chi-cpd-blocks-reference.json": "f514e6c9486cf7f2877636f0c6cb06074ab260a9a69746a001ba894cc31b4b20",
+    "zod-cpd-all-blocks-reference.json": "c8d8bd79037035db3ef093ef082b84073eab746caced21a34f3aece40c5341ea",
+    "zod-cpd-grouping-audit.json": "69ee60206ec898123d639c9ec11f5b7971848329e300635f8f15e541db096c03",
+    "zod-cpd-selected-blocks-reference.json": "8333a817194856392005dee451ec3626fc9be98e4a655a272f1fbeb80a96f409",
+    "duplication-effective-settings.json": "3f9eebbae797652d0303ab8b467bda5ea219cf426338d9e3081790140db57444"
+  },
+  "previous_acceptance": {
+    "label": "second-pass",
+    "native_source_head": "22df1621f28893eca6bbb5e57cb1f45029382029",
+    "binary_sha256": "bf961ee874b9022370fda084a78868249e8b8393db3822e0f1b0a03a941802a8"
+  },
+  "acceptance_label": "acceptance",
+  "reference_server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+}

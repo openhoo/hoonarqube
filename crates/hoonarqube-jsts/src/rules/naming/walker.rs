@@ -593,14 +593,8 @@ impl<'a> Visit<'a> for NameFormatCollector<'a, '_> {
     }
 
     fn visit_expression(&mut self, it: &Expression<'a>) {
-        match it {
-            Expression::FunctionExpression(function) => {
-                self.check_function_name(function.id.as_ref());
-            }
-            Expression::ClassExpression(class) => {
-                self.check_type_name("class", class.id.as_ref());
-            }
-            _ => {}
+        if let Expression::FunctionExpression(function) = it {
+            self.check_function_name(function.id.as_ref());
         }
         walk_expression(self, it);
     }
@@ -780,6 +774,60 @@ mod tests {
         let ts_report = ts("interface goodInterface {}\ninterface GoodInterface {}\n");
         assert_eq!(count_key(&report_keys(&ts_report), "typescript:S101"), 1);
         assert_eq!(count_key(&report_keys(&ts_report), "typescript:S100"), 0);
+    }
+
+    #[test]
+    fn s101_catalog_default_accepts_one_dollar_prefix() {
+        let report = ts(
+            "interface $ZodType {}\ninterface $Zod1 {}\nclass $Model {}\ninterface $zod {}\ninterface $$Zod {}\ninterface $Zod_Name {}\n",
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S101")
+            .collect();
+        assert_eq!(findings.len(), 3);
+        assert_eq!(
+            findings
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![4, 5, 6]
+        );
+        assert_eq!(
+            findings[0].message,
+            "Rename interface \"$zod\" to match the regular expression ^\\$?[A-Z][a-zA-Z0-9]*$."
+        );
+    }
+
+    #[test]
+    fn s101_named_class_expressions_are_outside_declaration_scope() {
+        let source = "const Model = class lowercase {};\nconst Other = class $lowercase {};\nclass lowercase {}\nexport default class $lowercase {}\n";
+        for report in [js(source), ts(source)] {
+            let findings: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S101"))
+                .collect();
+            assert_eq!(findings.len(), 2);
+            assert_eq!(
+                findings
+                    .iter()
+                    .map(|issue| issue.range.start.line)
+                    .collect::<Vec<_>>(),
+                vec![3, 4]
+            );
+        }
+    }
+
+    #[test]
+    fn s101_explicit_formats_are_not_replaced_by_the_default() {
+        let rules = RuleOptions {
+            format_classes: "^[A-Z][a-zA-Z0-9]*$".into(),
+            ..RuleOptions::default()
+        };
+        let findings = keys_with_rules("class $Model {}\nclass Model {}\n", &rules);
+        assert_eq!(count_key(&findings, "javascript:S101"), 1);
     }
 
     #[test]

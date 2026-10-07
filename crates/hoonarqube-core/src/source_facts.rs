@@ -1,7 +1,7 @@
 //! Syntax-aware source facts shared by project measurement and duplication.
 //!
-//! This module deliberately has no rule-engine dependencies.  Tree-sitter's
-//! concrete syntax trees provide enough structure to keep comments, literal
+//! Tree-sitter's concrete syntax trees and language-owned metric helpers
+//! provide enough structure to keep comments, literal
 //! delimiters, interpolation, and layout-sensitive Python constructs apart
 //! while a single iterative walk collects both tokens and line metrics.
 
@@ -221,6 +221,17 @@ pub fn oversize_source_facts(path: &Path, bytes: u64) -> Option<SourceFacts> {
 /// complete measurement.
 #[must_use]
 pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
+    collect_source_facts_with_metrics(path, source, None)
+}
+
+/// Reuse metrics from a successful native Python parse during project
+/// orchestration. Standalone facts obtain the same metrics from the Python
+/// helper; syntax/traversal failures still retain their incomplete status.
+pub(crate) fn collect_source_facts_with_metrics(
+    path: &Path,
+    source: &str,
+    analyzer_metrics: Option<&FileMetrics>,
+) -> Option<SourceFacts> {
     let language = crate::language_for_path(path)?;
     let extension = path
         .extension()
@@ -297,7 +308,7 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
     } else {
         Cow::Borrowed(source)
     };
-    let Some(tree) = parser.parse(parser_source.as_ref(), None) else {
+    let Some(tree) = parse_snapshot_tree(&mut parser, language, parser_source.as_ref()) else {
         return Some(SourceFacts {
             metrics: fallback_metrics(source, language),
             tokens: Vec::new(),
@@ -314,8 +325,11 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
         .then(|| "syntax tree contains recovered or missing nodes".to_owned());
     let mut collector = FactCollector::new(source, language, physical_lines, line_starts);
     collector.walk(tree.root_node());
-    let metrics = collector.metrics();
-    let error = collector.error.or(parse_error);
+    let mut metrics = collector.metrics(tree.root_node());
+    let mut error = collector.error.or(parse_error);
+    if language == Language::Python && error.is_none() {
+        apply_python_metrics(source, analyzer_metrics, &mut metrics, &mut error);
+    }
 
     Some(SourceFacts {
         metrics,
@@ -325,6 +339,36 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
         error,
         language,
     })
+}
+
+fn apply_python_metrics(
+    source: &str,
+    analyzer_metrics: Option<&FileMetrics>,
+    metrics: &mut FileMetrics,
+    error: &mut Option<String>,
+) {
+    if let Some(parsed_metrics) = analyzer_metrics {
+        *metrics = parsed_metrics.clone();
+    } else {
+        match hoonarqube_python::source_metrics(source) {
+            Ok(parsed_metrics) => *metrics = parsed_metrics,
+            Err(reason) => *error = Some(reason),
+        }
+    }
+}
+
+/// Go facts share the analyzer's Go 1.26 compatibility parse. Its node offsets
+/// still refer to the original snapshot used by the collector for tokens.
+fn parse_snapshot_tree(
+    parser: &mut Parser,
+    language: Language,
+    source: &str,
+) -> Option<tree_sitter::Tree> {
+    if language == Language::Go {
+        hoonarqube_go::parse_syntax_tree(source)
+    } else {
+        parser.parse(source, None)
+    }
 }
 
 fn set_parser_language(
@@ -467,6 +511,8 @@ struct FactCollector<'source> {
     /// search.  `start > end` marks the cache empty.
     line_hint: LineHint,
     rows: RowFlags,
+    jsts_comment_ranges: Vec<(usize, usize)>,
+    first_code_offset: Option<usize>,
     tokens: Vec<NormalizedToken>,
     symbols: Vec<String>,
     interned: HashMap<u64, Vec<u32>>,
@@ -527,6 +573,8 @@ impl<'source> FactCollector<'source> {
                 line: 0,
             },
             rows: RowFlags::new(physical_lines),
+            jsts_comment_ranges: Vec::new(),
+            first_code_offset: None,
             tokens: Vec::with_capacity(source.len().min(4096) / 8),
             symbols: Vec::new(),
             interned: HashMap::new(),
@@ -551,8 +599,22 @@ impl<'source> FactCollector<'source> {
         }
         true
     }
-    fn metrics(&self) -> FileMetrics {
-        self.rows.metrics(self.physical_lines)
+    fn metrics(&self, root: Node<'_>) -> FileMetrics {
+        let mut metrics = self.rows.metrics(report_line_count(
+            self.source,
+            self.language,
+            self.physical_lines,
+        ));
+        if self.language == Language::Go {
+            metrics.comment_lines = hoonarqube_go::comment_line_count(root, self.source);
+        } else if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            metrics.comment_lines = hoonarqube_jsts::comment_line_count(
+                self.source,
+                &self.jsts_comment_ranges,
+                self.first_code_offset,
+            );
+        }
+        metrics
     }
 
     fn walk(&mut self, root: Node<'_>) {
@@ -603,6 +665,11 @@ impl<'source> FactCollector<'source> {
         cursor: &mut TreeCursor<'tree>,
     ) -> bool {
         let kind = node.kind();
+        if kind == "hash_bang_line"
+            && matches!(self.language, Language::JavaScript | Language::TypeScript)
+        {
+            return true;
+        }
         if is_comment_kind(kind) {
             self.mark_node(node, false);
             return true;
@@ -1279,12 +1346,19 @@ impl<'source> FactCollector<'source> {
     }
 
     fn mark_node(&mut self, node: Node<'_>, code: bool) {
-        // A multiline literal or block comment can contain physically blank
-        // rows.  Mark only rows that contain a non-whitespace source byte;
-        // counting the entire syntax-node span would report literal padding
-        // as executable code (and empty comment rows as comments).
+        // JavaScript literal content counts its full span, including blank
+        // template rows. Other syntax marks rows with actual source bytes.
         let start = node.start_byte().min(self.source.len());
         let end = node.end_byte().min(self.source.len()).max(start);
+        self.record_jsts_span(start, end, code);
+        if code
+            && matches!(self.language, Language::JavaScript | Language::TypeScript)
+            && (is_string_root_kind(node.kind()) || is_string_content_kind(node.kind()))
+        {
+            let (first, last) = self.line_span(node);
+            self.rows.mark(first, last, true);
+            return;
+        }
         let mut row = self.line_at(start);
         let mut has_non_whitespace = false;
         let bytes = self.source.as_bytes();
@@ -1314,7 +1388,24 @@ impl<'source> FactCollector<'source> {
         }
     }
 
+    fn record_jsts_span(&mut self, start: usize, end: usize, code: bool) {
+        if !matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            return;
+        }
+        if code {
+            self.first_code_offset =
+                Some(self.first_code_offset.map_or(start, |old| old.min(start)));
+        } else {
+            self.jsts_comment_ranges.push((start, end));
+        }
+    }
+
     fn mark_start(&mut self, node: Node<'_>, code: bool) {
+        if code && matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            let offset = node.start_byte();
+            self.first_code_offset =
+                Some(self.first_code_offset.map_or(offset, |old| old.min(offset)));
+        }
         let (start, _) = self.line_span(node);
         self.rows.mark(start, start, code);
     }
@@ -1448,6 +1539,19 @@ pub(crate) fn semantic_line_count(source: &str, language: Option<Language>) -> u
         }
     }
     lines
+}
+
+/// Sonar's file-size metric includes the empty final row after a terminal
+/// line break and represents an empty source file as one physical line.
+/// Parser maps and resource limits keep their nonempty-row count.
+fn report_line_count(source: &str, language: Language, content_lines: usize) -> usize {
+    if source.is_empty() {
+        return 1;
+    }
+    let terminal_break = source.ends_with(['\n', '\r'])
+        || (matches!(language, Language::JavaScript | Language::TypeScript)
+            && source.ends_with(['\u{2028}', '\u{2029}']));
+    content_lines.saturating_add(usize::from(terminal_break))
 }
 
 pub(crate) fn semantic_line_starts(source: &str, language: Option<Language>) -> Vec<usize> {
@@ -1764,7 +1868,7 @@ pub(crate) fn fallback_metrics(source: &str, language: Language) -> FileMetrics 
         process_line(&source[line_start..]);
     }
     FileMetrics {
-        lines: saturating_u32(lines),
+        lines: saturating_u32(report_line_count(source, language, lines)),
         code_lines: saturating_u32(code_lines),
         comment_lines: saturating_u32(comment_lines),
     }
@@ -1863,6 +1967,72 @@ mod tests {
     }
 
     #[test]
+    fn go_new_expression_facts_preserve_original_tokens_and_fail_closed() {
+        let source = "package p\nvar value = new(1 + 2)\nvar literal = `new(1)`\n// new(false)\n";
+        let parsed = facts("new.go", source);
+        assert!(parsed.error.is_none(), "{:?}", parsed.error);
+        assert!(
+            parsed
+                .symbols
+                .iter()
+                .any(|symbol| symbol.ends_with("|3:new|")),
+            "{:?}",
+            parsed.symbols
+        );
+        assert!(
+            !parsed
+                .symbols
+                .iter()
+                .any(|symbol| symbol.ends_with("|3:n3w|"))
+        );
+        assert_eq!(parsed.metrics.code_lines, 3);
+        assert_eq!(parsed.metrics.comment_lines, 1);
+        for invalid in [
+            "package p\nvar value = new(1 + )\n",
+            "package p\nfunc f( { new(true) }\n",
+        ] {
+            assert!(facts("invalid.go", invalid).error.is_some(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn file_metrics_count_terminal_empty_line_without_changing_code_tokens() {
+        for (path, statement) in [
+            ("line.go", "package p"),
+            ("line.py", "x = 1"),
+            ("line.js", "let x = 1;"),
+            ("line.ts", "let x = 1;"),
+            ("line.cs", "class C {}"),
+            ("line.java", "class C {}"),
+            ("line.rs", "fn f() {}"),
+            ("line.rb", "x = 1"),
+        ] {
+            let base = facts(path, statement);
+            assert_eq!(base.metrics.lines, 1, "{path}");
+            for ending in ["\n", "\r\n"] {
+                let terminated = facts(path, &format!("{statement}{ending}"));
+                assert_eq!(terminated.metrics.lines, 2, "{path} {ending:?}");
+                assert_eq!(
+                    terminated.metrics.code_lines, base.metrics.code_lines,
+                    "{path}"
+                );
+                assert_eq!(terminated.symbols, base.symbols, "{path}");
+            }
+        }
+        assert_eq!(facts("empty.go", "").metrics.lines, 1);
+    }
+
+    #[test]
+    fn go_comment_metrics_exclude_blank_markers_and_nosonar_but_include_inline_and_headers() {
+        let source = "// license header\npackage p\n//\n// content\nvar x = 1 // inline\n/*\n * block content\n *\n */\nvar y = 2 // NOSONAR\n";
+        let parsed = facts("comments.go", source);
+        assert!(parsed.error.is_none());
+        assert_eq!(parsed.metrics.comment_lines, 4);
+        assert_eq!(parsed.metrics.code_lines, 3);
+        assert_eq!(parsed.metrics.lines, 11);
+    }
+
+    #[test]
     fn typescript_import_types_are_complete() {
         let source = r#"type Options = Parameters<import("@playwright/test").Browser["newContext"]>[0];
 type ImportedMember = import("./module").Widget["value"];
@@ -1911,7 +2081,7 @@ namespace Dapper
         let recovered = facts("SqlMapper.cs", source);
         assert!(recovered.error.is_none(), "{:?}", recovered.error);
         assert!(!recovered.tokens.is_empty());
-        assert_eq!(recovered.metrics.lines, 17);
+        assert_eq!(recovered.metrics.lines, 18);
     }
 
     #[test]
@@ -1938,7 +2108,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         let recovered = facts("Sample.cs", source);
         assert!(recovered.error.is_none(), "{:?}", recovered.error);
         assert!(!recovered.tokens.is_empty());
-        assert_eq!(recovered.metrics.lines, 6);
+        assert_eq!(recovered.metrics.lines, 7);
     }
 
     #[test]
@@ -1954,7 +2124,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
             Some("syntax tree contains recovered or missing nodes")
         );
         assert!(!incomplete.tokens.is_empty());
-        assert_eq!(incomplete.metrics.lines, 9);
+        assert_eq!(incomplete.metrics.lines, 10);
     }
 
     #[test]
@@ -2096,9 +2266,9 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
             "sample.js",
             "const text = \"// not a comment\"; // trailing\n// only\n",
         );
-        assert_eq!(facts.metrics.lines, 2);
+        assert_eq!(facts.metrics.lines, 3);
         assert_eq!(facts.metrics.code_lines, 1);
-        assert_eq!(facts.metrics.comment_lines, 1);
+        assert_eq!(facts.metrics.comment_lines, 2);
         assert!(facts.symbols.iter().any(|symbol| symbol.contains("string")));
         assert!(
             !facts
@@ -2115,7 +2285,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
                 let facts = facts(path, &source);
                 assert_eq!(facts.metrics.lines, 3, "{path} {separator:?}");
                 assert_eq!(facts.metrics.code_lines, 2, "{path} {separator:?}");
-                assert_eq!(facts.metrics.comment_lines, 1, "{path} {separator:?}");
+                assert_eq!(facts.metrics.comment_lines, 0, "{path} {separator:?}");
                 assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
                 for (needle, line) in [("let x", 2), ("let y", 3)] {
                     let start = source.find(needle).expect("statement");
@@ -2139,7 +2309,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
             "sample.java",
             "// comment\rclass A { int f() { return 1; } }\r",
         );
-        assert_eq!(java_facts.metrics.lines, 2);
+        assert_eq!(java_facts.metrics.lines, 3);
         assert_eq!(java_facts.metrics.code_lines, 1);
         assert_eq!(java_facts.metrics.comment_lines, 1);
         assert!(java_facts.error.is_none(), "{:?}", java_facts.error);
@@ -2148,7 +2318,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
             "sample.java",
             "// comment\r\nclass A { int f() { return 1; } }\r\n",
         );
-        assert_eq!(java_crlf.metrics.lines, 2);
+        assert_eq!(java_crlf.metrics.lines, 3);
         assert_eq!(java_crlf.metrics.code_lines, 1);
         assert_eq!(java_crlf.metrics.comment_lines, 1);
         assert!(java_crlf.error.is_none(), "{:?}", java_crlf.error);
@@ -2169,7 +2339,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         }
 
         let java = fallback_metrics("/* comment */\rclass C {}\r", Language::Java);
-        assert_eq!(java.lines, 2);
+        assert_eq!(java.lines, 3);
         assert_eq!(java.code_lines, 1);
         assert_eq!(java.comment_lines, 1);
 
@@ -2180,7 +2350,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
     #[test]
     fn interpolated_template_comments_keep_comment_only_rows() {
         let facts = facts("sample.js", "const s = `${\n// comment\nvalue\n}`;\n");
-        assert_eq!(facts.metrics.lines, 4);
+        assert_eq!(facts.metrics.lines, 5);
         assert_eq!(facts.metrics.code_lines, 3);
         assert_eq!(facts.metrics.comment_lines, 1);
     }
@@ -2504,7 +2674,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
     fn malformed_input_is_explicitly_incomplete() {
         let facts = facts("sample.go", "package {\n");
         assert!(facts.error.is_some());
-        assert_eq!(facts.metrics.lines, 1);
+        assert_eq!(facts.metrics.lines, 2);
     }
 
     #[test]
@@ -2513,7 +2683,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
             "sample.rs",
             "let x = 1; // trailing\n/* only */\nlet y = 2;\n",
         );
-        assert_eq!(facts.metrics.lines, 3);
+        assert_eq!(facts.metrics.lines, 4);
         assert_eq!(facts.metrics.code_lines, 2);
         assert_eq!(facts.metrics.comment_lines, 1);
     }
@@ -2534,7 +2704,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         assert!(facts.error.is_some());
         assert_eq!(
             facts.metrics.lines,
-            u32::try_from(MAX_SOURCE_LINES).expect("source line limit fits u32") + 1
+            u32::try_from(MAX_SOURCE_LINES).expect("source line limit fits u32") + 2
         );
         assert_eq!(facts.metrics.code_lines, 0);
         assert_eq!(facts.metrics.comment_lines, 0);

@@ -747,15 +747,17 @@ pub(crate) fn check_tier_b_battery(
     let table = file_ctx.symbol_table();
     let facts = file_ctx.file_facts();
     let mut issues = Vec::new();
+    // Parameter usage has its own function-local reflection exemption.
+    // A globals()/vars()/exec() call elsewhere cannot observe this signature.
+    issues.extend(check_unused_parameters(
+        table, index, source, file_ctx, path,
+    ));
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(
             parsed, table, facts, index, source, path, file_ctx,
         ));
         issues.extend(check_unused_locals(
             parsed, table, options, index, source, file_ctx,
-        ));
-        issues.extend(check_unused_parameters(
-            table, index, source, file_ctx, path,
         ));
         issues.extend(check_use_before_definition(table, facts, index, source));
         issues.extend(check_dead_stores(
@@ -858,7 +860,7 @@ fn tier_c_core_security_checks(
         index,
         source,
         "python:S2092",
-        "Add the \"secure\" flag to this cookie.",
+        "Make sure creating this cookie without the \"secure\" flag is safe.",
         "secure",
         file_ctx,
     ));
@@ -866,7 +868,7 @@ fn tier_c_core_security_checks(
         index,
         source,
         "python:S3330",
-        "Add the \"HttpOnly\" flag to this cookie.",
+        "Make sure creating this cookie without the \"HttpOnly\" flag is safe.",
         "httponly",
         file_ctx,
     ));

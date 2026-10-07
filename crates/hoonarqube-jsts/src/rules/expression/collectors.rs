@@ -121,7 +121,11 @@ pub(crate) fn check_collection_and_object_calls(
             RuleScope::Both,
             "S6959",
             "Provide an initial accumulator value to this \"reduce\".",
-            it.callee.span(),
+            match member {
+                MemberExpression::StaticMemberExpression(member) => member.property.span(),
+                MemberExpression::ComputedMemberExpression(member) => member.expression.span(),
+                MemberExpression::PrivateFieldExpression(member) => member.field.span(),
+            },
         );
     }
     check_sort_call(sink, it, property, member, semantic);
@@ -1065,5 +1069,28 @@ impl<'a> Visit<'a> for SetPrototypeOfDetector {
             self.found = true;
         }
         walk_member_expression(self, it);
+    }
+}
+
+#[cfg(test)]
+mod parity_regressions {
+    use crate::test_support::*;
+
+    #[test]
+    fn reduce_without_initial_value_reports_only_the_method_token() {
+        // commander.js@ba6d13ddb4243e5913367734f8c159089ffe7834,
+        // lib/option.js:317; live Sonar anchors only `reduce`.
+        let report = js("const total = values.reduce((sum, value) => sum + value);\n");
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.rule_key == "javascript:S6959")
+            .unwrap();
+        assert_eq!(issue.range.start.column, 21);
+        assert_eq!(issue.range.end.column, 27);
+        assert_eq!(
+            count_key(&js_keys("values.reduce(sum, 0);"), "javascript:S6959"),
+            0
+        );
     }
 }

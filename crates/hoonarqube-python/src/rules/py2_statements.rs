@@ -44,7 +44,12 @@ pub(crate) fn check_py2_statements(
     issues
 }
 
-fn is_statement_form(source: &str, start: usize, keyword: &str, bare_is_statement: bool) -> bool {
+pub(crate) fn is_statement_form(
+    source: &str,
+    start: usize,
+    keyword: &str,
+    bare_is_statement: bool,
+) -> bool {
     let bytes = source.as_bytes();
     let end = start + keyword.len();
     let identifier = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';

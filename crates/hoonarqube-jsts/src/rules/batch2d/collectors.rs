@@ -888,7 +888,6 @@ impl<'a> Visit<'a> for EsIdiomCollector<'a> {
     }
 
     fn visit_member_expression(&mut self, it: &MemberExpression<'a>) {
-        self.check_s4158_member_expression(it);
         walk_member_expression(self, it);
     }
 

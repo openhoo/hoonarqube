@@ -61,31 +61,123 @@ pub(crate) fn file_metrics(
     source: &str,
     index: &LineIndex,
 ) -> hoonarqube_ir::FileMetrics {
-    let lines = if source.is_empty() {
-        0
-    } else {
-        to_u32(source.lines().count())
-    };
+    // File-size reports include the empty terminal row, unlike content
+    // iterators. LineIndex already recognizes LF, CRLF, and bare CR.
+    let lines = to_u32(index.line_count());
+    let mut docstrings = std::collections::BTreeSet::new();
+    let mut imports = Vec::new();
+    collect_docstring_lines(
+        parsed.syntax().body.as_slice(),
+        index,
+        source,
+        &mut docstrings,
+    );
+    crate::support::for_each_stmt(parsed.syntax().body.as_slice(), &mut |statement| {
+        let body = match statement {
+            ruff_python_ast::Stmt::FunctionDef(function) => &function.body,
+            ruff_python_ast::Stmt::ClassDef(class) => &class.body,
+            ruff_python_ast::Stmt::Import(_) | ruff_python_ast::Stmt::ImportFrom(_) => {
+                imports.push(statement.range());
+                return;
+            }
+            _ => return,
+        };
+        collect_docstring_lines(body, index, source, &mut docstrings);
+    });
+
+    // Sonar's import AST does not expose comma/parenthesis delimiters.
+    // Their rows and attached trivia therefore do not enter file metrics.
+    imports.sort_unstable_by_key(Ranged::start);
+    let mut import_index = 0;
+    let mut import_delimiters = std::collections::HashSet::new();
+    for token in parsed.tokens() {
+        while imports
+            .get(import_index)
+            .is_some_and(|range| range.end() <= token.start())
+        {
+            import_index += 1;
+        }
+        if matches!(
+            token.kind(),
+            TokenKind::Lpar | TokenKind::Rpar | TokenKind::Comma
+        ) && imports
+            .get(import_index)
+            .is_some_and(|range| range.contains_range(token.range()))
+        {
+            import_delimiters.insert(token.range());
+        }
+    }
 
     let code_lines: std::collections::BTreeSet<u32> = parsed
         .tokens()
         .iter()
-        .filter(|token| !token.kind().is_trivia())
+        .filter(|token| {
+            !token.kind().is_trivia()
+                && !matches!(
+                    token.kind(),
+                    TokenKind::Newline
+                        | TokenKind::Indent
+                        | TokenKind::Dedent
+                        | TokenKind::EndOfFile
+                )
+        })
+        .filter(|token| !import_delimiters.contains(&token.range()))
         .flat_map(|token| covered_lines(token.range(), index, source))
+        .filter(|line| !docstrings.contains(line))
         .collect();
 
-    let comment_lines: std::collections::BTreeSet<u32> = parsed
-        .tokens()
-        .iter()
-        .filter(|token| token.kind().is_comment())
-        .flat_map(|token| covered_lines(token.range(), index, source))
-        .filter(|line| !code_lines.contains(line))
-        .collect();
+    // Comments coexist with code on the same line. Punctuation-only
+    // separators and NOSONAR directives are excluded by SonarPython.
+    let mut comment_lines = std::collections::BTreeSet::new();
+    let mut next_token = None;
+    for token in parsed.tokens().iter().rev() {
+        match token.kind() {
+            TokenKind::Comment => {
+                let text = &source[token.range()];
+                let visible = next_token.is_some_and(|(kind, range)| {
+                    kind != TokenKind::EndOfFile && !import_delimiters.contains(&range)
+                });
+                if visible && !text.contains("NOSONAR") && text.chars().any(char::is_alphanumeric) {
+                    comment_lines.extend(covered_lines(token.range(), index, source));
+                }
+            }
+            // Python grammar trivia is attached to the next real token;
+            // synthetic scope markers are not comment attachment sites.
+            TokenKind::NonLogicalNewline | TokenKind::Indent | TokenKind::Dedent => {}
+            kind => next_token = Some((kind, token.range())),
+        }
+    }
+    comment_lines.extend(docstrings);
 
     hoonarqube_ir::FileMetrics {
         lines,
         code_lines: to_u32(code_lines.len()),
         comment_lines: to_u32(comment_lines.len()),
+    }
+}
+
+/// Only the first string expression in a module, class or function suite
+/// is a docstring. Implicitly concatenated strings contribute their own
+/// token rows; surrounding parentheses keep their code-line semantics.
+fn collect_docstring_lines(
+    body: &[ruff_python_ast::Stmt],
+    index: &LineIndex,
+    source: &str,
+    lines: &mut std::collections::BTreeSet<u32>,
+) {
+    let Some(ruff_python_ast::Stmt::Expr(statement)) = body.first() else {
+        return;
+    };
+    let ruff_python_ast::Expr::StringLiteral(literal) = statement.value.as_ref() else {
+        return;
+    };
+    // Sonar's extractor requires a direct STRING_LITERAL statement;
+    // parenthesized expressions remain code even when Python exposes __doc__.
+    if statement.start() != literal.start() {
+        return;
+    }
+    for part in &literal.value {
+        lines.extend(covered_lines(part.range(), index, source));
     }
 }
 

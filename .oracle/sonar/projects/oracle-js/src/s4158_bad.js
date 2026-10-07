@@ -1,2 +1,4 @@
-const n = [].length;
-[].forEach(g);
+export {};
+const items = [];
+items.map(transform);
+items[0];

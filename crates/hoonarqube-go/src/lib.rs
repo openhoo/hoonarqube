@@ -10,7 +10,9 @@ use hoonarqube_ir::{
     FileMetrics, FileReport, FlowLocation, Issue, Pos, Range, sort_issues, u32_saturating,
 };
 use tree_sitter::{Node, Parser, Point};
+mod error_guards;
 mod github_quality;
+use error_guards::ErrorGuardFacts;
 
 pub use github_quality::analyze_github_quality;
 
@@ -95,6 +97,49 @@ fn normalize_new_builtin_calls(source: &str) -> Option<String> {
     changed.then(|| String::from_utf8(normalized).expect("rewritten Go source remains valid UTF-8"))
 }
 
+/// Parses Go using the same compatibility path as the analyzers.
+///
+/// A successful compatibility retry rewrites only same-length `new` call
+/// heads, so every node's byte range still addresses the original source.
+/// Callers collecting metrics or duplication tokens should read that original
+/// source. Invalid syntax retains its recovered tree and `has_error()` state.
+#[must_use]
+pub fn parse_syntax_tree(source: &str) -> Option<tree_sitter::Tree> {
+    parse_go_source(source).map(|(_, tree)| tree)
+}
+
+/// Counts nonempty Go comment content rows, matching the observed `SonarGo`
+/// metrics. Blank decoration and NOSONAR comments are excluded; comments
+/// beside code and before the package clause still contribute independently.
+#[must_use]
+pub fn comment_line_count(root: Node<'_>, source: &str) -> u32 {
+    let mut rows = HashSet::new();
+    walk(root, &mut |node| {
+        if node.kind() != "comment" {
+            return;
+        }
+        let raw = text(node, source);
+        let content = raw
+            .strip_prefix("//")
+            .or_else(|| {
+                raw.strip_prefix("/*")
+                    .map(|value| value.strip_suffix("*/").unwrap_or(value))
+            })
+            .unwrap_or(raw);
+        if content.trim().to_ascii_uppercase().starts_with("NOSONAR") {
+            return;
+        }
+        for (offset, line) in content.lines().enumerate() {
+            if line.chars().any(|character| {
+                character >= '\u{7f}' || (character > ' ' && !"*#-=|".contains(character))
+            }) {
+                rows.insert(node.start_position().row + offset);
+            }
+        }
+    });
+    u32_saturating(rows.len())
+}
+
 /// Byte offset just past a `/* ... */` comment whose `/*` opener ends at
 /// `start`; unterminated comments run to end of input.
 fn block_comment_end(bytes: &[u8], start: usize) -> usize {
@@ -170,6 +215,9 @@ pub const GITHUB_QUALITY_RULE_IDS: &[&str] = &[
 /// Go rule parameters exposed by the frozen catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnalyzerOptions {
+    /// Explicit source classification; `None` uses the `_test.go` convention.
+    /// Project orchestration sets this for configurable test-source patterns.
+    pub test_scope: Option<bool>,
     pub maximum_line_length: usize,
     pub maximum_lines_of_code: usize,
     pub maximum_expression_complexity: usize,
@@ -186,6 +234,7 @@ pub struct AnalyzerOptions {
 impl Default for AnalyzerOptions {
     fn default() -> Self {
         Self {
+            test_scope: None,
             maximum_line_length: 120,
             maximum_lines_of_code: 750,
             maximum_expression_complexity: 3,
@@ -255,12 +304,23 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         };
     }
 
-    let is_test = is_test_scope_file(path.as_path());
+    let error_guards = ErrorGuardFacts::collect(root, source, &imports);
+    let is_test = options
+        .test_scope
+        .unwrap_or_else(|| is_test_scope_file(path.as_path()));
     check_lines(path.as_path(), source, &line_facts, options, &mut issues);
     check_header(source, options, &mut issues);
     check_textual(source, root, &mut issues);
     walk(root, &mut |node| {
-        check_node(node, source, &line_facts, options, is_test, &mut issues);
+        check_node(
+            node,
+            source,
+            &line_facts,
+            options,
+            is_test,
+            &error_guards,
+            &mut issues,
+        );
     });
     check_duplicate_strings(root, source, options, &imports, &mut issues);
     check_duplicate_functions(root, source, &mut issues);
@@ -2552,6 +2612,7 @@ struct LineFacts {
     code: Vec<bool>,
     comments: Vec<bool>,
     imports: Vec<bool>,
+    metric_comment_lines: u32,
 }
 
 impl LineFacts {
@@ -2581,6 +2642,7 @@ impl LineFacts {
             code,
             comments,
             imports,
+            metric_comment_lines: comment_line_count(root, source),
         }
     }
 
@@ -2931,11 +2993,20 @@ fn check_node(
     line_facts: &LineFacts,
     options: &AnalyzerOptions,
     is_test: bool,
+    error_guards: &ErrorGuardFacts,
     issues: &mut Vec<Issue>,
 ) {
     match node.kind() {
         "function_declaration" | "method_declaration" | "func_literal" => {
-            check_function(node, source, line_facts, options, is_test, issues);
+            check_function(
+                node,
+                source,
+                line_facts,
+                options,
+                is_test,
+                error_guards,
+                issues,
+            );
         }
         "block" => check_block(node, source, issues),
         "statement_list" => check_statements(node, source, issues),
@@ -3032,6 +3103,7 @@ fn check_function(
     line_facts: &LineFacts,
     options: &AnalyzerOptions,
     is_test: bool,
+    error_guards: &ErrorGuardFacts,
     issues: &mut Vec<Issue>,
 ) {
     if let Some(name) = node.child_by_field_name("name") {
@@ -3094,7 +3166,7 @@ fn check_function(
     }
     // Sonar raises go:S3776 on functions and methods only; a function
     // literal's complexity is owned by its enclosing function.
-    let cognitive = cognitive_complexity(body, source);
+    let cognitive = cognitive_complexity(body, source, error_guards);
     if node.kind() != "func_literal" && cognitive > options.maximum_cognitive_complexity {
         issues.push(node_issue(
             "go:S3776",
@@ -3934,7 +4006,7 @@ fn metrics(source: &str, line_facts: &LineFacts) -> FileMetrics {
     FileMetrics {
         lines: u32_saturating(lines),
         code_lines: u32_saturating(line_facts.code.iter().filter(|value| **value).count()),
-        comment_lines: u32_saturating(line_facts.comments.iter().filter(|value| **value).count()),
+        comment_lines: line_facts.metric_comment_lines,
     }
 }
 
@@ -3994,7 +4066,7 @@ fn parameter_count(node: Node<'_>) -> usize {
     count
 }
 
-fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
+fn cognitive_complexity(node: Node<'_>, source: &str, error_guards: &ErrorGuardFacts) -> usize {
     let mut total = 0;
     let mut pending = vec![(node, 0_usize)];
     while let Some((current, nesting)) = pending.pop() {
@@ -4004,14 +4076,16 @@ fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
             push_named_children(&mut pending, current, nesting + 1);
             continue;
         }
-        let control = matches!(
-            current.kind(),
-            "if_statement"
-                | "for_statement"
-                | "expression_switch_statement"
-                | "type_switch_statement"
-                | "select_statement"
-        );
+        let error_guard =
+            current.kind() == "if_statement" && error_guards.is_error_guard(current, source);
+        let control = !error_guard
+            && matches!(
+                current.kind(),
+                "if_statement"
+                    | "for_statement"
+                    | "expression_switch_statement"
+                    | "type_switch_statement"
+            );
         let else_if = current.kind() == "if_statement" && is_else_if(current);
         total += usize::from(control) * if else_if { 1 } else { nesting + 1 };
         if current.kind() == "if_statement"
@@ -6258,6 +6332,114 @@ mod tests {
             found.iter().filter(|key| key.as_str() == "go:S103").count(),
             1,
             "parenthesized URL-only comments stay exempt: {found:?}"
+        );
+    }
+    #[test]
+    fn s3776_select_is_transparent_to_score_and_nesting() {
+        let mut source = "package p\nfunc pick(ch <-chan int) {\n".to_owned();
+        for _ in 0..16 {
+            source.push_str(" select { case <-ch: println(1); default: println(2) }\n");
+        }
+        source.push_str("}\n");
+        assert!(!keys(&source).iter().any(|key| key == "go:S3776"));
+        let source = "package p\nfunc pick(ch <-chan int, flag bool) { select { case <-ch: if flag { println(1) }; default: println(2) } }\n";
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 1,
+            ..AnalyzerOptions::default()
+        };
+        assert!(
+            !keys_with_options(source, &options)
+                .iter()
+                .any(|key| key == "go:S3776")
+        );
+        let control = "package p\nfunc pick(flag bool) { if flag { if flag { println(1) } } }\n";
+        assert!(
+            keys_with_options(control, &options)
+                .iter()
+                .any(|key| key == "go:S3776")
+        );
+    }
+    fn guard_score(source: &str) -> usize {
+        let report = analyze(
+            PathBuf::from("guard.go"),
+            source,
+            &AnalyzerOptions {
+                maximum_cognitive_complexity: 0,
+                ..AnalyzerOptions::default()
+            },
+        );
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "go:S2260"),
+            "{:?}",
+            report.issues
+        );
+        report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S3776")
+            .map(|issue| {
+                issue
+                    .message
+                    .split(" from ")
+                    .nth(1)
+                    .unwrap()
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+            })
+            .sum()
+    }
+
+    #[test]
+    fn s3776_error_guards_require_proven_error_types() {
+        for source in [
+            "package p\nfunc f(problem error) { if problem != nil { println(problem); println(1) } }\n",
+            "package p\nfunc f(problem error) { if nil == problem { println(1) } }\n",
+            "package p\nfunc f() { var problem error; if problem != nil { println(1) } }\n",
+            "package p\nfunc failure() (int, error) { return 1, nil }; func f() { _, problem := failure(); if problem != nil { println(1) } }\n",
+            "package p\ntype Action func() error\nfunc f(work Action) { if problem := work(); problem != nil { println(1) } }\n",
+            "package p\nfunc f(work func() error) { problem := work(); if problem != nil { println(1) } }\n",
+            "package p\nimport rx \"regexp\"\nfunc f() { _, problem := rx.Compile(\"x\"); if problem != nil { println(1) } }\n",
+        ] {
+            assert_eq!(guard_score(source), 0, "{source}");
+        }
+        for source in [
+            "package p\nfunc f(err *int) { if err != nil { println(1) } }\n",
+            "package p\nfunc failure() *int { return nil }; func f() { err := failure(); if err != nil { println(1) } }\n",
+            "package p\nfunc f(problem error) { { problem := new(int); if problem != nil { println(1) } } }\n",
+            "package p\nfunc failure() error { return nil }; func f(failure func() *int) { err := failure(); if err != nil { println(1) } }\n",
+            "package p\ntype error *int\nfunc f(problem error) { if problem != nil { println(1) } }\n",
+            "package p\ntype Action func() error\nfunc f() { type Action func() *int; var work Action; err := work(); if err != nil { println(1) } }\n",
+            "package p\nimport rx \"regexp\"\nfunc f(rx interface { Compile(string) (*int, *int) }) { _, err := rx.Compile(\"x\"); if err != nil { println(1) } }\n",
+        ] {
+            assert_eq!(guard_score(source), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3776_error_guard_body_keeps_its_controls_and_else_breaks_exemption() {
+        assert_eq!(
+            guard_score(
+                "package p\nfunc f(problem error, yes bool) { if problem != nil { println(problem); if yes { println(1) } } }\n"
+            ),
+            1
+        );
+        assert_eq!(
+            guard_score(
+                "package p\nfunc f(problem error) { if problem != nil { println(1) } else { println(2) } }\n"
+            ),
+            2
+        );
+        assert_eq!(
+            guard_score(
+                "package p\nfunc f(problem error, items []*int) { for _, problem := range items { if problem != nil { println(1) } } }\n"
+            ),
+            3
         );
     }
 }

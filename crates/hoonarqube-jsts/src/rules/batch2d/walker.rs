@@ -756,7 +756,8 @@ mod tests {
 
     #[test]
     fn operations_on_empty_array_literals_are_flagged() {
-        let member = js_keys("const n = [].length;\n[].forEach(g);\n");
+        let member =
+            js_keys("export {}; const items = []; const n = items[0];\nitems.forEach(g);\n");
         assert_eq!(count_key(&member, "javascript:S4158"), 2);
 
         let populated = js_keys("const m = [1].length;\n");

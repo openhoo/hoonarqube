@@ -1885,6 +1885,7 @@ pub(crate) fn analyzer_options_bundle(catalog: &Catalog) -> AnalyzerOptionsBundl
         ..hoonarqube_core::CSharpAnalyzerOptions::default()
     };
     let go = hoonarqube_core::GoAnalyzerOptions {
+        test_scope: None,
         maximum_line_length: maximum_line_length("go:S103").unwrap_or(120) as usize,
         maximum_lines_of_code: parameter("go:S104", "Max")
             .and_then(|value| value.parse().ok())
@@ -2615,7 +2616,7 @@ mod tests {
             .iter()
             .find(|file| file.path == normal)
             .expect("normal source report");
-        assert_eq!(file_report.metrics.lines, 1);
+        assert_eq!(file_report.metrics.lines, 2);
     }
 
     #[test]

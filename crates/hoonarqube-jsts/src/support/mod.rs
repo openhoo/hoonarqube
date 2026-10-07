@@ -3,7 +3,6 @@ use crate::engine::pattern_parser::{regex_can_start, skip_regex_literal};
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::Statement;
 use oxc_span::{GetSpan, SourceType, Span};
-use std::collections::BTreeSet;
 use std::path::Path;
 
 /// Catalog membership of one rule: which language catalogs contain it and
@@ -243,6 +242,7 @@ impl<'src> LineIndex<'src> {
 
 /// Whether `line` (1-based) lies inside one of the merged ranges produced
 /// by [`LineIndex::merged_line_ranges`].
+#[cfg(test)]
 pub(crate) fn line_in_ranges(ranges: &[(u32, u32)], line: u32) -> bool {
     let index = ranges.partition_point(|(start, _)| *start <= line);
     index > 0 && ranges[index - 1].1 >= line
@@ -264,9 +264,11 @@ pub(crate) fn file_metrics(
     source: &str,
     index: &LineIndex,
     comments: &[ScannedComment],
+    first_token_start: Option<usize>,
 ) -> hoonarqube_ir::FileMetrics {
     let lines = if source.is_empty() {
-        0
+        // Sonar publishes one physical row even for an empty analyzed file.
+        1
     } else {
         let mut line_count = index.line_starts.len();
         if index.line_starts.last().copied() == Some(to_u32(source.len())) {
@@ -287,16 +289,16 @@ pub(crate) fn file_metrics(
         .iter()
         .map(|(start, end)| usize::try_from(end - start + 1).unwrap_or(usize::MAX))
         .sum();
-    let comment_rows: BTreeSet<u32> = comments
+    let comment_ranges: Vec<_> = comments
         .iter()
-        .flat_map(|comment| index.covered_lines(comment.token))
-        .filter(|row| !line_in_ranges(&code_ranges, *row))
+        .map(|comment| (comment.token.start as usize, comment.token.end as usize))
         .collect();
+    let comment_lines = crate::comment_line_count(source, &comment_ranges, first_token_start);
 
     hoonarqube_ir::FileMetrics {
         lines,
         code_lines: to_u32(code_lines),
-        comment_lines: to_u32(comment_rows.len()),
+        comment_lines,
     }
 }
 
@@ -879,7 +881,7 @@ mod scanner_tests {
         assert_eq!(comment_bodies(source), vec![" TODO"]);
         assert_eq!(report.metrics.lines, 3);
         assert_eq!(report.metrics.code_lines, 2);
-        assert_eq!(report.metrics.comment_lines, 1);
+        assert_eq!(report.metrics.comment_lines, 0);
 
         let clean = js("const x=1\rconst y=2");
         assert!(scan_comments("const x=1\rconst y=2").is_empty());
@@ -905,7 +907,7 @@ mod scanner_tests {
         assert_eq!(comment_bodies(source), vec![" TODO"]);
         assert_eq!(report.metrics.lines, 3);
         assert_eq!(report.metrics.code_lines, 2);
-        assert_eq!(report.metrics.comment_lines, 1);
+        assert_eq!(report.metrics.comment_lines, 0);
     }
 
     #[test]
@@ -925,7 +927,7 @@ mod scanner_tests {
         assert_eq!(comment_bodies(source), vec![" TODO", " TODO"]);
         assert_eq!(report.metrics.lines, 3);
         assert_eq!(report.metrics.code_lines, 1);
-        assert_eq!(report.metrics.comment_lines, 2);
+        assert_eq!(report.metrics.comment_lines, 1);
 
         let clean = js("const x=1\u{2028}const y=2");
         assert!(scan_comments("const x=1\u{2028}const y=2").is_empty());

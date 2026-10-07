@@ -149,7 +149,20 @@ fn flag_mixed_return_kinds(
         if facts.return_covers_mixed {
             continue;
         }
-        let mut kinds = facts.return_kinds.clone();
+        // Null/undefined are absence sentinels, not inconsistent value
+        // categories (SonarJS S3800's isNullLike filter).
+        let mut kinds: Vec<_> = facts
+            .return_kinds
+            .iter()
+            .copied()
+            .filter(|kind| {
+                !matches!(
+                    kind,
+                    crate::engine::scope_model::LiteralKind::Null
+                        | crate::engine::scope_model::LiteralKind::Undefined
+                )
+            })
+            .collect();
         kinds.sort();
         kinds.dedup();
         if kinds.len() > 1 {
@@ -650,6 +663,30 @@ mod tests {
             count_key(&ts_keys(single_annotation), "typescript:S3800"),
             1
         );
+    }
+
+    #[test]
+    fn optional_and_nullable_returns_do_not_mix_non_null_types() {
+        for source in [
+            "function findFile(flag) { if (flag) return 'file'; return undefined; }",
+            "function useColor(flag) { if (flag) return true; return undefined; }",
+            "function find(flag) { if (flag) return {}; return null; }",
+            "function invalid(flag) { if (flag) return null; return undefined; }",
+        ] {
+            assert_eq!(
+                count_key(&js_keys(source), "javascript:S3800"),
+                0,
+                "{source}"
+            );
+            assert_eq!(
+                count_key(&ts_keys(source), "typescript:S3800"),
+                0,
+                "{source}"
+            );
+        }
+        let mixed = "function mixed(flag) { if (flag) return 'yes'; if (other) return undefined; return 0; }";
+        assert_eq!(count_key(&js_keys(mixed), "javascript:S3800"), 1);
+        assert_eq!(count_key(&ts_keys(mixed), "typescript:S3800"), 1);
     }
 
     #[test]

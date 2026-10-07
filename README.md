@@ -74,20 +74,23 @@ against the frozen catalog:
 | Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
 | JavaScript | 445 | 445 | 0 | 0 | 445 | 100.0% |
 | TypeScript | 455 | 455 | 0 | 0 | 455 | 100.0% |
-| Python | 353 | 353 | 0 | 0 | 353 | 100.0% |
+| Python | 442 | 442 | 0 | 0 | 442 | 100.0% |
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
 | Java | 0 | 0 | 0 | 733 | 733 | surface-only |
 | Ruby | 0 | 0 | 0 | 42 | 42 | surface-only |
 
-Java and Ruby are explicitly versioned Sonar catalog surfaces, not implementations.
+Java and Ruby are explicitly versioned Sonar catalog surfaces. The coverage
+audit classifies their frozen rows as infrastructure boundaries; bounded native
+detectors exist separately, as listed in [PARITY.md](PARITY.md). These audit
+rows do not certify complete detector coverage.
 Their rule rows were derived from one verified Community Build 26.8.0.126808
 capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
 receipt provenance recorded in `catalog/snapshot.toml`; every key is classified
-as a documented skip in `catalog/infra-boundaries.json` until per-rule semantic
-review lands implementations. The pinned complete-source qualifications — Gson
-`8b4b5505` (86 files) and Rake `8b4e8eb` (44 files) — run the `sonar-parity`
+as a documented skip in `catalog/infra-boundaries.json`. Historical pinned
+complete-source qualifications — Gson
+`8b4b5505` (86 files) and Rake `8b4e8eb` (44 files) — ran the `sonar-parity`
 profile to completion with zero findings; the recorded server-side reference
 inventories (182 rows / 43 groups and 5 rows / 5 groups) remain unverified
 observations and establish no parity claim.
@@ -118,9 +121,10 @@ syntax-only matching does not establish complete framework or analyzer parity:
 - Third-party GraphQL symbol resolution and inheritance semantics — `python:S6786`.
 - ASI reconstruction from a tolerant parse — `javascript:S1438`, `typescript:S1438`.
 
-All 1,842 catalog implementations have direct repository test evidence, and
-the strict implementation-coverage audit passes; the 775 Java and Ruby surface
-rows are catalogued with documented ownership but deliberately unimplemented. This is implementation
+The 2026-10-07 audit records 1,931 catalog implementations with direct repository
+test evidence across a 2,706-rule frozen catalog. The strict implementation
+coverage audit passes with 775 Java and Ruby rows retaining documented
+infrastructure classification. This is implementation
 coverage, not SonarQube equivalence: compiler prerequisites, reference-sensor
 availability, finding identity, and remaining comparison failures stay separate. See
 [PARITY.md](PARITY.md) for the exact oracle contract and current failures.
@@ -139,6 +143,24 @@ multiset, but that does not override the incomplete full-project status.
 Five Rust upstream boundaries were rechecked and remain explicit. Historical
 baseline counts and detailed current limitations are documented in
 [PARITY.md](PARITY.md); complete SonarQube parity is not claimed.
+
+### Real-project campaign — 2026-10-07
+
+The [five-project campaign report](docs/real-project-campaign-20261007.md)
+records actual containerized SonarQube Community Build `26.9.0.129388` scans
+of pinned Requests, Werkzeug, Commander, Chi, and Zod source scopes. Repairs
+cover scoped detector behavior, primary ranges, cognitive complexity, and
+physical/code/comment metrics, with focused positive and negative controls.
+Active-profile differences, hotspots, source scope, and duplication are recorded
+separately. The integrated CLI replay matches all
+20 aggregate file/line/code/comment metrics and all 717 corresponding per-file
+metric cells across 239 identical source files. Primary identity matches rise
+from 525 to 574; remaining finding differences are retained. Python S1172
+qualifies 39 exact primary identities/messages and Zod S101 removes 345 false
+positives while retaining all 13 reference findings. Four project duplication
+line/block totals and rounded density displays match; Zod CPD remains different.
+This evidence does not replace the historical full-corpus qualifications or
+establish complete parity.
 
 ### Qualification and publication boundaries
 
