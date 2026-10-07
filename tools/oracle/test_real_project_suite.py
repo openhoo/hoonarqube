@@ -12,6 +12,13 @@ from real_project_suite import verify_reference_scope, verify_reference_files, d
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_metric_comparison_preserves_missing_and_different_measures(self):
+        from real_project_suite import metric_comparison
+        result = metric_comparison({'files': 2, 'lines': 10, 'code_lines': 6, 'comment_lines': 3},
+                                   [{'metric': 'files', 'value': '2'}, {'metric': 'ncloc', 'value': '7'}])
+        self.assertEqual(result, {'files': {'native': 2, 'reference': 2, 'matched': True},
+                                  'ncloc': {'native': 6, 'reference': 7, 'matched': False}})
+
     def test_offline_replay_rejects_changed_scope_without_rewriting_reference(self):
         row = {'name': 'p', 'commit': 'abc', 'project_key': 'p', 'sources': ['src'],
                'exclude': ['tests/**'], 'language': 'js'}

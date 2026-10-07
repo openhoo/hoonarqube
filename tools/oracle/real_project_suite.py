@@ -86,6 +86,17 @@ def comparison(native, reference):
             'reference_only': sum((reference - native).values())}
 
 
+def metric_comparison(native_metrics, reference_measures):
+    reference = {measure['metric']: int(measure['value'])
+                 for measure in reference_measures
+                 if measure['metric'] in ('files', 'lines', 'ncloc', 'comment_lines')}
+    mapping = {'files': 'files', 'lines': 'lines', 'ncloc': 'code_lines',
+               'comment_lines': 'comment_lines'}
+    return {key: {'native': native_metrics[mapping[key]], 'reference': value,
+                  'matched': native_metrics[mapping[key]] == value}
+            for key, value in reference.items()}
+
+
 class Sonar:
     def __init__(self, url, token):
         self.url = url.rstrip('/')
@@ -258,6 +269,9 @@ def execute(row, args, sonar, token):
     native = json.loads(run(command, folder, args.label, root))
     write_json_atomic(folder / f'{args.label}.json', native)
     inventory = comparison(native_identities(native), sonar_identities(issues, key))
+    measures = json.loads((folder / 'measures.json').read_text())
+    inventory['metrics'] = metric_comparison(native['project']['metrics'],
+                                             measures['component']['measures'])
     indexed_path = folder / 'indexed-files.json'
     if indexed_path.exists():
         reference_paths = {normalized_path(file['path']) for file in json.loads(indexed_path.read_text())}
@@ -311,7 +325,11 @@ def main():
         except Exception as error:
             summary[row['name']] = {'status': 'failed', 'reason': str(error)}
         write_json_atomic(args.output / f'{args.label}-summary.json', summary)
-        print(row['name'], summary[row['name']], flush=True)
+        compact = dict(summary[row['name']])
+        if 'scope' in compact:
+            compact['scope'] = {key + '_files': len(paths)
+                                for key, paths in compact['scope'].items()}
+        print(row['name'], compact, flush=True)
     return int(any(row.get('status') == 'failed' for row in summary.values()))
 
 

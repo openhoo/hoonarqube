@@ -1,7 +1,7 @@
 //! Syntax-aware source facts shared by project measurement and duplication.
 //!
-//! This module deliberately has no rule-engine dependencies.  Tree-sitter's
-//! concrete syntax trees provide enough structure to keep comments, literal
+//! Tree-sitter's concrete syntax trees and language-owned metric helpers
+//! provide enough structure to keep comments, literal
 //! delimiters, interpolation, and layout-sensitive Python constructs apart
 //! while a single iterative walk collects both tokens and line metrics.
 
@@ -221,6 +221,17 @@ pub fn oversize_source_facts(path: &Path, bytes: u64) -> Option<SourceFacts> {
 /// complete measurement.
 #[must_use]
 pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
+    collect_source_facts_with_metrics(path, source, None)
+}
+
+/// Reuse metrics from a successful native Python parse during project
+/// orchestration. Standalone facts obtain the same metrics from the Python
+/// helper; syntax/traversal failures still retain their incomplete status.
+pub(crate) fn collect_source_facts_with_metrics(
+    path: &Path,
+    source: &str,
+    analyzer_metrics: Option<&FileMetrics>,
+) -> Option<SourceFacts> {
     let language = crate::language_for_path(path)?;
     let extension = path
         .extension()
@@ -314,8 +325,11 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
         .then(|| "syntax tree contains recovered or missing nodes".to_owned());
     let mut collector = FactCollector::new(source, language, physical_lines, line_starts);
     collector.walk(tree.root_node());
-    let metrics = collector.metrics(tree.root_node());
-    let error = collector.error.or(parse_error);
+    let mut metrics = collector.metrics(tree.root_node());
+    let mut error = collector.error.or(parse_error);
+    if language == Language::Python && error.is_none() {
+        apply_python_metrics(source, analyzer_metrics, &mut metrics, &mut error);
+    }
 
     Some(SourceFacts {
         metrics,
@@ -325,6 +339,22 @@ pub fn collect_source_facts(path: &Path, source: &str) -> Option<SourceFacts> {
         error,
         language,
     })
+}
+
+fn apply_python_metrics(
+    source: &str,
+    analyzer_metrics: Option<&FileMetrics>,
+    metrics: &mut FileMetrics,
+    error: &mut Option<String>,
+) {
+    if let Some(parsed_metrics) = analyzer_metrics {
+        *metrics = parsed_metrics.clone();
+    } else {
+        match hoonarqube_python::source_metrics(source) {
+            Ok(parsed_metrics) => *metrics = parsed_metrics,
+            Err(reason) => *error = Some(reason),
+        }
+    }
 }
 
 /// Go facts share the analyzer's Go 1.26 compatibility parse. Its node offsets
@@ -481,6 +511,8 @@ struct FactCollector<'source> {
     /// search.  `start > end` marks the cache empty.
     line_hint: LineHint,
     rows: RowFlags,
+    jsts_comment_ranges: Vec<(usize, usize)>,
+    first_code_offset: Option<usize>,
     tokens: Vec<NormalizedToken>,
     symbols: Vec<String>,
     interned: HashMap<u64, Vec<u32>>,
@@ -541,6 +573,8 @@ impl<'source> FactCollector<'source> {
                 line: 0,
             },
             rows: RowFlags::new(physical_lines),
+            jsts_comment_ranges: Vec::new(),
+            first_code_offset: None,
             tokens: Vec::with_capacity(source.len().min(4096) / 8),
             symbols: Vec::new(),
             interned: HashMap::new(),
@@ -573,6 +607,12 @@ impl<'source> FactCollector<'source> {
         ));
         if self.language == Language::Go {
             metrics.comment_lines = hoonarqube_go::comment_line_count(root, self.source);
+        } else if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            metrics.comment_lines = hoonarqube_jsts::comment_line_count(
+                self.source,
+                &self.jsts_comment_ranges,
+                self.first_code_offset,
+            );
         }
         metrics
     }
@@ -625,6 +665,11 @@ impl<'source> FactCollector<'source> {
         cursor: &mut TreeCursor<'tree>,
     ) -> bool {
         let kind = node.kind();
+        if kind == "hash_bang_line"
+            && matches!(self.language, Language::JavaScript | Language::TypeScript)
+        {
+            return true;
+        }
         if is_comment_kind(kind) {
             self.mark_node(node, false);
             return true;
@@ -1307,6 +1352,22 @@ impl<'source> FactCollector<'source> {
         // as executable code (and empty comment rows as comments).
         let start = node.start_byte().min(self.source.len());
         let end = node.end_byte().min(self.source.len()).max(start);
+        if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            if code {
+                self.first_code_offset =
+                    Some(self.first_code_offset.map_or(start, |old| old.min(start)));
+            } else {
+                self.jsts_comment_ranges.push((start, end));
+            }
+        }
+        if code
+            && matches!(self.language, Language::JavaScript | Language::TypeScript)
+            && (is_string_root_kind(node.kind()) || is_string_content_kind(node.kind()))
+        {
+            let (first, last) = self.line_span(node);
+            self.rows.mark(first, last, true);
+            return;
+        }
         let mut row = self.line_at(start);
         let mut has_non_whitespace = false;
         let bytes = self.source.as_bytes();
@@ -1337,6 +1398,11 @@ impl<'source> FactCollector<'source> {
     }
 
     fn mark_start(&mut self, node: Node<'_>, code: bool) {
+        if code && matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            let offset = node.start_byte();
+            self.first_code_offset =
+                Some(self.first_code_offset.map_or(offset, |old| old.min(offset)));
+        }
         let (start, _) = self.line_span(node);
         self.rows.mark(start, start, code);
     }
@@ -1473,8 +1539,12 @@ pub(crate) fn semantic_line_count(source: &str, language: Option<Language>) -> u
 }
 
 /// Sonar's file-size metric includes the empty final row after a terminal
-/// line break. Parser maps and resource limits keep their nonempty-row count.
+/// line break and represents an empty source file as one physical line.
+/// Parser maps and resource limits keep their nonempty-row count.
 fn report_line_count(source: &str, language: Language, content_lines: usize) -> usize {
+    if source.is_empty() {
+        return 1;
+    }
     let terminal_break = source.ends_with(['\n', '\r'])
         || (matches!(language, Language::JavaScript | Language::TypeScript)
             && source.ends_with(['\u{2028}', '\u{2029}']));
@@ -1946,7 +2016,7 @@ mod tests {
                 assert_eq!(terminated.symbols, base.symbols, "{path}");
             }
         }
-        assert_eq!(facts("empty.go", "").metrics.lines, 0);
+        assert_eq!(facts("empty.go", "").metrics.lines, 1);
     }
 
     #[test]
@@ -2195,7 +2265,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         );
         assert_eq!(facts.metrics.lines, 3);
         assert_eq!(facts.metrics.code_lines, 1);
-        assert_eq!(facts.metrics.comment_lines, 1);
+        assert_eq!(facts.metrics.comment_lines, 2);
         assert!(facts.symbols.iter().any(|symbol| symbol.contains("string")));
         assert!(
             !facts
@@ -2212,7 +2282,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
                 let facts = facts(path, &source);
                 assert_eq!(facts.metrics.lines, 3, "{path} {separator:?}");
                 assert_eq!(facts.metrics.code_lines, 2, "{path} {separator:?}");
-                assert_eq!(facts.metrics.comment_lines, 1, "{path} {separator:?}");
+                assert_eq!(facts.metrics.comment_lines, 0, "{path} {separator:?}");
                 assert!(facts.error.is_none(), "{path}: {:?}", facts.error);
                 for (needle, line) in [("let x", 2), ("let y", 3)] {
                     let start = source.find(needle).expect("statement");
