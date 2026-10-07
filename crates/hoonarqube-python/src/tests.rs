@@ -4492,10 +4492,10 @@ fn s8786_flags_super_linear_regex_literals() {
         found[0].message,
         "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
     );
-    assert_eq!(found[0].range.start, pos(4, 28));
-    assert_eq!(found[0].range.end, pos(4, 64));
-    assert_eq!(found[1].range.start, pos(6, 24));
-    assert_eq!(found[2].range.start, pos(13, 22));
+    assert_eq!(found[0].range.start, pos(4, 30));
+    assert_eq!(found[0].range.end, pos(4, 63));
+    assert_eq!(found[1].range.start, pos(6, 26));
+    assert_eq!(found[2].range.start, pos(13, 24));
 }
 
 #[test]
@@ -5564,4 +5564,20 @@ fn remaining_duplicate_literal_filename_gate_is_rule_specific() {
         .len(),
         1
     );
+}
+
+#[test]
+fn remaining_verbose_regex_ignores_spacing_and_preserves_offsets() {
+    let report = scan(
+        r#"import re
+pattern = re.compile(r"""
+    [\w\d_.]+   # fields
+    """, re.VERBOSE)
+"#,
+    );
+    let issues = findings(&report, "python:S5869");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].range.start.line, 3);
+    assert_eq!(issues[0].range.start.column, 5);
+    assert_eq!(issues[0].range.end.column, 7);
 }

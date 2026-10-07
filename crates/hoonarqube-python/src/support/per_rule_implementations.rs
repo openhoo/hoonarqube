@@ -22,6 +22,17 @@ pub(crate) fn run_structural_regex_rules(
     source: &str,
 ) {
     let mut push = |key: &str, message: &str, span: TextRange| {
+        let span = if key == "python:S6395" && site.verbose {
+            TextRange::new(
+                span.start(),
+                units
+                    .iter()
+                    .find(|unit| unit.at >= span.end())
+                    .map_or(site.content_end, |unit| unit.at),
+            )
+        } else {
+            span
+        };
         issues.push(issue_at(key, message, span, index, source));
     };
     check_rx_syntax_shapes(parsed, units, site.verbose, &mut push);
@@ -31,7 +42,7 @@ pub(crate) fn run_structural_regex_rules(
         source,
         site.verbose,
         options,
-        site.pattern_range,
+        site.opener_range,
         &mut push,
     );
 }

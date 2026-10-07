@@ -1,6 +1,6 @@
 use crate::engine::rx::RxClass;
-use crate::engine::rx::RxClassItem;
 use crate::engine::rx::concise_class_replacement;
+use crate::engine::rx::{RxClassItem, RxEscClass};
 use crate::support::CLASS_METACHARACTERS;
 use crate::support::is_grapheme_codepoint;
 use crate::support::is_regional_indicator;
@@ -40,9 +40,33 @@ pub(crate) fn check_rx_class(
             range,
         );
     }
+    check_duplicates_in_class(class, source, push);
+    // python:S5868 — grapheme clusters inside classes.
+    if class
+        .items
+        .iter()
+        .any(|item| matches!(item, RxClassItem::Char(ch) if is_grapheme_codepoint(*ch)))
+        || class.items.windows(2).any(|pair| {
+            pair.iter()
+                .all(|item| matches!(item, RxClassItem::Char(ch) if is_regional_indicator(*ch)))
+        })
+    {
+        push(
+            "python:S5868",
+            "Avoid Unicode grapheme clusters inside this character class.",
+            class.span,
+        );
+    }
+}
+fn check_duplicates_in_class(
+    class: &RxClass,
+    source: &str,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
     // python:S5869 — duplicated characters and overlapping ranges.
     let mut seen_chars: Vec<char> = Vec::new();
     let mut seen_ranges: Vec<(char, char)> = Vec::new();
+    let mut seen_esc = Vec::new();
     for item in &class.items {
         match item {
             RxClassItem::Char(ch) => {
@@ -76,26 +100,39 @@ pub(crate) fn check_rx_class(
                 }
                 seen_ranges.push((*low, *high));
             }
-            RxClassItem::Esc(_) => {}
+            RxClassItem::Esc(escape) => {
+                if seen_esc.contains(escape)
+                    || (*escape == RxEscClass::Digit && seen_esc.contains(&RxEscClass::Word))
+                {
+                    let highlighted_escape =
+                        if *escape == RxEscClass::Digit && seen_esc.contains(&RxEscClass::Word) {
+                            &RxEscClass::Word
+                        } else {
+                            escape
+                        };
+                    let symbol = match highlighted_escape {
+                        RxEscClass::Digit => "\\d",
+                        RxEscClass::Word => "\\w",
+                        RxEscClass::Space => "\\s",
+                        _ => return,
+                    };
+                    let relative = source[class.span].find(symbol).unwrap_or(0);
+                    push(
+                        "python:S5869",
+                        "Remove duplicates in this character class.",
+                        TextRange::at(
+                            class.span.start() + TextSize::from(to_u32(relative)),
+                            TextSize::new(2),
+                        ),
+                    );
+                    return;
+                }
+                seen_esc.push(*escape);
+            }
         }
     }
-    // python:S5868 — grapheme clusters inside classes.
-    if class
-        .items
-        .iter()
-        .any(|item| matches!(item, RxClassItem::Char(ch) if is_grapheme_codepoint(*ch)))
-        || class.items.windows(2).any(|pair| {
-            pair.iter()
-                .all(|item| matches!(item, RxClassItem::Char(ch) if is_regional_indicator(*ch)))
-        })
-    {
-        push(
-            "python:S5868",
-            "Avoid Unicode grapheme clusters inside this character class.",
-            class.span,
-        );
-    }
 }
+
 fn single_character_class_interior(class: &RxClass, source: &str) -> Option<TextRange> {
     let start = class.span.start();
     let end = class.span.end();

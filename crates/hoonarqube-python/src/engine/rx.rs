@@ -1147,6 +1147,8 @@ pub(crate) enum RxMatchType {
 /// One `re.<fn>(...)` call site relevant to the regex rules.
 pub(crate) struct RegexSite {
     pub(crate) pattern_range: TextRange,
+    pub(crate) opener_range: TextRange,
+    pub(crate) content_end: TextSize,
     pub(crate) pattern: Option<Vec<RxUnit>>,
     pub(crate) repl: Option<RegexLiteral>,
     pub(crate) verbose: bool,
@@ -1250,17 +1252,89 @@ pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite>
         } else {
             None
         };
+        let verbose = has_verbose_flag(&call.arguments);
+        let pattern = pattern_expr.and_then(|expr| decode_regex_literal(expr, source));
+        let pattern_range = pattern_expr.map_or_else(|| call.range(), Ranged::range);
+        let opener_range = pattern
+            .as_ref()
+            .and_then(|literal| literal.units.first())
+            .map_or(pattern_range, |unit| {
+                TextRange::at(unit.at - TextSize::new(2), TextSize::new(1))
+            });
+        let content_end = pattern
+            .as_ref()
+            .and_then(|literal| literal.units.last())
+            .map_or(pattern_range.end(), |unit| {
+                unit.at + TextSize::from(to_u32(unit.ch.len_utf8()))
+            });
         sites.push(RegexSite {
-            pattern_range: pattern_expr.map_or_else(|| call.range(), Ranged::range),
-            pattern: pattern_expr
-                .and_then(|expr| decode_regex_literal(expr, source))
-                .map(|literal| literal.units),
+            pattern_range,
+            opener_range,
+            content_end,
+            pattern: pattern.map(|literal| {
+                if verbose {
+                    verbose_regex_units(&literal.units)
+                } else {
+                    literal.units
+                }
+            }),
             repl,
-            verbose: has_verbose_flag(&call.arguments),
+            verbose,
             match_type: site_match_type(&path, call, body),
         });
     });
     sites
+}
+
+/// Extended-mode whitespace and comments have no matching semantics outside
+/// character classes. Retain each surviving character's original offset.
+fn verbose_regex_units(units: &[RxUnit]) -> Vec<RxUnit> {
+    let mut result = Vec::new();
+    let mut escaped = false;
+    let mut in_class = false;
+    let mut comment = false;
+    for unit in units {
+        if comment {
+            if matches!(unit.ch, '\n' | '\r') {
+                comment = false;
+            }
+            continue;
+        }
+        if escaped {
+            result.push(*unit);
+            escaped = false;
+            continue;
+        }
+        if unit.ch == '\\' {
+            escaped = true;
+            result.push(*unit);
+            continue;
+        }
+        if !in_class && unit.ch == '#' {
+            comment = true;
+            continue;
+        }
+        if !in_class && unit.ch.is_ascii_whitespace() {
+            continue;
+        }
+        if unit.ch == '[' {
+            in_class = true;
+        } else if unit.ch == ']' {
+            in_class = false;
+        }
+        result.push(*unit);
+    }
+    result
+}
+
+pub(crate) fn regex_node_range(node: &RxNode) -> TextRange {
+    match node {
+        RxNode::Seq(seq) => seq.span,
+        RxNode::Alternation(branches) => TextRange::new(
+            branches.first().unwrap().span.start(),
+            branches.last().unwrap().span.end(),
+        ),
+    }
 }
 
 // --- shared regex-AST walkers and predicates --------------------------------

@@ -1,11 +1,12 @@
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
+use ruff_text_size::TextRange;
 
 use crate::engine::file_context::FileContext;
 use crate::engine::rx::{
     RxAtom, RxGroupKind, RxItem, RxMatchType, RxNode, RxSeq, RxSet, collect_regex_sites,
-    parse_regex, rx_atom_first_set, rx_atom_nullable, rx_atom_zero_width, rx_is_unbounded_repeat,
-    rx_sets_intersect,
+    parse_regex, regex_node_range, rx_atom_first_set, rx_atom_nullable, rx_atom_zero_width,
+    rx_is_unbounded_repeat, rx_sets_intersect,
 };
 use crate::support::issue_at;
 
@@ -36,9 +37,6 @@ pub(crate) fn check_s8786_super_linear_regex(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for site in collect_regex_sites(file_ctx.module_body, source) {
-        if site.verbose {
-            continue;
-        }
         let Some(units) = &site.pattern else {
             continue;
         };
@@ -49,13 +47,29 @@ pub(crate) fn check_s8786_super_linear_regex(
             issues.push(issue_at(
                 RULE_KEY,
                 MESSAGE,
-                site.pattern_range,
+                TextRange::new(
+                    regex_node_range(&parsed.root).start(),
+                    if trailing_repetition(&parsed.root) {
+                        site.content_end
+                    } else {
+                        regex_node_range(&parsed.root).end()
+                    },
+                ),
                 index,
                 source,
             ));
         }
     }
     issues
+}
+
+fn trailing_repetition(node: &RxNode) -> bool {
+    match node {
+        RxNode::Seq(seq) => seq.items.last().is_some_and(|item| item.quant.is_some()),
+        RxNode::Alternation(branches) => branches
+            .last()
+            .is_some_and(|seq| seq.items.last().is_some_and(|item| item.quant.is_some())),
+    }
 }
 
 fn has_super_linear_pair(node: &RxNode, match_type: RxMatchType) -> bool {
