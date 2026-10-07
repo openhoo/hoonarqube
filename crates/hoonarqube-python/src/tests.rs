@@ -5502,3 +5502,34 @@ fn remaining_security_rules_exempt_prose_and_unrelated_data() {
         assert!(findings(&report, rule).is_empty(), "{rule}");
     }
 }
+
+#[test]
+fn remaining_binding_rules_respect_annotations_builtins_and_paths() {
+    let report = scan(
+        "builtin_str = str\nstr = str\ndef f(x: Later):\n    return x\nclass Later:\n    pass\n",
+    );
+    assert!(findings(&report, "python:S3827").is_empty());
+    assert_eq!(
+        findings(&scan("result = missing\nmissing = 2\n"), "python:S3827").len(),
+        1
+    );
+    for source in [
+        "def f():\n    result: str\n    result = build()\n    return result\n",
+        "def f():\n    result = {}\n    result = build()\n    return result\n",
+        "def f():\n    one, two = build()\n    one, two = other()\n    return one, two\n",
+        "def f():\n    result = build()\n    try:\n        result = other()\n    except Exception:\n        return None\n    return result\n",
+    ] {
+        assert!(
+            findings(&scan(source), "python:S1854").is_empty(),
+            "{source}"
+        );
+    }
+    let report = scan(
+        "def f(secure, partitioned):\n    if partitioned:\n        secure = True\n    return secure\n",
+    );
+    assert!(findings(&report, "python:S1226").is_empty());
+    let report = scan(
+        "def f(secure, partitioned):\n    if partitioned:\n        secure = True\n    else:\n        secure = False\n    return secure\n",
+    );
+    assert_eq!(findings(&report, "python:S1226").len(), 1);
+}

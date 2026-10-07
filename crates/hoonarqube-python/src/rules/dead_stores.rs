@@ -6,7 +6,6 @@ use crate::engine::scope::SymbolTable;
 use crate::engine::scope::scope_has_dynamic_declaration;
 use crate::engine::scope::suite_range;
 use crate::support::child_bodies;
-use crate::support::for_each_expr;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use crate::support::unused_name_matches_pattern;
@@ -44,6 +43,13 @@ pub(crate) fn check_dead_stores(
     }
     let mut issues = Vec::new();
     for (scope_idx, suite) in scope_regions(parsed, table) {
+        let mut contains_try = false;
+        crate::support::for_each_stmt(suite, &mut |stmt| {
+            contains_try |= matches!(stmt, Stmt::Try(_));
+        });
+        if contains_try {
+            continue;
+        }
         let flow = FlowBuilder::new(table, scope_idx).build(suite);
         for (name, range) in flow.dead_stores() {
             if is_reportable(table, scope_idx, &name, range, options)
@@ -71,6 +77,31 @@ pub(crate) fn check_dead_stores(
         }
     }
     issues
+}
+
+/// Incoming parameters share the same backward liveness analysis as stores.
+/// A conditional overwrite leaves the incoming value live along its bypass.
+pub(crate) fn dead_initial_parameters(
+    table: &SymbolTable,
+    scope_idx: usize,
+    suite: &[Stmt],
+    parameters: &[(String, TextRange)],
+) -> HashSet<TextRange> {
+    let mut builder = FlowBuilder::new(table, scope_idx);
+    for (name, range) in parameters {
+        builder.push_store(0, name, *range);
+    }
+    builder
+        .build(suite)
+        .dead_stores()
+        .into_iter()
+        .filter_map(|(_, range)| {
+            parameters
+                .iter()
+                .any(|(_, parameter_range)| *parameter_range == range)
+                .then_some(range)
+        })
+        .collect()
 }
 
 /// Shared gates with the previous binding-based rule: underscore and ignore
@@ -129,6 +160,15 @@ fn is_sentinel_assignment(suite: &[Stmt], range: TextRange) -> bool {
     let mut found = false;
     crate::support::for_each_stmt(suite, &mut |stmt| {
         let value: Option<&Expr> = match stmt {
+            Stmt::Assign(assign)
+                if assign.targets.iter().any(|target| {
+                    matches!(target, Expr::Tuple(_) | Expr::List(_))
+                        && target.range().contains_range(range)
+                }) =>
+            {
+                found = true;
+                None
+            }
             Stmt::Assign(assign) if assign.targets.iter().any(|target| target.range() == range) => {
                 Some(assign.value.as_ref())
             }
@@ -136,7 +176,11 @@ fn is_sentinel_assignment(suite: &[Stmt], range: TextRange) -> bool {
             _ => None,
         };
         if let Some(value) = value {
-            found |= crate::support::constant_truth(value) == Some(false)
+            found |= matches!(value, Expr::Dict(dict) if dict.items.is_empty())
+                || matches!(value, Expr::List(list) if list.elts.is_empty())
+                || matches!(value, Expr::Set(set) if set.elts.is_empty())
+                || matches!(value, Expr::Tuple(tuple) if tuple.elts.is_empty())
+                || crate::support::constant_truth(value) == Some(false)
                 || matches!(value, Expr::Name(name) if name.id.as_str() == "True")
                 || matches!(value, Expr::NumberLiteral(n) if matches!(&n.value, ruff_python_ast::Number::Int(i) if i.as_i64() == Some(1)))
                 || matches!(value, Expr::UnaryOp(u) if u.op == ruff_python_ast::UnaryOp::USub
@@ -389,9 +433,12 @@ impl<'a> FlowBuilder<'a> {
                 if let Some(value) = assignment.value.as_deref() {
                     self.expr_events(block, value);
                 }
-                self.store_target_events(block, &assignment.target);
+                if assignment.value.is_some() {
+                    self.store_target_events(block, &assignment.target);
+                }
             }
             Stmt::AugAssign(assignment) => {
+                self.expr_events(block, &assignment.value);
                 if let Expr::Name(name) = assignment.target.as_ref() {
                     self.push_load(block, name.id.as_str());
                     self.push_store(block, name.id.as_str(), name.range());
@@ -709,16 +756,25 @@ impl<'a> FlowBuilder<'a> {
     /// Every `Name` load (and `del`) in an expression counts as a use of this
     /// scope. Nested lambdas and comprehensions are folded in conservatively.
     fn expr_events(&mut self, block: usize, expr: &Expr) {
-        for_each_expr(expr, &mut |expr| {
-            if let Expr::Name(name) = expr
-                && matches!(
+        match expr {
+            Expr::Named(named) => {
+                self.expr_events(block, &named.value);
+                self.store_target_events(block, &named.target);
+            }
+            Expr::Name(name)
+                if matches!(
                     name.ctx,
                     ruff_python_ast::ExprContext::Load | ruff_python_ast::ExprContext::Del
-                )
+                ) =>
             {
                 self.push_load(block, name.id.as_str());
             }
-        });
+            _ => {
+                for child in crate::support::child_exprs(expr) {
+                    self.expr_events(block, child);
+                }
+            }
+        }
     }
 
     fn store_target_events(&mut self, block: usize, target: &Expr) {

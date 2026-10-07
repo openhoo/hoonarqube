@@ -1,6 +1,6 @@
 use crate::engine::scope::FileFacts;
 use crate::engine::scope::SymbolTable;
-use crate::support::issue_at;
+use crate::support::{is_builtin_name, issue_at};
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
 
@@ -17,7 +17,11 @@ pub(crate) fn check_use_before_definition(
     }
     let mut issues = Vec::new();
     for load in &table.resolved_loads {
-        if load.scope != 0 || load.in_annotation || load.target != Some(0) {
+        if load.scope != 0
+            || load.in_annotation
+            || load.target != Some(0)
+            || is_builtin_name(&load.name)
+        {
             continue;
         }
         let Some(bindings) = table.scopes[0].bindings.get(&load.name) else {
