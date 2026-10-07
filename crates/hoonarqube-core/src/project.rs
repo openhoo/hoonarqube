@@ -68,6 +68,22 @@ pub fn analyze_project_file(
         };
     }
 
+    // Scope affects both MAIN-rule suppression and Go's test function name
+    // pattern. Pass the classification into analysis before either runs.
+    let scoped_options;
+    let options = if classification == FileClassification::Test
+        && language_for_path(path) == Some(Language::Go)
+    {
+        scoped_options = {
+            let mut scoped = options.clone();
+            scoped.go.test_scope = Some(true);
+            scoped
+        };
+        &scoped_options
+    } else {
+        options
+    };
+
     let mut report = if is_razor_path(path) || source_exceeds_limits(path, source) {
         // Razor and resource-sized input have no safe native-analysis path;
         // source facts still retain bounded metrics and the failure reason.
@@ -737,7 +753,7 @@ mod tests {
             false,
         );
         let file_report = input.report.as_ref().expect("JavaScript report");
-        assert_eq!(file_report.metrics.lines, 3);
+        assert_eq!(file_report.metrics.lines, 4);
         assert_eq!(file_report.metrics.code_lines, 2);
         assert_eq!(file_report.metrics.comment_lines, 1);
 
@@ -750,10 +766,10 @@ mod tests {
         .expect("valid options");
         assert!(report.project.complete);
         assert_eq!(report.project.metrics.files, 1);
-        assert_eq!(report.project.metrics.lines, 3);
+        assert_eq!(report.project.metrics.lines, 4);
         assert_eq!(report.project.metrics.code_lines, 2);
         assert_eq!(report.project.metrics.comment_lines, 1);
-        assert_eq!(report.files[0].metrics.lines, 3);
+        assert_eq!(report.files[0].metrics.lines, 4);
         assert_eq!(report.files[0].metrics.code_lines, 2);
         assert_eq!(report.files[0].metrics.comment_lines, 1);
     }
@@ -770,7 +786,7 @@ mod tests {
         assert!(input.report.is_none());
         let facts = input.facts.as_ref().expect("bounded facts");
         assert!(facts.error.is_some());
-        assert_eq!(facts.metrics.lines, 4 * 1024 * 1024 + 1);
+        assert_eq!(facts.metrics.lines, 4 * 1024 * 1024 + 2);
         assert_eq!(facts.metrics.code_lines, 0);
         assert_eq!(facts.metrics.comment_lines, 0);
 
@@ -881,5 +897,77 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn explicit_test_classification_suppresses_go_main_scope_rules() {
+        let source = "package p\nfunc empty() {}\nfunc Test_value() { println(1) }\nfunc same(x int) bool { return x == x }\n";
+        let analyze_scope = |classification| {
+            analyze_project_file(
+                Path::new("checks.go"),
+                source,
+                &AnalyzerOptions::default(),
+                classification,
+                false,
+            )
+            .report
+            .expect("Go report")
+            .issues
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect::<Vec<_>>()
+        };
+        let main = analyze_scope(FileClassification::Source);
+        assert!(main.iter().any(|key| key == "go:S1186"), "{main:?}");
+        assert!(main.iter().any(|key| key == "go:S100"), "{main:?}");
+        assert!(main.iter().any(|key| key == "go:S1764"), "{main:?}");
+        let tests = analyze_scope(FileClassification::Test);
+        assert!(!tests.iter().any(|key| key == "go:S1186"), "{tests:?}");
+        assert!(!tests.iter().any(|key| key == "go:S100"), "{tests:?}");
+        assert!(tests.iter().any(|key| key == "go:S1764"), "{tests:?}");
+    }
+
+    #[test]
+    fn go_test_filename_keeps_conventional_rule_scope_without_explicit_patterns() {
+        let source = "package p\nfunc empty() {}\nfunc Test_value() { println(1) }\n";
+        let report = analyze_project_file(
+            Path::new("value_test.go"),
+            source,
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        )
+        .report
+        .expect("Go report");
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| matches!(issue.rule_key.as_str(), "go:S1186" | "go:S100")),
+            "{:?}",
+            report.issues
+        );
+    }
+
+    #[test]
+    fn go_1_26_expression_new_produces_complete_project_measurements() {
+        let source = "package p\nfunc value() *int { return new(1 + 2) }\n";
+        let file = analyze_project_file(
+            Path::new("value.go"),
+            source,
+            &AnalyzerOptions::default(),
+            FileClassification::Source,
+            false,
+        );
+        assert!(file.error.is_none(), "{:?}", file.error);
+        let report = build_project_report(
+            vec![file],
+            vec![PathBuf::from(".")],
+            vec![],
+            &DuplicationOptions::default(),
+        )
+        .expect("project report");
+        assert!(report.project.complete, "{:?}", report.project.warnings);
+        assert_eq!(report.project.metrics.code_lines, 2);
+        assert!(report.project.duplication.is_some());
     }
 }
