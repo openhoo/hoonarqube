@@ -2,12 +2,12 @@
 
 ## Claim boundary
 
-Hoonarqube ships the frozen 2,617-rule catalog:
+Hoonarqube ships the frozen 2,706-rule catalog:
 
 - C#: 468.
 - JavaScript: 445.
 - TypeScript: 455.
-- Python: 353.
+- Python: 442.
 - Go: 36.
 - Rust: 85.
 - Java: 733.
@@ -28,6 +28,25 @@ commercial license. They are never counted as Community passes.
 The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
+
+## Current coverage audit and real-project campaign — 2026-10-07
+
+`cargo run --locked -q -j 2 -p xtask -- catalog coverage --strict --allow-infra`
+completed successfully. It reports 1,931 directly tested implementations:
+468 C#, 445 JavaScript, 455 TypeScript, 442 Python, 36 Go, and 85 Rust, with
+zero missing or untested rows in these languages. Java's 733 and Ruby's 42
+frozen rows remain audit-classified infrastructure boundaries. The audit's
+infra-excluding percentage must not be interpreted as complete Java/Ruby
+implementation coverage; bounded detector support is described below.
+
+The [real-project campaign report](docs/real-project-campaign-20261007.md)
+documents actual Community Build `26.9.0.129388` container scans, pinned source
+commits, scope alignment, focused controls, metric qualifications, and remaining
+differences. The reference version is separate from the frozen catalog snapshot.
+The campaign's identity comparison covers primary rule/path/range multisets;
+messages, secondary flows, fixes, hotspots, and duplication require their own
+evidence. Historical qualifications below retain their original versions and
+non-pass status.
 
 ## `sonar-parity` profile membership
 
