@@ -25,6 +25,14 @@ holds the token in memory and discards responses from earlier sessions or
 project selections. Disconnect hides the loaded analysis and prevents pending
 requests from repopulating it.
 
+Ingestion and backup restoration validate native report consistency before
+writing: complete reports cannot contain failed source/test measurements or
+scan warnings, measured source/test metrics must match their file reports,
+and project totals count complete source files only. Duplicate inventory paths,
+impossible file counters, and NUL-containing paths are rejected. Incomplete
+reports and excluded scopes remain supported. Previously stored contradictory
+reports must be corrected before they can be restored.
+
 ## Focused verification
 
 ```sh
