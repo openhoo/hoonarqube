@@ -1421,7 +1421,10 @@ pub fn line_content_end(
         if end > start && source[end - 1] == b'\r' {
             end -= 1;
         }
-    } else if end > start && source[end - 1] == b'\r' {
+    } else if end > start
+        && source[end - 1] == b'\r'
+        && matches!(line_style, SourceLineStyle::Ecmascript)
+    {
         end -= 1;
     } else if end >= start + 3
         && matches!(line_style, SourceLineStyle::Ecmascript)
@@ -1537,6 +1540,56 @@ mod tests {
                 },
             },
         )
+    }
+
+    #[test]
+    fn line_content_end_preserves_generic_lone_cr_and_unicode_content() {
+        for (source, generic_end, ecmascript_end) in [
+            ("value", 5, 5),
+            ("value\n", 5, 5),
+            ("value\r\n", 5, 5),
+            ("value\r", 6, 5),
+            ("😀\r", 5, 4),
+            ("value\u{2028}", 8, 5),
+            ("value\u{2029}", 8, 5),
+        ] {
+            for (style, expected) in [
+                (SourceLineStyle::Generic, generic_end),
+                (SourceLineStyle::Ecmascript, ecmascript_end),
+            ] {
+                assert_eq!(
+                    line_content_end(source.as_bytes(), 0, source.len(), style),
+                    expected,
+                    "{source:?} expected content end {expected}",
+                );
+            }
+        }
+        assert_eq!(line_content_end(b"", 0, 0, SourceLineStyle::Generic), 0);
+    }
+
+    #[test]
+    fn assessment_accepts_generic_end_of_file_after_lone_cr() {
+        let issue = crate::Issue::new(
+            "csharpsquid:S113",
+            "Add a newline at the end of this file.",
+            crate::Range {
+                start: crate::Pos {
+                    line: 1,
+                    column: 24,
+                },
+                end: crate::Pos {
+                    line: 1,
+                    column: 25,
+                },
+            },
+        );
+        let snapshot =
+            SourceSnapshot::from_source("sample.cs", b"class A {\r  int x = 1;\r}\r", &[issue])
+                .expect("a Generic lone CR remains addressable source content");
+        assert_eq!(
+            snapshot.findings[0].source_digest,
+            digest_parts(&[b"range", b"\r"])
+        );
     }
 
     #[test]
