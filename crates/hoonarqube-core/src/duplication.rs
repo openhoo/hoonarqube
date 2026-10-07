@@ -1273,7 +1273,12 @@ fn suppress_contained_groups(
 
     for group_index in order {
         let group = &groups[group_index];
-        if group_is_redundant(group, &accepted_by_file, files, budget)? {
+        let redundant = if uses_token_lines(group.language) {
+            group_is_redundant_in_single_group(group, &groups, &accepted, files, budget)?
+        } else {
+            group_is_redundant(group, &accepted_by_file, files, budget)?
+        };
+        if redundant {
             continue;
         }
         accepted.push(group_index);
@@ -1294,6 +1299,67 @@ fn suppress_contained_groups(
         result.push(state);
     }
     Ok(result)
+}
+
+/// Sonar's token-line collector suppresses a clone only when one earlier
+/// clone relation covers every occurrence on exactly the same resources.
+/// Pooling occurrences from unrelated groups destroys that relation.
+fn group_is_redundant_in_single_group(
+    group: &GroupState,
+    groups: &[GroupState],
+    accepted: &[usize],
+    files: &[PreparedFile],
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    let resources = group_resources(group, budget)?;
+    for &index in accepted {
+        budget.charge(1)?;
+        let earlier = &groups[index];
+        if earlier.language != group.language || earlier.length <= group.length {
+            continue;
+        }
+        if resources != group_resources(earlier, budget)? {
+            continue;
+        }
+        if group_is_covered_by(group, earlier, files, budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn group_resources(group: &GroupState, budget: &mut WorkBudget) -> Result<BTreeSet<usize>, String> {
+    let mut resources = BTreeSet::new();
+    for occurrence in &group.occurrences {
+        budget.charge(1)?;
+        resources.insert(occurrence.file);
+    }
+    Ok(resources)
+}
+
+fn group_is_covered_by(
+    group: &GroupState,
+    earlier: &GroupState,
+    files: &[PreparedFile],
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    for short in &group.occurrences {
+        let mut occurrence_covered = false;
+        for long in &earlier.occurrences {
+            budget.charge(1)?;
+            if short.file != long.file {
+                continue;
+            }
+            if occurrence_is_contained(*short, group.length, *long, files, budget)? {
+                occurrence_covered = true;
+                break;
+            }
+        }
+        if !occurrence_covered {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn group_is_redundant(
@@ -1325,27 +1391,44 @@ fn occurrence_is_covered(
 ) -> Result<bool, String> {
     for long_occurrence in &accepted_by_file[short_occurrence.file] {
         budget.charge(1)?;
-        let long_length = occurrence_length(*long_occurrence);
-        if long_length <= group_length
-            || long_occurrence.start > short_occurrence.start
-            || long_occurrence.end < short_occurrence.end
-        {
-            continue;
-        }
-        let offset = short_occurrence.start - long_occurrence.start;
-        let file = &files[short_occurrence.file];
-        if equal_ids(
-            file,
-            long_occurrence.start + offset,
-            file,
-            short_occurrence.start,
+        if occurrence_is_contained(
+            short_occurrence,
             group_length,
+            *long_occurrence,
+            files,
             budget,
         )? {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+fn occurrence_is_contained(
+    short: TokenOccurrence,
+    group_length: usize,
+    long: TokenOccurrence,
+    files: &[PreparedFile],
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    let long_length = occurrence_length(long);
+    if long.file != short.file
+        || long_length <= group_length
+        || long.start > short.start
+        || long.end < short.end
+    {
+        return Ok(false);
+    }
+    let offset = short.start - long.start;
+    let file = &files[short.file];
+    equal_ids(
+        file,
+        long.start + offset,
+        file,
+        short.start,
+        group_length,
+        budget,
+    )
 }
 
 fn containment_group_order(left: &GroupState, right: &GroupState) -> Ordering {
@@ -1664,8 +1747,9 @@ fn u64_as_f64(value: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        DiagonalKey, DuplicationFile, DuplicationOptions, StartInterval, WorkBudget, covered_start,
-        detect_duplications, insert_coverage,
+        DiagonalKey, DuplicationFile, DuplicationOptions, GroupState, PreparedFile, StartInterval,
+        TokenOccurrence, WorkBudget, covered_start, detect_duplications, insert_coverage,
+        suppress_contained_groups,
     };
     use crate::Language;
     use crate::source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
@@ -1738,6 +1822,115 @@ mod tests {
         for occurrence in &result.groups[0].occurrences {
             assert_eq!((occurrence.start_line, occurrence.end_line), (1, 16));
         }
+    }
+
+    fn prepared(path: &str) -> PreparedFile {
+        PreparedFile {
+            path: PathBuf::from(path),
+            language: Language::JavaScript,
+            lines: 40,
+            ids: vec![1; 40],
+            starts: vec![1; 40],
+            ends: vec![1; 40],
+            byte_starts: (0..40).collect(),
+            byte_ends: (1..41).collect(),
+            source_tokens: (0..40).collect(),
+            unit_starts: (0..40).collect(),
+            unit_ends: (0..40).collect(),
+            prefix_a: Vec::new(),
+            prefix_b: Vec::new(),
+        }
+    }
+    fn group(length: usize, positions: &[(usize, usize)]) -> GroupState {
+        let occurrences: Vec<_> = positions
+            .iter()
+            .map(|&(file, start)| TokenOccurrence {
+                file,
+                start,
+                end: start + length - 1,
+            })
+            .collect();
+        GroupState {
+            language: Language::JavaScript,
+            length,
+            hash_a: 0,
+            hash_b: 0,
+            representative: occurrences[0],
+            occurrence_set: occurrences.iter().copied().collect(),
+            occurrences,
+        }
+    }
+    #[test]
+    fn js_containment_cannot_pool_unrelated_groups_or_file_sets() {
+        let files = vec![prepared("a.js"), prepared("b.js"), prepared("c.js")];
+        let mut budget = WorkBudget {
+            used: 0,
+            limit: 10000,
+        };
+        let output = suppress_contained_groups(
+            vec![
+                group(10, &[(0, 0), (1, 0)]),
+                group(9, &[(0, 20), (1, 20)]),
+                group(3, &[(0, 2), (1, 22)]),
+            ],
+            &files,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            output.len(),
+            3,
+            "different accepted groups cannot jointly hide a clone"
+        );
+        let output = suppress_contained_groups(
+            vec![
+                group(10, &[(0, 0), (1, 0), (2, 0)]),
+                group(3, &[(0, 2), (1, 2)]),
+            ],
+            &files,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            output.len(),
+            2,
+            "a superset of files is a different clone relation"
+        );
+        let output = suppress_contained_groups(
+            vec![group(10, &[(0, 0), (1, 0)]), group(3, &[(0, 2), (1, 2)])],
+            &files,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            output.len(),
+            1,
+            "one group on exactly the same files covers the clone"
+        );
+        let mut legacy = vec![
+            group(10, &[(0, 0), (1, 0)]),
+            group(9, &[(0, 20), (1, 20)]),
+            group(3, &[(0, 2), (1, 22)]),
+        ];
+        for group in &mut legacy {
+            group.language = Language::Go;
+        }
+        let output = suppress_contained_groups(legacy, &files, &mut budget).unwrap();
+        assert_eq!(
+            output.len(),
+            2,
+            "other language suppression keeps its existing contract"
+        );
+        let mut exhausted = WorkBudget { used: 0, limit: 0 };
+        assert!(
+            suppress_contained_groups(
+                vec![group(10, &[(0, 0), (1, 0)]), group(3, &[(0, 2), (1, 2)])],
+                &files,
+                &mut exhausted
+            )
+            .is_err(),
+            "containment cannot return a partial result after exhausting its budget"
+        );
     }
 
     fn facts(
