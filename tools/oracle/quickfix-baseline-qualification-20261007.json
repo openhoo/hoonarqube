@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "kind": "fresh_baseline_quickfix_application_receipt",
+  "release_equivalence_claimed": false,
+  "typescript_configuration_migration": "ignoreDeprecations6.0 added explicitly to fixture configs inheritingbaseUrl; originalfailure retained",
+  "language_replays": [
+    {
+      "language": "python",
+      "binary": {
+        "path": "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/acceptance-hoonarqube",
+        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56"
+      },
+      "summary": {
+        "applications": 65,
+        "fail": 7,
+        "native_action_gap": 0,
+        "native_action_refusal": 0,
+        "no_action_declared": 0,
+        "no_action_expected": 0,
+        "pass": 57,
+        "safety_refused": 1,
+        "unavailable": 0
+      },
+      "result_sha256": "5b31fcf1ba39d37c938004d0196e9ceb445c32a23ba0edf03e283054bb16aec2",
+      "failed_applications": [
+        {
+          "rule": "python:S1720",
+          "row_index": 6,
+          "action_id": "s1720-add-docstring",
+          "failures": [
+            "initial analyze: expected exactly one actionable python:S1720 finding, found 0"
+          ]
+        },
+        {
+          "rule": "python:S1854",
+          "row_index": 7,
+          "action_id": "s1854-remove-unused-assignment",
+          "failures": [
+            "initial analyze: expected exactly one actionable python:S1854 finding, found 0"
+          ]
+        },
+        {
+          "rule": "python:S3923",
+          "row_index": 12,
+          "action_id": "s3923-remove-if-statement",
+          "failures": [
+            "native finding edits do not produce the manifest expected projection",
+            "fix-apply: expected exit code 0, got 1",
+            "fix-apply did not report a written file",
+            "fix-apply reported no applied rule fix",
+            "fix-apply did not independently verify the applied action",
+            "fix-apply final bytes differ from the native projection",
+            "final analyze did not reduce the targeted rule finding"
+          ]
+        },
+        {
+          "rule": "python:S4144",
+          "row_index": 14,
+          "action_id": "s4144-call-original-method",
+          "failures": [
+            "initial analyze: expected exactly one actionable python:S4144 finding, found 0"
+          ]
+        },
+        {
+          "rule": "python:S5719",
+          "row_index": 20,
+          "action_id": "s5719-add-self",
+          "failures": [
+            "safety control regular-method-without-receiver: expected increased findings {'python:S2325': 1}, found {}",
+            "safety control regular-method-without-receiver: unsafe apply was not refused"
+          ]
+        },
+        {
+          "rule": "python:S6545",
+          "row_index": 33,
+          "action_id": "s6545-use-builtin-generic",
+          "failures": [
+            "safety control unused-typing-import: expected increased findings {'python:S1128': 1}, found {}",
+            "safety control unused-typing-import: unsafe apply was not refused"
+          ]
+        },
+        {
+          "rule": "python:S6553",
+          "row_index": 35,
+          "action_id": "s6553-use-blank",
+          "failures": [
+            "initial analyze: expected exactly one actionable python:S6553 finding, found 0"
+          ]
+        }
+      ]
+    },
+    {
+      "language": "javascript",
+      "binary": {
+        "path": "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/acceptance-hoonarqube",
+        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56"
+      },
+      "summary": {
+        "applications": 61,
+        "fail": 1,
+        "native_action_gap": 0,
+        "native_action_refusal": 1,
+        "no_action_declared": 0,
+        "no_action_expected": 26,
+        "pass": 24,
+        "safety_refused": 8,
+        "unavailable": 0
+      },
+      "result_sha256": "18e6e90311dcdd6a46631c6b53edd02c55d71193d871455f91ea5ce3b2bca81a",
+      "failed_applications": [
+        {
+          "rule": "javascript:S2990",
+          "row_index": 108,
+          "action_id": "s2990-use-window",
+          "failures": [
+            "fix-apply: expected exit code 0, got 1",
+            "fix-apply did not report a written file",
+            "fix-apply reported no applied rule fix",
+            "fix-apply did not independently verify the applied action",
+            "fix-apply final bytes differ from the native projection",
+            "final analyze did not reduce the targeted rule finding"
+          ]
+        }
+      ]
+    },
+    {
+      "language": "typescript",
+      "binary": {
+        "path": "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/acceptance-hoonarqube",
+        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56"
+      },
+      "summary": {
+        "applications": 89,
+        "fail": 2,
+        "native_action_gap": 0,
+        "native_action_refusal": 2,
+        "no_action_declared": 0,
+        "no_action_expected": 37,
+        "pass": 44,
+        "safety_refused": 4,
+        "unavailable": 0
+      },
+      "result_sha256": "23eec2c609cdae7dd2a28cfebb27e9a0210df8818c8df5f3cdad04f9322fcf6a",
+      "failed_applications": [
+        {
+          "rule": "typescript:S2871",
+          "row_index": 104,
+          "action_id": "s2871-suggest-language-sensitive-order",
+          "failures": [
+            "initial analyze: expected exactly one actionable typescript:S2871 finding, found 0"
+          ]
+        },
+        {
+          "rule": "typescript:S4322",
+          "row_index": 118,
+          "action_id": null,
+          "failures": [
+            "native action refusal lacks a valid invalid/unsafe upstream classification"
+          ]
+        }
+      ]
+    }
+  ]
+}
