@@ -518,9 +518,15 @@ fn tier_a2_general_checks(
     path: &Path,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_duplicated_string_literals(
-        parsed, index, source, options,
-    ));
+    if !path
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|name| name.starts_with("test"))
+    {
+        issues.extend(check_duplicated_string_literals(
+            parsed, index, source, options,
+        ));
+    }
     issues.extend(check_open_modes(index, source, file_ctx));
     issues.extend(check_weak_hashing(index, source, file_ctx));
     issues.extend(check_insecure_temp_files(index, source, file_ctx));

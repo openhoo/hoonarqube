@@ -5533,3 +5533,35 @@ fn remaining_binding_rules_respect_annotations_builtins_and_paths() {
     );
     assert_eq!(findings(&report, "python:S1226").len(), 1);
 }
+
+#[test]
+fn remaining_arity_uses_final_method_after_overload_declarations() {
+    let report = scan(
+        "import typing as t\nclass Multi:\n    @t.overload\n    def to_dict(self) -> dict: ...\n    @t.overload\n    def to_dict(self, flat: t.Literal[False]) -> dict: ...\n    def to_dict(self, flat=True):\n        return {}\n    def copy(self):\n        return self.to_dict(flat=False)\n",
+    );
+    assert!(findings(&report, "python:S930").is_empty());
+    let report = scan(
+        "class Multi:\n    def to_dict(self):\n        return {}\n    def copy(self):\n        return self.to_dict(flat=False)\n",
+    );
+    assert_eq!(findings(&report, "python:S930").len(), 1);
+}
+
+#[test]
+fn remaining_duplicate_literal_filename_gate_is_rule_specific() {
+    let source = "def first():\n    return 'a long duplicated literal'\ndef second():\n    return 'a long duplicated literal'\ndef third():\n    return 'a long duplicated literal'\n";
+    assert!(
+        findings(
+            &crate::test_support::scan_at("src/tool/test.py".into(), source),
+            "python:S1192"
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        findings(
+            &crate::test_support::scan_at("src/tool/util.py".into(), source),
+            "python:S1192"
+        )
+        .len(),
+        1
+    );
+}

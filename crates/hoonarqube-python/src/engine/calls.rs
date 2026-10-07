@@ -352,7 +352,7 @@ fn declared_method<'a>(
     class: &'a ruff_python_ast::StmtClassDef,
     method: &str,
 ) -> Option<&'a ruff_python_ast::StmtFunctionDef> {
-    class.body.iter().find_map(|stmt| {
+    class.body.iter().rev().find_map(|stmt| {
         if let Stmt::FunctionDef(function) = stmt
             && function.name.as_str() == method
         {
