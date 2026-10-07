@@ -256,32 +256,34 @@ fn scan_flow_nested_bodies(
                 );
             }
         }
-        Stmt::ClassDef(class) => {
-            scan_flow_statements_in(
-                &class.body,
-                state,
-                current_fn,
-                exempt_fns,
-                issues,
-                index,
-                source,
-            );
-        }
-        // Jumps bind within the innermost function scope; reset the state
-        // and remember the function name for the except-called exemption.
-        Stmt::FunctionDef(function) => {
-            scan_flow_statements_in(
-                &function.body,
-                FlowState::fresh_scope(),
-                Some(function.name.as_str()),
-                exempt_fns,
-                issues,
-                index,
-                source,
-            );
+        Stmt::ClassDef(_) | Stmt::FunctionDef(_) => {
+            scan_flow_definition(stmt, exempt_fns, issues, index, source);
         }
         _ => {}
     }
+}
+
+fn scan_flow_definition(
+    stmt: &Stmt,
+    exempt_fns: &ExceptCalledFns,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let (body, current_fn) = match stmt {
+        Stmt::FunctionDef(function) => (function.body.as_slice(), Some(function.name.as_str())),
+        Stmt::ClassDef(class) => (class.body.as_slice(), None),
+        _ => return,
+    };
+    scan_flow_statements_in(
+        body,
+        FlowState::fresh_scope(),
+        current_fn,
+        exempt_fns,
+        issues,
+        index,
+        source,
+    );
 }
 
 fn scan_try_flow(
