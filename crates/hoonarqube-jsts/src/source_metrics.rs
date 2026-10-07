@@ -122,6 +122,15 @@ mod tests {
     }
 
     #[test]
+    fn empty_source_still_has_one_physical_line() {
+        for report in [crate::test_support::js(""), crate::test_support::ts("")] {
+            assert_eq!(report.metrics.lines, 1);
+            assert_eq!(report.metrics.code_lines, 0);
+            assert_eq!(report.metrics.comment_lines, 0);
+        }
+    }
+
+    #[test]
     fn analyzer_uses_the_shared_comment_metric() {
         let report =
             crate::test_support::js("/** header */\nconst x = 1; // trailing\n/* body\n */\n");

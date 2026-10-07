@@ -267,7 +267,8 @@ pub(crate) fn file_metrics(
     first_token_start: Option<usize>,
 ) -> hoonarqube_ir::FileMetrics {
     let lines = if source.is_empty() {
-        0
+        // Sonar publishes one physical row even for an empty analyzed file.
+        1
     } else {
         let mut line_count = index.line_starts.len();
         if index.line_starts.last().copied() == Some(to_u32(source.len())) {
