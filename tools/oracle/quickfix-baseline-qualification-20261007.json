@@ -7,8 +7,8 @@
     {
       "language": "python",
       "binary": {
-        "path": "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/acceptance-hoonarqube",
-        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56"
+        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
+        "file_name": "acceptance-hoonarqube"
       },
       "summary": {
         "applications": 65,
@@ -92,8 +92,8 @@
     {
       "language": "javascript",
       "binary": {
-        "path": "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/acceptance-hoonarqube",
-        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56"
+        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
+        "file_name": "acceptance-hoonarqube"
       },
       "summary": {
         "applications": 61,
@@ -126,8 +126,8 @@
     {
       "language": "typescript",
       "binary": {
-        "path": "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/acceptance-hoonarqube",
-        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56"
+        "sha256": "ac52b0730ce61812eaf01b0999db228fc1e4a72383431ef9a873d670dce39c56",
+        "file_name": "acceptance-hoonarqube"
       },
       "summary": {
         "applications": 89,
