@@ -157,12 +157,37 @@ def verify_source(row):
     return root
 
 
+def verify_reference_scope(row, folder):
+    captured = json.loads((folder / 'source.json').read_text())
+    for field in ('name', 'commit', 'project_key', 'sources', 'exclude', 'language'):
+        default = [] if field == 'exclude' else None
+        if captured.get(field, default) != row.get(field, default):
+            raise ValueError(f'reference scope mismatch: {field}')
+
+
+def verify_reference_files(root, folder):
+    root = root.resolve()
+    files = json.loads((folder / 'reference-source-files.json').read_text())
+    for file in files:
+        path = (root / file['path']).resolve()
+        if not path.is_relative_to(root) or digest(path) != file['sha256']:
+            raise ValueError('reference source content mismatch')
+
+
 def execute(row, args, sonar, token):
     root = verify_source(row)
     folder = args.output / row['name']
     folder.mkdir(parents=True, exist_ok=True)
     key = row['project_key']
-    write_json_atomic(folder / 'source.json', row)
+    if (folder / 'source.json').exists():
+        verify_reference_scope(row, folder)
+    elif args.native_only:
+        raise ValueError('native replay requires a captured source manifest')
+    if args.native_only:
+        verify_reference_files(root, folder)
+    else:
+        write_json_atomic(folder / 'source.json', row)
+        write_json_atomic(folder / 'server.json', sonar.request('/api/system/status'))
     if not args.native_only:
         try:
             sonar.request('/api/components/show', {'component': key})
@@ -219,6 +244,13 @@ def execute(row, args, sonar, token):
                                  'qualifiers': 'FIL'}, 'components', folder,
                                  'indexed-files')
         write_json_atomic(folder / 'indexed-files.json', components)
+        reference_files = []
+        for file in components:
+            path = (root / file['path']).resolve()
+            if not path.is_relative_to(root):
+                raise ValueError('reference source path escapes pinned project')
+            reference_files.append({'path': file['path'], 'sha256': digest(path)})
+        write_json_atomic(folder / 'reference-source-files.json', reference_files)
     issues = json.loads((folder / 'issues.json').read_text())
     command = [str(args.binary), 'analyze', *row['sources'], '--format', 'json']
     for pattern in row.get('exclude', []):
@@ -240,6 +272,7 @@ def execute(row, args, sonar, token):
             raise ValueError('native source path escapes pinned project')
         source_files.append({'path': file['path'], 'sha256': digest(path)})
     verify_source(row)
+    verify_reference_files(root, folder)
     write_json_atomic(folder / f'{args.label}-source-files.json', source_files)
     write_json_atomic(folder / f'{args.label}-comparison.json', inventory)
     return {field: inventory[field] for field in inventory if field != 'inventory'}

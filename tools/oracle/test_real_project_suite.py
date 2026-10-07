@@ -8,9 +8,36 @@ import tempfile
 from unittest.mock import patch
 
 from real_project_suite import comparison, native_identities, sonar_identities, normalized_path, run
+from real_project_suite import verify_reference_scope, verify_reference_files, digest
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_offline_replay_rejects_changed_scope_without_rewriting_reference(self):
+        row = {'name': 'p', 'commit': 'abc', 'project_key': 'p', 'sources': ['src'],
+               'exclude': ['tests/**'], 'language': 'js'}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / 'source.json'
+            original = json.dumps(row)
+            manifest.write_text(original)
+            verify_reference_scope(row, root)
+            for field, value in [('commit', 'def'), ('sources', ['.']),
+                                 ('exclude', []), ('project_key', 'other')]:
+                with self.subTest(field=field), self.assertRaisesRegex(ValueError, field):
+                    verify_reference_scope({**row, field: value}, root)
+            self.assertEqual(manifest.read_text(), original)
+
+    def test_offline_replay_checks_source_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'a.js'
+            source.write_text('const a = [];')
+            (root / 'reference-source-files.json').write_text(json.dumps([
+                {'path': 'a.js', 'sha256': digest(source)}]))
+            verify_reference_files(root, root)
+            source.write_text('const a = [1];')
+            with self.assertRaisesRegex(ValueError, 'content mismatch'):
+                verify_reference_files(root, root)
     def test_timeout_keeps_partial_streams_and_never_records_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
