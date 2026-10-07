@@ -1667,10 +1667,17 @@ function collectCoercionFacts(ts, checker, sourceFile) {
       message: `'${node.getText(sourceFile)}' ${result} use Object's default stringification format ('[object Object]') when stringified.` });
   }
   function visit(node) {
-    if (ts.isElementAccessExpression(node)) receiver(node.expression);
-    if (ts.isCallExpression(node)) {
-      if (ts.isPropertyAccessExpression(node.expression)) receiver(node.expression.expression);
-      for (const argument of node.arguments) receiver(argument);
+    if (ts.isElementAccessExpression(node) && node.argumentExpression
+      && ts.isBinaryExpression(node.argumentExpression)
+      && node.argumentExpression.operatorToken.kind === ts.SyntaxKind.MinusToken) {
+      receiver(node.expression);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const name = node.expression.name.text;
+      if (name === 'charAt' || name === 'slice') receiver(node.expression.expression);
+      if (name === 'last' && ts.isIdentifier(node.expression.expression)
+        && ['_', 'lodash', 'underscore'].includes(node.expression.expression.text)
+        && node.arguments.length === 1) receiver(node.arguments[0]);
     }
     if (ts.isTemplateExpression(node) && !ts.isTaggedTemplateExpression(node.parent)) {
       for (const item of node.templateSpans) coerce(item.expression);
