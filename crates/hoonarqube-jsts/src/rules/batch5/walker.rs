@@ -200,6 +200,28 @@ mod tests {
     }
 
     #[test]
+    fn object_constraints_preserve_nonprimitive_restriction() {
+        assert_eq!(
+            count_key(
+                &ts_keys("type Bound<T extends object> = T;"),
+                "typescript:S6569"
+            ),
+            0
+        );
+        let report = ts("type Unbounded<T extends unknown> = T;");
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.rule_key == "typescript:S6569")
+            .unwrap();
+        assert_eq!((issue.range.start.column, issue.range.end.column), (15, 32));
+        assert_eq!(
+            issue.message,
+            "Constraining the generic type `T` to `unknown` does nothing and is unnecessary."
+        );
+    }
+
+    #[test]
     fn redundant_union_and_intersection_members_are_flagged() {
         let keywords = ts_keys("type T = string | number | string;\n");
         assert_eq!(count_key(&keywords, "typescript:S6571"), 1);
@@ -401,6 +423,12 @@ mod tests {
 
         let clean = ts_keys("class Builder {\n  build(): this { return this; }\n}\n");
         assert_eq!(count_key(&clean, "typescript:S6565"), 0);
+    }
+
+    #[test]
+    fn class_factories_and_mixed_returns_do_not_prefer_this() {
+        let source = "class Builder {\n static create(): Builder { return new Builder(); }\n static arrow = (): Builder => new Builder();\n copy(): Builder { return new Builder(); }\n maybe(flag: boolean): Builder { if (flag) return this; return new Builder(); }\n self(): Builder { return this; }\n arrow = (): Builder => this;\n nested(): Builder { function inner() { return this; } return new Builder(); }\n}";
+        assert_eq!(count_key(&ts_keys(source), "typescript:S6565"), 2);
     }
 
     #[test]

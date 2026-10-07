@@ -1247,6 +1247,9 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
             it.this_param.as_deref(),
             it.body.as_deref(),
             it.id.as_ref(),
+            it.body
+                .as_deref()
+                .is_some_and(super::s4322_s4324_s6565_return_type_annotations::body_returns_this),
         );
     }
 
@@ -1267,7 +1270,22 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
-        self.check_return_type_annotations(&it.params, it.return_type.as_deref(), None, None, None);
+        let returns_this = match &it.body {
+            oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) => {
+                super::s4322_s4324_s6565_return_type_annotations::body_returns_this(body)
+            }
+            expression => expression.as_expression().is_some_and(|expression| {
+                matches!(unparenthesized(expression), Expression::ThisExpression(_))
+            }),
+        };
+        self.check_return_type_annotations(
+            &it.params,
+            it.return_type.as_deref(),
+            None,
+            None,
+            None,
+            returns_this,
+        );
         self.s7059_enter_function(false);
         walk_arrow_function_expression(self, it);
         self.s7059_leave_function(false);
