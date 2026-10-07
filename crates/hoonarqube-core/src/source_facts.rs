@@ -685,6 +685,21 @@ impl<'source> FactCollector<'source> {
             self.mark_node(node, false);
             return true;
         }
+        if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            // Template boundaries are emitted alongside their expression
+            // leaves. The parser's complete template node is not one token.
+            if kind == "template_string" {
+                return false;
+            }
+            if kind == "regex" {
+                self.mark_node(node, true);
+                self.key_buffer.clear();
+                self.key_buffer
+                    .push_str(node.utf8_text(self.source.as_bytes()).unwrap_or(kind));
+                self.emit_buffered_token(node);
+                return true;
+            }
+        }
         if is_string_root_kind(kind) {
             self.emit_string_token(node, cursor);
             return true;
@@ -698,6 +713,20 @@ impl<'source> FactCollector<'source> {
 
     fn emit_string_token<'tree>(&mut self, node: Node<'tree>, cursor: &mut TreeCursor<'tree>) {
         let kind = node.kind();
+        if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            self.mark_node(node, true);
+            self.key_buffer.clear();
+            let jsx_attribute = node
+                .parent()
+                .is_some_and(|parent| parent.kind() == "jsx_attribute");
+            self.key_buffer.push_str(if jsx_attribute {
+                node.utf8_text(self.source.as_bytes()).unwrap_or(kind)
+            } else {
+                "LITERAL"
+            });
+            self.emit_buffered_token(node);
+            return;
+        }
         let interpolated =
             is_interpolated_kind(kind) || (kind == "string" && contains_interpolation(node));
         if interpolated {
@@ -717,9 +746,13 @@ impl<'source> FactCollector<'source> {
         self.mark_node(node, true);
         let text = node.utf8_text(self.source.as_bytes()).unwrap_or(kind);
         self.key_buffer.clear();
-        append_part(&mut self.key_buffer, "literal");
-        append_part(&mut self.key_buffer, kind);
-        append_part(&mut self.key_buffer, text);
+        if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            self.key_buffer.push_str(text);
+        } else {
+            append_part(&mut self.key_buffer, "literal");
+            append_part(&mut self.key_buffer, kind);
+            append_part(&mut self.key_buffer, text);
+        }
         self.emit_buffered_token(node);
     }
 
@@ -1015,6 +1048,11 @@ impl<'source> FactCollector<'source> {
 
     fn emit_leaf(&mut self, node: Node<'_>) {
         let kind = node.kind();
+        if matches!(self.language, Language::JavaScript | Language::TypeScript)
+            && self.emit_javascript_template_leaf(node)
+        {
+            return;
+        }
         if node.is_extra() || is_comment_kind(kind) || is_string_content_kind(kind) {
             return;
         }
@@ -1023,7 +1061,12 @@ impl<'source> FactCollector<'source> {
             return;
         }
         self.key_buffer.clear();
-        if is_layout_kind(kind) {
+        if matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            if text.trim().is_empty() {
+                return;
+            }
+            self.key_buffer.push_str(text);
+        } else if is_layout_kind(kind) {
             self.key_buffer.push_str("layout:");
             self.key_buffer.push_str(kind);
         } else {
@@ -1033,6 +1076,70 @@ impl<'source> FactCollector<'source> {
         }
         self.mark_node(node, true);
         self.emit_buffered_token(node);
+    }
+
+    fn emit_javascript_template_leaf(&mut self, node: Node<'_>) -> bool {
+        let Some(parent) = node.parent() else {
+            return false;
+        };
+        if parent.kind() == "template_string" {
+            self.mark_node(node, true);
+            if node.start_byte() == parent.start_byte() {
+                let mut cursor = parent.walk();
+                let end = parent
+                    .children(&mut cursor)
+                    .find(|child| child.kind() == "template_substitution")
+                    .map_or(parent.end_byte(), |child| child.start_byte() + 2);
+                self.key_buffer.clear();
+                self.key_buffer.push_str("LITERAL");
+                self.emit_buffered_byte_range(parent.start_byte(), end);
+            }
+            return true;
+        }
+        if parent.kind() != "template_substitution" || !matches!(node.kind(), "${" | "}") {
+            return false;
+        }
+        self.mark_node(node, true);
+        if node.kind() == "}" {
+            let mut next = parent.next_sibling();
+            while next.is_some_and(|child| child.kind() != "template_substitution") {
+                next = next.and_then(|child| child.next_sibling());
+            }
+            let end = next.map_or_else(
+                || {
+                    parent
+                        .parent()
+                        .map_or(parent.end_byte(), |template| template.end_byte())
+                },
+                |child| child.start_byte() + 2,
+            );
+            self.key_buffer.clear();
+            self.key_buffer
+                .push_str(&self.source[node.start_byte()..end]);
+            self.emit_buffered_byte_range(node.start_byte(), end);
+        }
+        true
+    }
+
+    fn emit_buffered_byte_range(&mut self, start: usize, end: usize) {
+        if self.tokens.len() >= MAX_FACT_TOKENS {
+            self.fail("normalized token stream exceeds bounded size");
+            self.stopped = true;
+            return;
+        }
+        let Some(symbol) = self.intern_buffered() else {
+            self.stopped = true;
+            return;
+        };
+        let start_line = self.line_at(start);
+        let end_line = self.line_at(end.saturating_sub(1).max(start));
+        self.tokens.push(NormalizedToken {
+            symbol,
+            start_line,
+            end_line,
+            start_byte: saturating_u32(start),
+            end_byte: saturating_u32(end),
+        });
     }
 
     fn emit_marker(&mut self, prefix: &str, kind: &str, node: Node<'_>) {
@@ -1998,6 +2105,81 @@ mod tests {
     }
 
     #[test]
+    fn javascript_cpd_uses_lexical_images_and_preserves_jsx_attributes() {
+        let facts = facts(
+            "images.tsx",
+            "const name = 'value'; obj.name; const view = <p title=\"value\">text</p>; const regex = /value+/gi;\n",
+        );
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        let images = stream(&facts);
+        assert_eq!(images.iter().filter(|image| **image == "name").count(), 2);
+        assert!(images.contains(&"LITERAL"));
+        assert!(images.contains(&"\"value\""));
+        assert!(images.contains(&"/value+/gi"));
+    }
+
+    #[test]
+    fn javascript_cpd_template_heads_normalize_but_tails_remain_lexical() {
+        let source = "const result = `prefix ${value /* comment */} tail ${other} end`;\n";
+        let facts = facts("template.js", source);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert_eq!(
+            stream(&facts),
+            [
+                "const",
+                "result",
+                "=",
+                "LITERAL",
+                "value",
+                "} tail ${",
+                "other",
+                "} end`",
+                ";"
+            ]
+        );
+        assert_eq!(facts.metrics.code_lines, 1);
+        assert_eq!(facts.metrics.comment_lines, 1);
+        for (token, image) in facts.tokens.iter().zip(stream(&facts)) {
+            let text = &source[token.start_byte as usize..token.end_byte as usize];
+            assert_eq!(
+                text,
+                if image == "LITERAL" {
+                    "`prefix ${"
+                } else {
+                    image
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn javascript_template_tail_differences_do_not_create_clones() {
+        use crate::duplication::{DuplicationFile, DuplicationOptions, detect_duplications};
+        let file = |path: &str, tail: &str| {
+            let mut source = "export function render(input) {\n".to_owned();
+            for index in 0..18 {
+                let _ = writeln!(source, "  const value{index} = `prefix ${{input}} {tail}`;");
+            }
+            source.push_str("  return value0;\n}\n");
+            DuplicationFile {
+                path: path.into(),
+                language: Language::JavaScript,
+                facts: facts(path, &source),
+            }
+        };
+        let distinct = [file("a.js", "leftTail"), file("b.js", "rightTail")];
+        let result =
+            detect_duplications(&distinct, &DuplicationOptions::default()).expect("complete");
+        assert_eq!(result.metrics.duplicated_lines, 0);
+        assert!(result.groups.is_empty());
+        let identical = [file("a.js", "sameTail"), file("b.js", "sameTail")];
+        let result =
+            detect_duplications(&identical, &DuplicationOptions::default()).expect("complete");
+        assert_eq!(result.metrics.duplicated_lines, 42);
+        assert_eq!(result.metrics.duplicated_blocks, 2);
+    }
+
+    #[test]
     fn javascript_module_cpd_exclusions_preserve_source_metrics() {
         let source = "import type { Entry } from './types'; // inline\nconst entry = require('./entry').create();\nconst a = require('./a'), b = other();\nimport legacy = require('./legacy');\nexport const value = entry(legacy);\n";
         let facts = facts("modules.ts", source);
@@ -2345,7 +2527,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         assert_eq!(facts.metrics.lines, 3);
         assert_eq!(facts.metrics.code_lines, 1);
         assert_eq!(facts.metrics.comment_lines, 2);
-        assert!(facts.symbols.iter().any(|symbol| symbol.contains("string")));
+        assert!(facts.symbols.iter().any(|symbol| symbol == "LITERAL"));
         assert!(
             !facts
                 .symbols
