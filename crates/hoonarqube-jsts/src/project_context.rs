@@ -23,7 +23,10 @@ use std::process::{Command, Stdio};
 
 const HELPER_PROTOCOL_VERSION: u32 = 1;
 const DEFAULT_COMPILER_VERSION: &str = "6.0.3";
-const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+// Real multi-file projects such as pinned Zod produce approximately 24 MiB
+// of source-bound symbol/type facts. Keep a finite cap with room for that
+// supported corpus; explicit caller limits remain authoritative.
+const DEFAULT_MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 const EMBEDDED_HELPER: &str =
     include_str!("../../../tools/semantic/typescript/semantic-helper.cjs");
 
@@ -57,7 +60,7 @@ pub struct TypeScriptProjectConfig {
     /// rejects every other version instead of trusting untested compiler
     /// output.
     pub expected_compiler_version: String,
-    /// Maximum helper stdout accepted by the loader.
+    /// Maximum helper stdout/stderr accepted by the loader (32 MiB by default).
     pub max_output_bytes: usize,
     /// S4328 package names that are explicitly allowed by project policy.
     pub dependency_whitelist: Vec<String>,
