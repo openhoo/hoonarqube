@@ -3786,3 +3786,39 @@ process.stdout.write(output + ' '.repeat({bytes} - Buffer.byteLength(output)));
         let _ = fs::remove_dir_all(root);
     }
 }
+
+#[test]
+fn semantic_deprecation_uses_compiler_diagnostics_for_overloads_and_accessors() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+interface Legacy {
+ /** @deprecated use modern instead */ old(): void;
+ old(value: number): void;
+}
+class Counter {
+ /** @deprecated use state instead */ get count() { return 0; }
+ set count(value: number) {}
+}
+export function use(value: Legacy) { value.old(); }
+";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-deprecated-overloads",
+        &package,
+        &[("src/input.ts", source)],
+    );
+    let report = semantic_quickfix_analysis(&context, &root, "src/input.ts", source);
+    let issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.rule_key == "typescript:S1874")
+        .collect();
+    assert_eq!(
+        issues.len(),
+        1,
+        "declaration siblings are not deprecated uses"
+    );
+    assert_eq!(issues[0].range.start.line, 10);
+    let _ = fs::remove_dir_all(root);
+}
