@@ -486,15 +486,6 @@ pub(crate) fn shannon_entropy(text: &str) -> f64 {
         .sum()
 }
 
-/// Maximal runs of characters satisfying `predicate`.
-fn maximal_runs<'a>(
-    text: &'a str,
-    predicate: impl Fn(char) -> bool + 'a,
-) -> impl Iterator<Item = &'a str> + 'a {
-    text.split(move |ch| !predicate(ch))
-        .filter(|run| !run.is_empty())
-}
-
 pub(crate) fn significant_tokens(
     parsed: &Parsed<ModModule>,
 ) -> Vec<&ruff_python_ast::token::Token> {
@@ -560,15 +551,45 @@ pub(crate) fn unmasked_segments<'a>(
 /// Extracts IPv4 and IPv6-looking candidates; loopback, wildcard, and
 /// broadcast IPv4 addresses are exempt per the RSPEC.
 pub(crate) fn ip_addresses(text: &str) -> Vec<String> {
-    let mut found: Vec<String> = maximal_runs(text, |ch| ch.is_ascii_digit() || ch == '.')
-        .filter_map(parse_ipv4)
-        .collect();
-    found.extend(
-        maximal_runs(text, |ch| ch.is_ascii_hexdigit() || ch == ':').filter_map(parse_ipv6),
-    );
-    found.sort();
-    found.dedup();
-    found
+    // The reference matches the entire endpoint value. Searching maximal
+    // hexadecimal runs inside prose interprets "versionchanged::" as "ed::".
+    let endpoint = text.split_once("://").map_or(text, |(_, value)| value);
+    let address = if let Some(rest) = endpoint.strip_prefix('[') {
+        let Some((address, suffix)) = rest.split_once(']') else {
+            return Vec::new();
+        };
+        if !suffix.is_empty() && !suffix.starts_with(':') && !suffix.starts_with('/') {
+            return Vec::new();
+        }
+        address
+    } else if text.parse::<std::net::Ipv6Addr>().is_ok() {
+        text
+    } else {
+        endpoint
+            .split('/')
+            .next()
+            .unwrap_or(endpoint)
+            .split(':')
+            .next()
+            .unwrap_or(endpoint)
+    };
+    if [
+        "192.0.2.",
+        "198.51.100.",
+        "203.0.113.",
+        "2001:db8:",
+        "127.",
+        "2.5.",
+    ]
+    .iter()
+    .any(|prefix| address.starts_with(prefix))
+    {
+        return Vec::new();
+    }
+    parse_ipv4(address)
+        .or_else(|| parse_ipv6(address))
+        .into_iter()
+        .collect()
 }
 
 fn parse_ipv4(run: &str) -> Option<String> {

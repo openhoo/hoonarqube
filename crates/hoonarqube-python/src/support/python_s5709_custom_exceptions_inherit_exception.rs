@@ -144,7 +144,7 @@ fn flag_flow_raise(
     }
     // Sonar exempts functions called inside an except/finally body — their
     // bare raise re-raises the handled exception.
-    if current_fn.is_some_and(|name| exempt_fns.contains(name)) {
+    if current_fn.is_some_and(|name| name == "__exit__" || exempt_fns.contains(name)) {
         return;
     }
     let (key, message) = if state.context == RaiseContext::InFinally {
@@ -255,6 +255,17 @@ fn scan_flow_nested_bodies(
                     &case.body, state, current_fn, exempt_fns, issues, index, source,
                 );
             }
+        }
+        Stmt::ClassDef(class) => {
+            scan_flow_statements_in(
+                &class.body,
+                state,
+                current_fn,
+                exempt_fns,
+                issues,
+                index,
+                source,
+            );
         }
         // Jumps bind within the innermost function scope; reset the state
         // and remember the function name for the except-called exemption.

@@ -5476,3 +5476,29 @@ fn remaining_collection_controls_preserve_bindings_and_iteration_values() {
     );
     assert_eq!(findings(&report, "python:S7519").len(), 1);
 }
+
+#[test]
+fn remaining_nested_if_at_eighty_columns_is_reported() {
+    let source = "def f():\n    for cookie in cookies:\n        for other in others:\n            if cookie.name == name:\n                if domain is None or cookie.domain == domain:\n                    return cookie.value\n";
+    assert_eq!(findings(&scan(source), "python:S1066").len(), 1);
+}
+
+#[test]
+fn remaining_class_method_bare_raise_is_checked() {
+    let report = scan(
+        "class Server:\n    def handle_error(self):\n        if self.passthrough:\n            raise\n    def __exit__(self, typ, value, tb):\n        raise\n",
+    );
+    let issues = findings(&report, "python:S5747");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].range.start.line, 4);
+}
+
+#[test]
+fn remaining_security_rules_exempt_prose_and_unrelated_data() {
+    let report = scan(
+        "property = header_property(doc='.. versionchanged:: 2.0')\ndef f():\n    \"\"\"Example password=banana\"\"\"\n    pass\nSALT_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'\nFRAME_HTML = '<div class=frame>file %(filename)s line %(line)d</div>'\n",
+    );
+    for rule in ["python:S1313", "python:S2068", "python:S6437"] {
+        assert!(findings(&report, rule).is_empty(), "{rule}");
+    }
+}

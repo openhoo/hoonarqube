@@ -1,7 +1,6 @@
 use crate::engine::bindings::KnownBinding;
 use crate::engine::file_context::FileContext;
 use crate::support::SECRET_ENTROPY_THRESHOLD;
-use crate::support::SECRET_HIGH_ENTROPY_THRESHOLD;
 use crate::support::has_credential_prefix;
 use crate::support::is_secret_name;
 use crate::support::keyword_value;
@@ -51,21 +50,6 @@ pub(crate) fn check_hardcoded_secrets(
                 alternatives: Vec::new(),
             });
         }
-        let mixed = text.chars().any(|ch| ch.is_ascii_uppercase())
-            && text.chars().any(|ch| ch.is_ascii_lowercase())
-            && text.chars().any(|ch| ch.is_ascii_digit());
-        if secret_shaped || (entropy >= SECRET_HIGH_ENTROPY_THRESHOLD && text.len() >= 20 && mixed)
-        {
-            issues.push(Issue {
-                rule_key: "python:S6437".to_string(),
-                message: "Revoke and replace this hard-coded credential with one stored securely."
-                    .to_string(),
-                range: to_range(literal.range(), index, source),
-                fix: None,
-                flows: Vec::new(),
-                alternatives: Vec::new(),
-            });
-        }
     }
     for call in &file_ctx.calls {
         if file_ctx.known_bindings.resolve_call(call) != KnownBinding::OAuth2FetchToken {
@@ -77,8 +61,7 @@ pub(crate) fn check_hardcoded_secrets(
         if file_ctx.known_bindings.is_static_text(secret) {
             issues.push(Issue {
                 rule_key: "python:S6437".to_string(),
-                message: "Revoke and replace this hard-coded credential with one stored securely."
-                    .to_string(),
+                message: "Revoke and change this password, as it is compromised.".to_string(),
                 range: to_range(secret.range(), index, source),
                 fix: None,
                 flows: Vec::new(),
@@ -101,14 +84,14 @@ mod tests {
     fn s6418_s6437_flag_secret_named_and_high_entropy_values() {
         let named = scan("access_token = \"ghp_16charsminimum1234\"\n");
         assert_eq!(findings(&named, "python:S6418").len(), 1);
-        assert_eq!(findings(&named, "python:S6437").len(), 1);
+        assert!(findings(&named, "python:S6437").is_empty());
         // A credential-shaped prefix flags even low-entropy values.
         let prefixed = scan("slack_token = \"xoxb-aaaaaaaaaaaaaaaa\"\n");
         assert_eq!(findings(&prefixed, "python:S6418").len(), 1);
-        assert_eq!(findings(&prefixed, "python:S6437").len(), 1);
-        // The unnamed arm still catches high-entropy mixed-case blobs.
+        assert!(findings(&prefixed, "python:S6437").is_empty());
+        // Unrelated high-entropy data is not a credential API argument.
         let unnamed_blob = scan("EXAMPLE_UUID = \"A1b2C3d4E5f6G7h8I9j0KlMnOpQr\"\n");
-        assert_eq!(findings(&unnamed_blob, "python:S6437").len(), 1);
+        assert!(findings(&unnamed_blob, "python:S6437").is_empty());
         assert!(findings(&unnamed_blob, "python:S6418").is_empty());
     }
 
