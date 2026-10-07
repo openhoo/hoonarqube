@@ -747,15 +747,17 @@ pub(crate) fn check_tier_b_battery(
     let table = file_ctx.symbol_table();
     let facts = file_ctx.file_facts();
     let mut issues = Vec::new();
+    // Parameter usage has its own function-local reflection exemption.
+    // A globals()/vars()/exec() call elsewhere cannot observe this signature.
+    issues.extend(check_unused_parameters(
+        table, index, source, file_ctx, path,
+    ));
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(
             parsed, table, facts, index, source, path, file_ctx,
         ));
         issues.extend(check_unused_locals(
             parsed, table, options, index, source, file_ctx,
-        ));
-        issues.extend(check_unused_parameters(
-            table, index, source, file_ctx, path,
         ));
         issues.extend(check_use_before_definition(table, facts, index, source));
         issues.extend(check_dead_stores(

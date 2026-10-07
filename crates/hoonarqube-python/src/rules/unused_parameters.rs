@@ -6,9 +6,9 @@ use ruff_source_file::LineIndex;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::engine::file_context::FileContext;
-use crate::engine::scope::DefFlavor;
 use crate::engine::scope::SymbolTable;
 use crate::engine::scope::scope_is_within;
+use crate::engine::scope::{DefFlavor, DefSite};
 use crate::support::is_dunder_name;
 use crate::support::is_test_scope_file;
 use crate::support::issue_at;
@@ -37,14 +37,7 @@ pub(crate) fn check_unused_parameters(
         let Some(function) = function_for_site(file_ctx, site.name_range) else {
             continue;
         };
-        if function_is_exempt(
-            table,
-            file_ctx,
-            site.own_scope,
-            site.name.as_str(),
-            site.name_range,
-            function,
-        ) {
+        if function_is_exempt(table, file_ctx, site, function) {
             continue;
         }
         for (param_name, param_range) in &site.params {
@@ -67,7 +60,11 @@ pub(crate) fn check_unused_parameters(
                 issues.push(issue_at(
                     "python:S1172",
                     &format!("Remove the unused function parameter \"{param_name}\"."),
-                    *param_range,
+                    function
+                        .parameters
+                        .iter()
+                        .find(|parameter| parameter.name().range() == *param_range)
+                        .map_or(*param_range, |parameter| parameter.range()),
                     index,
                     source,
                 ));
@@ -94,11 +91,11 @@ fn function_for_site<'a>(
 fn function_is_exempt(
     table: &SymbolTable,
     file_ctx: &FileContext,
-    own_scope: usize,
-    name: &str,
-    name_range: TextRange,
+    site: &DefSite,
     function: &StmtFunctionDef,
 ) -> bool {
+    let name = site.name.as_str();
+    let name_range = site.name_range;
     // Dunder and test functions are contract code.
     if is_dunder_name(name) || name.starts_with("test") {
         return true;
@@ -131,11 +128,11 @@ fn function_is_exempt(
         return true;
     }
     // A `locals()` call makes parameter presence observable.
-    if scope_calls_locals(table, own_scope) {
+    if scope_calls_locals(table, site.own_scope) {
         return true;
     }
     // A function used as a value (not only called) needs its signature.
-    if has_non_call_usage(table, file_ctx, name, name_range) {
+    if has_non_call_usage(table, file_ctx, name, name_range, site.enclosing_scope) {
         return true;
     }
     false
@@ -399,17 +396,71 @@ fn has_non_call_usage(
     file_ctx: &FileContext,
     name: &str,
     name_range: TextRange,
+    enclosing_scope: usize,
 ) -> bool {
-    table.resolved_index.get(name).is_some_and(|indices| {
-        indices.iter().any(|&index| {
-            let load = &table.resolved_loads[index as usize];
-            load.range != name_range
-                && !file_ctx
-                    .calls
+    // Repeated definitions (e.g. branch-specific implementations) are not a
+    // single proven callback symbol. Do not let a same-name value hide them.
+    let unique_definition = table
+        .def_sites
+        .iter()
+        .filter(|site| {
+            site.flavor == DefFlavor::Function
+                && site.enclosing_scope == enclosing_scope
+                && site.name == name
+        })
+        .count()
+        == 1;
+    if unique_definition
+        && table.resolved_index.get(name).is_some_and(|indices| {
+            indices.iter().any(|&index| {
+                let load = &table.resolved_loads[index as usize];
+                load.target == Some(enclosing_scope)
+                    && load.range != name_range
+                    && !usage_is_called(file_ctx, load.range)
+            })
+        })
+    {
+        return true;
+    }
+    let Some(owner) = find_owner_class(file_ctx, name_range) else {
+        return false;
+    };
+    // Prove receiver ownership in this file: only a method's own first
+    // parameter may refer to the target class. Other classes with a member
+    // of the same spelling cannot preserve this method's signature.
+    file_ctx.exprs.iter().any(|expr| {
+        let Expr::Attribute(attribute) = expr else {
+            return false;
+        };
+        if attribute.attr.as_str() != name || usage_is_called(file_ctx, attribute.range()) {
+            return false;
+        }
+        let Expr::Name(receiver) = &*attribute.value else {
+            return false;
+        };
+        let method = file_ctx
+            .functions
+            .iter()
+            .copied()
+            .filter(|function| function.range().contains_range(attribute.range()))
+            .min_by_key(|function| function.range().len());
+        method.is_some_and(|function| {
+            find_owner_class(file_ctx, function.name.range())
+                .is_some_and(|class| class.range() == owner.range())
+                && function
+                    .parameters
                     .iter()
-                    .any(|call| call.func.range().contains_range(load.range))
+                    .next()
+                    .is_some_and(|parameter| parameter.name().as_str() == receiver.id.as_str())
         })
     })
+}
+
+fn usage_is_called(file_ctx: &FileContext, range: TextRange) -> bool {
+    file_ctx
+        .calls
+        .iter()
+        .any(|call| call.func.range().contains_range(range))
 }
 
 fn is_ignored_parameter(name: &str) -> bool {
@@ -537,5 +588,77 @@ mod tests {
         // Genuine unused parameters still fire.
         let genuine = scan("def scale(value, factor):\n    return value\n\n\nscale(2, 3)\n");
         assert_eq!(findings(&genuine, "python:S1172").len(), 1);
+    }
+    #[test]
+    fn s1172_reports_complete_parameter_declaration() {
+        let source = "def target(unused: str = 'fallback'):\n    return 1\n";
+        let report = scan(source);
+        let issues = findings(&report, "python:S1172");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].range.start.column, 11);
+        assert_eq!(issues[0].range.end.column, 35);
+        assert!(
+            findings(
+                &scan("def target(used: str = 'fallback'):\n    return used\n"),
+                "python:S1172"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn s1172_dynamic_lookups_do_not_hide_unrelated_parameters() {
+        let report =
+            scan("def target(unused):\n    return 1\n\ndef inspect():\n    return globals()\n");
+        assert_eq!(findings(&report, "python:S1172").len(), 1);
+        let local = scan("def target(required):\n    return locals()\n");
+        assert!(findings(&local, "python:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1172_callback_usage_resolves_to_the_defined_function() {
+        let unrelated = scan(
+            "def process(unused):\n    return 1\n\ndef configure(process):\n    return [process]\n",
+        );
+        assert_eq!(findings(&unrelated, "python:S1172").len(), 1);
+        let callback = scan("def process(required):\n    return 1\n\ncallbacks = [process]\n");
+        assert!(findings(&callback, "python:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1172_preserves_methods_used_as_callbacks_or_reassigned() {
+        let callback = scan(
+            "class Parser:\n    def parse(self, stream, unused):\n        return stream\n    def dispatch(self):\n        callback = self.parse\n        return callback(1, 2)\n",
+        );
+        assert!(findings(&callback, "python:S1172").is_empty());
+        let reassigned = scan(
+            "class Loader:\n    def __init__(self):\n        self.is_allowed = lambda item: True\n    def is_allowed(self, filename):\n        return True\n",
+        );
+        assert!(findings(&reassigned, "python:S1172").is_empty());
+        let ordinary = scan(
+            "class Parser:\n    def parse(self, stream, unused):\n        return stream\n    def dispatch(self):\n        return self.parse(1, 2)\n",
+        );
+        assert_eq!(findings(&ordinary, "python:S1172").len(), 1);
+    }
+    #[test]
+    fn s1172_branch_definitions_do_not_share_a_callback_exemption() {
+        // Live Sonar reports instance on both branch-specific binders in
+        // Werkzeug local.py; a unique callback still retains its contract.
+        let branch = scan(
+            "def configure(flag):\n    if flag:\n        def callback(instance, obj):\n            return obj\n    else:\n        def callback(instance, obj):\n            return obj + 1\n    return callback\n",
+        );
+        assert_eq!(findings(&branch, "python:S1172").len(), 2);
+        let unique = scan(
+            "def configure():\n    def callback(instance, obj):\n        return obj\n    return callback\n",
+        );
+        assert!(findings(&unique, "python:S1172").is_empty());
+    }
+
+    #[test]
+    fn s1172_same_named_member_of_another_class_does_not_hide_parameter() {
+        let report = scan(
+            "class Parser:\n    def parse(self, stream, unused):\n        return stream\nclass Other:\n    def parse(self, stream):\n        return stream\n    def callback(self):\n        return self.parse\n",
+        );
+        assert_eq!(findings(&report, "python:S1172").len(), 1);
     }
 }
