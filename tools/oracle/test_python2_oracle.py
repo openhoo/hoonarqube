@@ -23,7 +23,11 @@ class Python2OracleTests(unittest.TestCase):
         )
         completed = subprocess.run(
             [
-                str(Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target")) / "debug" / "hoonarqube"),
+                str(
+                    Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target"))
+                    / "debug"
+                    / "hoonarqube"
+                ),
                 "analyze",
                 "--format",
                 "json",
