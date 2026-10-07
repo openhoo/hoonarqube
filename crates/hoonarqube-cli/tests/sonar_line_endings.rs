@@ -1,14 +1,13 @@
 use serde_json::Value;
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 struct Fixture(std::path::PathBuf);
 
 impl Fixture {
     fn new() -> Self {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
+        static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+        let nonce = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "hoonarqube-sonar-line-endings-{}-{nonce}",
             std::process::id()

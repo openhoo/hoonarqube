@@ -46,3 +46,6 @@
 /scripts/__pycache__/
 /tools/semantic/csharp/bin/
 /tools/semantic/csharp/obj/
+
+/actions/tests/__pycache__/
+/.agents/skills/work-issues/scripts/__pycache__/
