@@ -46,6 +46,7 @@ struct Cli {
 enum Command {
     /// Show frozen capture metadata for the embedded catalog.
     Snapshot,
+    /// Browse frozen catalog rules and independently implemented native rules.
     Rules {
         #[command(subcommand)]
         cmd: RulesCommand,
