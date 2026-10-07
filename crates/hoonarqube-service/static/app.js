@@ -15,6 +15,8 @@
     selectedFinding: null,
     selectedReview: null,
     reviewAnalysisId: null,
+    sessionRequest: 0,
+    branchRequest: 0,
     analysisRequest: 0,
     reviewRequest: 0,
 
@@ -287,14 +289,17 @@
   }
 
   async function loadProjects() {
+    const requestToken = state.sessionRequest;
     hideNotice(elements.connectionError);
     hideNotice(elements.globalError);
     try {
       const payload = await apiRequest("/projects");
+      if (requestToken !== state.sessionRequest) return;
       fillProjects(payload.projects);
       setSession(true);
       if (!state.projects.length) showNotice(elements.connectionError, "This token can authenticate, but it has no visible projects.", "warning");
     } catch (error) {
+      if (requestToken !== state.sessionRequest) return;
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         state.token = null;
         elements.token.value = "";
@@ -306,6 +311,8 @@
   }
 
   async function loadBranches() {
+    const requestToken = ++state.branchRequest;
+    const sessionToken = state.sessionRequest;
     state.project = elements.project.value;
     state.branch = "";
     fillBranches([]);
@@ -317,9 +324,11 @@
     }
     try {
       const payload = await apiRequest(apiPath(state.project, "/branches"));
+      if (requestToken !== state.branchRequest || sessionToken !== state.sessionRequest) return;
       fillBranches(payload.branches);
       setBadge(elements.scopeBadge, state.project, "Project selected");
     } catch (error) {
+      if (requestToken !== state.branchRequest || sessionToken !== state.sessionRequest) return;
       showNotice(elements.scopeError, error.message || "Unable to load branches.");
       displayError(error);
     }
@@ -372,14 +381,17 @@
     hideNotice(elements.historyError);
     hideResults();
     if (!state.project || !state.branch) return;
+    const requestToken = state.analysisRequest;
     try {
       const payload = await apiRequest(`${apiPath(state.project, "/analyses")}?branch=${encodeURIComponent(state.branch)}`);
+      if (requestToken !== state.analysisRequest) return;
       state.analyses = Array.isArray(payload.analyses) ? payload.analyses : [];
       renderHistory();
       clear(elements.scopeBadge);
       appendText(elements.scopeBadge, `${state.project} / ${state.branch}`);
       if (state.analyses.length) await selectAnalysis(analysisId(state.analyses[0]));
     } catch (error) {
+      if (requestToken !== state.analysisRequest) return;
       showNotice(elements.historyError, error.message || "Unable to load analysis history.");
       setHidden(elements.historyPanel, false);
       displayError(error);
@@ -796,6 +808,7 @@
     }
   }
   function disconnect() {
+    state.sessionRequest += 1;
     state.token = null;
     state.projects = [];
     state.branches = [];
@@ -819,8 +832,12 @@
       elements.token.focus();
       return;
     }
+    state.sessionRequest += 1;
+    state.projects = [];
+    state.branches = [];
     state.project = "";
     state.branch = "";
+    setSession(false);
     resetSelect(elements.project, "Loading projects…");
     elements.project.disabled = true;
     resetSelect(elements.branch, "Select a project first");
