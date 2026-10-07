@@ -225,6 +225,10 @@ pub struct SemanticFileFacts {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SemanticFacts {
     #[serde(default)]
+    pub at_receivers: Vec<AtReceiverFact>,
+    #[serde(default)]
+    pub stringifications: Vec<StringificationFact>,
+    #[serde(default)]
     pub deprecated: Vec<DeprecatedFact>,
     #[serde(default)]
     pub assertions: Vec<AssertionFact>,
@@ -234,6 +238,19 @@ pub struct SemanticFacts {
     pub usages: Vec<SymbolUsageFact>,
     #[serde(default)]
     pub quickfixes: Vec<SemanticQuickfixFact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AtReceiverFact {
+    pub span: SemanticSpan,
+    pub callable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StringificationFact {
+    pub span: SemanticSpan,
+    pub certainty: String,
+    pub message: String,
 }
 
 impl SemanticFacts {
@@ -459,6 +476,23 @@ fn validate_quickfix_facts(
     path: &Path,
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) {
+    for span in facts
+        .at_receivers
+        .iter()
+        .map(|f| &f.span)
+        .chain(facts.stringifications.iter().map(|f| &f.span))
+    {
+        if !valid_semantic_span(source, span) {
+            diagnostics.push(SemanticDiagnostic {
+                code: "JS_CONTEXT_INVALID_COERCION".to_owned(),
+                message: "Helper returned malformed compiler coercion facts.".to_owned(),
+                category: "error".to_owned(),
+                path: Some(path.to_owned()),
+                start: Some(span.start),
+                end: Some(span.end),
+            });
+        }
+    }
     let mut fact_keys = BTreeSet::new();
     for fact in &facts.quickfixes {
         if !valid_quickfix_fact(fact, source, &mut fact_keys) {
