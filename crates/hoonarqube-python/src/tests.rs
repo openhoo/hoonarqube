@@ -5294,3 +5294,42 @@ fn metrics_match_live_import_delimiters_and_trailing_comments() {
     assert_eq!(report.metrics.code_lines, 4);
     assert_eq!(report.metrics.comment_lines, 6);
 }
+
+#[test]
+fn standalone_source_metrics_accept_supported_python2_syntax() {
+    let source = include_str!("../../../tools/oracle/fixtures/python2/source.py");
+    let metrics = crate::source_metrics(source).expect("supported Python 2 oracle fixture");
+    assert_eq!(metrics.lines, 6);
+    assert_eq!(metrics.code_lines, 5);
+    for source in [
+        "value = `a, b`\n",
+        "result = left <> right\n",
+        "if ready: print value\nx = 1; exec code\n",
+        "exec code in globals, locals\nprint >>stream, value\n",
+        "value = `1\n + 2`\n",
+        "print one, two, three,\n",
+        "print factory(one, *values)\n",
+    ] {
+        assert!(crate::source_metrics(source).is_ok(), "{source:?}");
+    }
+}
+
+#[test]
+fn standalone_source_metrics_reject_invalid_source_even_with_legacy_statements() {
+    for source in [
+        "def f(a=1, b):\n    pass\n",
+        "f(a=1, 2)\n",
+        "f'{1!z}'\n",
+        "print 1\ndef f(a=1, b):\n    pass\n",
+        "exec 'code'\nf(a=1, 2)\n",
+        "value = `x`\nf'{1!z}'\n",
+        "print value +\n",
+        "exec (code +\n",
+        "value = `broken\n",
+        "value = ``\n",
+        "exec code, other\n",
+        "print one, *values\n",
+    ] {
+        assert!(crate::source_metrics(source).is_err(), "{source:?}");
+    }
+}

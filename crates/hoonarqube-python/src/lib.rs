@@ -593,10 +593,12 @@ mod github_quality;
 /// so callers cannot present recovered syntax as a complete measurement.
 ///
 /// # Errors
-/// Returns an error when the Python parser reports malformed source.
+/// Returns an error when the Python parser reports malformed source. Supported
+/// Python 2 constructs are validated through a narrow syntax translation;
+/// measurements retain the original source tokens and positions.
 pub fn source_metrics(source: &str) -> Result<hoonarqube_ir::FileMetrics, String> {
     let parsed = crate::support::parse(source);
-    if !parsed.errors().is_empty() {
+    if !parsed.errors().is_empty() && !crate::support::has_valid_legacy_syntax(&parsed, source) {
         return Err("Python source contains parser errors".to_string());
     }
     let index = ruff_source_file::LineIndex::from_source_text(source);
