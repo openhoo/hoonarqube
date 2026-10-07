@@ -97,6 +97,24 @@ def metric_comparison(native_metrics, reference_measures):
             for key, value in reference.items()}
 
 
+def file_metric_comparison(native_files, reference_files):
+    native = {normalized_path(file['path']): file['metrics'] for file in native_files}
+    reference = {normalized_path(file['path']): file['measures'] for file in reference_files}
+    if len(native) != len(native_files) or len(reference) != len(reference_files):
+        raise ValueError('duplicate file metric path')
+    matched_cells = 0
+    differences = []
+    for path in sorted(native.keys() & reference.keys()):
+        values = metric_comparison(native[path], reference[path])
+        matched_cells += sum(value['matched'] for value in values.values())
+        if any(not value['matched'] for value in values.values()):
+            differences.append({'path': path, 'metrics': values})
+    return {'matched_files': len(native.keys() & reference.keys()),
+            'matched_cells': matched_cells, 'differences': differences,
+            'native_only': sorted(native.keys() - reference.keys()),
+            'reference_only': sorted(reference.keys() - native.keys())}
+
+
 class Sonar:
     def __init__(self, url, token):
         self.url = url.rstrip('/')
@@ -251,6 +269,11 @@ def execute(row, args, sonar, token):
                     'metricKeys': 'files,ncloc,lines,comment_lines,duplicated_lines,'
                                   'duplicated_blocks,duplicated_lines_density'})
         write_json_atomic(folder / 'measures.json', measures)
+        file_measures = sonar.pages('/api/measures/component_tree',
+                                    {'component': key, 'qualifiers': 'FIL',
+                                     'metricKeys': 'lines,ncloc,comment_lines'},
+                                    'components', folder, 'file-metrics')
+        write_json_atomic(folder / 'file-metrics.json', file_measures)
         components = sonar.pages('/api/components/tree', {'component': key,
                                  'qualifiers': 'FIL'}, 'components', folder,
                                  'indexed-files')
@@ -272,6 +295,10 @@ def execute(row, args, sonar, token):
     measures = json.loads((folder / 'measures.json').read_text())
     inventory['metrics'] = metric_comparison(native['project']['metrics'],
                                              measures['component']['measures'])
+    file_metrics_path = folder / 'file-metrics.json'
+    if file_metrics_path.exists():
+        inventory['file_metrics'] = file_metric_comparison(
+            native['files'], json.loads(file_metrics_path.read_text()))
     indexed_path = folder / 'indexed-files.json'
     if indexed_path.exists():
         reference_paths = {normalized_path(file['path']) for file in json.loads(indexed_path.read_text())}

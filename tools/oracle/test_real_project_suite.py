@@ -12,6 +12,21 @@ from real_project_suite import verify_reference_scope, verify_reference_files, d
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_file_metrics_preserve_scope_and_measure_differences(self):
+        from real_project_suite import file_metric_comparison
+        native = [{'path': './a.js', 'metrics': {'lines': 5, 'code_lines': 2, 'comment_lines': 1}},
+                  {'path': 'extra.js', 'metrics': {}}]
+        reference = [{'path': 'a.js', 'measures': [{'metric': 'ncloc', 'value': '3'},
+                      {'metric': 'lines', 'value': '5'}]}, {'path': 'missing.js', 'measures': []}]
+        result = file_metric_comparison(native, reference)
+        self.assertEqual(result['matched_files'], 1)
+        self.assertEqual(result['matched_cells'], 1)
+        self.assertEqual(result['native_only'], ['extra.js'])
+        self.assertEqual(result['reference_only'], ['missing.js'])
+        self.assertEqual(result['differences'][0]['path'], 'a.js')
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            file_metric_comparison(native, reference + [reference[0]])
+
     def test_metric_comparison_preserves_missing_and_different_measures(self):
         from real_project_suite import metric_comparison
         result = metric_comparison({'files': 2, 'lines': 10, 'code_lines': 6, 'comment_lines': 3},
