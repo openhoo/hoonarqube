@@ -1346,20 +1346,11 @@ impl<'source> FactCollector<'source> {
     }
 
     fn mark_node(&mut self, node: Node<'_>, code: bool) {
-        // A multiline literal or block comment can contain physically blank
-        // rows.  Mark only rows that contain a non-whitespace source byte;
-        // counting the entire syntax-node span would report literal padding
-        // as executable code (and empty comment rows as comments).
+        // JavaScript literal content counts its full span, including blank
+        // template rows. Other syntax marks rows with actual source bytes.
         let start = node.start_byte().min(self.source.len());
         let end = node.end_byte().min(self.source.len()).max(start);
-        if matches!(self.language, Language::JavaScript | Language::TypeScript) {
-            if code {
-                self.first_code_offset =
-                    Some(self.first_code_offset.map_or(start, |old| old.min(start)));
-            } else {
-                self.jsts_comment_ranges.push((start, end));
-            }
-        }
+        self.record_jsts_span(start, end, code);
         if code
             && matches!(self.language, Language::JavaScript | Language::TypeScript)
             && (is_string_root_kind(node.kind()) || is_string_content_kind(node.kind()))
@@ -1394,6 +1385,18 @@ impl<'source> FactCollector<'source> {
         } else if start == end {
             let line = self.line_at(start);
             self.rows.mark(line, line, code);
+        }
+    }
+
+    fn record_jsts_span(&mut self, start: usize, end: usize, code: bool) {
+        if !matches!(self.language, Language::JavaScript | Language::TypeScript) {
+            return;
+        }
+        if code {
+            self.first_code_offset =
+                Some(self.first_code_offset.map_or(start, |old| old.min(start)));
+        } else {
+            self.jsts_comment_ranges.push((start, end));
         }
     }
 
