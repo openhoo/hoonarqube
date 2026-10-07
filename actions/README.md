@@ -3,6 +3,20 @@
 Use immutable action revisions in consuming repositories. Pin both the
 checkout action and each Hoonarqube action to a full commit SHA.
 
+The release installer supports Linux X64 runners. The analysis action shell
+steps require Bash 4+, `jq`, and GNU coreutils (including `realpath -m` for
+SARIF path normalization), as provided by GitHub Ubuntu runners. Supplying a
+local `executable` skips installation but retains those shell dependencies.
+
+To verify the SARIF publication contract locally with those tools installed:
+
+```sh
+python3 -m unittest discover -s actions/tests -v
+```
+
+The action publishes exactly one validated SARIF JSON document. Invalid or
+concatenated documents leave any existing report untouched.
+
 ## SonarQube Generic Issue Import
 
 ```yaml
