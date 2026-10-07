@@ -36,8 +36,8 @@ pub(crate) fn check_empty_collection_constructors(
         if literal_shaped {
             issues.push(issue_at(
                 "python:S7498",
-                "Replace this call with the equivalent collection literal.",
-                call.range(),
+                "Replace this constructor call with a literal.",
+                call.func.range(),
                 index,
                 source,
             ));

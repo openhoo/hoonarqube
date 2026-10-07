@@ -56,8 +56,8 @@ pub(crate) fn check_list_wrapped_iteration(
 fn s7504_issue(call: &ExprCall, index: &LineIndex, source: &str) -> Issue {
     issue_at(
         "python:S7504",
-        "Iterate over the iterable directly; wrapping it in 'list()' is unnecessary.",
-        call.range(),
+        "Remove this unnecessary `list()` call on an already iterable object.",
+        call.func.range(),
         index,
         source,
     )

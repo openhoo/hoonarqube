@@ -5333,3 +5333,77 @@ fn standalone_source_metrics_reject_invalid_source_even_with_legacy_statements()
         assert!(crate::source_metrics(source).is_err(), "{source:?}");
     }
 }
+
+#[test]
+fn remaining_s107_reports_parameter_tokens_including_trailing_comma() {
+    let source =
+        "def choose(\n    first: int,\n    second: str = 'fallback',\n):\n    return first\n";
+    let options = crate::AnalyzerOptions {
+        maximum_function_parameters: 1,
+        ..crate::AnalyzerOptions::default()
+    };
+    let report = crate::test_support::scan_with_options(source, &options);
+    let found = findings(&report, "python:S107");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(2, 4));
+    assert_eq!(found[0].range.end, pos(3, 29));
+    assert_eq!(
+        found[0].message,
+        "Function \"choose\" has 2 parameters, which is greater than the 1 authorized."
+    );
+    assert!(
+        findings(
+            &crate::test_support::scan_with_options(
+                "def choose(first):\n    return first\n",
+                &options
+            ),
+            "python:S107"
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn remaining_collection_constructor_findings_highlight_callees_and_match_messages() {
+    for (source, rule, expected, column, length) in [
+        (
+            "items = set(x for x in values)\n",
+            "python:S7494",
+            "Replace set constructor call with a set comprehension.",
+            8,
+            3,
+        ),
+        (
+            "options = dict(flag=True)\n",
+            "python:S7498",
+            "Replace this constructor call with a literal.",
+            10,
+            4,
+        ),
+        (
+            "for item in list(items):\n    pass\n",
+            "python:S7504",
+            "Remove this unnecessary `list()` call on an already iterable object.",
+            12,
+            4,
+        ),
+    ] {
+        let report = scan(source);
+        let found = findings(&report, rule);
+        assert_eq!(found.len(), 1, "{rule}");
+        assert_eq!(found[0].range.start, pos(1, column));
+        assert_eq!(found[0].range.end, pos(1, column + length));
+        assert_eq!(found[0].message, expected);
+    }
+    for (source, rule) in [
+        ("items = set(values)\n", "python:S7494"),
+        ("items = factory.set(x for x in values)\n", "python:S7494"),
+        ("options = dict(other)\n", "python:S7498"),
+        (
+            "for item in list(items):\n    items.remove(item)\n",
+            "python:S7504",
+        ),
+    ] {
+        assert!(findings(&scan(source), rule).is_empty(), "{rule}");
+    }
+}

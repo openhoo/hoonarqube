@@ -44,10 +44,7 @@ pub(crate) fn check_function_parameter_counts(
                          {maximum} authorized.",
                         function.name
                     ),
-                    ruff_text_size::TextRange::new(
-                        function.parameters.start() + ruff_text_size::TextSize::new(1),
-                        function.parameters.end() - ruff_text_size::TextSize::new(1),
-                    ),
+                    parameter_list_range(parsed, &function.parameters),
                     index,
                     source,
                 ));
@@ -55,4 +52,30 @@ pub(crate) fn check_function_parameter_counts(
         },
     );
     issues
+}
+
+fn parameter_list_range(
+    parsed: &Parsed<ModModule>,
+    parameters: &ruff_python_ast::Parameters,
+) -> ruff_text_size::TextRange {
+    let first = parameters
+        .iter_source_order()
+        .next()
+        .expect("nonempty parameters");
+    let last = parameters
+        .iter_source_order()
+        .last()
+        .expect("nonempty parameters");
+    // The reference parameter-list node retains a trailing comma, while
+    // ignoring trivia between it and the closing parenthesis.
+    let end = parsed
+        .tokens()
+        .iter()
+        .find(|token| {
+            token.kind() == ruff_python_ast::token::TokenKind::Comma
+                && token.start() >= last.end()
+                && token.end() < parameters.end()
+        })
+        .map_or(last.end(), Ranged::end);
+    ruff_text_size::TextRange::new(first.start(), end)
 }
