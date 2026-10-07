@@ -177,7 +177,13 @@ impl<'a, 'ctx> ScopeAnalyzer<'a, 'ctx> {
                 parent_scope,
                 name,
                 name_span: function.id.as_ref().map(|id| id.span),
-                head: Span::new(function.span.start, function.params.span.end),
+                head: Span::new(
+                    function.span.start,
+                    function
+                        .id
+                        .as_ref()
+                        .map_or(function.params.span.end, |id| id.span.end),
+                ),
             });
             self.by_scope.insert(scope, index);
         }
@@ -460,6 +466,21 @@ fn collect_jsx_function_spans(program: &oxc_ast::ast::Program<'_>) -> FxHashSet<
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn nested_declaration_range_stops_after_function_name() {
+        // commander.js@ba6d13ddb4243e5913367734f8c159089ffe7834
+        // lib/command.js:1765, Sonar columns 4..24 (`function maybeOption`).
+        let source = "class Command { parseOptions(args) {\n    function maybeOption(arg) { return arg.length > 1; }\n    return args.filter(maybeOption);\n} }";
+        let report = js(source);
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.rule_key == "javascript:S7721")
+            .unwrap();
+        assert_eq!(issue.range.start, pos(2, 4));
+        assert_eq!(issue.range.end, pos(2, 24));
+    }
 
     #[test]
     fn s7721_flags_pinned_express_test_function_sites() {
