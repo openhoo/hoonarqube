@@ -512,6 +512,7 @@ struct FactCollector<'source> {
     line_hint: LineHint,
     rows: RowFlags,
     jsts_comment_ranges: Vec<(usize, usize)>,
+    jsts_module_ranges: Vec<(u32, u32)>,
     first_code_offset: Option<usize>,
     tokens: Vec<NormalizedToken>,
     symbols: Vec<String>,
@@ -574,6 +575,7 @@ impl<'source> FactCollector<'source> {
             },
             rows: RowFlags::new(physical_lines),
             jsts_comment_ranges: Vec::new(),
+            jsts_module_ranges: Vec::new(),
             first_code_offset: None,
             tokens: Vec::with_capacity(source.len().min(4096) / 8),
             symbols: Vec::new(),
@@ -623,6 +625,7 @@ impl<'source> FactCollector<'source> {
             Language::Java => self.walk_java(root),
             _ => self.walk_generic(root),
         }
+        self.exclude_javascript_module_tokens();
     }
 
     fn walk_generic(&mut self, root: Node<'_>) {
@@ -640,6 +643,14 @@ impl<'source> FactCollector<'source> {
             }
             if node.is_missing() {
                 continue;
+            }
+            if matches!(self.language, Language::JavaScript | Language::TypeScript)
+                && is_javascript_module_declaration(node, self.source)
+            {
+                self.jsts_module_ranges.push((
+                    saturating_u32(node.start_byte()),
+                    saturating_u32(node.end_byte()),
+                ));
             }
             if self.emit_special_node(node, &mut cursor) {
                 continue;
@@ -715,18 +726,30 @@ impl<'source> FactCollector<'source> {
     fn emit_generic_marker(&mut self, node: Node<'_>) {
         let kind = node.kind();
         match self.language {
-            Language::JavaScript | Language::TypeScript if is_javascript_boundary_kind(kind) => {
-                // JavaScript and TypeScript omit many newlines from their
-                // CST.  Statement markers retain automatic-semicolon
-                // insertion semantics (notably `return\nvalue` versus
-                // `return value`) without preserving formatting whitespace.
-                self.emit_marker("javascript:boundary:", kind, node);
-            }
             Language::Ruby if is_ruby_boundary_kind(kind) => {
                 self.emit_marker("ruby:boundary:", kind, node);
             }
             _ => {}
         }
+    }
+
+    fn exclude_javascript_module_tokens(&mut self) {
+        if self.jsts_module_ranges.is_empty() {
+            return;
+        }
+        // Traversal emits both declarations and tokens in source order. Keep
+        // walking excluded declarations for metrics and comments, then remove
+        // their CPD tokens with a linear merge of the two ordered streams.
+        let ranges = &self.jsts_module_ranges;
+        let mut index = 0;
+        self.tokens.retain(|token| {
+            while index < ranges.len() && ranges[index].1 <= token.start_byte {
+                index += 1;
+            }
+            index == ranges.len()
+                || token.start_byte < ranges[index].0
+                || token.end_byte > ranges[index].1
+        });
     }
 
     fn visit_generic_node<'tree>(
@@ -1753,20 +1776,48 @@ fn is_python_structure_kind(kind: &str) -> bool {
     )
 }
 
-fn is_javascript_boundary_kind(kind: &str) -> bool {
-    kind.ends_with("_statement")
-        || matches!(
-            kind,
-            "lexical_declaration"
-                | "variable_declaration"
-                | "function_declaration"
-                | "class_declaration"
-                | "import_statement"
-                | "export_statement"
-                | "statement_block"
-                | "switch_case"
-                | "catch_clause"
-        )
+fn is_javascript_module_declaration(node: Node<'_>, source: &str) -> bool {
+    if node.kind() == "import_statement" {
+        let mut cursor = node.walk();
+        // TypeScript import-equals is a distinct AST declaration, outside
+        // the reference ImportDeclaration exclusion.
+        return !node
+            .named_children(&mut cursor)
+            .any(|child| child.kind() == "import_require_clause");
+    }
+    if !matches!(node.kind(), "lexical_declaration" | "variable_declaration") {
+        return false;
+    }
+    let mut cursor = node.walk();
+    let mut declarations = node
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "variable_declarator");
+    let Some(declaration) = declarations.next() else {
+        return false;
+    };
+    if declarations.next().is_some() {
+        return false;
+    }
+    let Some(value) = declaration.child_by_field_name("value") else {
+        return false;
+    };
+    is_javascript_require_call(value, source)
+        || value.child_by_field_name("function").is_some_and(|callee| {
+            is_javascript_require_call(callee, source)
+                || callee
+                    .child_by_field_name("object")
+                    .is_some_and(|object| is_javascript_require_call(object, source))
+        })
+        || value
+            .child_by_field_name("object")
+            .is_some_and(|object| is_javascript_require_call(object, source))
+}
+
+fn is_javascript_require_call(node: Node<'_>, source: &str) -> bool {
+    node.kind() == "call_expression"
+        && node.child_by_field_name("function").is_some_and(|callee| {
+            callee.kind() == "identifier" && callee.utf8_text(source.as_bytes()) == Ok("require")
+        })
 }
 
 fn is_ruby_boundary_kind(kind: &str) -> bool {
@@ -1944,6 +1995,31 @@ mod tests {
             .iter()
             .map(|token| facts.symbols[token.symbol as usize].as_str())
             .collect()
+    }
+
+    #[test]
+    fn javascript_module_cpd_exclusions_preserve_source_metrics() {
+        let source = "import type { Entry } from './types'; // inline\nconst entry = require('./entry').create();\nconst a = require('./a'), b = other();\nimport legacy = require('./legacy');\nexport const value = entry(legacy);\n";
+        let facts = facts("modules.ts", source);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert_eq!(facts.metrics.code_lines, 5);
+        assert_eq!(facts.metrics.comment_lines, 1);
+        assert!(facts.tokens.iter().all(|token| token.start_line >= 3));
+        assert!(facts.tokens.iter().any(|token| token.start_line == 3));
+        assert!(facts.tokens.iter().any(|token| token.start_line == 4));
+        assert!(facts.tokens.iter().any(|token| token.start_line == 5));
+    }
+
+    #[test]
+    fn javascript_cpd_retains_calls_outside_single_require_declarations() {
+        let source = "const direct = require('./a');\nconst invoke = require('./b')();\nconst member = require('./c').member;\nconst call = require('./d').member();\nconst custom = other('./e');\nrequire('./f');\nconst nested = wrapper(require('./g'));\n";
+        let facts = facts("modules.js", source);
+        assert!(facts.error.is_none(), "{:?}", facts.error);
+        assert_eq!(facts.metrics.code_lines, 7);
+        assert!(facts.tokens.iter().all(|token| token.start_line >= 5));
+        for line in 5..=7 {
+            assert!(facts.tokens.iter().any(|token| token.start_line == line));
+        }
     }
 
     #[test]

@@ -218,6 +218,10 @@ struct PreparedFile {
     byte_ends: Vec<u32>,
     /// Sorted source-bearing token indices, excluding zero-byte structure markers.
     source_tokens: Vec<usize>,
+    /// Original lexical token endpoints for line units. Collapsed repeated
+    /// rows retain their original token positions for threshold accounting.
+    unit_starts: Vec<usize>,
+    unit_ends: Vec<usize>,
     prefix_a: Vec<u64>,
     prefix_b: Vec<u64>,
 }
@@ -312,15 +316,21 @@ fn prepare_files(
     let total_tokens = validate_input_files(files, &order, options)?;
     let mut interner: HashMap<String, u32> = HashMap::new();
     let mut unit_interner: HashMap<UnitKey, u32> = HashMap::new();
+    let mut line_interner: HashMap<Vec<u32>, u32> = HashMap::new();
     let mut next_symbol_id = 0_u64;
     let mut prepared = Vec::with_capacity(files.len());
     for &index in &order {
-        prepared.push(build_prepared_file(
+        let file = build_prepared_file(
             &files[index],
             &mut interner,
             &mut unit_interner,
             &mut next_symbol_id,
-        )?);
+        )?;
+        prepared.push(if uses_token_lines(file.language) {
+            prepare_token_lines(file, &mut line_interner, &mut next_symbol_id)?
+        } else {
+            file
+        });
     }
     Ok((prepared, total_tokens))
 }
@@ -447,6 +457,71 @@ fn build_prepared_file(
         byte_starts,
         byte_ends,
         source_tokens,
+        unit_starts: (0..facts.tokens.len()).collect(),
+        unit_ends: (0..facts.tokens.len()).collect(),
+        prefix_a,
+        prefix_b,
+    })
+}
+
+fn uses_token_lines(language: Language) -> bool {
+    matches!(language, Language::JavaScript | Language::TypeScript)
+}
+
+/// CPD compares complete token-bearing rows. Consecutive rows with identical
+/// token images contribute their first and last row, preserving their physical
+/// span without manufacturing arbitrarily many matching windows.
+fn prepare_token_lines(
+    file: PreparedFile,
+    interner: &mut HashMap<Vec<u32>, u32>,
+    next_symbol_id: &mut u64,
+) -> Result<PreparedFile, String> {
+    let mut rows = Vec::new();
+    let mut start = 0;
+    while start < file.ids.len() {
+        let mut end = start + 1;
+        while end < file.ids.len() && file.starts[end] == file.starts[start] {
+            end += 1;
+        }
+        let key = &file.ids[start..end];
+        let id = if let Some(&id) = interner.get(key) {
+            id
+        } else {
+            let id = allocate_symbol_id(next_symbol_id)?;
+            interner.insert(key.to_vec(), id);
+            id
+        };
+        rows.push((id, start, end - 1));
+        start = end;
+    }
+    let mut retained = Vec::with_capacity(rows.len());
+    let mut start = 0;
+    while start < rows.len() {
+        let mut end = start + 1;
+        while end < rows.len() && rows[end].0 == rows[start].0 {
+            end += 1;
+        }
+        retained.push(rows[start]);
+        if end > start + 1 {
+            retained.push(rows[end - 1]);
+        }
+        start = end;
+    }
+    let ids: Vec<_> = retained.iter().map(|row| row.0).collect();
+    let prefix_a = build_hash_prefix(&ids, HASH_BASE_A)?;
+    let prefix_b = build_hash_prefix(&ids, HASH_BASE_B)?;
+    Ok(PreparedFile {
+        path: file.path,
+        language: file.language,
+        lines: file.lines,
+        starts: retained.iter().map(|row| file.starts[row.1]).collect(),
+        ends: retained.iter().map(|row| file.ends[row.2]).collect(),
+        byte_starts: retained.iter().map(|row| file.byte_starts[row.1]).collect(),
+        byte_ends: retained.iter().map(|row| file.byte_ends[row.2]).collect(),
+        source_tokens: (0..ids.len()).collect(),
+        unit_starts: retained.iter().map(|row| row.1).collect(),
+        unit_ends: retained.iter().map(|row| row.2).collect(),
+        ids,
         prefix_a,
         prefix_b,
     })
@@ -694,6 +769,8 @@ fn build_window_index(
     for (file_index, file) in files.iter().enumerate() {
         let window_length = if file.language == Language::Java {
             options.min_statements
+        } else if uses_token_lines(file.language) {
+            options.min_lines as usize
         } else {
             options.min_tokens
         };
@@ -1141,7 +1218,15 @@ fn eligible_span(
         .checked_sub(start_line)
         .and_then(|value| value.checked_add(1))
         .ok_or_else(|| "duplication physical line span overflows u32".to_owned())?;
-    Ok(length >= options.min_tokens && span >= options.min_lines)
+    let token_count = if uses_token_lines(language) {
+        file.unit_ends[last]
+            .checked_sub(file.unit_starts[first])
+            .and_then(|value| value.checked_add(1))
+            .ok_or_else(|| "duplication token span overflows usize".to_owned())?
+    } else {
+        length
+    };
+    Ok(token_count >= options.min_tokens && span >= options.min_lines)
 }
 
 fn occurrence_length(occurrence: TokenOccurrence) -> usize {
@@ -1586,7 +1671,74 @@ mod tests {
     use crate::source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
     use hoonarqube_ir::FileMetrics;
     use std::collections::{BTreeMap, HashMap};
+    use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn javascript_imports_do_not_satisfy_duplication_thresholds() {
+        let mut imports = String::new();
+        for index in 0..20 {
+            writeln!(
+                imports,
+                "import {{ entry{index} }} from \"./module{index}\";"
+            )
+            .expect("fixture text");
+        }
+        let source = format!("{imports}export function call() {{\n  return entry0();\n}}\n");
+        let inputs = ["a.ts", "b.ts"].map(|path| DuplicationFile {
+            path: PathBuf::from(path),
+            language: Language::TypeScript,
+            facts: collect_source_facts(Path::new(path), &source).expect("TypeScript facts"),
+        });
+        let result =
+            detect_duplications(&inputs, &DuplicationOptions::default()).expect("detection");
+        assert_eq!(result.metrics.duplicated_lines, 0);
+        assert_eq!(result.metrics.duplicated_blocks, 0);
+        assert_eq!(inputs[0].facts.metrics.code_lines, 23);
+    }
+
+    #[test]
+    fn javascript_repeated_identical_token_lines_do_not_create_self_clones() {
+        let mut entries = String::new();
+        for index in 0..70 {
+            writeln!(entries, "  \"value{index}\",").expect("fixture text");
+        }
+        let source = format!("export const entries = [\n{entries}];\n");
+        let input = DuplicationFile {
+            path: PathBuf::from("list.ts"),
+            language: Language::TypeScript,
+            facts: collect_source_facts(Path::new("list.ts"), &source).expect("TypeScript facts"),
+        };
+        let result =
+            detect_duplications(&[input], &DuplicationOptions::default()).expect("detection");
+        assert_eq!(result.metrics.duplicated_lines, 0);
+        assert_eq!(result.metrics.duplicated_blocks, 0);
+    }
+
+    #[test]
+    fn javascript_cpd_preserves_complete_positive_line_blocks() {
+        let mut body = String::new();
+        for index in 0..12 {
+            writeln!(body, "  total = total + compute({index}, input, total);")
+                .expect("fixture text");
+        }
+        let source = format!(
+            "export function measure(input: number) {{\n  let total = 0;\n{body}  return total;\n}}\n"
+        );
+        let inputs = ["a.ts", "b.ts"].map(|path| DuplicationFile {
+            path: PathBuf::from(path),
+            language: Language::TypeScript,
+            facts: collect_source_facts(Path::new(path), &source).expect("TypeScript facts"),
+        });
+        let result =
+            detect_duplications(&inputs, &DuplicationOptions::default()).expect("detection");
+        assert_eq!(result.metrics.duplicated_lines, 32);
+        assert_eq!(result.metrics.duplicated_blocks, 2);
+        assert_eq!(result.groups.len(), 1);
+        for occurrence in &result.groups[0].occurrences {
+            assert_eq!((occurrence.start_line, occurrence.end_line), (1, 16));
+        }
+    }
 
     fn facts(
         language: Language,
