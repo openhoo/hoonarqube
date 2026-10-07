@@ -152,7 +152,11 @@ of pinned Requests, Werkzeug, Commander, Chi, and Zod source scopes. Repairs
 cover scoped detector behavior, primary ranges, cognitive complexity, and
 physical/code/comment metrics, with focused positive and negative controls.
 Active-profile differences, hotspots, source scope, and duplication are recorded
-separately; remaining differences are retained. This evidence does not replace
+separately. The integrated CLI replay matches all
+20 aggregate file/line/code/comment metrics and all 717 corresponding per-file
+metric cells across 239 identical source files. Primary identity matches rise
+from 525 to 535; remaining finding differences are retained. This evidence
+does not replace
 the historical full-corpus qualifications or establish complete parity.
 
 ### Qualification and publication boundaries

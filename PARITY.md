@@ -43,6 +43,10 @@ The [real-project campaign report](docs/real-project-campaign-20261007.md)
 documents actual Community Build `26.9.0.129388` container scans, pinned source
 commits, scope alignment, focused controls, metric qualifications, and remaining
 differences. The reference version is separate from the frozen catalog snapshot.
+The integrated CLI replay matches all
+20 aggregate file/line/code/comment metrics and all 717 corresponding per-file
+metric cells across 239 identical source files. Primary identity matches rise
+from 525 to 535; remaining finding differences are retained.
 The campaign's identity comparison covers primary rule/path/range multisets;
 messages, secondary flows, fixes, hotspots, and duplication require their own
 evidence. Historical qualifications below retain their original versions and
