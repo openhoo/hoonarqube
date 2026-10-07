@@ -9,7 +9,7 @@
 // `module.exports = <anonymous>` and `exports = <anonymous>`. Named
 // declarations, aliases of existing bindings, and non-function defaults
 // (literals, object and array literals) stay silent. Findings span the
-// anonymous declaration.
+// anonymous declaration head, or arrow token.
 
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, unparenthesized};
@@ -19,12 +19,14 @@ use oxc_ast::ast::{
     Function,
 };
 use oxc_ast_visit::{Visit, walk};
-use oxc_span::GetSpan;
+use oxc_parser::{Kind, Token};
+use oxc_span::{GetSpan, Span};
 
 /// Entry point: `S7726` anonymous default export check over the parsed
 /// program; active for both JavaScript and TypeScript files.
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     let mut collector = DefaultExportCollector {
+        tokens: ctx.tokens,
         sink: IssueSink {
             index: ctx.index,
             language: ctx.language,
@@ -36,6 +38,7 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
 }
 
 struct DefaultExportCollector<'index> {
+    tokens: &'index [Token],
     sink: IssueSink<'index>,
 }
 
@@ -51,7 +54,7 @@ impl<'a> Visit<'a> for DefaultExportCollector<'_> {
                 self.report_anonymous_class(class);
             }
             ExportDefaultDeclarationKind::ArrowFunctionExpression(arrow) => {
-                self.report(arrow.span(), "arrow function");
+                self.report_arrow(arrow);
             }
             // Parenthesized function and class expressions keep the
             // reference behavior, which ignores redundant parentheses.
@@ -92,13 +95,42 @@ impl DefaultExportCollector<'_> {
 
     fn report_anonymous_function(&mut self, function: &Function<'_>) {
         if function.id.is_none() {
-            self.report(function.span(), function_description(function));
+            let end = self
+                .tokens
+                .iter()
+                .find(|token| {
+                    token.start() >= function.span.start
+                        && token.start() < function.params.span.end
+                        && token.kind() == Kind::LParen
+                })
+                .map_or(function.params.span.start, Token::start);
+            self.report(
+                Span::new(function.span.start, end),
+                function_description(function),
+            );
         }
     }
 
     fn report_anonymous_class(&mut self, class: &Class<'_>) {
         if class.id.is_none() {
-            self.report(class.span(), "class");
+            let end = self
+                .tokens
+                .iter()
+                .take_while(|token| token.end() <= class.body.span.start)
+                .last()
+                .map_or(class.body.span.start, Token::end);
+            self.report(Span::new(class.span.start, end), "class");
+        }
+    }
+
+    fn report_arrow(&mut self, arrow: &oxc_ast::ast::ArrowFunctionExpression<'_>) {
+        let token = self.tokens.iter().rev().find(|token| {
+            token.end() <= arrow.body.span().start
+                && token.start() >= arrow.span.start
+                && token.kind() == Kind::Arrow
+        });
+        if let Some(token) = token {
+            self.report(Span::new(token.start(), token.end()), "arrow function");
         }
     }
 
@@ -109,7 +141,7 @@ impl DefaultExportCollector<'_> {
             }
             Expression::ClassExpression(class) => self.report_anonymous_class(class),
             Expression::ArrowFunctionExpression(arrow) => {
-                self.report(arrow.span(), "arrow function");
+                self.report_arrow(arrow);
             }
             _ => {}
         }
@@ -168,7 +200,7 @@ mod tests {
         assert_eq!(issue.range.start.line, 1);
         assert_eq!(
             issue.range.start.column,
-            u32::try_from("export default ".len()).unwrap()
+            u32::try_from("export default (rawHeaders) ".len()).unwrap()
         );
     }
 
@@ -189,6 +221,8 @@ mod tests {
             .find(|issue| issue.rule_key == "typescript:S7726")
             .expect("the pinned zod locale default function must be reported");
         assert_eq!(issue.message, "The function should be named.");
+        assert_eq!(issue.range.end.line, 1);
+        assert_eq!(issue.range.end.column, 24);
         assert_eq!(issue.range.start.line, 1);
         assert_eq!(
             issue.range.start.column,
@@ -221,6 +255,22 @@ exports = () => ({});
         assert!(messages.contains(&"The generator function should be named.".to_string()));
         assert!(messages.contains(&"The async generator function should be named.".to_string()));
         assert!(messages.contains(&"The class should be named.".to_string()));
+    }
+
+    #[test]
+    fn s7726_reports_class_and_arrow_heads_with_comments() {
+        let source = "export default class extends Base /* comment */ {}\nexports = async (x: () => string) /* => */ => x();";
+        let report = ts(source);
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S7726")
+            .collect();
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].range.start.column, 15);
+        assert_eq!(issues[0].range.end.column, 33);
+        assert_eq!(issues[1].range.start.column, 43);
+        assert_eq!(issues[1].range.end.column, 45);
     }
 
     #[test]
