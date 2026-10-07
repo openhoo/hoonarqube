@@ -17,11 +17,11 @@ fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
 
 #[test]
 fn metrics_count_code_comment_and_blank_lines() {
-    let report = scan("x = 1\n# only a comment\n\n");
+    let report = scan("# only a comment\nx = 1\n\n");
     assert_eq!(
         report.metrics,
         hoonarqube_ir::FileMetrics {
-            lines: 3,
+            lines: 4,
             code_lines: 1,
             comment_lines: 1,
         }
@@ -5233,4 +5233,64 @@ fn production_test_module_keeps_main_rules_like_werkzeug() {
         let report = scan_at(PathBuf::from(path), source);
         assert!(findings(&report, "python:S2245").is_empty(), "{path}");
     }
+}
+
+#[test]
+fn metrics_match_live_python_docstrings_and_inline_comments() {
+    let source = concat!(
+        "\"\"\"Module docs.\n\nMore docs.\n\"\"\"\n",
+        "# comment text\n### ---\n# NOSONAR ignored text\n",
+        "x = 1  # inline text\n",
+        "class Example:\n    \"\"\"Class docs.\n    More.\n    \"\"\"\n",
+        "    def method(self):\n        \"\"\"Method docs.\n\n        More.\n        \"\"\"\n        return 1\n",
+        "text = \"\"\"Ordinary data.\n\nMore data.\n\"\"\"\n",
+    );
+    let report = scan(source);
+    assert_eq!(report.metrics.lines, 23);
+    assert_eq!(report.metrics.code_lines, 8);
+    assert_eq!(report.metrics.comment_lines, 13);
+}
+
+#[test]
+fn metrics_match_live_docstring_parentheses_and_comment_boundaries() {
+    let source = concat!(
+        "\"\"\"Module docs.\"\"\"; x = 1\n",
+        "#\n####\n# ☀️\n# 汉字\n# １２３\n# TODO\n# noqa\n# NOSONAR\n",
+        "x = 2  # useful inline\n",
+        "value = (\n    \"data one\"\n    \"data two\"\n)\n",
+        "def run():\n    (\n        \"doc one\"\n        \"doc two\"\n    )\n",
+        "    \"\"\"not a docstring anymore\"\"\"\n    return value\n",
+    );
+    let report = scan(source);
+    assert_eq!(report.metrics.lines, 22);
+    assert_eq!(report.metrics.code_lines, 12);
+    assert_eq!(report.metrics.comment_lines, 6);
+}
+
+#[test]
+fn standalone_source_metrics_preserve_parser_errors_and_line_endings() {
+    assert!(crate::source_metrics("def broken(:\n").is_err());
+    assert_eq!(crate::source_metrics("").unwrap().lines, 1);
+    for source in ["x = 1\n", "x = 1\r\n", "x = 1\r"] {
+        let metrics = crate::source_metrics(source).unwrap();
+        assert_eq!(metrics.lines, 2);
+        assert_eq!(metrics.code_lines, 1);
+    }
+}
+
+#[test]
+fn metrics_match_live_import_delimiters_and_trailing_comments() {
+    let imports = "from os import (\n    path,  # imported name inline\n    # before closing parenthesis\n)\n# EOF comment\n";
+    let report = scan(imports);
+    assert_eq!(report.metrics.lines, 6);
+    assert_eq!(report.metrics.code_lines, 2);
+    assert_eq!(report.metrics.comment_lines, 0);
+    let trailing = concat!(
+        "class Example:\n    x: int  # first annotation inline\n    y: str  # last annotation inline\n",
+        "    # class tail one\n    # class tail two\n\n# outer comment\nz = 1  # outer inline\n# EOF comment\n",
+    );
+    let report = scan(trailing);
+    assert_eq!(report.metrics.lines, 10);
+    assert_eq!(report.metrics.code_lines, 4);
+    assert_eq!(report.metrics.comment_lines, 6);
 }

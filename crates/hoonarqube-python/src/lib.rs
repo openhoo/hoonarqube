@@ -586,6 +586,23 @@ pub fn analyze_github_quality(source: &str) -> Vec<hoonarqube_ir::Issue> {
 
 mod github_quality;
 
+/// Computes Python file metrics without running detectors.
+///
+/// Standalone project facts use this entry point; normal analysis reuses its
+/// existing parse through the same helper. Invalid Python returns an error
+/// so callers cannot present recovered syntax as a complete measurement.
+///
+/// # Errors
+/// Returns an error when the Python parser reports malformed source.
+pub fn source_metrics(source: &str) -> Result<hoonarqube_ir::FileMetrics, String> {
+    let parsed = crate::support::parse(source);
+    if !parsed.errors().is_empty() {
+        return Err("Python source contains parser errors".to_string());
+    }
+    let index = ruff_source_file::LineIndex::from_source_text(source);
+    Ok(file_metrics(&parsed, source, &index))
+}
+
 /// Runs GitHub Code Quality queries and computes file metrics from one parse.
 #[must_use]
 pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> hoonarqube_ir::FileReport {
