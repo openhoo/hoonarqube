@@ -202,12 +202,18 @@ impl AuthConfig {
             ));
         }
         let mut users = BTreeSet::new();
+        let mut tokens = BTreeSet::new();
         for credential in &credentials {
             validate_identity_component(&credential.user_id, MAX_PROJECT_BYTES, "user_id")
                 .map_err(InitError::Config)?;
             if credential.token.is_empty() {
                 return Err(InitError::Config(
                     "credential token must not be empty".to_string(),
+                ));
+            }
+            if !tokens.insert(&credential.token) {
+                return Err(InitError::Config(
+                    "credential token must be unique".to_string(),
                 ));
             }
             if !users.insert(credential.user_id.clone()) {
@@ -2268,6 +2274,51 @@ mod tests {
     use std::net::{SocketAddr, TcpStream};
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::time::Duration;
+
+    #[test]
+    fn duplicate_bearer_tokens_are_rejected_without_exposing_the_token() {
+        let result = AuthConfig::new(vec![
+            Credential::new(
+                "reader",
+                "shared-secret",
+                [("demo".to_string(), Role::Reader)],
+            ),
+            Credential::new(
+                "admin",
+                "shared-secret",
+                [("demo".to_string(), Role::Admin)],
+            ),
+        ]);
+        let Err(error) = result else {
+            panic!("one bearer token must identify exactly one principal");
+        };
+        assert_eq!(
+            error.to_string(),
+            "configuration error: credential token must be unique"
+        );
+        assert!(!error.to_string().contains("shared-secret"));
+    }
+
+    #[test]
+    fn distinct_bearer_tokens_preserve_each_principals_authority() {
+        let auth = AuthConfig::new(vec![
+            Credential::new(
+                "reader",
+                "reader-secret",
+                [("demo".to_string(), Role::Reader)],
+            ),
+            Credential::new("admin", "admin-secret", [("demo".to_string(), Role::Admin)]),
+        ])
+        .expect("distinct credentials");
+        let reader = auth.authenticate("reader-secret").expect("reader token");
+        assert_eq!(reader.user_id, "reader");
+        assert!(reader.permits("demo", Role::Reader));
+        assert!(!reader.permits("demo", Role::Admin));
+        let admin = auth.authenticate("admin-secret").expect("admin token");
+        assert_eq!(admin.user_id, "admin");
+        assert!(admin.permits("demo", Role::Admin));
+        assert!(auth.authenticate("unknown-secret").is_none());
+    }
 
     #[test]
     fn review_state_machines_are_disjoint() {
