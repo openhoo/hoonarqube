@@ -1350,13 +1350,67 @@ fn valid_file_metrics(metrics: &hoonarqube_ir::FileMetrics) -> bool {
     metrics.code_lines <= metrics.lines && metrics.comment_lines <= metrics.lines
 }
 
+fn eligible_measurement(measurement: &hoonarqube_ir::ProjectFileMeasurement) -> bool {
+    matches!(
+        measurement.classification,
+        FileClassification::Source | FileClassification::Test
+    )
+}
+
+fn retained_report_measurement(measurement: &hoonarqube_ir::ProjectFileMeasurement) -> bool {
+    eligible_measurement(measurement)
+        && matches!(
+            measurement.status,
+            MeasurementStatus::Complete | MeasurementStatus::Failed
+        )
+}
+
+fn validate_scope_measurement(
+    measurement: &hoonarqube_ir::ProjectFileMeasurement,
+    complete: bool,
+    files: &BTreeMap<&FsPath, &FileReport>,
+    totals: &mut hoonarqube_ir::ProjectMetrics,
+) -> Result<(), ApiError> {
+    if measurement
+        .metrics
+        .as_ref()
+        .is_some_and(|metrics| !valid_file_metrics(metrics))
+    {
+        return Err(ApiError::bad_request());
+    }
+    let eligible = eligible_measurement(measurement);
+    if complete && eligible && measurement.status != MeasurementStatus::Complete {
+        return Err(ApiError::bad_request());
+    }
+    if measurement.status != MeasurementStatus::Complete || !eligible {
+        return Ok(());
+    }
+    let metrics = measurement
+        .metrics
+        .as_ref()
+        .ok_or_else(ApiError::bad_request)?;
+    let file = files
+        .get(measurement.path.as_path())
+        .ok_or_else(ApiError::bad_request)?;
+    if file.metrics != *metrics {
+        return Err(ApiError::bad_request());
+    }
+    if measurement.classification == FileClassification::Source {
+        totals.files += 1;
+        totals.lines += u64::from(metrics.lines);
+        totals.code_lines += u64::from(metrics.code_lines);
+        totals.comment_lines += u64::from(metrics.comment_lines);
+    }
+    Ok(())
+}
+
 fn validate_report_consistency(report: &AnalysisReport) -> Result<(), ApiError> {
     if report.project.complete && !report.project.warnings.is_empty() {
         return Err(ApiError::bad_request());
     }
     let mut files = BTreeMap::new();
     for file in &report.files {
-        if !valid_file_metrics(&file.metrics) || files.insert(&file.path, file).is_some() {
+        if !valid_file_metrics(&file.metrics) || files.insert(file.path.as_path(), file).is_some() {
             return Err(ApiError::bad_request());
         }
     }
@@ -1368,52 +1422,18 @@ fn validate_report_consistency(report: &AnalysisReport) -> Result<(), ApiError> 
         comment_lines: 0,
     };
     for measurement in &report.project.files {
-        if paths.insert(&measurement.path, measurement).is_some()
-            || measurement
-                .metrics
-                .as_ref()
-                .is_some_and(|metrics| !valid_file_metrics(metrics))
+        if paths
+            .insert(measurement.path.as_path(), measurement)
+            .is_some()
         {
             return Err(ApiError::bad_request());
         }
-        let eligible = matches!(
-            measurement.classification,
-            FileClassification::Source | FileClassification::Test
-        );
-        if report.project.complete && eligible && measurement.status != MeasurementStatus::Complete
-        {
-            return Err(ApiError::bad_request());
-        }
-        if measurement.status != MeasurementStatus::Complete || !eligible {
-            continue;
-        }
-        let metrics = measurement
-            .metrics
-            .as_ref()
-            .ok_or_else(ApiError::bad_request)?;
-        let file = files
-            .get(&measurement.path)
-            .ok_or_else(ApiError::bad_request)?;
-        if file.metrics != *metrics {
-            return Err(ApiError::bad_request());
-        }
-        if measurement.classification == FileClassification::Source {
-            totals.files += 1;
-            totals.lines += u64::from(metrics.lines);
-            totals.code_lines += u64::from(metrics.code_lines);
-            totals.comment_lines += u64::from(metrics.comment_lines);
-        }
+        validate_scope_measurement(measurement, report.project.complete, &files, &mut totals)?;
     }
     if files.keys().any(|path| {
-        !paths.get(path).is_some_and(|measurement| {
-            matches!(
-                measurement.classification,
-                FileClassification::Source | FileClassification::Test
-            ) && matches!(
-                measurement.status,
-                MeasurementStatus::Complete | MeasurementStatus::Failed
-            )
-        })
+        !paths
+            .get(path)
+            .is_some_and(|measurement| retained_report_measurement(measurement))
     }) || totals != report.project.metrics
     {
         return Err(ApiError::bad_request());
