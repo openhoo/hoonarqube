@@ -160,15 +160,15 @@ fn s7496_flags_redundant_wrapping_constructors() {
     let flagged = scan(
         "wrapped = list([1, 2])\nsets = set({1})\nmaps = dict({\"a\": 1})\nconv = list((4, 5))\nstr(conv)\n",
     );
-    assert_eq!(findings(&flagged, "python:S7496").len(), 3);
-    // The tuple conversion is a real type change and stays unflagged.
+    assert_eq!(findings(&flagged, "python:S7496").len(), 4);
+    // Cross-collection literals are highlighted at their constructor.
     assert_eq!(
         flagged
             .issues
             .iter()
             .filter(|i| i.range.start.line == 4)
             .count(),
-        0
+        1
     );
 }
 
@@ -317,13 +317,15 @@ fn s7517_flags_two_name_iteration_over_proven_dict() {
 }
 
 #[test]
-fn s7519_prefers_fromkeys_for_constant_loops() {
-    let flagged = scan("flags = {}\nfor name in nodes:\n    flags[name] = True\n");
-    let found = findings(&flagged, "python:S7519");
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].range.start.line, 2);
-    let clean = "sizes = {}\nfor name in nodes:\n    sizes[name] = len(name)\n";
-    assert!(findings(&scan(clean), "python:S7519").is_empty());
+fn s7519_prefers_fromkeys_for_constant_comprehensions() {
+    let flagged = scan("flags = {name: True for name in nodes}\n");
+    assert_eq!(findings(&flagged, "python:S7519").len(), 1);
+    for clean in [
+        "flags = {}\nfor name in nodes:\n    flags[name] = True\n",
+        "sizes = {name: len(name) for name in nodes}\n",
+    ] {
+        assert!(findings(&scan(clean), "python:S7519").is_empty());
+    }
 }
 
 #[test]
@@ -5406,4 +5408,71 @@ fn remaining_collection_constructor_findings_highlight_callees_and_match_message
     ] {
         assert!(findings(&scan(source), rule).is_empty(), "{rule}");
     }
+}
+
+#[test]
+fn remaining_s6659_exempts_chained_boundary_comparisons() {
+    assert!(
+        findings(
+            &scan("same = item[:1] == item[-1:] == '\"'\n"),
+            "python:S6659"
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        findings(&scan("prefix = item[:1] == '\"'\n"), "python:S6659").len(),
+        1
+    );
+}
+
+#[test]
+fn remaining_s7519_preserves_distinct_mutable_values() {
+    let source = "a = {event: [] for event in events}\nb = {event: {} for event in events}\nc = {event: ([],) for event in events}\nd = {event: 1 for event in events}\n";
+    let report = scan(source);
+    let issues = findings(&report, "python:S7519");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].range.start.line, 4);
+    assert_eq!(issues[0].message, "Replace with dict fromkeys method call");
+}
+
+#[test]
+fn remaining_s7496_reports_cross_collection_literals_at_callee() {
+    let report =
+        scan("prefixes = tuple({one, two})\nwrapped = list([1, 2])\nfactory.list([1, 2])\n");
+    let issues = findings(&report, "python:S7496");
+    assert_eq!(issues.len(), 2);
+    assert_eq!(
+        issues[0].message,
+        "Replace this tuple constructor call by a tuple literal."
+    );
+    assert_eq!(issues[0].range.start.column, 11);
+    assert_eq!(issues[0].range.end.column, 16);
+    assert_eq!(
+        issues[1].message,
+        "Remove the redundant list constructor call."
+    );
+}
+
+#[test]
+fn remaining_collection_controls_preserve_bindings_and_iteration_values() {
+    let report = scan(
+        "a = list([x for x in xs])\nb = set({x + 1 for x in xs})\nc = tuple([x + 1 for x in xs])\nd = list({x + 1 for x in xs})\n",
+    );
+    let issues = findings(&report, "python:S7496");
+    assert_eq!(issues.len(), 2);
+    assert_eq!(
+        issues[1].message,
+        "Replace this list comprehension by a generator."
+    );
+    assert!(
+        findings(
+            &scan("def f(list):\n    return list([1, 2])\n"),
+            "python:S7496"
+        )
+        .is_empty()
+    );
+    let report = scan(
+        "value = 1\na = {x: value for x in xs}\nb = {x: x for x in xs}\nc = {x: 1 for x in xs if x}\n",
+    );
+    assert_eq!(findings(&report, "python:S7519").len(), 1);
 }

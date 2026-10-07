@@ -1,10 +1,8 @@
 use crate::engine::file_context::FileContext;
-use crate::support::expr_normalized_text;
-use crate::support::is_constant_expression;
+use crate::engine::scope::ScopeKind;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
-use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
@@ -22,50 +20,34 @@ pub(crate) fn check_constant_populated_dict_loop(
         let Expr::DictComp(comp) = expr else {
             continue;
         };
-        if is_constant_expression(&comp.value) {
-            issues.push(issue_at(
-                "python:S7519",
-                "Populate this dictionary with 'dict.fromkeys' instead of assigning a constant in a loop.",
-                comp.range(),
-                index,
-                source,
-            ));
-        }
-    }
-    for stmt in &file_ctx.stmts {
-        let Stmt::For(for_stmt) = stmt else { continue };
-        if for_stmt.body.is_empty() {
+        if !matches!(comp.key.as_deref(), Some(Expr::Name(_)))
+            || comp.generators.len() != 1
+            || !comp.generators[0].ifs.is_empty()
+        {
             continue;
         }
-        let mut constant: Option<String> = None;
-        let all_constant_assignments = for_stmt.body.iter().all(|inner| {
-            let Stmt::Assign(assign) = inner else {
-                return false;
-            };
-            let [Expr::Subscript(subscript)] = &assign.targets[..] else {
-                return false;
-            };
-            matches!(subscript.slice.as_ref(), Expr::Name(_))
-                && matches!(subscript.value.as_ref(), Expr::Name(_))
-                && is_constant_expression(&assign.value)
-        }) && for_stmt.body.iter().all(|inner| {
-            let Stmt::Assign(assign) = inner else {
-                return false;
-            };
-            let normalized = expr_normalized_text(&assign.value, source);
-            match &constant {
-                None => {
-                    constant = Some(normalized);
-                    true
-                }
-                Some(existing) => *existing == normalized,
-            }
-        });
-        if all_constant_assignments {
+        let shared_value = match comp.value.as_ref() {
+            Expr::NoneLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::StringLiteral(_) => true,
+            Expr::Name(name) => file_ctx
+                .symbol_table()
+                .resolved_loads
+                .iter()
+                .find(|load| load.range == name.range())
+                .is_some_and(|load| {
+                    load.target.is_none_or(|target| {
+                        file_ctx.symbol_table().scopes[target].kind != ScopeKind::Comprehension
+                    })
+                }),
+            _ => false,
+        };
+        if shared_value {
             issues.push(issue_at(
                 "python:S7519",
-                "Populate this dictionary with 'dict.fromkeys' instead of assigning a constant in a loop.",
-                for_stmt.range(),
+                "Replace with dict fromkeys method call",
+                comp.range(),
                 index,
                 source,
             ));

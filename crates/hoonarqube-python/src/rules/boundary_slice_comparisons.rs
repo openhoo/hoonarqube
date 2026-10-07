@@ -18,15 +18,14 @@ pub(crate) fn check_boundary_slice_comparisons(
         let Expr::Compare(compare) = expr else {
             continue;
         };
-        if !compare.ops.iter().any(|op| {
-            matches!(
-                op,
-                ruff_python_ast::CmpOp::Eq
-                    | ruff_python_ast::CmpOp::NotEq
-                    | ruff_python_ast::CmpOp::Is
-                    | ruff_python_ast::CmpOp::IsNot
-            )
-        }) {
+        if compare.ops.len() != 1
+            || !compare.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    ruff_python_ast::CmpOp::Eq | ruff_python_ast::CmpOp::NotEq
+                )
+            })
+        {
             continue;
         }
         let mut sides: Vec<&Expr> = vec![&compare.left];
@@ -38,9 +37,22 @@ pub(crate) fn check_boundary_slice_comparisons(
                 })
         });
         if flagged {
+            let slice = sides.iter().find(|side| is_boundary_slice(side)).unwrap();
+            let Expr::Subscript(subscript) = slice else {
+                unreachable!()
+            };
+            let Expr::Slice(slice) = subscript.slice.as_ref() else {
+                unreachable!()
+            };
+            let message = match (slice.lower.is_none(), compare.ops[0]) {
+                (true, ruff_python_ast::CmpOp::Eq) => "Use `startswith` here.",
+                (true, _) => "Use `not` and `startswith` here.",
+                (false, ruff_python_ast::CmpOp::Eq) => "Use `endswith` here.",
+                (false, _) => "Use `not` and `endswith` here.",
+            };
             issues.push(issue_at(
                 "python:S6659",
-                "Use 'startswith' or 'endswith' for this prefix or suffix comparison.",
+                message,
                 compare.range(),
                 index,
                 source,
