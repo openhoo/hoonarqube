@@ -349,40 +349,10 @@ fn check_slice(
     let Some(start_value) = literal_negative_integer(&call.arguments[0]) else {
         return;
     };
-    let call_span = call.span();
-    let parent = semantic.nodes().parent_node(node.id());
-    let mut first_element_get_method: &str = "";
-    let _ = first_element_get_method;
-    match parent.kind() {
-        AstKind::ComputedMemberExpression(access)
-            if access.object.span() == call_span
-                && !access.optional
-                && is_zero_literal(&access.expression) =>
-        {
-            if is_left_hand_side(semantic, parent) {
-                return;
-            }
-            first_element_get_method = "zero-index";
-        }
-        AstKind::StaticMemberExpression(wrapper_member)
-            if wrapper_member.object.span() == call_span =>
-        {
-            let method = wrapper_member.property.name.as_str();
-            if method != "shift" && method != "pop" {
-                return;
-            }
-            let grandparent = semantic.nodes().parent_node(parent.id());
-            match grandparent.kind() {
-                AstKind::CallExpression(wrapper)
-                    if !wrapper.optional
-                        && wrapper.arguments.is_empty()
-                        && wrapper.callee.span() == parent.kind().span() => {}
-                _ => return,
-            }
-            first_element_get_method = if method == "shift" { "shift" } else { "pop" };
-        }
-        _ => return,
-    }
+    let Some(first_element_get_method) = slice_first_element_method(semantic, node, call.span())
+    else {
+        return;
+    };
     let start_index = -start_value;
     if call.arguments.len() == 1 {
         if same_number(start_value, 1.0) {
@@ -400,6 +370,41 @@ fn check_slice(
         return;
     }
     emit_slice(sink, member.property.span());
+}
+
+fn slice_first_element_method(
+    semantic: &Semantic<'_>,
+    node: &AstNode<'_>,
+    call_span: Span,
+) -> Option<&'static str> {
+    let parent = semantic.nodes().parent_node(node.id());
+    match parent.kind() {
+        AstKind::ComputedMemberExpression(access)
+            if access.object.span() == call_span
+                && !access.optional
+                && is_zero_literal(&access.expression) =>
+        {
+            (!is_left_hand_side(semantic, parent)).then_some("zero-index")
+        }
+        AstKind::StaticMemberExpression(member) if member.object.span() == call_span => {
+            let method = member.property.name.as_str();
+            if method != "shift" && method != "pop" {
+                return None;
+            }
+            let grandparent = semantic.nodes().parent_node(parent.id());
+            let AstKind::CallExpression(wrapper) = grandparent.kind() else {
+                return None;
+            };
+            if wrapper.optional
+                || !wrapper.arguments.is_empty()
+                || wrapper.callee.span() != parent.kind().span()
+            {
+                return None;
+            }
+            Some(if method == "shift" { "shift" } else { "pop" })
+        }
+        _ => None,
+    }
 }
 
 fn emit_slice(sink: &mut IssueSink<'_>, span: Span) {
