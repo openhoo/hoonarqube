@@ -3164,6 +3164,17 @@ fn check_function(
             source,
         ));
     }
+    check_cognitive_function(node, body, source, options, error_guards, issues);
+}
+
+fn check_cognitive_function(
+    node: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    options: &AnalyzerOptions,
+    error_guards: &ErrorGuardFacts,
+    issues: &mut Vec<Issue>,
+) {
     // Sonar raises go:S3776 on functions and methods only; a function
     // literal's complexity is owned by its enclosing function.
     let (cognitive, contributions) = cognitive_complexity(body, source, error_guards);
@@ -4088,65 +4099,101 @@ fn cognitive_complexity(
             push_named_children(&mut pending, current, nesting + 1);
             continue;
         }
-        let error_guard =
-            current.kind() == "if_statement" && error_guards.is_error_guard(current, source);
-        let control = !error_guard
-            && matches!(
-                current.kind(),
-                "if_statement"
-                    | "for_statement"
-                    | "expression_switch_statement"
-                    | "type_switch_statement"
-            );
-        let else_if = current.kind() == "if_statement" && is_else_if(current);
-        if control && !else_if {
-            let keyword = match current.kind() {
-                "if_statement" => "if",
-                "for_statement" => "for",
-                _ => "switch",
-            };
-            if let Some(token) = direct_keyword(current, keyword) {
-                add_cognitive_contribution(token, nesting, source, &mut total, &mut contributions);
-            }
-        }
-        if current.kind() == "if_statement"
-            && current.child_by_field_name("alternative").is_some()
-            && let Some(token) = direct_keyword(current, "else")
-        {
-            add_cognitive_contribution(token, 0, source, &mut total, &mut contributions);
-        }
-        if current.kind() == "binary_expression"
-            && is_logical_operator(operator_text(current, source))
-            && logical_parent(current).is_none()
-        {
-            let mut operators = Vec::new();
-            flatten_logical_operators(current, &mut operators);
-            let mut previous = "";
-            for operator in operators {
-                let actual = text(operator, source);
-                if actual != previous {
-                    add_cognitive_contribution(operator, 0, source, &mut total, &mut contributions);
-                }
-                previous = actual;
-            }
-        }
-        // SonarGo charges labeled break/continue. Its Go frontend does not
-        // model goto as a cognitive jump; unlabeled jumps are free too.
-        if matches!(current.kind(), "break_statement" | "continue_statement")
-            && first_named(current).is_some()
-        {
-            let keyword = match current.kind() {
-                "break_statement" => "break",
-                _ => "continue",
-            };
-            if let Some(token) = direct_keyword(current, keyword) {
-                add_cognitive_contribution(token, 0, source, &mut total, &mut contributions);
-            }
-        }
-        let next = nesting + usize::from(control && !else_if);
+        let next = collect_cognitive_control(
+            current,
+            nesting,
+            source,
+            error_guards,
+            &mut total,
+            &mut contributions,
+        );
+        collect_cognitive_logical(current, source, &mut total, &mut contributions);
+        collect_cognitive_jump(current, source, &mut total, &mut contributions);
         push_named_children(&mut pending, current, next);
     }
     (total, contributions)
+}
+
+fn collect_cognitive_control(
+    current: Node<'_>,
+    nesting: usize,
+    source: &str,
+    error_guards: &ErrorGuardFacts,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) -> usize {
+    let error_guard =
+        current.kind() == "if_statement" && error_guards.is_error_guard(current, source);
+    let control = !error_guard
+        && matches!(
+            current.kind(),
+            "if_statement"
+                | "for_statement"
+                | "expression_switch_statement"
+                | "type_switch_statement"
+        );
+    let else_if = current.kind() == "if_statement" && is_else_if(current);
+    if control && !else_if {
+        let keyword = match current.kind() {
+            "if_statement" => "if",
+            "for_statement" => "for",
+            _ => "switch",
+        };
+        if let Some(token) = direct_keyword(current, keyword) {
+            add_cognitive_contribution(token, nesting, source, total, contributions);
+        }
+    }
+    if current.kind() == "if_statement"
+        && current.child_by_field_name("alternative").is_some()
+        && let Some(token) = direct_keyword(current, "else")
+    {
+        add_cognitive_contribution(token, 0, source, total, contributions);
+    }
+    nesting + usize::from(control && !else_if)
+}
+
+fn collect_cognitive_logical(
+    current: Node<'_>,
+    source: &str,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) {
+    if current.kind() == "binary_expression"
+        && is_logical_operator(operator_text(current, source))
+        && logical_parent(current).is_none()
+    {
+        let mut operators = Vec::new();
+        flatten_logical_operators(current, &mut operators);
+        let mut previous = "";
+        for operator in operators {
+            let actual = text(operator, source);
+            if actual != previous {
+                add_cognitive_contribution(operator, 0, source, total, contributions);
+            }
+            previous = actual;
+        }
+    }
+}
+
+fn collect_cognitive_jump(
+    current: Node<'_>,
+    source: &str,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) {
+    // SonarGo charges labeled break/continue. Its Go frontend does not
+    // model goto as a cognitive jump; unlabeled jumps are free too.
+    if matches!(current.kind(), "break_statement" | "continue_statement")
+        && first_named(current).is_some()
+    {
+        let keyword = match current.kind() {
+            "break_statement" => "break",
+            _ => "continue",
+        };
+        if let Some(token) = direct_keyword(current, keyword) {
+            add_cognitive_contribution(token, 0, source, total, contributions);
+        }
+    }
 }
 
 fn direct_keyword<'tree>(node: Node<'tree>, keyword: &str) -> Option<Node<'tree>> {
