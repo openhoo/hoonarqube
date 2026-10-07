@@ -13,8 +13,10 @@
   "matched": true,
   "flow_order": "unordered_flows_ordered_locations",
   "differences": [],
-  "source_sha256": "0978bd8d0c170358a50e565c5bec6bf66072acbd88e168eafcdf5523bfc74f51",
-  "native_library_probe": true,
-  "cli_integration_verification": "required_by_integrator",
+  "native_library_probe": false,
+  "cli_integration_verification": "passed",
+  "source_head": "2df4c40",
+  "binary_sha256": "f08c2c1c12eff586a9521ca542eca86ab3106b146a7819a561087b06c5bbc53e",
+  "native_report_sha256": "659b16618a869915bf0f08b561b43638270c84f6b60921aace4112fe972d52e4",
   "reference_sha256": "105e970344689232ddc803a246fd1f827c764714b0b09ba61cf8689a6f45afc7"
 }

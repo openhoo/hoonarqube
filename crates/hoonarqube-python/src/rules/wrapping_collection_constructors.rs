@@ -85,7 +85,6 @@ fn comprehension_transforms(argument: &Expr, source: &str) -> bool {
     let (element, generators) = match argument {
         Expr::ListComp(comp) => (Some(comp.elt.as_ref()), comp.generators.as_slice()),
         Expr::SetComp(comp) => (Some(comp.elt.as_ref()), comp.generators.as_slice()),
-        Expr::DictComp(_) => return true,
         _ => return true,
     };
     let [generator] = generators else { return true };

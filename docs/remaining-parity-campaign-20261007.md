@@ -53,3 +53,47 @@ matching duplication summaries. Zod improves from 7177 lines / 424 blocks to
 6466 / 392, but still differs from the reference 5084 / 1130. Token images and
 group containment remain separate work; these initial results are not a CPD
 parity claim.
+
+## Integrated Python and typed JavaScript fixes
+
+Python declaration ranges now cover the reference parameter/collection spans.
+Direct TypeVar annotations preserve declaration provenance and exclude aliases
+and unrelated annotations. Collection conversions distinguish chained boundary
+comparisons, direct constant comprehensions, mutable values, shadowed constructors
+and identity comprehensions. Regressions include
+`remaining_s6659_exempts_chained_boundary_comparisons` and the S7496/S7519
+collection boundary controls in the Python test module.
+
+The TypeScript helper supplies implicit string-coercion and `.at` receiver
+evidence. Commander requires an explicit compiler project and TypeScript 6.0.3
+module to qualify the eight S6551/S7755 identities. The qualification config
+extends Commander's source config, uses its ESNext target and disables implicit
+ambient `@types` discovery. Standalone syntax fallback is a distinct result.
+Zod export-head S7726 ranges match all 63 observations; mutable static property
+S1444 key ranges match all 35, with readonly edits attached to the new ranges.
+Committed rule tests cover declaration comments, arrow tokens and property edits.
+
+The integrated CLI replay on all five unchanged project scopes produces:
+
+| Project | Matched identities | Native-only | Reference-only |
+|---|---:|---:|---:|
+| Requests | 72 | 129 | 5 |
+| Werkzeug | 216 | 309 | 25 |
+| Commander (syntax context) | 29 | 281 | 7 |
+| chi | 14 | 21 | 0 |
+| Zod (syntax context) | 352 | 5347 | 242 |
+
+These compare rule, path and range multiplicity. Native-only totals also contain
+rules inactive in the reference profile. They are not all false positives;
+message/flow and compiler qualification remain separate gates. In aggregate,
+matched identities improve from the published campaign's 574 to 683 and
+reference-only observations fall from 388 to 279 in the syntax-context replay.
+The explicit Commander compiler replay additionally closes its seven previously
+missing identities.
+
+All 149 core tests, 132 CLI unit tests, six CLI integration tests and 173 oracle
+tests pass in the integrated checkout. Oracle tests honor `CARGO_TARGET_DIR`;
+macOS runs use a physical temporary-directory path to preserve symlink refusal
+checks. Specialist language suites qualify their committed regression controls.
+The finite historical corpus, quickfix and Enterprise boundaries are recorded in
+[qualification boundaries](qualification-boundaries-20261007.md).
