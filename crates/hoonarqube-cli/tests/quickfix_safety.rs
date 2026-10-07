@@ -66,7 +66,7 @@ fn supported_extension_mechanical_apply_preserves_source_and_is_idempotent() {
     assert!(preview.status.success());
     assert_eq!(std::fs::read(&path).expect("preview readback"), b"x");
     let apply = fixture.run(&["fix", "--apply", "--json", "t.py"]);
-    assert!(apply.status.success(), "{:?}", apply);
+    assert!(apply.status.success(), "{apply:?}");
     let applied: serde_json::Value = serde_json::from_slice(&apply.stdout).expect("apply JSON");
     assert_eq!(applied["files"][0]["written"], true);
     assert_eq!(applied["mechanical"], 1);
@@ -124,7 +124,7 @@ fn supported_mechanical_apply_preserves_python_runtime_types_and_effects() {
     assert!(before.stderr.is_empty());
 
     let apply = fixture.run(&["fix", "--apply", "--json", "runtime.py"]);
-    assert!(apply.status.success(), "{:?}", apply);
+    assert!(apply.status.success(), "{apply:?}");
     let mut expected = source.to_vec();
     expected.push(b'\n');
     assert_eq!(std::fs::read(&path).expect("apply readback"), expected);
