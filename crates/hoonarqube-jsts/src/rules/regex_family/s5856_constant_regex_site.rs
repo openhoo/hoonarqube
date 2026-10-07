@@ -708,7 +708,7 @@ fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &Parse
             &format!(
                 "Simplify this regular expression to reduce its complexity from {score} to the {REGEX_COMPLEXITY_THRESHOLD} allowed."
             ),
-            site.whole_pattern_span(),
+            site.span,
         );
     }
 }

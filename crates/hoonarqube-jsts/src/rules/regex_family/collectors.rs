@@ -108,7 +108,7 @@ pub(crate) fn check_unnecessary_pattern_escapes(sink: &mut IssueSink, site: &Reg
                             RuleScope::Both,
                             "S6535",
                             "Remove the unnecessary escape sequence from this regular expression.",
-                            site.sub_span(offset, offset + 2),
+                            site.sub_span(offset, offset + 1),
                         );
                     }
                 }
