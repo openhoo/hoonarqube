@@ -8,6 +8,7 @@
   --line: #d6deea;
   --accent: #315bd6;
   --accent-strong: #2444a7;
+  --accent-ink: #ffffff;
   --accent-soft: #e5ebff;
   --success: #167348;
   --success-soft: #e2f5eb;
@@ -33,6 +34,7 @@
     --line: #40506a;
     --accent: #9db3ff;
     --accent-strong: #c4d1ff;
+    --accent-ink: #111827;
     --accent-soft: #283867;
     --success: #8ce0b1;
     --success-soft: #173e2c;
@@ -303,7 +305,7 @@ textarea {
 }
 
 .button-primary {
-  color: #fff;
+  color: var(--accent-ink);
   background: var(--accent-strong);
   border-color: var(--accent-strong);
 }

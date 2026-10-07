@@ -46,6 +46,7 @@ struct Cli {
 enum Command {
     /// Show frozen capture metadata for the embedded catalog.
     Snapshot,
+    /// Browse frozen catalog rules and independently implemented native rules.
     Rules {
         #[command(subcommand)]
         cmd: RulesCommand,
@@ -346,7 +347,11 @@ struct ApplyOutcome {
     skipped: usize,
     /// Mechanical repairs folded into the written content.
     mechanical: usize,
+    /// Targeted rule fixes whose findings were removed. Mechanical repairs
+    /// are reported separately and still require successful re-analysis.
     verified: usize,
+    /// Targeted rule fixes that could not be verified. Verification failure
+    /// for a mechanical-only rewrite is reported through warnings.
     unverified: usize,
     /// New findings by rule-key count after re-analysis.
     regressions: usize,
@@ -531,7 +536,6 @@ fn verify_projected_rewrite(
 ) -> bool {
     let before = match options.analyze(&plan.path, &plan.source) {
         Ok(Some(report)) => report,
-        Ok(None) if targeted.is_empty() => return true,
         result => {
             outcome.unverified = targeted.len();
             let reason = result
@@ -3759,10 +3763,16 @@ mod tests {
     fn temp_fix_path(label: &str) -> std::path::PathBuf {
         static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "hoonarqube-cli-fix-{label}-{}-{id}",
-            std::process::id()
-        ))
+        // macOS names its temporary directory through /var, a symlink to
+        // /private/var. Use the real parent so safety tests reach their
+        // intended late-change or symlink condition instead of refusing /var.
+        std::env::temp_dir()
+            .canonicalize()
+            .expect("canonical temporary directory")
+            .join(format!(
+                "hoonarqube-cli-fix-{label}-{}-{id}",
+                std::process::id()
+            ))
     }
 
     #[test]

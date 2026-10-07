@@ -188,7 +188,7 @@ runs:
           echo "::error::Hoonarqube analysis failed; no SARIF report was published."
           exit "$analysis_status"
         fi
-        if ! jq -e '
+        if ! jq -e -s '
           def positive_integer:
             type == "number" and . >= 1 and floor == .;
           def nonnegative_integer:
@@ -211,6 +211,7 @@ runs:
               (.physicalLocation | has("region") | not)
               or (.physicalLocation.region | region)
             );
+          length == 1 and (.[0] |
           . as $sarif
           | ($sarif | type == "object")
           and ($sarif["$schema"] == "https://json.schemastore.org/sarif-2.1.0.json")
@@ -265,7 +266,7 @@ runs:
           and all($sarif.runs[0].results[];
             .ruleIndex < ($sarif.runs[0].tool.driver.rules | length)
             and $sarif.runs[0].tool.driver.rules[.ruleIndex].id == .ruleId
-          )
+          ))
         ' "$temporary_report" >/dev/null
         then
           echo "::error::generated report failed SARIF validation; no report was published."

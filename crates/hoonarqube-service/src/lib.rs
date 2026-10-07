@@ -28,7 +28,7 @@ use hoonarqube_core::assessment::gates::{
     GATE_CONFIG_SCHEMA_VERSION, GateCondition, GateConfig, evaluate_gate,
 };
 use hoonarqube_ir::assessment::{ASSESSMENT_SCHEMA_VERSION, GateReport};
-use hoonarqube_ir::{AnalysisReport, FileReport, Issue};
+use hoonarqube_ir::{AnalysisReport, FileClassification, FileReport, Issue, MeasurementStatus};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -202,12 +202,18 @@ impl AuthConfig {
             ));
         }
         let mut users = BTreeSet::new();
+        let mut tokens = BTreeSet::new();
         for credential in &credentials {
             validate_identity_component(&credential.user_id, MAX_PROJECT_BYTES, "user_id")
                 .map_err(InitError::Config)?;
             if credential.token.is_empty() {
                 return Err(InitError::Config(
                     "credential token must not be empty".to_string(),
+                ));
+            }
+            if !tokens.insert(&credential.token) {
+                return Err(InitError::Config(
+                    "credential token must be unique".to_string(),
                 ));
             }
             if !users.insert(credential.user_id.clone()) {
@@ -1272,6 +1278,7 @@ fn validate_ingest(
     if report.schema_version != 1 {
         return Err(ApiError::bad_request());
     }
+    validate_report_consistency(&report)?;
     if let Some(assessment) = report.assessment.as_ref() {
         assessment
             .validate_against(&report.files)
@@ -1339,6 +1346,101 @@ fn validate_ingest(
     })
 }
 
+fn valid_file_metrics(metrics: &hoonarqube_ir::FileMetrics) -> bool {
+    metrics.code_lines <= metrics.lines && metrics.comment_lines <= metrics.lines
+}
+
+fn eligible_measurement(measurement: &hoonarqube_ir::ProjectFileMeasurement) -> bool {
+    matches!(
+        measurement.classification,
+        FileClassification::Source | FileClassification::Test
+    )
+}
+
+fn retained_report_measurement(measurement: &hoonarqube_ir::ProjectFileMeasurement) -> bool {
+    eligible_measurement(measurement)
+        && matches!(
+            measurement.status,
+            MeasurementStatus::Complete | MeasurementStatus::Failed
+        )
+}
+
+fn validate_scope_measurement(
+    measurement: &hoonarqube_ir::ProjectFileMeasurement,
+    complete: bool,
+    files: &BTreeMap<&FsPath, &FileReport>,
+    totals: &mut hoonarqube_ir::ProjectMetrics,
+) -> Result<(), ApiError> {
+    if measurement
+        .metrics
+        .as_ref()
+        .is_some_and(|metrics| !valid_file_metrics(metrics))
+    {
+        return Err(ApiError::bad_request());
+    }
+    let eligible = eligible_measurement(measurement);
+    if complete && eligible && measurement.status != MeasurementStatus::Complete {
+        return Err(ApiError::bad_request());
+    }
+    if measurement.status != MeasurementStatus::Complete || !eligible {
+        return Ok(());
+    }
+    let metrics = measurement
+        .metrics
+        .as_ref()
+        .ok_or_else(ApiError::bad_request)?;
+    let file = files
+        .get(measurement.path.as_path())
+        .ok_or_else(ApiError::bad_request)?;
+    if file.metrics != *metrics {
+        return Err(ApiError::bad_request());
+    }
+    if measurement.classification == FileClassification::Source {
+        totals.files += 1;
+        totals.lines += u64::from(metrics.lines);
+        totals.code_lines += u64::from(metrics.code_lines);
+        totals.comment_lines += u64::from(metrics.comment_lines);
+    }
+    Ok(())
+}
+
+fn validate_report_consistency(report: &AnalysisReport) -> Result<(), ApiError> {
+    if report.project.complete && !report.project.warnings.is_empty() {
+        return Err(ApiError::bad_request());
+    }
+    let mut files = BTreeMap::new();
+    for file in &report.files {
+        if !valid_file_metrics(&file.metrics) || files.insert(file.path.as_path(), file).is_some() {
+            return Err(ApiError::bad_request());
+        }
+    }
+    let mut paths = BTreeMap::new();
+    let mut totals = hoonarqube_ir::ProjectMetrics {
+        files: 0,
+        lines: 0,
+        code_lines: 0,
+        comment_lines: 0,
+    };
+    for measurement in &report.project.files {
+        if paths
+            .insert(measurement.path.as_path(), measurement)
+            .is_some()
+        {
+            return Err(ApiError::bad_request());
+        }
+        validate_scope_measurement(measurement, report.project.complete, &files, &mut totals)?;
+    }
+    if files.keys().any(|path| {
+        !paths
+            .get(path)
+            .is_some_and(|measurement| retained_report_measurement(measurement))
+    }) || totals != report.project.metrics
+    {
+        return Err(ApiError::bad_request());
+    }
+    Ok(())
+}
+
 fn validate_report_shape(report: &Value, limits: Limits) -> Result<(), ApiError> {
     validate_json_paths(report)?;
     let object = report.as_object().ok_or_else(ApiError::bad_request)?;
@@ -1386,10 +1488,7 @@ fn validate_report_shape(report: &Value, limits: Limits) -> Result<(), ApiError>
                 issue_object.get("rule_key").and_then(Value::as_str),
                 MAX_RULE_BYTES,
             )?;
-            validate_string(
-                issue_object.get("message").and_then(Value::as_str),
-                MAX_MESSAGE_BYTES,
-            )?;
+            validate_message(issue_object.get("message").and_then(Value::as_str))?;
         }
     }
     if let Some(assessment) = object.get("assessment") {
@@ -1923,7 +2022,7 @@ fn actual_restore_findings(
         validate_identity_component(&finding.identity, MAX_IDENTITY_BYTES, "identity")
             .map_err(|_| ApiError::bad_request())?;
         validate_string(Some(&finding.rule_key), MAX_RULE_BYTES)?;
-        validate_string(Some(&finding.message), MAX_MESSAGE_BYTES)?;
+        validate_message(Some(&finding.message))?;
         if !derived.contains_key(&finding.analysis_id) {
             return Err(ApiError::bad_request());
         }
@@ -2179,8 +2278,26 @@ fn validate_string(value: Option<&str>, max_bytes: usize) -> Result<(), ApiError
     Ok(())
 }
 
+fn validate_message(value: Option<&str>) -> Result<(), ApiError> {
+    let value = value.ok_or_else(ApiError::bad_request)?;
+    if value.is_empty()
+        || value.len() > MAX_MESSAGE_BYTES
+        || value
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return Err(ApiError::bad_request());
+    }
+    Ok(())
+}
+
 fn validate_relative_path(path: &str) -> Result<(), String> {
-    if path.is_empty() || path.len() > MAX_PATH_BYTES || path.contains('\\') || path.contains(':') {
+    if path.is_empty()
+        || path.len() > MAX_PATH_BYTES
+        || path.as_bytes().contains(&0)
+        || path.contains('\\')
+        || path.contains(':')
+    {
         return Err("path is not a bounded relative path".to_string());
     }
     let path = FsPath::new(path);
@@ -2268,6 +2385,51 @@ mod tests {
     use std::net::{SocketAddr, TcpStream};
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::time::Duration;
+
+    #[test]
+    fn duplicate_bearer_tokens_are_rejected_without_exposing_the_token() {
+        let result = AuthConfig::new(vec![
+            Credential::new(
+                "reader",
+                "shared-secret",
+                [("demo".to_string(), Role::Reader)],
+            ),
+            Credential::new(
+                "admin",
+                "shared-secret",
+                [("demo".to_string(), Role::Admin)],
+            ),
+        ]);
+        let Err(error) = result else {
+            panic!("one bearer token must identify exactly one principal");
+        };
+        assert_eq!(
+            error.to_string(),
+            "configuration error: credential token must be unique"
+        );
+        assert!(!error.to_string().contains("shared-secret"));
+    }
+
+    #[test]
+    fn distinct_bearer_tokens_preserve_each_principals_authority() {
+        let auth = AuthConfig::new(vec![
+            Credential::new(
+                "reader",
+                "reader-secret",
+                [("demo".to_string(), Role::Reader)],
+            ),
+            Credential::new("admin", "admin-secret", [("demo".to_string(), Role::Admin)]),
+        ])
+        .expect("distinct credentials");
+        let reader = auth.authenticate("reader-secret").expect("reader token");
+        assert_eq!(reader.user_id, "reader");
+        assert!(reader.permits("demo", Role::Reader));
+        assert!(!reader.permits("demo", Role::Admin));
+        let admin = auth.authenticate("admin-secret").expect("admin token");
+        assert_eq!(admin.user_id, "admin");
+        assert!(admin.permits("demo", Role::Admin));
+        assert!(auth.authenticate("unknown-secret").is_none());
+    }
 
     #[test]
     fn review_state_machines_are_disjoint() {
@@ -2672,6 +2834,392 @@ mod tests {
                 .expect("test service server");
         });
         (address, server)
+    }
+
+    fn scope_report(classification: &str, status: &str, complete: bool, path: &str) -> Value {
+        json!({
+            "schema_version": 1,
+            "files": [],
+            "project": {
+                "metrics": {"files": 0, "lines": 0, "code_lines": 0, "comment_lines": 0},
+                "files": [{"path": path, "classification": classification, "status": status,
+                           "metrics": null, "duplication": null, "reason": "fixture"}],
+                "duplications": [], "duplication": null, "complete": complete,
+                "warnings": [], "roots": ["."]
+            }
+        })
+    }
+
+    async fn ingest_report(address: SocketAddr, commit: &str, report: Value) -> RawHttpResponse {
+        let body = json!({"schema_version": 1, "branch": "main", "commit": commit,
+                          "analyzed_at": "2026-10-07T08:00:00Z", "report": report});
+        api_request(
+            address,
+            "POST",
+            "/api/v1/projects/demo/analyses",
+            Some("application/json"),
+            &body.to_string(),
+        )
+        .await
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_ingest_rejects_complete_claim_for_failed_source_or_test() {
+        let (address, server) = spawn_test_service().await;
+        let baseline = ingest_report(
+            address,
+            "baseline",
+            scope_report("excluded", "excluded", true, "excluded.py"),
+        )
+        .await;
+        assert_eq!(baseline.status, 200);
+        for classification in ["source", "test"] {
+            for status in ["failed", "unsupported", "excluded"] {
+                let response = ingest_report(
+                    address,
+                    &format!("{classification}-{status}"),
+                    scope_report(classification, status, true, "failed.py"),
+                )
+                .await;
+                assert_api_error(&response, 400, "invalid_request");
+            }
+        }
+        let stored = api_request(address, "GET", "/api/v1/projects/demo/analyses", None, "").await;
+        assert_eq!(
+            json_body(&stored)["analyses"]
+                .as_array()
+                .expect("analyses")
+                .len(),
+            1
+        );
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_ingest_preserves_incomplete_and_excluded_scope_controls() {
+        let (address, server) = spawn_test_service().await;
+        for classification in ["source", "test"] {
+            for status in ["failed", "unsupported"] {
+                let response = ingest_report(
+                    address,
+                    &format!("{classification}-{status}"),
+                    scope_report(classification, status, false, "failed.py"),
+                )
+                .await;
+                assert_eq!(response.status, 200);
+                assert_eq!(json_body(&response)["analysis"]["complete"], false);
+            }
+        }
+        for classification in ["generated", "vendor", "excluded"] {
+            let response = ingest_report(
+                address,
+                &format!("{classification}-excluded"),
+                scope_report(classification, "excluded", true, "excluded.py"),
+            )
+            .await;
+            assert_eq!(response.status, 200);
+        }
+        for classification in ["generated", "vendor", "excluded"] {
+            let response = ingest_report(
+                address,
+                &format!("{classification}-unsupported"),
+                scope_report(classification, "unsupported", true, "unmeasured.py"),
+            )
+            .await;
+            assert_eq!(response.status, 200);
+        }
+        server.abort();
+        let _ = server.await;
+    }
+
+    fn measured_scope_report() -> Value {
+        json!({"schema_version": 1,
+            "files": [
+                {"path": "a.py", "language": "python", "issues": [],
+                 "metrics": {"lines": 2, "code_lines": 1, "comment_lines": 1}},
+                {"path": "test_a.py", "language": "python", "issues": [],
+                 "metrics": {"lines": 4, "code_lines": 3, "comment_lines": 2}}
+            ],
+            "project": {
+                "metrics": {"files": 1, "lines": 2, "code_lines": 1, "comment_lines": 1},
+                "files": [
+                    {"path": "a.py", "classification": "source", "status": "complete",
+                     "metrics": {"lines": 2, "code_lines": 1, "comment_lines": 1},
+                     "duplication": null, "reason": "excluded from duplication"},
+                    {"path": "test_a.py", "classification": "test", "status": "complete",
+                     "metrics": {"lines": 4, "code_lines": 3, "comment_lines": 2},
+                     "duplication": null, "reason": null},
+                    {"path": "vendor", "classification": "vendor", "status": "excluded",
+                     "metrics": null, "duplication": null, "reason": "excluded"}
+                ],
+                "duplications": [], "duplication": null, "complete": true,
+                "warnings": [], "roots": ["."]
+            }
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_ingest_rejects_inconsistent_native_report_inventory_and_metrics() {
+        let (address, server) = spawn_test_service().await;
+        let baseline = ingest_report(address, "baseline", measured_scope_report()).await;
+        assert_eq!(baseline.status, 200);
+        for mutation in [
+            "totals",
+            "warnings",
+            "null_metrics",
+            "duplicate_inventory",
+            "missing_report",
+            "invalid_file_metrics",
+            "mismatched_file_metrics",
+            "duplicate_report",
+            "orphan_report",
+        ] {
+            let mut report = measured_scope_report();
+            match mutation {
+                "totals" => report["project"]["metrics"]["lines"] = json!(0),
+                "warnings" => report["project"]["warnings"] = json!(["incomplete scan"]),
+                "null_metrics" => report["project"]["files"][0]["metrics"] = Value::Null,
+                "duplicate_inventory" => {
+                    let duplicate = report["project"]["files"][0].clone();
+                    report["project"]["files"]
+                        .as_array_mut()
+                        .expect("inventory")
+                        .push(duplicate);
+                }
+                "missing_report" => {
+                    report["files"].as_array_mut().expect("files").remove(0);
+                }
+                "invalid_file_metrics" => report["files"][0]["metrics"]["code_lines"] = json!(99),
+                "mismatched_file_metrics" => report["files"][0]["metrics"]["lines"] = json!(3),
+                "duplicate_report" => {
+                    let duplicate = report["files"][0].clone();
+                    report["files"]
+                        .as_array_mut()
+                        .expect("files")
+                        .push(duplicate);
+                }
+                "orphan_report" => report["files"][0]["path"] = json!("orphan.py"),
+                _ => unreachable!(),
+            }
+            let response = ingest_report(address, mutation, report).await;
+            assert_api_error(&response, 400, "invalid_request");
+        }
+        let mut partial = measured_scope_report();
+        partial["project"]["complete"] = json!(false);
+        partial["project"]["warnings"] = json!(["test failed"]);
+        partial["project"]["files"][1]["status"] = json!("failed");
+        partial["project"]["files"][1]["metrics"] = Value::Null;
+        let partial = ingest_report(address, "partial-with-retained-report", partial).await;
+        assert_eq!(partial.status, 200);
+        assert_eq!(json_body(&partial)["analysis"]["complete"], false);
+        let stored = api_request(address, "GET", "/api/v1/projects/demo/analyses", None, "").await;
+        assert_eq!(
+            json_body(&stored)["analyses"]
+                .as_array()
+                .expect("analyses")
+                .len(),
+            2
+        );
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_ingest_accepts_native_complete_and_incomplete_reports() {
+        let (address, server) = spawn_test_service().await;
+        let options = hoonarqube_core::AnalyzerOptions::default();
+        for incomplete in [false, true] {
+            let mut inputs = vec![
+                hoonarqube_core::analyze_project_file(
+                    FsPath::new("a.py"),
+                    "x = 1 # inline\n",
+                    &options,
+                    FileClassification::Source,
+                    true,
+                ),
+                hoonarqube_core::analyze_project_file(
+                    FsPath::new("test_a.py"),
+                    "assert True\n",
+                    &options,
+                    FileClassification::Test,
+                    false,
+                ),
+                hoonarqube_core::analyze_project_file(
+                    FsPath::new("vendor"),
+                    "",
+                    &options,
+                    FileClassification::Vendor,
+                    false,
+                ),
+            ];
+            if incomplete {
+                inputs.push(hoonarqube_core::analyze_project_file(
+                    FsPath::new("broken.py"),
+                    "x =\n",
+                    &options,
+                    FileClassification::Source,
+                    false,
+                ));
+            }
+            let report = hoonarqube_core::build_project_report(
+                inputs,
+                vec![PathBuf::from(".")],
+                Vec::new(),
+                &hoonarqube_core::DuplicationOptions::default(),
+            )
+            .expect("native project report");
+            assert_eq!(report.project.complete, !incomplete);
+            let report_json = serde_json::to_value(report).expect("native report JSON");
+            let response = ingest_report(
+                address,
+                if incomplete {
+                    "native-incomplete"
+                } else {
+                    "native-complete"
+                },
+                report_json.clone(),
+            )
+            .await;
+            assert_eq!(response.status, 200);
+            assert_eq!(json_body(&response)["analysis"]["complete"], !incomplete);
+            let id = json_body(&response)["analysis"]["id"]
+                .as_i64()
+                .expect("analysis id");
+            let stored = api_request(
+                address,
+                "GET",
+                &format!("/api/v1/projects/demo/analyses/{id}"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(json_body(&stored)["analysis"]["report"], report_json);
+            if incomplete {
+                let mut nul_message = report_json.clone();
+                nul_message["files"][1]["issues"][0]["message"] = json!("bad\0message");
+                let refused = ingest_report(address, "nul-message", nul_message).await;
+                assert_api_error(&refused, 400, "invalid_request");
+                let exported =
+                    api_request(address, "GET", "/api/v1/projects/demo/export", None, "").await;
+                let (destination, destination_server) = spawn_test_service().await;
+                let restored = api_request(
+                    destination,
+                    "POST",
+                    "/api/v1/projects/demo/restore",
+                    Some("application/json"),
+                    &String::from_utf8(exported.body).expect("backup JSON"),
+                )
+                .await;
+                assert_eq!(restored.status, 200);
+                destination_server.abort();
+                let _ = destination_server.await;
+            }
+        }
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_restore_rejects_inconsistent_report_before_creating_project() {
+        let (source, source_server) = spawn_test_service().await;
+        let ingested = ingest_report(source, "baseline", measured_scope_report()).await;
+        assert_eq!(ingested.status, 200);
+        let exported = api_request(source, "GET", "/api/v1/projects/demo/export", None, "").await;
+        assert_eq!(exported.status, 200);
+        let clean = json_body(&exported);
+        let (destination, destination_server) = spawn_test_service().await;
+        for mutation in ["warnings", "nul", "failed_source"] {
+            let mut corrupted = clean.clone();
+            let report = &mut corrupted["analyses"][0]["report"];
+            match mutation {
+                "warnings" => report["project"]["warnings"] = json!(["incomplete scan"]),
+                "nul" => report["project"]["roots"] = json!(["bad\0.py"]),
+                "failed_source" => report["project"]["files"][0]["status"] = json!("failed"),
+                _ => unreachable!(),
+            }
+            let analysis = &mut corrupted["analyses"][0];
+            analysis["content_hash"] = json!(hash_bytes(
+                format!(
+                    "{}\n{}\n{}\n{}",
+                    analysis["branch"].as_str().expect("branch"),
+                    analysis["commit"].as_str().expect("commit"),
+                    analysis["analyzed_at"].as_str().expect("timestamp"),
+                    serde_json::to_string(&analysis["report"]).expect("report JSON")
+                )
+                .as_bytes()
+            ));
+            let response = api_request(
+                destination,
+                "POST",
+                "/api/v1/projects/demo/restore",
+                Some("application/json"),
+                &corrupted.to_string(),
+            )
+            .await;
+            assert_api_error(&response, 400, "invalid_request");
+            let projects = api_request(destination, "GET", "/api/v1/projects", None, "").await;
+            assert!(
+                json_body(&projects)["projects"]
+                    .as_array()
+                    .expect("projects")
+                    .is_empty()
+            );
+        }
+        let restored = api_request(
+            destination,
+            "POST",
+            "/api/v1/projects/demo/restore",
+            Some("application/json"),
+            &clean.to_string(),
+        )
+        .await;
+        assert_eq!(restored.status, 200);
+        source_server.abort();
+        let _ = source_server.await;
+        destination_server.abort();
+        let _ = destination_server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_ingest_rejects_nul_paths_without_mutating_store() {
+        let (address, server) = spawn_test_service().await;
+        let baseline = ingest_report(
+            address,
+            "baseline",
+            scope_report("excluded", "excluded", true, "normal name.py"),
+        )
+        .await;
+        assert_eq!(baseline.status, 200);
+        for target in ["inventory", "file", "root", "duplication"] {
+            let mut report = scope_report("excluded", "excluded", true, "normal.py");
+            match target {
+                "inventory" => report["project"]["files"][0]["path"] = json!("bad\0.py"),
+                "root" => report["project"]["roots"] = json!(["bad\0.py"]),
+                "file" => {
+                    report["files"] = json!([{"path": "bad\0.py", "language": "python",
+                    "issues": [], "metrics": {"lines": 0, "code_lines": 0, "comment_lines": 0}}]);
+                }
+                "duplication" => {
+                    report["project"]["duplications"] = json!([{
+                    "language": "python", "occurrences": [{"path": "bad\0.py", "start_line": 1,
+                    "end_line": 1, "start_byte": 0, "end_byte": 1}]}]);
+                }
+                _ => unreachable!(),
+            }
+            let response = ingest_report(address, target, report).await;
+            assert_api_error(&response, 400, "invalid_request");
+        }
+        let stored = api_request(address, "GET", "/api/v1/projects/demo/analyses", None, "").await;
+        assert_eq!(
+            json_body(&stored)["analyses"]
+                .as_array()
+                .expect("analyses")
+                .len(),
+            1
+        );
+        server.abort();
+        let _ = server.await;
     }
 
     fn json_body(response: &RawHttpResponse) -> Value {

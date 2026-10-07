@@ -613,7 +613,7 @@ class OwnedShellScriptTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             output = (nested / "github-output").read_text(encoding="utf-8")
-            self.assertIn(f"report={nested / 'report'}\n", output)
+            self.assertIn(f"report={nested.resolve() / 'report'}\n", output)
             self.assertEqual((nested / "report").read_text(encoding="utf-8"), report)
 
     def test_code_quality_roots_nested_input_paths_before_sarif_publish(self):

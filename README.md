@@ -6,6 +6,9 @@ separate, provenance-rich native catalog and emits text, JSON, SonarQube Generic
 Issue Import JSON, or GitLab Code Quality JSON. SARIF 2.1.0 output is reserved
 for the isolated `github-code-quality` profile, which requires `--format sarif`.
 
+Start with the [quickstart](docs/quickstart.md) for a first scan, report export,
+fix preview, and exit-code handling.
+
 ## Workspace
 
 | Crate | Purpose |
