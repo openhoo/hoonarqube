@@ -110,6 +110,12 @@ impl ModuleMarkerDetector {
 }
 
 impl Visit<'_> for ModuleMarkerDetector {
+    fn visit_export_declaration(&mut self, _it: &oxc_ast::ast::ExportDeclaration<'_>) {
+        // OXC separates `export <declaration>` from `export { names }`.
+        // Both establish module scope for every top-level declaration.
+        self.esm = true;
+    }
+
     fn visit_import_declaration(&mut self, _it: &oxc_ast::ast::ImportDeclaration<'_>) {
         self.esm = true;
     }
@@ -163,6 +169,27 @@ mod tests {
             count_key(&report_keys(&exports_reference), "javascript:S3798"),
             0
         );
+    }
+
+    #[test]
+    fn exported_declarations_scope_neighboring_globals_to_the_module() {
+        // commander.js@ba6d13ddb4243e5913367734f8c159089ffe7834
+        // lib/suggestSimilar.js has a private top-level editDistance helper
+        // followed by `export function suggestSimilar(...)`.
+        for export in [
+            "export function suggestSimilar() {}",
+            "export class Suggestions {}",
+            "export const maxDistance = 3;",
+            "export let enabled = true;",
+            "export async function suggestSimilar() {}",
+        ] {
+            let source = format!("var distance = 0;\nfunction editDistance() {{}}\n{export}\n");
+            assert_eq!(
+                count_key(&js_keys(&source), "javascript:S3798"),
+                0,
+                "{export}"
+            );
+        }
     }
 
     #[test]
