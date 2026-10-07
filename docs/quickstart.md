@@ -8,10 +8,11 @@ Run these commands from the repository root. The checked-in
 ```bash
 cargo build --locked -p hoonarqube-cli
 ./target/debug/hoonarqube --version
-./target/debug/hoonarqube analyze -- src tests
+./target/debug/hoonarqube analyze -- crates/hoonarqube-rust/src/lib.rs
 ```
 
-Replace `src tests` with your source files or directories. The default
+The first scan above uses a source file in this checkout. In the remaining
+examples, replace `src tests` with your own source files or directories. The default
 `sonar-parity` profile uses the frozen Sonar catalog. Use
 `--profile recommended` to include the recommended native rules. Rule catalog
 coverage and reference parity have separate evidence; a catalog entry alone
