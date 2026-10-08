@@ -125,3 +125,53 @@ remain. Native-only observations, message differences, security hotspots and
 secondary metadata need independent qualification. The 17 licensed C# rules
 and missing historical reference artifacts remain explicit external boundaries;
 no full parity or released artifact claim follows from this source package.
+
+## Following package: regex contributors and compiler evidence
+
+PR #868 merged as `6fc45f63e8f5a9a1a84e99439c1b4f96bc29c2d8` after all
+21 hosted checks passed. The following worktree was rebased onto that merge
+with an identical source tree. The [package4 receipt](../tools/oracle/integrated-package4-qualification-20261008.json)
+records the frozen executable and complete five-project replay.
+
+| Project | Primary identities / reference | Exact ranges and messages / reference | Canonical flows / reference | Active native-only identities |
+| --- | ---: | ---: | ---: | ---: |
+| Requests | 77 / 77 | 77 / 77 | 77 / 77 | 0 |
+| Werkzeug | 230 / 230 | 230 / 230 | 230 / 230 | 0 |
+| Commander | 36 / 36 | 36 / 36 | 33 / 36 | 10 |
+| chi | 14 / 14 | 14 / 14 | 14 / 14 | 0 |
+| Zod | 577 / 594 | 568 / 594 | 435 / 594 | 121 |
+
+Python now matches all 307 captured active primary findings, messages and
+canonical supporting flows. S5843 emits source-backed complexity contributions
+without changing its score, S5855 shares the detector's covering-alternative
+predicate, and S5869 uses parser-recorded member spans for additional duplicate
+flows. Source-encoded Unicode spans and clean classes have committed controls;
+the original missing-flow regression was executed before the repair.
+
+S4123 now requires compiler proof that await/Promise.all operands are
+non-promises; any/unknown, thenables, uncertain arrays and shadowed Promise
+controls stay clean. All ten fresh controls and five captured Zod findings
+match. S2094 matches eight fresh class controls and three captured Zod
+findings, including constructor-only classes with logic or comments; inherited
+classes, parameter properties and real members remain clean. Static and
+contextual messages align without changing the primary finding multiset.
+
+The final affected-package tests pass 1,380 JS/TS and 1,299 Python cases with
+TypeScript 6.0.3 explicitly selected. All-target Clippy with warnings denied,
+formatting, extended Ruff and 1,480-file downloaded 0.3.1 dogfood pass with
+zero Rust:S3776. All 16 current Python quickfix contracts pass against this
+frozen executable. Duplication summaries and all 70 Zod clone relation
+multisets remain exact.
+
+The [final frozen C# replay](../tools/oracle/package3-csharp-qualification-20261008.json)
+completed all 60 applications: 38 pass, nine expected safety refusals, 13 raw
+failures and zero unavailable runs. Eleven raw failures lack frozen provenance;
+two refuse an independently demonstrated new-rule regression with unchanged
+source bytes and zero applied actions. The historical failure archive remains
+unchanged. These classifications are distinct from passing application parity.
+
+No-config nullish controls remain separate from strict compiler-context
+controls; differences across those captures cannot establish a false positive
+under equivalent configuration. Seventeen Zod primary identities, other
+JS/TS flows/messages and active native-only observations remain for independent
+qualification. Licensed C# and missing historical provenance boundaries persist.
