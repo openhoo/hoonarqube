@@ -26,8 +26,9 @@ fn check_batch2d_rules(
     language: JstsLanguage,
     path: &std::path::Path,
     semantic: Option<&oxc_semantic::Semantic<'_>>,
+    tokens: &[oxc_parser::Token],
 ) -> Vec<Issue> {
-    let mut issues = check_function_metrics(program, index, language);
+    let mut issues = check_function_metrics(program, index, language, tokens);
     issues.extend(check_class_accessors(program, index, language));
     issues.extend(check_keyword_placement(program, source, index, language));
     issues.extend(check_promise_flows(program, index, language));
@@ -43,6 +44,7 @@ fn check_function_metrics(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
+    tokens: &[oxc_parser::Token],
 ) -> Vec<Issue> {
     let mut collector = FunctionMetricsCollector {
         sink: IssueSink {
@@ -51,6 +53,8 @@ fn check_function_metrics(
             issues: Vec::new(),
         },
         array_call_spans: collect_s3796_call_spans(program),
+        tokens,
+        property_function_anchor: None,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -134,6 +138,7 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
         ctx.language,
         ctx.path,
         ctx.semantic,
+        ctx.tokens,
     )
 }
 
@@ -165,6 +170,68 @@ mod tests {
         // counts again; nested functions are measured separately.
         let logicals = js_keys("function f(a, b) {\n  if (a && b && a && b || b) {}\n}\n");
         assert_eq!(count_key(&logicals, "javascript:S3776"), 0);
+    }
+
+    #[test]
+    fn cognitive_complexity_uses_main_function_tokens() {
+        let body = "if (a) { if (a) { if (a) { if (a) { if (a) { while (a) {} } } } } }";
+        let source = format!(
+            "const arrow = (a = (() => true)()) /* => */ => {{{body}}};\nconst named = function named(a) {{{body}}};\nexport default function(a) {{{body}}}\nconst obj = {{ work(a) {{{body}}} }};\nfunction declared(a) {{{body}}}\nclass C {{ method(a) {{{body}}} }}\nconst prop = {{ work: function named(a) {{{body}}} }};\n"
+        );
+        let report = js(&source);
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "javascript:S3776")
+            .collect();
+        let anchors = [
+            "=>", "function", "function", "work", "declared", "method", "work",
+        ];
+        assert_eq!(issues.len(), anchors.len());
+        for ((issue, line), expected) in issues.iter().zip(source.lines()).zip(anchors) {
+            assert_eq!(issue.range.start.line, issue.range.end.line);
+            assert_eq!(
+                &line[issue.range.start.column as usize..issue.range.end.column as usize],
+                expected,
+                "wrong main token on line {}",
+                issue.range.start.line
+            );
+            assert_eq!(
+                issue.message,
+                "Refactor this function to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            );
+        }
+    }
+
+    #[test]
+    fn cognitive_complexity_main_tokens_preserve_clean_boundary_and_other_metrics() {
+        let at_limit = "if (a) { if (a) { if (a) { if (a) { if (a) {} } } } }";
+        let clean = js(&format!("const arrow = a => {{{at_limit}}};"));
+        assert!(
+            !clean
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "javascript:S3776")
+        );
+        let branches = "if (a) {}".repeat(10);
+        let source = format!("const arrow = a => {{{branches}}};");
+        let report = js(&source);
+        let cyclomatic = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S1541")
+            .unwrap();
+        assert_eq!(cyclomatic.range.start.column, 14);
+        assert_eq!(
+            cyclomatic.range.end.column,
+            u32::try_from(source.len()).unwrap() - 1
+        );
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "javascript:S3776")
+        );
     }
 
     #[test]

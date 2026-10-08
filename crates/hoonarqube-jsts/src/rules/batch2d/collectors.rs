@@ -302,6 +302,8 @@ impl ComplexityWalker {
 /// unit is measured on entry; nested units are measured separately when the
 /// descent reaches them.
 pub(crate) struct FunctionMetricsCollector<'index> {
+    pub(crate) tokens: &'index [oxc_parser::Token],
+    pub(crate) property_function_anchor: Option<Span>,
     pub(crate) sink: IssueSink<'index>,
     pub(crate) array_call_spans: BTreeSet<u32>,
 }
@@ -311,7 +313,11 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
         if let Expression::FunctionExpression(function) = it {
             let exempt = function.generator;
             let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
-            self.analyze_function(function, anchor, exempt, |collector| {
+            let cognitive_anchor = self
+                .property_function_anchor
+                .take()
+                .unwrap_or_else(|| self.function_keyword_span(function.span));
+            self.analyze_function(function, anchor, cognitive_anchor, exempt, |collector| {
                 walk_expression(collector, it);
             });
         } else {
@@ -323,7 +329,11 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
         if let Declaration::FunctionDeclaration(function) = it {
             let exempt = function.generator;
             let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
-            self.analyze_function(function, anchor, exempt, |collector| {
+            let cognitive_anchor = function
+                .id
+                .as_ref()
+                .map_or_else(|| self.function_keyword_span(function.span), |id| id.span);
+            self.analyze_function(function, anchor, cognitive_anchor, exempt, |collector| {
                 walk_declaration(collector, it);
             });
         } else {
@@ -337,7 +347,11 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
         if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
             let exempt = function.generator;
             let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
-            self.analyze_function(function, anchor, exempt, |collector| {
+            let cognitive_anchor = function
+                .id
+                .as_ref()
+                .map_or_else(|| self.function_keyword_span(function.span), |id| id.span);
+            self.analyze_function(function, anchor, cognitive_anchor, exempt, |collector| {
                 walk_export_default_declaration_kind(collector, it);
             });
         } else {
@@ -347,18 +361,38 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
         let exempt = it.kind != MethodDefinitionKind::Method || it.value.generator;
-        self.analyze_function(&it.value, it.key.span(), exempt, |collector| {
-            walk_method_definition(collector, it);
-        });
+        self.analyze_function(
+            &it.value,
+            it.key.span(),
+            it.key.span(),
+            exempt,
+            |collector| {
+                walk_method_definition(collector, it);
+            },
+        );
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let cognitive_anchor = self.arrow_token_span(it);
         if let Some(body) = it.body.as_function_body() {
-            self.report_unit(body, it.span(), false);
+            self.report_unit(body, it.span(), cognitive_anchor, false);
         } else {
-            self.report_expression_unit(it.body.to_expression(), it.span());
+            self.report_expression_unit(it.body.to_expression(), it.span(), cognitive_anchor);
         }
         walk_arrow_function_expression(self, it);
+    }
+
+    fn visit_object_property(&mut self, it: &oxc_ast::ast::ObjectProperty<'a>) {
+        self.visit_property_key(&it.key);
+        let previous = self.property_function_anchor;
+        if matches!(
+            crate::support::unparenthesized(&it.value),
+            Expression::FunctionExpression(_)
+        ) {
+            self.property_function_anchor = Some(it.key.span());
+        }
+        self.visit_expression(&it.value);
+        self.property_function_anchor = previous;
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
@@ -368,23 +402,53 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
 }
 
 impl FunctionMetricsCollector<'_> {
+    fn function_keyword_span(&self, span: Span) -> Span {
+        self.tokens
+            .iter()
+            .find(|token| {
+                token.start() >= span.start
+                    && token.end() <= span.end
+                    && token.kind() == oxc_parser::Kind::Function
+            })
+            .map_or(span, |token| Span::new(token.start(), token.end()))
+    }
+
+    fn arrow_token_span(&self, arrow: &ArrowFunctionExpression<'_>) -> Span {
+        self.tokens
+            .iter()
+            .rev()
+            .find(|token| {
+                token.start() >= arrow.span.start
+                    && token.end() <= arrow.body.span().start
+                    && token.kind() == oxc_parser::Kind::Arrow
+            })
+            .map_or(arrow.span, |token| Span::new(token.start(), token.end()))
+    }
+
     /// Measures one function-like unit, then descends into its subtree.
     fn analyze_function(
         &mut self,
         function: &Function<'_>,
         anchor: Span,
+        cognitive_anchor: Span,
         exempt_mixed_returns: bool,
         walk_children: impl FnOnce(&mut Self),
     ) {
         if let Some(body) = &function.body {
-            self.report_unit(body, anchor, exempt_mixed_returns);
+            self.report_unit(body, anchor, cognitive_anchor, exempt_mixed_returns);
         }
         walk_children(self);
     }
 
     /// Measures a statement-list unit; `mixed` carries precomputed return
     /// information when the caller wants `S3801` checked.
-    fn report_unit(&mut self, body: &FunctionBody<'_>, anchor: Span, exempt_mixed_returns: bool) {
+    fn report_unit(
+        &mut self,
+        body: &FunctionBody<'_>,
+        anchor: Span,
+        cognitive_anchor: Span,
+        exempt_mixed_returns: bool,
+    ) {
         // Cyclomatic complexity starts at 1 (the single entry path).
         let mut walker = ComplexityWalker {
             cyclomatic: 1,
@@ -393,20 +457,25 @@ impl FunctionMetricsCollector<'_> {
         for statement in &body.statements {
             walker.visit_statement(statement);
         }
-        self.report_complexity(&walker, anchor);
+        self.report_complexity(&walker, anchor, cognitive_anchor);
         if !exempt_mixed_returns {
             self.check_mixed_returns(body, anchor);
         }
     }
 
     /// Measures an expression-bodied arrow (no `S3801`: it always yields).
-    fn report_expression_unit(&mut self, expression: &Expression<'_>, anchor: Span) {
+    fn report_expression_unit(
+        &mut self,
+        expression: &Expression<'_>,
+        anchor: Span,
+        cognitive_anchor: Span,
+    ) {
         let mut walker = ComplexityWalker {
             cyclomatic: 1,
             ..ComplexityWalker::default()
         };
         walker.visit_expression(expression);
-        self.report_complexity(&walker, anchor);
+        self.report_complexity(&walker, anchor, cognitive_anchor);
     }
 }
 
