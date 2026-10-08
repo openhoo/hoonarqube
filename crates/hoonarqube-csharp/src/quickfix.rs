@@ -464,6 +464,17 @@ pub(crate) fn attach_fixes_from_tree(
             start,
             end,
         };
+        // Project analysis enriches a report already carrying syntax actions.
+        // Refresh this adapter's alternatives so a second pass is idempotent
+        // and changed semantic prerequisites cannot retain a stale action.
+        if let Some(contract) = CSHARP_QUICKFIX_CONTRACTS
+            .iter()
+            .find(|entry| entry.key == key)
+        {
+            issue
+                .alternatives
+                .retain(|alternative| !contract.actions.contains(&alternative.id.as_str()));
+        }
         dispatch_fixes(&dispatch, issue);
     }
 }
@@ -2377,6 +2388,37 @@ mod tests {
         assert_eq!(alternative.id, "csharp.s125.remove-commented-out-code");
         let edits = alternative.fix.edits.iter().collect::<Vec<_>>();
         hoonarqube_ir::apply_fixes(source, &edits).expect("S125 edit should apply")
+    }
+
+    #[test]
+    fn s125_context_reattachment_preserves_one_equivalent_action() {
+        let source = "class C {\n    // int removed;\n    // removed++;\n}\n";
+        let mut report = crate::tests::analyze_default(source);
+        let initial = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "csharpsquid:S125")
+            .expect("commented code finding")
+            .alternatives
+            .clone();
+        assert_eq!(initial.len(), 1);
+        attach_fixes(source, &AnalyzerOptions::default(), &mut report, None);
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "csharpsquid:S125")
+            .expect("reattached commented code finding");
+        assert_eq!(issue.alternatives, initial);
+        let fixed = hoonarqube_ir::apply_fixes(
+            source,
+            &issue.alternatives[0].fix.edits.iter().collect::<Vec<_>>(),
+        )
+        .expect("comment removal edits");
+        assert_eq!(fixed, "class C {\n}\n");
+        assert!(
+            crate::tests::with_key(&crate::tests::analyze_default(&fixed), "csharpsquid:S125")
+                .is_empty()
+        );
     }
 
     #[test]
