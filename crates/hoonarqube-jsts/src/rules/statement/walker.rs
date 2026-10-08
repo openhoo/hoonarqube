@@ -571,49 +571,74 @@ impl StatementCollector<'_, '_> {
             if matches!(body, Statement::BlockStatement(_)) {
                 continue;
             }
-            let top_start = self.sink.index.pos(top.span().start);
-            let top_end = self.sink.index.pos(top.span().end);
-            let body_start = self.sink.index.pos(body.span().start);
-            let body_end = self.sink.index.pos(body.span().end);
-            let next_start = self.sink.index.pos(next.span().start);
-            let adjacent = body_end.line == next_start.line;
-            let piled =
-                body_start.column == next_start.column && body_start.column > top_start.column;
-            let inline_indented =
-                body_start.line == top_end.line && next_start.column > top_start.column;
-            let (included, excluded) = if conditional {
-                ("conditionally", "unconditionally")
-            } else {
-                ("in a loop", "only once")
-            };
-            let description = if adjacent {
-                "This statement will not be executed".to_owned()
-            } else if piled || inline_indented {
-                "This line will not be executed".to_owned()
-            } else {
-                continue;
-            };
-            let first = if piled && !adjacent {
-                let mut last_line = body_start.line;
-                for statement in statements {
-                    let start = self.sink.index.pos(statement.span().start);
-                    let end = self.sink.index.pos(statement.span().end);
-                    if end.line > body_start.line {
-                        if start.column != body_start.column {
-                            break;
-                        }
-                        last_line = end.line;
-                    }
-                }
-                format!(
-                    "first line of this {}-line block",
-                    last_line - body_start.line + 1
-                )
-            } else {
-                "first statement".to_owned()
-            };
-            self.sink.emit_span(RuleScope::Both, "S2681", &format!("{description} {included}; only the {first} will be. The rest will execute {excluded}."), next.span());
+            if let Some(message) =
+                self.misleading_statement_message(statements, top, body, next, conditional)
+            {
+                self.sink
+                    .emit_span(RuleScope::Both, "S2681", &message, next.span());
+            }
         }
+    }
+
+    fn misleading_statement_message(
+        &self,
+        statements: &[Statement<'_>],
+        top: &Statement<'_>,
+        body: &Statement<'_>,
+        next: &Statement<'_>,
+        conditional: bool,
+    ) -> Option<String> {
+        let top_start = self.sink.index.pos(top.span().start);
+        let top_end = self.sink.index.pos(top.span().end);
+        let body_start = self.sink.index.pos(body.span().start);
+        let body_end = self.sink.index.pos(body.span().end);
+        let next_start = self.sink.index.pos(next.span().start);
+        let adjacent = body_end.line == next_start.line;
+        let piled = body_start.column == next_start.column && body_start.column > top_start.column;
+        let inline_indented =
+            body_start.line == top_end.line && next_start.column > top_start.column;
+        let (included, excluded) = if conditional {
+            ("conditionally", "unconditionally")
+        } else {
+            ("in a loop", "only once")
+        };
+        let description = if adjacent {
+            "This statement will not be executed".to_owned()
+        } else if piled || inline_indented {
+            "This line will not be executed".to_owned()
+        } else {
+            return None;
+        };
+        let first = if piled && !adjacent {
+            format!(
+                "first line of this {}-line block",
+                self.statement_pile_lines(statements, body_start)
+            )
+        } else {
+            "first statement".to_owned()
+        };
+        Some(format!(
+            "{description} {included}; only the {first} will be. The rest will execute {excluded}."
+        ))
+    }
+
+    fn statement_pile_lines(
+        &self,
+        statements: &[Statement<'_>],
+        body_start: hoonarqube_ir::Pos,
+    ) -> u32 {
+        let mut last_line = body_start.line;
+        for statement in statements {
+            let start = self.sink.index.pos(statement.span().start);
+            let end = self.sink.index.pos(statement.span().end);
+            if end.line > body_start.line {
+                if start.column != body_start.column {
+                    break;
+                }
+                last_line = end.line;
+            }
+        }
+        last_line - body_start.line + 1
     }
 
     fn s1199_parent_kind(&self, it: &BlockStatement<'_>) -> Option<S1199ListKind> {
