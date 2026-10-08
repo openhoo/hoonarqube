@@ -376,6 +376,48 @@ mod tests {
     }
 
     #[test]
+    fn single_call_signatures_report_signature_tokens_and_constructor_types() {
+        for (source, signature, message) in [
+            (
+                "interface Handler { (event: string): void; }",
+                "(event: string): void;",
+                "Interface has only a call signature, you should use a function type instead.",
+            ),
+            (
+                "type Factory = { new (value: string): Handler };",
+                "new (value: string): Handler",
+                "Type literal has only a call signature, you should use a function type instead.",
+            ),
+            (
+                "type Handler = { (event: string): void };",
+                "(event: string): void",
+                "Type literal has only a call signature, you should use a function type instead.",
+            ),
+        ] {
+            let report = ts(source);
+            let issues: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "typescript:S6598")
+                .collect();
+            assert_eq!(issues.len(), 1, "source: {source}");
+            let issue = issues[0];
+            assert_eq!(
+                &source[issue.range.start.column as usize..issue.range.end.column as usize],
+                signature
+            );
+            assert_eq!(issue.message, message);
+        }
+        assert_eq!(
+            count_key(
+                &ts_keys("type Factory = { new(): Handler; property: string };"),
+                "typescript:S6598"
+            ),
+            0
+        );
+    }
+
+    #[test]
     fn separated_overloads_are_flagged() {
         let separated = ts_keys(
             "interface Api {\n  load(): void;\n  ready: boolean;\n  load(url: string): void;\n}\n",

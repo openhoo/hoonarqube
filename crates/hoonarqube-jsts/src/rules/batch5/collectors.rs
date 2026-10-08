@@ -1209,7 +1209,7 @@ impl<'a> Visit<'a> for TsTypeCollector<'_, '_> {
     }
 
     fn visit_ts_type_literal(&mut self, it: &TSTypeLiteral<'a>) {
-        self.check_single_call_signature(&it.members, it.span());
+        self.check_single_call_signature(&it.members, false);
         self.check_overload_grouping(&it.members);
         walk_ts_type_literal(self, it);
     }
