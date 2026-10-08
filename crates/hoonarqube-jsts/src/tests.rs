@@ -1622,6 +1622,48 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
 }
 
 #[test]
+fn qualified_static_reduce_and_regex_messages_preserve_primary_findings() {
+    let static_report = ts("class Example { static value = 1; }");
+    let static_issue = static_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S1444")
+        .unwrap();
+    assert_eq!(
+        static_issue.message,
+        "Make this public static property readonly."
+    );
+    let reduce_report = js("const sum = values.reduce((total, value) => total + value);");
+    let reduce_issue = reduce_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "javascript:S6959")
+        .unwrap();
+    assert_eq!(
+        reduce_issue.message,
+        "Add an initial value to this \"reduce()\" call."
+    );
+    for (pattern, escaped) in [(r"a\-b", r"\-"), (r"[\.]", r"\."), (r"[\[]", r"\[")] {
+        let source = format!("const expression = /{pattern}/;");
+        let report = js(&source);
+        let targets: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6535")
+            .collect();
+        assert_eq!(targets.len(), 1, "{pattern}");
+        assert_eq!(
+            targets[0].message,
+            format!("Unnecessary escape character: {escaped}.")
+        );
+        assert_eq!(
+            &source[targets[0].range.start.column as usize..targets[0].range.end.column as usize],
+            "\\"
+        );
+    }
+}
+
+#[test]
 fn semantic_s2871_string_sort_surfaces_checker_action_without_duplicate_findings() {
     use crate::project_context::{
         SemanticFileFacts, SemanticQuickfixAction, SemanticQuickfixEdit, SemanticQuickfixFact,
