@@ -1395,7 +1395,7 @@ mod tests {
         let options = AnalyzerOptionsBundle::default();
         for project in [&root, &namespace] {
             let semantic = SemanticOptions {
-                python_project: Some(project.to_path_buf()),
+                python_project: Some(project.clone()),
                 ..SemanticOptions::default()
             };
             let context =
