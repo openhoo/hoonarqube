@@ -99,6 +99,7 @@ struct StatementCollector<'a, 'index> {
 struct ImportFact {
     module: String,
     is_type: bool,
+    namespace: bool,
     span: Span,
 }
 
@@ -524,7 +525,16 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.import_facts.push(ImportFact {
             module: it.source.value.to_string(),
             is_type: it.import_kind == ImportOrExportKind::Type,
-            span: it.span(),
+            namespace: it.import_kind != ImportOrExportKind::Type
+                && it.specifiers.as_ref().is_some_and(|specifiers| {
+                    specifiers.iter().any(|specifier| {
+                        matches!(
+                            specifier,
+                            ImportDeclarationSpecifier::ImportNamespaceSpecifier(_)
+                        )
+                    })
+                }),
+            span: it.source.span(),
         });
         walk_import_declaration(self, it);
     }
@@ -855,18 +865,18 @@ impl StatementCollector<'_, '_> {
     /// `S3863`: imports of the same module and import kind anywhere in the
     /// file; every member of a duplicate group is flagged.
     fn check_duplicate_imports(&mut self) {
-        let mut counts: HashMap<(&str, bool), usize> = HashMap::new();
+        let mut counts: HashMap<(&str, bool, bool), usize> = HashMap::new();
         for fact in &self.import_facts {
             *counts
-                .entry((fact.module.as_str(), fact.is_type))
+                .entry((fact.module.as_str(), fact.is_type, fact.namespace))
                 .or_insert(0) += 1;
         }
         for fact in &self.import_facts {
-            if counts[&(fact.module.as_str(), fact.is_type)] > 1 {
+            if counts[&(fact.module.as_str(), fact.is_type, fact.namespace)] > 1 {
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S3863",
-                    &format!("'{}' import is duplicated.", fact.module),
+                    &format!("'{}' imported multiple times.", fact.module),
                     fact.span,
                 );
             }
@@ -1247,6 +1257,37 @@ function clean() {
             js_keys("if (a) {\n  f();\n} else /* keep this comment */ if (b)\n  g(\n    c);\n");
         assert_eq!(count_key(&nested_unbraced_else_if, "javascript:S2681"), 0);
         assert_eq!(count_key(&nested_unbraced_else_if, "javascript:S121"), 1);
+    }
+
+    #[test]
+    fn s3863_selects_source_literals_and_separates_value_namespaces() {
+        let source = "import { a } from './module.js';\nimport { b } from './module.js';\n";
+        let report = js(source);
+        let target: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S3863")
+            .collect();
+        assert_eq!(target.len(), 2);
+        for issue in target {
+            let line = source
+                .lines()
+                .nth(issue.range.start.line as usize - 1)
+                .unwrap();
+            assert_eq!(
+                &line[issue.range.start.column as usize..issue.range.end.column as usize],
+                "'./module.js'"
+            );
+            assert_eq!(issue.message, "'./module.js' imported multiple times.");
+        }
+        let namespace = "import * as mod from './module.js';\nimport { x } from './module.js';\n";
+        assert_eq!(count_key(&js_keys(namespace), "javascript:S3863"), 0);
+        let typed_namespace =
+            "import type * as mod from './module.js';\nimport type { X } from './module.js';\n";
+        assert_eq!(count_key(&ts_keys(typed_namespace), "typescript:S3863"), 2);
+        let separated_kind =
+            "import type { X } from './module.js';\nimport { x } from './module.js';\n";
+        assert_eq!(count_key(&ts_keys(separated_kind), "typescript:S3863"), 0);
     }
 
     #[test]
