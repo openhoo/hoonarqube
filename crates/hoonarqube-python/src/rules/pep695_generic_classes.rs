@@ -1,5 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::issue_at;
+use crate::support::to_range;
 use crate::support::typing_member_reference_in;
 use crate::support::typing_module_aliases;
 use hoonarqube_ir::Issue;
@@ -19,20 +20,27 @@ pub(crate) fn check_pep695_generic_classes(
     let mut issues = Vec::new();
     for stmt in &file_ctx.stmts {
         if let Stmt::ClassDef(class) = stmt {
-            let generic_base = class.arguments.as_ref().is_some_and(|arguments| {
-                arguments.args.iter().any(|base| {
+            let generic_base = class.arguments.as_ref().and_then(|arguments| {
+                arguments.args.iter().find(|base| {
                     matches!(base, Expr::Subscript(subscript)
                         if typing_member_reference_in(&subscript.value, &typing_aliases, "Generic"))
                 })
             });
-            if generic_base {
-                issues.push(issue_at(
+            if let Some(generic_base) = generic_base {
+                let mut issue = issue_at(
                     "python:S6792",
                     "Use the \"type\" parameter syntax to declare this generic class.",
                     class.name.range(),
                     index,
                     source,
-                ));
+                );
+                issue.flows.push(hoonarqube_ir::IssueFlow {
+                    locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                        "\"Generic\" parent.",
+                        to_range(generic_base.range(), index, source),
+                    )],
+                });
+                issues.push(issue);
             }
         }
     }
@@ -68,6 +76,14 @@ mod tests {
         let found = findings(&flagged, "python:S6792");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 6);
+        assert_eq!(found[0].flows.len(), 1);
+        let parent = &found[0].flows[0].locations[0];
+        assert_eq!(parent.message, "\"Generic\" parent.");
+        assert_eq!(parent.range.start.line, 6);
+        assert_eq!(parent.range.start.column, 10);
+        assert_eq!(parent.range.end.line, 6);
+        assert_eq!(parent.range.end.column, 22);
+        assert!(parent.path.is_none());
 
         // A non-Generic subscript through the same alias stays clean.
         let foreign = scan(concat!(
