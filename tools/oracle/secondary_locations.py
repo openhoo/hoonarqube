@@ -88,7 +88,7 @@ def reference_signatures(issues, project_key, rules):
                     (
                         reference_path(location["component"], project_key),
                         *sonar_span(location["textRange"]),
-                        location["msg"],
+                        location.get("msg", ""),
                     )
                     for location in flow["locations"]
                 )
