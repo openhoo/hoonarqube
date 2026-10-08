@@ -1,0 +1,94 @@
+{
+  "qualified_at": "2026-10-08T08:21:23.272536+00:00",
+  "scope": "Frozen source-backed Sonar capture replay using actual CLI; no new live probe claimed.",
+  "rules": [
+    "python:S3776",
+    "python:S5332"
+  ],
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "command": [
+        "hoonarqube",
+        "analyze",
+        "src/requests",
+        "--format",
+        "json"
+      ],
+      "binary_sha256": "55645395bb1cbb4fa6b923dbf4b9144dc18166e530dbc232ea455a2f2e1a9466",
+      "reference_capture_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10",
+      "source_manifest_sha256": "ce5e64c9c6026af15cbd5b7fd74364f469bc80a663c75166b89c75b8dd5a6362",
+      "project_complete": true,
+      "selected_rules": {
+        "python:S3776": {
+          "native": 13,
+          "reference": 13,
+          "matched": 13,
+          "native_only": [],
+          "reference_only": []
+        },
+        "python:S5332": {
+          "native": 1,
+          "reference": 1,
+          "matched": 1,
+          "native_only": [],
+          "reference_only": []
+        }
+      },
+      "ordered_flow_sequences_exact": 14,
+      "secondary_locations_exact": 226,
+      "flow_differences": []
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "command": [
+        "hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--format",
+        "json",
+        "--exclude",
+        "**/*.css"
+      ],
+      "binary_sha256": "55645395bb1cbb4fa6b923dbf4b9144dc18166e530dbc232ea455a2f2e1a9466",
+      "reference_capture_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c",
+      "source_manifest_sha256": "32f8564ecd96b12a367a4db87dbe880ad43b158f3b1e8e06f26c455cb74c1b85",
+      "project_complete": true,
+      "selected_rules": {
+        "python:S3776": {
+          "native": 42,
+          "reference": 42,
+          "matched": 42,
+          "native_only": [],
+          "reference_only": []
+        },
+        "python:S5332": {
+          "native": 1,
+          "reference": 1,
+          "matched": 1,
+          "native_only": [],
+          "reference_only": []
+        }
+      },
+      "ordered_flow_sequences_exact": 43,
+      "secondary_locations_exact": 676,
+      "flow_differences": []
+    }
+  },
+  "regressions": [
+    "cognitive_branch_bodies_and_loop_headers_use_their_own_levels",
+    "cognitive_findings_carry_exact_secondary_contributions",
+    "cognitive_parenthesized_boolean_chains_keep_separate_runs",
+    "s5332_resolves_http_server_super_calls_through_import_aliases",
+    "s5332_requires_http_base_provenance_and_an_unshadowed_super"
+  ],
+  "changes": [
+    "Branch body nesting restored between if/elif/else siblings",
+    "Loop headers at parent level; loop else and try else accounted separately",
+    "Match statement adds no direct cognitive point",
+    "Boolean chains count operator transitions and preserve parenthesized groups",
+    "Cognitive secondary locations retain exact contribution amount and range",
+    "HTTP server super calls require imported HTTPServer/ThreadingHTTPServer base provenance and unshadowed super",
+    "HTTP literal/call messages match current frozen reference"
+  ]
+}
