@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "5de0b0b4fc25c7897b46029c617c6ebceb660195",
+  "native_binary_sha256": "060f2c816ca62fe9daaa27c50783d3b6e08c411496375e623e212e65f4c767b0",
+  "rules": [
+    "S2486",
+    "S4138",
+    "S6582",
+    "S6647"
+  ],
+  "checks": {
+    "tests": 1377,
+    "typescript_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "regression": "qualified_constructor_catch_optional_chain_and_loop_messages",
+    "original_defect": "Executed regression failed before correction on S6647 message; frozen source/reference mismatches cover all four corrected rule messages."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 13,
+    "reference_total": 9,
+    "matched": 9,
+    "native_only": 4,
+    "reference_only": 0,
+    "matched_messages_exact": true,
+    "all_rule_primary_multiset_unchanged": true,
+    "complete": true,
+    "files": 125,
+    "report_sha256": "76cb1722c9368776c2cafdeeacc7e2306773b83e35aa3e7ddfc96330965e109a",
+    "reference_issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3"
+  },
+  "limitations": [
+    "Four pre-existing S6582 native-only primary identities remain unchanged and unresolved.",
+    "No detector or quickfix behavior changed; this package qualifies matched primary messages only."
+  ]
+}

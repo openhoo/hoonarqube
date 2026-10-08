@@ -362,7 +362,7 @@ impl EsIdiomCollector<'_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S6582",
-                "Use optional chaining (\"?.\") instead of this null check.",
+                "Prefer using an optional chain expression instead, as it's more concise and easier to read.",
                 it.span(),
             );
             self.s6582_spans.push(it.span());

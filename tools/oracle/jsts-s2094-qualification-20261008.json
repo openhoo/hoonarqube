@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "7c8253c85e4a38a6c117eb8f4b81cc6239c246c9",
+  "native_binary_sha256": "3a20e1d6e507148eb39f210db0cb5245c9dcf4d580d675f324232d672c426d53",
+  "rule": "S2094",
+  "checks": {
+    "tests": 1380,
+    "clippy_all_targets": "PASS",
+    "typescript_version": "6.0.3",
+    "regression": "s2094_reports_abstract_class_with_only_empty_constructor",
+    "red": "Executed original abstract-class regression before correction: zero findings instead of one."
+  },
+  "fresh_controls": {
+    "source_commit": "3de0817d",
+    "claim": "observed_identity_differences",
+    "native_total": 8,
+    "reference_total": 8,
+    "matched": 8,
+    "native_only": 0,
+    "reference_only": 0,
+    "messages_exact": true,
+    "complete": true,
+    "files": 10,
+    "report_sha256": "bc35da08c229e7325f62b4813acabab5fe4cbb8f1400a66ea1efddbd3314c658",
+    "reference_issues_sha256": "6f7d029127a80435f11cfd8e1766bc0bf8346a5137e4e772bfb007c857823cc2"
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 3,
+    "reference_total": 3,
+    "matched": 3,
+    "native_only": 0,
+    "reference_only": 0,
+    "messages_exact": true,
+    "complete": true,
+    "files": 125,
+    "report_sha256": "69e206a734985cec90fd5aeac795a52f0cd0f8f22f0f3709d33fc9f6f953e4ad",
+    "reference_issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3"
+  },
+  "negative_controls": [
+    "derived classes with and without explicit super constructor",
+    "constructor parameter properties",
+    "populated class with member"
+  ],
+  "positive_boundaries": [
+    "constructor body may contain code or comments",
+    "empty class comments preserve finding",
+    "abstract constructor-only class"
+  ],
+  "limitations": [
+    "No quickfix qualification."
+  ]
+}

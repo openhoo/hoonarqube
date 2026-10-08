@@ -312,4 +312,43 @@ mod tests {
                 .all(|issue| issue.rule_key != "python:S5843")
         );
     }
+
+    #[test]
+    fn s5843_secondary_locations_explain_nested_operator_costs() {
+        use crate::test_support::{findings, scan_with_options};
+        let options = AnalyzerOptions {
+            regex_maximum_complexity: 0,
+            ..AnalyzerOptions::default()
+        };
+        let report = scan_with_options("import re\nre.compile(r'(a|b)+[cd]')\n", &options);
+        let found = findings(&report, "python:S5843");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].message,
+            "Simplify this regular expression to reduce its complexity from 4 to the 0 allowed."
+        );
+        let mut contributions: Vec<_> = found[0]
+            .flows
+            .iter()
+            .map(|flow| {
+                assert_eq!(flow.locations.len(), 1);
+                let location = &flow.locations[0];
+                (
+                    location.range.start.line,
+                    location.range.start.column,
+                    location.range.end.column,
+                    location.message.as_str(),
+                )
+            })
+            .collect();
+        contributions.sort_unstable();
+        assert_eq!(
+            contributions,
+            vec![
+                (2, 15, 16, "+2 (incl 1 for nesting)"),
+                (2, 18, 19, "+1"),
+                (2, 19, 20, "+1"),
+            ]
+        );
+    }
 }

@@ -1622,6 +1622,168 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
 }
 
 #[test]
+fn semantic_s4123_requires_nonpromise_types_for_await_and_promise_all() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+async function test(unknown: unknown, anyValue: any, thenable: PromiseLike<number>, maybe: number | Promise<number>, unknownValues: unknown[]) {
+  const values = [1, 2];
+  const pending = [Promise.resolve(1)];
+  await 1;
+  await values;
+  await unknown;
+  await anyValue;
+  await thenable;
+  await maybe;
+  await Promise.resolve(1);
+  await Reflect.apply(async () => 1, null, []);
+  Promise.all(values);
+  Promise.all(pending);
+  Promise.all(unknownValues);
+  Promise.all([]);
+  Promise.all([1, Promise.resolve(1)]);
+}
+function shadowed(Promise: { all(values: number[]): number[] }) {
+  Promise.all([1, 2]);
+}
+";
+    let (root, context) =
+        semantic_quickfix_fixture("semantic-promise-types", &package, &[("case.ts", source)]);
+    let report = semantic_quickfix_analysis(&context, &root, "case.ts", source);
+    let target: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S4123")
+        .collect();
+    assert_eq!(target.len(), 4);
+    let subjects: Vec<_> = target
+        .iter()
+        .map(|issue| semantic_issue_source_text(source, issue))
+        .collect();
+    assert_eq!(
+        subjects,
+        [
+            "await 1",
+            "await values",
+            "values",
+            "[1, Promise.resolve(1)]"
+        ]
+    );
+    assert_eq!(
+        target[0].message,
+        "Unexpected `await` of a non-Promise (non-\"Thenable\") value."
+    );
+    assert_eq!(
+        target[2].message,
+        "Unexpected iterable of non-Promise (non-\"Thenable\") values passed to promise aggregator."
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn qualified_contextual_union_and_map_messages() {
+    let cases = [
+        (
+            "type Result = string | unknown;",
+            "S6571",
+            "'unknown' overrides all other types in this union type.",
+        ),
+        (
+            "type Result = string | any;",
+            "S6571",
+            "'any' overrides all other types in this union type.",
+        ),
+        (
+            "type Result = string & unknown;",
+            "S6571",
+            "'unknown' is overridden by other types in this intersection type.",
+        ),
+        (
+            "function run(values: number[]) { values.map(value => value * 2); }",
+            "S2201",
+            "Consider using \"forEach\" instead of \"map\" as its return value is not being used here.",
+        ),
+    ];
+    for (source, rule, message) in cases {
+        let report = ts(source);
+        let targets: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(&format!(":{rule}")))
+            .collect();
+        assert_eq!(targets.len(), 1, "{rule}");
+        assert_eq!(targets[0].message, message, "{rule}");
+    }
+}
+
+#[test]
+fn semantic_s6606_distinguishes_assignment_and_logical_or_messages() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = "export function defaults(value: { name: string } | undefined, fallback: { name: string }, text: string | undefined) {\n const result = text || 'fallback';\n if (!value) { value = fallback; }\n return result;\n}\n";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-nullish-messages",
+        &package,
+        &[("case.ts", source)],
+    );
+    let report = semantic_quickfix_analysis(&context, &root, "case.ts", source);
+    let targets: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6606")
+        .collect();
+    assert_eq!(targets.len(), 2);
+    assert_eq!(
+        targets[0].message,
+        "Prefer using nullish coalescing operator (`??`) instead of a logical or (`||`), as it is a safer operator."
+    );
+    assert_eq!(
+        targets[1].message,
+        "Prefer using nullish coalescing operator (`??=`) instead of an assignment expression, as it is simpler to read."
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn qualified_constructor_catch_optional_chain_and_loop_messages() {
+    let cases = [
+        (
+            "class Example { constructor() {} }",
+            "S6647",
+            "Useless constructor.",
+        ),
+        (
+            "function run() { try { work(); more(); } catch (error) {} }",
+            "S2486",
+            "Handle this exception, don't catch it at all, or explain in a comment why it is ignored.",
+        ),
+        (
+            "const value = a !== undefined && a.b();",
+            "S6582",
+            "Prefer using an optional chain expression instead, as it's more concise and easier to read.",
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) { use(values[i]); }",
+            "S4138",
+            "Expected a `for-of` loop instead of a `for` loop with this simple iteration.",
+        ),
+    ];
+    for (source, rule, message) in cases {
+        for report in [js(source), ts(source)] {
+            let targets: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(&format!(":{rule}")))
+                .collect();
+            assert_eq!(targets.len(), 1, "{rule}");
+            assert_eq!(targets[0].message, message, "{rule}");
+        }
+    }
+}
+
+#[test]
 fn qualified_static_reduce_and_regex_messages_preserve_primary_findings() {
     let static_report = ts("class Example { static value = 1; }");
     let static_issue = static_report

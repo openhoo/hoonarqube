@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "rule": "python:S5869",
+  "scope": "Additional duplicate member supporting flows; existing primary detector and message preserved.",
+  "reference_boundary": "Frozen SonarQube 26.9.0.129388 captured project, unchanged source inventory verified. No replacement historical provider proof.",
+  "regression": "s5869_supporting_locations_retain_additional_duplicate_member_spans",
+  "regression_file": "crates/hoonarqube-python/src/tests.rs",
+  "before": "Executed regression fails: no supporting locations for [\\w\\d_.].",
+  "after": "Positive shorthand and source-encoded Unicode repeated-character spans match; clean character class stays clean.",
+  "implementation": "Regex parser records member source spans; supporting metadata compares parsed member sets against the selected primary member. Metadata spans are excluded from existing RxClass equality.",
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "source_hashes_verified": true,
+      "exact_primary_and_message": {
+        "native": 77,
+        "reference": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "canonical_flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 77,
+        "reference_findings": 77,
+        "matched_findings": 77,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 243,
+        "reference_supporting_locations": 243,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "source_hashes_verified": true,
+      "exact_primary_and_message": {
+        "native": 230,
+        "reference": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "canonical_flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 230,
+        "reference_findings": 230,
+        "matched_findings": 230,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 990,
+        "reference_supporting_locations": 990,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    }
+  },
+  "checks": {
+    "python_tests": 1299,
+    "jsts_tests": 1377,
+    "clippy_all_targets": "PASS with warnings denied",
+    "pinned_0_3_1_dogfood": {
+      "files": 1480,
+      "rust_S3776": 0
+    }
+  },
+  "evidence_hashes": {
+    "python/s5869-flow-red.log": "b87fb937fd7afcc1713b7263162ab669dc9d1da021488064e1a1c4557b7f2a64",
+    "package4-tests.log": "93f162c2aa02bd0cea27104d16aa7a55f6f0aac00777c818a31d62cd2959cff9",
+    "package4-clippy.log": "64e57e29916e67f390a1463c5000630181cd420194385eb66d6b1b9a0259e3ed",
+    "package4-publication/werkzeug-python-flows.json": "d6a9a2fdde6c0e556f9e69b7076a43fed3e54537fa46e72ca96cac2e5248ce9d",
+    "package4-pinned-dogfood.json": "9d68f5146890b3dfa5734b60d50b43b7714c800809fcc6c62767b14d4281619f"
+  },
+  "limitations": [
+    "This closes the captured Python project flow differences, not all regex semantics or quickfix qualification.",
+    "Overlapping-range primary findings that highlight the whole class retain their existing metadata boundary.",
+    "Opaque or unsupported class sets remain unqualified."
+  ]
+}

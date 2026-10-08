@@ -16,6 +16,7 @@ const S4328_MESSAGE: &str = "Either remove this import or add it as a dependency
 const S4325_MESSAGE: &str =
     "This assertion is unnecessary since it does not change the type of the expression.";
 const S6606_TERNARY_MESSAGE: &str = "Prefer using nullish coalescing operator (`??`) instead of a ternary expression, as it is simpler to read.";
+const S6606_ASSIGNMENT_MESSAGE: &str = "Prefer using nullish coalescing operator (`??=`) instead of an assignment expression, as it is simpler to read.";
 const S6606_MESSAGE: &str = "Prefer using nullish coalescing operator (`??`) instead of a logical or (`||`), as it is a safer operator.";
 const S1125_MESSAGE: &str = "Refactor the code to avoid using this boolean literal.";
 const S4623_MESSAGE: &str = "Remove this redundant \"undefined\".";
@@ -36,6 +37,24 @@ pub(crate) fn run(
         language,
         issues: Vec::new(),
     };
+
+    for fact in &file.facts.promise_usages {
+        let message = match fact.kind.as_str() {
+            "await" => "Unexpected `await` of a non-Promise (non-\"Thenable\") value.",
+            "all" => {
+                "Unexpected iterable of non-Promise (non-\"Thenable\") values passed to promise aggregator."
+            }
+            _ => continue,
+        };
+        emit_span(
+            &mut sink,
+            RuleScope::Both,
+            "S4123",
+            message,
+            source,
+            &fact.span,
+        );
+    }
 
     for fact in &file.facts.stringifications {
         if matches!(fact.certainty.as_str(), "will" | "may") {
@@ -142,10 +161,10 @@ fn emit_typescript_facts(sink: &mut IssueSink<'_>, file: &SemanticFileFacts, sou
     }
     for nullish in &file.facts.nullish {
         if nullish.report && nullish.kind != "logical-or-assignment" {
-            let message = if nullish.kind == "conditional" {
-                S6606_TERNARY_MESSAGE
-            } else {
-                S6606_MESSAGE
+            let message = match nullish.kind.as_str() {
+                "conditional" => S6606_TERNARY_MESSAGE,
+                "nullish-assignment" => S6606_ASSIGNMENT_MESSAGE,
+                _ => S6606_MESSAGE,
             };
             emit_span(
                 sink,

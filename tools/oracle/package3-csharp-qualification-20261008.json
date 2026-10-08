@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "claim": "complete_current_native_csharp_quickfix_execution_with_explicit_reference_blockers",
+  "source_commit": "9fde2de63ed3efb3d3d4581e03db1a45682d4e5e",
+  "csharp_source_tree_sha": "9bba10c61f088a652a8b79a7e751a959416b8768",
+  "csharp_source_matches_owned_regression_commit": true,
+  "binary": {
+    "path_label": "remaining/package3-hoonarqube",
+    "sha256": "a2767852b6c7e078081a108d37708f0d658e58c7c7e853aded46a7ea494d43df",
+    "source_commit": "9fde2de63ed3efb3d3d4581e03db1a45682d4e5e",
+    "version": "hoonarqube 0.11.0"
+  },
+  "sdk": {
+    "version": "10.0.111",
+    "rid": "osx-arm64",
+    "executable_sha256": "2ff302a3c5cecc4a371fd6482d2f5547c57d93eff9fe19919ef729a54f69ce04",
+    "archive_sha512_verified": true
+  },
+  "harness_sha256": "c592605d65ea28298fa280586aa45e430ddbb3c14c35e0a193b15bc65e13758d",
+  "manifest_sha256": "7e738aa05a023de7327f698b91c842ae376b043d3ce0be47d62c13dd266c7209",
+  "raw_harness_summary": {
+    "applications": 60,
+    "fail": 13,
+    "native_action_gap": 0,
+    "native_action_refusal": 0,
+    "no_action_declared": 0,
+    "no_action_expected": 0,
+    "pass": 38,
+    "safety_refused": 9,
+    "unavailable": 0
+  },
+  "classification": {
+    "raw_pass": 38,
+    "raw_safety_refused": 9,
+    "raw_failed_missing_frozen_provenance": 11,
+    "raw_failed_independent_regression_guard_no_write": 2,
+    "unavailable": 0
+  },
+  "missing_reference_applications": [
+    {
+      "rule_key": "csharpsquid:S1116",
+      "action_id": "csharp.s1116.remove-empty-statement",
+      "application_dir": "applications/csharp/001-csharpsquid_S1116-csharp.s1116.remove-empty-statement",
+      "raw_status": "fail",
+      "failures": [
+        "negative compiler refusal reference artifact is unavailable or malformed"
+      ],
+      "missing_reference_paths": [
+        "quickfix-complete-csharp/applications/csharp/001-csharpsquid_S1116-csharp.s1116.remove-empty-statement/invocations/negative-analyze/parsed.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S1858",
+      "action_id": "csharp.s1858.remove-redundant-tostring",
+      "application_dir": "applications/csharp/011-csharpsquid_S1858-csharp.s1858.remove-redundant-tostring",
+      "raw_status": "fail",
+      "failures": [
+        "negative compiler refusal reference artifact is unavailable or malformed"
+      ],
+      "missing_reference_paths": [
+        "quickfix-complete-csharp/applications/csharp/011-csharpsquid_S1858-csharp.s1858.remove-redundant-tostring/invocations/negative-analyze/parsed.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3169",
+      "action_id": "csharp.s3169.change-orderby-to-thenby",
+      "application_dir": "applications/csharp/026-csharpsquid_S3169-csharp.s3169.change-orderby-to-thenby",
+      "raw_status": "fail",
+      "failures": [
+        "negative compiler refusal reference artifact is unavailable or malformed"
+      ],
+      "missing_reference_paths": [
+        "quickfix-complete-csharp/applications/csharp/026-csharpsquid_S3169-csharp.s3169.change-orderby-to-thenby/invocations/negative-analyze/parsed.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3234",
+      "action_id": "csharp.s3234.remove-suppress-finalize",
+      "application_dir": "applications/csharp/028-csharpsquid_S3234-csharp.s3234.remove-suppress-finalize",
+      "raw_status": "fail",
+      "failures": [
+        "reference no-action control 0 provenance: reference artifact is unavailable",
+        "reference no-action control 0 did not resolve a positive frozen fixture",
+        "reference no-action control 0 target expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 action expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 upstream availability does not match the selected provider fixture",
+        "CSharp reference provenance artifact hash mismatch"
+      ],
+      "missing_reference_paths": [
+        "csharp-provider-reference-final.json",
+        "csharp-provider-targeted-sidecar.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3254",
+      "action_id": "csharp.s3254.remove-default-argument",
+      "application_dir": "applications/csharp/032-csharpsquid_S3254-csharp.s3254.remove-default-argument",
+      "raw_status": "fail",
+      "failures": [
+        "multi-finding reference FixAll artifact hash does not match provenance"
+      ],
+      "missing_reference_paths": [
+        "csharp-provider-s3254-fixall.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3262",
+      "action_id": "csharp.s3262.add-params",
+      "application_dir": "applications/csharp/035-csharpsquid_S3262-csharp.s3262.add-params",
+      "raw_status": "fail",
+      "failures": [
+        "negative compiler refusal reference artifact is unavailable or malformed"
+      ],
+      "missing_reference_paths": [
+        "quickfix-complete-csharp/applications/csharp/035-csharpsquid_S3262-csharp.s3262.add-params/invocations/negative-analyze/parsed.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3451",
+      "action_id": "csharp.s3451.use-default-parameter-value-attribute",
+      "application_dir": "applications/csharp/043-csharpsquid_S3451-csharp.s3451.use-default-parameter-value-attribute",
+      "raw_status": "fail",
+      "failures": [
+        "reference no-action control 0 provenance: reference artifact is unavailable",
+        "reference no-action control 0 did not resolve a positive frozen fixture",
+        "reference no-action control 0 target expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 action expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 upstream availability does not match the selected provider fixture",
+        "CSharp reference provenance artifact hash mismatch"
+      ],
+      "missing_reference_paths": [
+        "csharp-provider-reference-final.json",
+        "csharp-provider-targeted-sidecar.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3532",
+      "action_id": "csharp.s3532.remove-empty-default",
+      "application_dir": "applications/csharp/046-csharpsquid_S3532-csharp.s3532.remove-empty-default",
+      "raw_status": "fail",
+      "failures": [
+        "negative compiler refusal reference artifact is unavailable or malformed"
+      ],
+      "missing_reference_paths": [
+        "quickfix-complete-csharp/applications/csharp/046-csharpsquid_S3532-csharp.s3532.remove-empty-default/invocations/negative-analyze/parsed.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S3604",
+      "action_id": "csharp.s3604.remove-redundant-initializer",
+      "application_dir": "applications/csharp/048-csharpsquid_S3604-csharp.s3604.remove-redundant-initializer",
+      "raw_status": "fail",
+      "failures": [
+        "reference no-action control 0 provenance: reference artifact is unavailable",
+        "reference no-action control 0 did not resolve a positive frozen fixture",
+        "reference no-action control 0 target expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 action expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 upstream availability does not match the selected provider fixture",
+        "CSharp reference provenance artifact hash mismatch"
+      ],
+      "missing_reference_paths": [
+        "csharp-provider-reference-final.json",
+        "csharp-provider-targeted-sidecar.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S6613",
+      "action_id": "csharp.s6613.use-linkedlist-property",
+      "application_dir": "applications/csharp/052-csharpsquid_S6613-csharp.s6613.use-linkedlist-property",
+      "raw_status": "fail",
+      "failures": [
+        "CSharp reference provenance artifact hash mismatch"
+      ],
+      "missing_reference_paths": [
+        "csharp-provider-s6613-actionable.json"
+      ]
+    },
+    {
+      "rule_key": "csharpsquid:S6961",
+      "action_id": "csharp.s6961.change-to-controllerbase",
+      "application_dir": "applications/csharp/053-csharpsquid_S6961-csharp.s6961.change-to-controllerbase",
+      "raw_status": "fail",
+      "failures": [
+        "reference no-action control 0 provenance: reference artifact is unavailable",
+        "reference no-action control 0 did not resolve a positive frozen fixture",
+        "reference no-action control 0 target expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 action expectation is not grounded in the selected provider fixture",
+        "reference no-action control 0 upstream availability does not match the selected provider fixture",
+        "CSharp reference provenance artifact hash mismatch"
+      ],
+      "missing_reference_paths": [
+        "csharp-provider-reference-final.json",
+        "csharp-provider-s6961-actionable.json"
+      ]
+    }
+  ],
+  "regression_guard_refusals": [
+    {
+      "rule_key": "csharpsquid:S1186",
+      "action_id": "csharp.s1186.add-not-supported-throw",
+      "application_dir": "applications/csharp/007-csharpsquid_S1186-csharp.s1186.add-not-supported-throw",
+      "raw_status": "fail",
+      "classification": "independent_regression_guard_no_write",
+      "apply_exit_code": 1,
+      "applied": 0,
+      "written": false,
+      "initial_source_sha256": "efb935f5e0e6e13ffe90701723f221d30796fe1724262359dc2e4b0ee4da3f70",
+      "final_source_sha256": "efb935f5e0e6e13ffe90701723f221d30796fe1724262359dc2e4b0ee4da3f70",
+      "bytes_unchanged": true,
+      "before_counts": {
+        "csharpsquid:S1186": 1,
+        "csharpsquid:S3903": 1
+      },
+      "projected_counts": {
+        "csharpsquid:S2325": 1,
+        "csharpsquid:S3903": 1
+      },
+      "projected_regressions": {
+        "csharpsquid:S2325": 1
+      },
+      "projected_analysis_complete": true,
+      "detector_regression_reason": "S1186.cs: 1 of 1 projected rule fix(es) did not pass independent verification (csharpsquid:S1186: csharpsquid:S1186 count 1 -> 0 (verified 1, unverified 0); regressions: csharpsquid:S2325 +1)",
+      "evidence_sha256": {
+        "projected-independent-report.json": "d3ca8008f2b359684278e4d725def2e62fc559c04b6930fe20ea22b15e9b24d5",
+        "projected-independent-command.json": "9234d704bf5d2d62dd7cd19d94b5bad53484990e45dcd910c95e40105910d3f5",
+        "invocations/fix-apply/parsed.json": "67899efa3df4cae780c415bdfa4ef04f67c6a43ed802a3e917250010a55349f7",
+        "invocations/fix-apply/stderr.bin": "927c2a0b56e6f5ce28203ca700831686b55b7365fe4739fb33fc19030f92cd12"
+      }
+    },
+    {
+      "rule_key": "csharpsquid:S1939",
+      "action_id": "csharp.s1939.remove-redundant-inheritance-entry",
+      "application_dir": "applications/csharp/013-csharpsquid_S1939-csharp.s1939.remove-redundant-inheritance-entry",
+      "raw_status": "fail",
+      "classification": "independent_regression_guard_no_write",
+      "apply_exit_code": 1,
+      "applied": 0,
+      "written": false,
+      "initial_source_sha256": "c8eaa31ab4df2252ea56e048aa04a984445157e86d669a1f8049bf41bce3406a",
+      "final_source_sha256": "c8eaa31ab4df2252ea56e048aa04a984445157e86d669a1f8049bf41bce3406a",
+      "bytes_unchanged": true,
+      "before_counts": {
+        "csharpsquid:S1939": 1,
+        "csharpsquid:S3903": 3,
+        "csharpsquid:S4023": 2
+      },
+      "projected_counts": {
+        "csharpsquid:S2094": 1,
+        "csharpsquid:S3903": 3,
+        "csharpsquid:S4023": 2
+      },
+      "projected_regressions": {
+        "csharpsquid:S2094": 1
+      },
+      "projected_analysis_complete": true,
+      "detector_regression_reason": "S1939.cs: 1 of 1 projected rule fix(es) did not pass independent verification (csharpsquid:S1939: csharpsquid:S1939 count 1 -> 0 (verified 1, unverified 0); regressions: csharpsquid:S2094 +1)",
+      "evidence_sha256": {
+        "projected-independent-report.json": "da56e4df53813edd2d9178bbf9663ee1ac5973c7666d5f07219f8e2cbf010014",
+        "projected-independent-command.json": "c6274ba9a045538765889c531aec42abfc810131012b6912f72e69e39cd746af",
+        "invocations/fix-apply/parsed.json": "675566327e7909fce14ab8db11ffaf0a3ef0eaec2cc02082087e8f94de750185",
+        "invocations/fix-apply/stderr.bin": "09bd6b71ac8c4ff582093f631ceb065ee841fd4d6fea94e29ca94b315912db5e"
+      }
+    }
+  ],
+  "reference_blocker_inventory": "tools/oracle/csharp-reference-blockers-20261008.json",
+  "reference_blocker_inventory_sha256": "a5a13b3e6bc40c6274c45d03bdb70564d286feced9aa9caed372144b6ddb2c6e",
+  "s125_current_application": {
+    "status": "pass",
+    "action_id": "csharp.s125.remove-commented-out-code",
+    "apply": {
+      "applied": 1,
+      "exit_code": 0,
+      "regressions": 0,
+      "skipped": 0,
+      "unverified": 0,
+      "verified": 1,
+      "written": true
+    },
+    "analysis_reduction": {
+      "after_counts": {
+        "csharpsquid:S2094": 1,
+        "csharpsquid:S3903": 1
+      },
+      "before_counts": {
+        "csharpsquid:S125": 1,
+        "csharpsquid:S2094": 1,
+        "csharpsquid:S3903": 1
+      },
+      "regressions": {},
+      "target_after": 0,
+      "target_before": 1
+    }
+  },
+  "csharp_regressions": {
+    "tests_passed": 1791,
+    "tests_failed": 0,
+    "log_sha256": "2fa35035bc75210fa866924e623465c7b33fe3fe2e70e50fb19ad0e6b2723243"
+  },
+  "evidence_base": "hoonarqube-parity-20261007/remaining/qualification/package3-csharp-final",
+  "raw_result_sha256": "bf82f391c5108fc0d4569c632b2b302f573d447e92fd4034dcce674ad21d009b",
+  "application_result_sha256": {
+    "applications/csharp/000-csharpsquid_S1006-csharp.s1006.synchronize-default": "4fa090cc69ff56df90d4cda439d7974513b7e5c8d56439d7aac9ffdee53d83ec",
+    "applications/csharp/000-csharpsquid_S1006-csharp.s1006.remove-explicit-interface-default": "31898e60b022fedb18b1e7a83eee5a6f5e31acbfacaf47628a5df9b67616d54e",
+    "applications/csharp/001-csharpsquid_S1116-csharp.s1116.remove-empty-statement": "a8421607906e2f3d9b6d76777060818c118ae3d1009a6b54302677ef3c9bcaa3",
+    "applications/csharp/002-csharpsquid_S1125-csharp.s1125.remove-boolean-literal": "2b2be2a7b7b87a1f83825323501c553947e907c46ad3fa407e163691e44a8b2f",
+    "applications/csharp/003-csharpsquid_S1128-csharp.s1128.remove-unnecessary-using": "a0f4a9f714c8aaa0d7578d6d99c6ff9d70e7560b5531c2cd1f5d512750b4f6a3",
+    "applications/csharp/004-csharpsquid_S1155-csharp.s1155.use-any": "abbc340f7a51432e4d8ee9710b78ebeb37788d9d4696b7ae6ac7605a507f5303",
+    "applications/csharp/005-csharpsquid_S1172-csharp.s1172.remove-unused-parameter": "6061a0607f64307a739a5dcfe25effea2280bf1c2f6f53ae5558c083520c4c95",
+    "applications/csharp/006-csharpsquid_S1185-csharp.s1185.remove-forwarding-override": "781d47a6c9aada8a03f4953a9a68ad787bde8fbc8b06c33225ca037e1b4b425f",
+    "applications/csharp/007-csharpsquid_S1186-csharp.s1186.add-not-supported-throw": "1f54a63c706e2c668b12594e33989f52ea1fae1b32e8cc66a3a9ee3e482f271a",
+    "applications/csharp/007-csharpsquid_S1186-csharp.s1186.add-empty-method-comment": "79df9c6862360702c775488c57e91a3bc452c380015a6f3c2eda014af6c95dbb",
+    "applications/csharp/008-csharpsquid_S125-csharp.s125.remove-commented-out-code": "9f0c85f56253f2bd8c6c8e29bfc0a5b2ebd6d040e2ac54d4279a6acff3735334",
+    "applications/csharp/009-csharpsquid_S818-csharp.s818.uppercase-literal-suffix": "ebff73874350525d31b204152baab980c0d79bee78b822f69bce89b5775b722a",
+    "applications/csharp/010-csharpsquid_S1451-csharp.s1451.add-or-update-license-header": "14be9258e7181951d036cede7fbd5a1de58d97e6a7f92a9dbeb3e5b7fc1674f0",
+    "applications/csharp/011-csharpsquid_S1858-csharp.s1858.remove-redundant-tostring": "7ca589890ac987e8a57c2a6cd298fb94d847c02cd6909b157a6e70f8a99b386a",
+    "applications/csharp/012-csharpsquid_S1905-csharp.s1905.remove-redundant-cast": "a349c95b2009ea1b999385a49ec01379d826d18b8566ac45737947ebc8901401",
+    "applications/csharp/013-csharpsquid_S1939-csharp.s1939.remove-redundant-inheritance-entry": "8df7981ac9069fccff3b510f1ee33fda70d626ddbd884710f5e47df82915d885",
+    "applications/csharp/014-csharpsquid_S1940-csharp.s1940.invert-equality": "dad2262dc2c51ea201227c4d4e1ab4fe9222d200bc5807d4eca2d935264b99cf",
+    "applications/csharp/015-csharpsquid_S2219-csharp.s2219.use-is-pattern": "32a46dca5d54d9d467646d5038fb68f7d4896ee12390f21b082a842d9fe71335",
+    "applications/csharp/016-csharpsquid_S2290-csharp.s2290.remove-virtual": "c90981d4ea467c4ec599b9340cd7ecea457ea11248799cab2d19060a56938e26",
+    "applications/csharp/017-csharpsquid_S2328-csharp.s2328.remove-mutable-hash-reference": "019c3586a7d7d821a2760b473e3170047b5bb20432a47b9773f29fa211418fcf",
+    "applications/csharp/018-csharpsquid_S2333-csharp.s2333.remove-redundant-modifier": "4e2c1d895a319fbc6dc38a46d60004eb9fe7c0749fdac8895d0ae1a09345ccab",
+    "applications/csharp/019-csharpsquid_S2737-csharp.s2737.remove-redundant-catch": "0ed4d7dc6cc1e7d3b07f68fcc63e7be82fb789c5f95674829ce6726cdcc1f704",
+    "applications/csharp/020-csharpsquid_S2761-csharp.s2761.remove-repeated-prefix": "af1d64453dc4c85e90dc024f67b0fc638b991fb2d48208ae8bdf9e9ae8279c8e",
+    "applications/csharp/021-csharpsquid_S2933-csharp.s2933.add-readonly": "7c581ba6899ef7c2bc59c88ce544608bfe64bdf480f0d3ceb3ea51aff6f3da0d",
+    "applications/csharp/022-csharpsquid_S2934-csharp.s2934.add-reference-constraint": "ff1c18e4093d1bcbec5400878a7047eca0ac84a4bf3b590fcfdb78968c96bb52",
+    "applications/csharp/022-csharpsquid_S2934-csharp.s2934.remove-useless-assignment": "ad634533637185e5156e0919443473aea7b0051bb1c9d910df2d9624e55b3e4b",
+    "applications/csharp/023-csharpsquid_S2955-csharp.s2955.use-default-value": "19583fd3e1a72316bd65bfcbd6d780cb37605bd796e497f06c0bf57eb9e6feb1",
+    "applications/csharp/024-csharpsquid_S3005-csharp.s3005.remove-threadstatic-s3005-original-minimal-refusal": "5d6f27b1742e7f97b99d09d60431dcfdf7f243a026c44b489292445f44502c6d",
+    "applications/csharp/024-csharpsquid_S3005-csharp.s3005.remove-threadstatic-s3005-used-mutated-member": "7153418177df2e7d559b53a2ddba8cec8c1bb93c236ddf6e5b76b07d32f9c61c",
+    "applications/csharp/025-csharpsquid_S3052-csharp.s3052.remove-default-initializer": "ba5a6ce0370a2e01e7beb718afb1e076c10835374abcb32f1739d85572ccf5a4",
+    "applications/csharp/026-csharpsquid_S3169-csharp.s3169.change-orderby-to-thenby": "8148db116020ddb2122ef790d49a09ef616e0b0dfeee43940a9c55fb9d3ca407",
+    "applications/csharp/027-csharpsquid_S3217-csharp.s3217.change-foreach-type": "313e4edcd3ecdef89869dfecdbe47607aa6ae1f4cb7273f32fa21a3644c22088",
+    "applications/csharp/028-csharpsquid_S3234-csharp.s3234.remove-suppress-finalize": "0e6f4c72aa89b69328d6c44bca7dec8755c93fea90f848d2e2520dcfb414ff08",
+    "applications/csharp/029-csharpsquid_S3235-csharp.s3235.remove-redundant-parentheses": "16e2bb27575f2a399512ead37b4f95baa1adc2404e3e714a5b65c9a7d0f1a872",
+    "applications/csharp/030-csharpsquid_S3240-csharp.s3240.simplify-condition": "b76ec61553004be01cd1633a0fcc3e1c62bd2303e4f24974e38c7b66a89feaab",
+    "applications/csharp/031-csharpsquid_S3253-csharp.s3253.remove-redundant-constructor": "78100d24ea6d915975105dcf65eb19cc1bab7a4c98484fb44ad2c0292e5ff7f3",
+    "applications/csharp/032-csharpsquid_S3254-csharp.s3254.remove-default-argument": "ae638129c8d85c221a36317f6ac267fb4b9df3748cd7bd4689e8af148ec36a62",
+    "applications/csharp/032-csharpsquid_S3254-csharp.s3254.remove-default-arguments-with-names": "1a8183f54b57abc55cfa907204f62cd32f9f11747f490f00040425668e2453da",
+    "applications/csharp/033-csharpsquid_S3257-csharp.s3257.remove-array-element-type": "dfd68a6fb0962f21a273b58a069916c275060c537efe7357d03eeabfe18a3d3f",
+    "applications/csharp/034-csharpsquid_S3261-csharp.s3261.remove-empty-namespace": "01e1ad42775f915168d22f4a1ff5f14023295805eea69cc0cfe49a0e4e992295",
+    "applications/csharp/035-csharpsquid_S3262-csharp.s3262.add-params": "c8d4e176c15567c51bfda79ece7eaba762e6a593fb8c87dce52673bab2c9f2e9",
+    "applications/csharp/036-csharpsquid_S3265-csharp.s3265.add-flags-attribute": "c79cce8c6316f669c8b2bf73e1efbecd3661f41037c7cb2a50674d6f9502bd67",
+    "applications/csharp/037-csharpsquid_S3353-csharp.s3353.add-const": "aeb296d083012e8512df381f258608a3dc42a4262edc6268cbe1e5e93328fcb4",
+    "applications/csharp/038-csharpsquid_S3440-csharp.s3440.remove-useless-condition": "aa46e934a5715eab1dd1b918e6fd788a86c25a707557857fa9b4ee1971526f52",
+    "applications/csharp/039-csharpsquid_S3441-csharp.s3441.remove-anonymous-name": "cfd8dd251f1514d4592ae0118aa9c0eba466b20f6667f7ed8f36f094ae700223",
+    "applications/csharp/040-csharpsquid_S3445-csharp.s3445.use-bare-throw": "aff6bce0fc1f4eba80c3573adb7229e1035fe8960cc7a026057d3e6688d4dea9",
+    "applications/csharp/041-csharpsquid_S3447-csharp.s3447.remove-optional-attribute-s3447-original-minimal-refusal": "e0371bedce184fe726929be85eaa1cc3be71553d88eb7f4b135aabef689f7aef",
+    "applications/csharp/041-csharpsquid_S3447-csharp.s3447.remove-optional-attribute-s3447-used-member": "f9ed9397bccf2736fc2093b0b27c721dadf6a5322a747ae7834d91a0d2de5ab7",
+    "applications/csharp/042-csharpsquid_S3450-csharp.s3450.add-optional-attribute": "4078e379eebcb1d1f81da8735d6629b69ecdd9d67c4e174b937b375715b623f1",
+    "applications/csharp/043-csharpsquid_S3451-csharp.s3451.use-default-parameter-value-attribute": "389c094454131e36ab7be7a5bc4d6188c83451c7bf22f5a5e446eae8e074c954",
+    "applications/csharp/044-csharpsquid_S3456-csharp.s3456.remove-tochararray": "ec3ad03871d8e0bafcfbc8f6647e8d6efcf079272ea714f16e713e828b424223",
+    "applications/csharp/045-csharpsquid_S3458-csharp.s3458.remove-empty-case": "e0debd83d52e8425a64efe44688998975ee16d5efc3c24b875fdcbdf897cd982",
+    "applications/csharp/046-csharpsquid_S3532-csharp.s3532.remove-empty-default": "d923dc05181a18f3ea3666b404e8d043af012b684fe6da03b3482f1c58cd264b",
+    "applications/csharp/047-csharpsquid_S3600-csharp.s3600.remove-params": "91093fc42c1b898546d93b999711d75ba6d08e63a1bc6018453f49685bdf697b",
+    "applications/csharp/048-csharpsquid_S3604-csharp.s3604.remove-redundant-initializer": "6fb3f7b71253e5fb72aa10892829561ba681a0da190966a620725748d405b91f",
+    "applications/csharp/049-csharpsquid_S4201-csharp.s4201.remove-redundant-null-check": "d147f91ff668b5360394bac7ccdc771d434b4ba96450f96399f961d33026d1a4",
+    "applications/csharp/050-csharpsquid_S4581-csharp.s4581.use-guid-empty": "2d847a2349678c8a0f704aa169abaea44d164896c45ceb4414b4014171d32da3",
+    "applications/csharp/051-csharpsquid_S6610-csharp.s6610.convert-to-char": "ad4f57a2e1f0384ab8806c8d78da0f56bda6eed27af8eec4f26818c26cd8fc1a",
+    "applications/csharp/052-csharpsquid_S6613-csharp.s6613.use-linkedlist-property": "1394e1e6d849fc9269322f44ebbf61a74ed609c0976ef1247febaa6692d329ab",
+    "applications/csharp/053-csharpsquid_S6961-csharp.s6961.change-to-controllerbase": "c5821063f161a10af62e481b7a2bf1de8984d077ee85d73c5cb674c95d7a0617"
+  },
+  "historical_archive_sha256": "15780e9a10e65e0291af0df5d0d60365f7b88bb5c9bbc14681f5d407672363f6",
+  "historical_archive_preserved": true,
+  "limitations": [
+    "All 60 current native applications executed; frozen reference qualification is still blocked for 11 applications.",
+    "Two guard refusals retain raw failed harness states because frozen contracts expect application; no-write safety observations do not qualify upstream remedy application.",
+    "Missing frozen artifacts were not regenerated, substituted, or relabeled.",
+    "No full corpus parity claim."
+  ]
+}
