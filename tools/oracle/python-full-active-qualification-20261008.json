@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "scope": "all 398 active Python rules on the frozen Requests and Werkzeug real-project source inventories",
+  "reference": {
+    "sonarqube_version": "26.9.0.129388",
+    "python_plugin_version": "5.31 build 36502",
+    "source_commit": "f4ab8a54df0522ead664280a1f83d7109a35e96b"
+  },
+  "candidate_base_commit": "1fc9150b27843d5101190b08bccede37cee8acf3",
+  "binary_sha256": "662bde29b8f7c46df133b9b7167ac80ddef5d943fdbf1d0389822f6ac4fe356d",
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "command": [
+        "/Users/wakemeup/projects/openhoo/.targets/hoonarqube-python-remaining-20261007/debug/hoonarqube",
+        "analyze",
+        "src/requests",
+        "--format",
+        "json",
+        "--python-project",
+        "src"
+      ],
+      "exit_code": 0,
+      "project_complete": true,
+      "source_files_all_sha256_verified": true,
+      "active_rules": 398,
+      "native": 77,
+      "reference": 77,
+      "matched_exact_rule_path_range_message": 77,
+      "native_only": 0,
+      "reference_only": 0,
+      "comparison_sha256": "0563fb9f286775142d74365c4f1abfc390eb78a329895848a75ce2a3fba3440d",
+      "native_report_sha256": "554af3b9a99f24fd100446512cefe2575a156a7eb7f6408e415ec9031add1009",
+      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10",
+      "reference_active_rules_sha256": "5f7be56f121f8688e8251fbe229591ff1775fbb0920b2edcc336cf4a7868afd4",
+      "reference_source_inventory_sha256": "ce5e64c9c6026af15cbd5b7fd74364f469bc80a663c75166b89c75b8dd5a6362"
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "command": [
+        "/Users/wakemeup/projects/openhoo/.targets/hoonarqube-python-remaining-20261007/debug/hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--format",
+        "json",
+        "--python-project",
+        "src",
+        "--exclude",
+        "**/*.css"
+      ],
+      "exit_code": 0,
+      "project_complete": true,
+      "source_files_all_sha256_verified": true,
+      "active_rules": 398,
+      "native": 230,
+      "reference": 230,
+      "matched_exact_rule_path_range_message": 230,
+      "native_only": 0,
+      "reference_only": 0,
+      "comparison_sha256": "6b89b63a2a2ff0c954050efceebc0ea32cf0e76f8ff441717017db83176b25d7",
+      "native_report_sha256": "f6f9dcde3155563f4840dd29d03df23cb298ece61974decb3a9ea56d3de1c719",
+      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c",
+      "reference_active_rules_sha256": "cad9c251233cab179d1d6af8eff0291020effdd3700657868c39f004bd56f429",
+      "reference_source_inventory_sha256": "32f8564ecd96b12a367a4db87dbe880ad43b158f3b1e8e06f26c455cb74c1b85"
+    }
+  },
+  "verification": {
+    "python_tests_passed": 1295,
+    "python_clippy_all_targets": "exit 0 with warnings denied",
+    "cli_quickfix_safety_tests_passed": 5,
+    "cli_clippy_all_targets": "exit 0 with warnings denied"
+  },
+  "interpretation": "Exact finite detector qualification with explicit Python project context; reference captures are immutable live-container evidence. This receipt does not assert complete parity for every Python project, rule parameter, hotspot, metric, or quickfix.",
+  "project_context_modes_verified": [
+    ".",
+    "src"
+  ]
+}
