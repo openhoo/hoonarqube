@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "3f0ff673246c2486ce3122da6956066845b307b3",
+  "native_binary_sha256": "d7100117dd552f4b2d379e941de5b703db0a84b20b1ca9b6401c9fde95458d5c",
+  "claim": "S2681 primary identities and messages for fresh controls plus absence on pinned real projects",
+  "fresh_control_reference": {
+    "server_version": "26.9.0.129388",
+    "server_image_digest": "sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+    "source_commit": "61abfb03",
+    "issues_sha256": "47cc0d3be029ab8b655c034a7c37a332e537513c2b0ca9df7e39e31f92fe316c",
+    "files": 16,
+    "positive_specimens": 4,
+    "negative_specimens": 4,
+    "languages": [
+      "javascript",
+      "typescript"
+    ],
+    "matched": 8,
+    "native_only": 0,
+    "reference_only": 0,
+    "message_differences": []
+  },
+  "projects": {
+    "commander": {
+      "claim": "observed_identity_differences",
+      "native_total": 0,
+      "reference_total": 0,
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 0,
+      "complete": true,
+      "files": 7,
+      "report_sha256": "32162bf610a17d31a23db9eb91d2a378ea39ac2e6210ca699698feee41bddcb2",
+      "baseline_native_only": 5
+    },
+    "zod": {
+      "claim": "observed_identity_differences",
+      "native_total": 0,
+      "reference_total": 0,
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 0,
+      "complete": true,
+      "files": 125,
+      "report_sha256": "1836ba3f720af2291ff35c1d35b457a3384e75796cb5b303e588215197229343",
+      "baseline_native_only": 18
+    }
+  },
+  "checks": {
+    "tests": 1373,
+    "clippy_all_targets": "PASS",
+    "regression": "s2681_reports_only_following_statements_with_misleading_layout",
+    "original_defect": "Executed regression reports isolated multiline body incorrectly before correction; passes afterward."
+  },
+  "limitations": [
+    "Other unbraced-body rules remain independent.",
+    "No quickfix or secondary-flow qualification."
+  ]
+}
