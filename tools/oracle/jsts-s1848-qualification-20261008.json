@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "base_commit": "8f9f9c69b9498b325401b5353303f00692938a51",
+  "native_source_commit": "cd71ef69b344583c3264c459fec80f73629e8f23",
+  "native_binary_sha256": "cc13c769848ca975ebd48080a49aeff48c855984a36f8c24b466a9073ac534ec",
+  "rules": [
+    "S1848"
+  ],
+  "change": "Suppress discarded-constructor S1848 only when the NewExpression lies lexically inside an active try body. Catch/finally and outside allocations retain findings; S3984 remains independent.",
+  "checks": {
+    "tests": 1393,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "local_dogfood_S3776": 0,
+    "regression": "s1848_constructor_try_body_contexts_preserve_unused_allocations",
+    "red": "Executed regression emitted S1848 for try/new URL/catch instead of remaining clean.",
+    "green": "JS and TS constructor probes clean inside try bodies, including generic, alias, nested block and nested function/arrow forms. Ordinary allocations outside try, in catch/finally and after try retain exact primary/messages. Existing S3984 error emission retained."
+  },
+  "fresh_reference_contract": {
+    "source_commit": "aa888f408468a784d283e32c22d6b8f0713b4d69",
+    "functions": 15,
+    "constructor_expressions": 15,
+    "issues_sha256": "8955e1eeb1600fa0c4953903fbd9aeb009e32f877a55be4d4f32bdf851e979d0",
+    "active_rules_sha256": "1fc65fb85447e4bd31626e33f997af85b569c2d589442db547514e3064b8677d",
+    "source_sha256": "34866a24fce9712fef2260db1b7864c2455bd5c69f4fb2e6db0a410d74a5d0d8",
+    "native_report_sha256": "2158276c8af6223cd063b5644166f7621c0e101ab1817ac06d88fc3c80cd81db",
+    "baseline_report_sha256": "0dc477b7806d9bb5c54e0f14777720ec68f21cb7af986fe59e3a924758997a1f",
+    "comparison": {
+      "native_total": 6,
+      "reference_total": 6,
+      "matched": 6,
+      "native_only": 0,
+      "reference_only": 0
+    },
+    "exact_primary_messages": [
+      {
+        "identity": [
+          "typescript:S1848",
+          "cases.ts",
+          2,
+          29,
+          2,
+          42
+        ],
+        "message": "Either remove this useless object instantiation of \"Allocated\" or use it."
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "cases.ts",
+          3,
+          44,
+          3,
+          51
+        ],
+        "message": "Either remove this useless object instantiation of \"URL\" or use it."
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "cases.ts",
+          4,
+          36,
+          4,
+          48
+        ],
+        "message": "Either remove this useless object instantiation of \"Function\" or use it."
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "cases.ts",
+          5,
+          53,
+          5,
+          58
+        ],
+        "message": "Either remove this useless object instantiation of \"F\" or use it."
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "cases.ts",
+          10,
+          61,
+          10,
+          74
+        ],
+        "message": "Either remove this useless object instantiation of \"Allocated\" or use it."
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "cases.ts",
+          11,
+          65,
+          11,
+          78
+        ],
+        "message": "Either remove this useless object instantiation of \"Allocated\" or use it."
+      }
+    ],
+    "full_all_rule_primary_delta": {
+      "removed_S1848": 8,
+      "added": 0,
+      "other_changes": 0
+    },
+    "basis": "Reference exempts lexical try-body instantiations even for generic constructors, try/finally without catch, and delayed/invoked nested functions. Six outside/catch/finally discarded allocations remain findings."
+  },
+  "zod_reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822"
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 679,
+    "reference_total": 594,
+    "matched": 587,
+    "native_only": 92,
+    "reference_only": 7,
+    "complete": true,
+    "files": 125,
+    "removed_identities": [
+      {
+        "identity": [
+          "typescript:S1848",
+          "packages/zod/src/v3/types.ts",
+          880,
+          10,
+          880,
+          17
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "packages/zod/src/v4/core/schemas.ts",
+          531,
+          4,
+          531,
+          11
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S1848",
+          "packages/zod/src/v4/core/util.ts",
+          530,
+          4,
+          530,
+          9
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "added_identities": [],
+    "before_native_total": 682,
+    "before_matched": 587,
+    "before_native_only": 95,
+    "before_reference_only": 7,
+    "report_sha256": "3b9dabb1014996559923919b898c392275abb033aea0c7d2917ebcd4b4e2fe85",
+    "baseline_report_sha256": "b0751cb58965fd5dabb8475fdf14dafdf7097c8a8ca6859aaee46aef12d076bb",
+    "baseline_binary_sha256": "2379ea3ccb2a4260394a1e3140cb7ad202024e8da93f23f804d613563d524284",
+    "baseline_source_commit": "2bbb1571a96f52d61d6e31a39ec5ebf9fec59786",
+    "baseline_jsts_tree_equal_to_base": "7370bf406bf4d22769e73c32bb531d32c945056d",
+    "full_all_rule_primary_delta": {
+      "removed_S1848": 3,
+      "added": 0,
+      "other_changes": 0
+    }
+  },
+  "limitations": [
+    "Qualification establishes the observed lexical reference exemption, not a general proof that every constructor inside try is a throwing validator.",
+    "Nested function/arrow allocations lexically inside try remain exempt, including delayed callbacks, matching actual captured reference behavior.",
+    "No constructor-name suppression introduced; unused URL/Function/alias allocations outside try remain positive.",
+    "No quickfix or runtime mutation policy changed.",
+    "Seven reference-only identities and92 native-only observations remain unresolved on this candidate."
+  ]
+}

@@ -1,4 +1,4 @@
 function Gauge() {
-  console.log(this);
+  console.log(this.value);
   return <span></span>;
 }
