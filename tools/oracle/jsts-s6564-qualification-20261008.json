@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "43cb252dc0bb9fec1ce051fe89d585c2f7acf2fd",
+  "native_binary_sha256": "4f1b3a5c46f1d23dbdd5f0ccf97199d9f5735b5fcb5ce15badc577908aab82a6",
+  "rules": [
+    "S6564"
+  ],
+  "checks": {
+    "tests": 1383,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "regression": "s6564_reports_alias_name_and_referenced_type_message",
+    "red": "Executed regression found RHS start 2:20 instead of alias-name start 2:12.",
+    "green": "Simple and qualified references use alias-name primaries and referenced-type messages; type arguments, unions, intersections and object aliases remain clean."
+  },
+  "reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+    "basis": "Two frozen Zod redundant alias findings use alias identifiers as primaries and quote their referenced types in messages."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 684,
+    "reference_total": 594,
+    "matched": 582,
+    "native_only": 102,
+    "reference_only": 12,
+    "complete": true,
+    "files": 125,
+    "target_primary_messages_exact": [
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/json-schema.ts",
+          120,
+          12,
+          120,
+          22
+        ],
+        "message": "Remove this redundant type alias and replace its occurrences with \"JSONSchema\"."
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/schemas.ts",
+          4808,
+          12,
+          4808,
+          26
+        ],
+        "message": "Remove this redundant type alias and replace its occurrences with \"$ZodFunctionArgs\"."
+      }
+    ],
+    "removed_identities": [
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v3/helpers/util.ts",
+          102,
+          28,
+          102,
+          29
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/compat.ts",
+          11,
+          39,
+          11,
+          53
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/compat.ts",
+          75,
+          26,
+          75,
+          40
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/errors.ts",
+          6,
+          23,
+          6,
+          37
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/errors.ts",
+          94,
+          24,
+          94,
+          41
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/json-schema.ts",
+          120,
+          25,
+          120,
+          35
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/schemas.ts",
+          4808,
+          29,
+          4808,
+          45
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/schemas.ts",
+          4809,
+          30,
+          4809,
+          38
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/util.ts",
+          190,
+          26,
+          190,
+          27
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/visit.ts",
+          9,
+          14,
+          9,
+          30
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/mini/schemas.ts",
+          7,
+          16,
+          7,
+          29
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "added_identities": [
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v3/helpers/util.ts",
+          102,
+          14,
+          102,
+          22
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/compat.ts",
+          11,
+          12,
+          11,
+          36
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/compat.ts",
+          75,
+          12,
+          75,
+          23
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/errors.ts",
+          6,
+          12,
+          6,
+          20
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/classic/errors.ts",
+          94,
+          12,
+          94,
+          21
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/json-schema.ts",
+          120,
+          12,
+          120,
+          22
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/schemas.ts",
+          4808,
+          12,
+          4808,
+          26
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/schemas.ts",
+          4809,
+          12,
+          4809,
+          27
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/util.ts",
+          190,
+          12,
+          190,
+          20
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/core/visit.ts",
+          9,
+          5,
+          9,
+          11
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6564",
+          "packages/zod/src/v4/mini/schemas.ts",
+          7,
+          5,
+          7,
+          13
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "before_matched": 580,
+    "before_native_only": 104,
+    "before_reference_only": 14,
+    "report_sha256": "97813c90a3a58fef90e3272d9bf7d7f80b09de92823c1ab536ccd22b46f094cd",
+    "baseline_report_sha256": "552188baaf13e5de77eb28f202409a1870941789cbb75ce1a5af847e2699a174",
+    "full_all_rule_primary_delta": {
+      "removed_S6564_RHS": 11,
+      "added_S6564_alias_name": 11,
+      "other_changes": 0,
+      "diagnostic_count_unchanged": true
+    }
+  },
+  "limitations": [
+    "Detector eligibility is unchanged; nine S6564 native-only policy observations remain at corrected alias-name primaries.",
+    "No new reference scan or quickfix qualification; evidence uses frozen Zod source and actual captured reference.",
+    "Twelve reference-only identities and 102 native-only observations remain unresolved in this isolated JS/TS worktree."
+  ]
+}
