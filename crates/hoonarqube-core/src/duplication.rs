@@ -848,7 +848,81 @@ impl MatchEngine<'_> {
                 .ok_or_else(|| "duplication window index changed unexpectedly".to_owned())?;
             self.process_bucket(key, references)?;
         }
+        self.complete_token_line_relations(index)?;
         Ok(std::mem::take(&mut self.groups))
+    }
+
+    fn complete_token_line_relations(
+        &mut self,
+        index: &HashMap<WindowKey, Vec<WindowRef>>,
+    ) -> Result<(), String> {
+        for group_index in 0..self.groups.len() {
+            let group = &self.groups[group_index];
+            if !uses_token_lines(group.language) {
+                continue;
+            }
+            let representative = group.representative;
+            let length = group.length;
+            let key = WindowKey {
+                language: group.language,
+                length: self.options.min_lines as usize,
+                hash_a: range_hash(
+                    &self.files[representative.file].prefix_a,
+                    self.powers_a,
+                    representative.start,
+                    self.options.min_lines as usize,
+                ),
+                hash_b: range_hash(
+                    &self.files[representative.file].prefix_b,
+                    self.powers_b,
+                    representative.start,
+                    self.options.min_lines as usize,
+                ),
+            };
+            let Some(candidates) = index.get(&key) else {
+                continue;
+            };
+            for &candidate in candidates {
+                self.complete_group_occurrence(group_index, representative, candidate, length)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn complete_group_occurrence(
+        &mut self,
+        group_index: usize,
+        representative: TokenOccurrence,
+        candidate: WindowRef,
+        length: usize,
+    ) -> Result<(), String> {
+        self.budget.charge(1)?;
+        let file = &self.files[candidate.file];
+        if length > file.ids.len().saturating_sub(candidate.start) {
+            return Ok(());
+        }
+        let occurrence = make_occurrence(candidate.file, candidate.start, length)?;
+        if self.groups[group_index]
+            .occurrence_set
+            .contains(&occurrence)
+        {
+            return Ok(());
+        }
+        if !equal_ids(
+            &self.files[representative.file],
+            representative.start,
+            file,
+            candidate.start,
+            length,
+            &mut self.budget,
+        )? || !eligible_span(file.language, file, candidate.start, length, self.options)?
+        {
+            return Ok(());
+        }
+        let group = &mut self.groups[group_index];
+        group.occurrence_set.insert(occurrence);
+        group.occurrences.push(occurrence);
+        Ok(())
     }
 
     fn process_bucket(&mut self, key: WindowKey, references: &[WindowRef]) -> Result<(), String> {
@@ -1822,6 +1896,43 @@ mod tests {
         for occurrence in &result.groups[0].occurrences {
             assert_eq!((occurrence.start_line, occurrence.end_line), (1, 16));
         }
+    }
+
+    #[test]
+    fn javascript_clone_relations_include_occurrences_inside_longer_matches() {
+        let common: Vec<String> = (0..20).map(|index| format!("shared{index}")).collect();
+        let mut symbols = vec!["prefix", "different", "suffix", "other"];
+        symbols.extend(common.iter().map(String::as_str));
+        let make_file = |path: &str, prefix: &str, suffix: &str| {
+            let mut units = vec![(prefix, 1, 1)];
+            units.extend(common.iter().enumerate().map(|(index, image)| {
+                (
+                    image.as_str(),
+                    u32::try_from(index + 2).unwrap(),
+                    u32::try_from(index + 2).unwrap(),
+                )
+            }));
+            units.push((suffix, 22, 22));
+            file(path, Language::JavaScript, &symbols, &units, 22)
+        };
+        let inputs = [
+            make_file("a.js", "prefix", "suffix"),
+            make_file("b.js", "prefix", "other"),
+            make_file("c.js", "different", "suffix"),
+        ];
+        let result = detect_duplications(&inputs, &options(10, 10)).expect("complete");
+        let common_group = result
+            .groups
+            .iter()
+            .find(|group| {
+                group
+                    .occurrences
+                    .iter()
+                    .any(|occurrence| occurrence.start_line == 2 && occurrence.end_line == 21)
+            })
+            .expect("common clone relation");
+        assert_eq!(common_group.occurrences.len(), 3);
+        assert_eq!(result.metrics.duplicated_blocks, 7);
     }
 
     fn prepared(path: &str) -> PreparedFile {
