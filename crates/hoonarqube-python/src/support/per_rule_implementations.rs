@@ -4,10 +4,12 @@ use crate::AnalyzerOptions;
 use crate::engine::rx::RegexSite;
 use crate::engine::rx::RxParsed;
 use crate::engine::rx::RxUnit;
+use crate::rules::redundancy_locations;
 use crate::rules::rx_repetition_hazards::check_rx_repetition_hazards;
 use crate::rules::rx_style_shapes::check_rx_style_shapes;
 use crate::rules::rx_syntax_shapes::check_rx_syntax_shapes;
 use crate::support::issue_at;
+use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
 use ruff_text_size::TextRange;
@@ -33,7 +35,19 @@ pub(crate) fn run_structural_regex_rules(
         } else {
             span
         };
-        issues.push(issue_at(key, message, span, index, source));
+        let mut issue = issue_at(key, message, span, index, source);
+        if key == "python:S5855" {
+            issue.flows = redundancy_locations(&parsed.root, span)
+                .into_iter()
+                .map(|(message, range)| hoonarqube_ir::IssueFlow {
+                    locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                        message,
+                        to_range(range, index, source),
+                    )],
+                })
+                .collect();
+        }
+        issues.push(issue);
     };
     check_rx_syntax_shapes(parsed, units, site.verbose, &mut push);
     check_rx_repetition_hazards(parsed, site.match_type, &mut push);

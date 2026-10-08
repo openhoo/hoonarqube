@@ -395,6 +395,7 @@ use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
+pub(crate) use rx_redundant_alternatives::redundancy_locations;
 
 // ---------------------------------------------------------------------------
 // Battery aggregation: every Tier-A entry #48–#110 in artifact order.
