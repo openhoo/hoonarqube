@@ -52,6 +52,7 @@ mod s7737_object_default_param;
 mod s7740_this_assignment;
 mod s7741_typeof_undefined;
 mod s7742_unnecessary_polyfills;
+mod s7743_parenthesized_arrow_iife;
 mod s7744_useless_fallback_spread;
 mod s7746_useless_promise_resolve_reject;
 mod s7751_prefer_array_flat;
@@ -135,6 +136,7 @@ pub(crate) fn run_all(ctx: &AnalysisContext) -> Vec<Issue> {
     issues.extend(s8754_unique_test_titles::check(ctx));
     issues.extend(s7737_object_default_param::check(ctx));
     issues.extend(s7741_typeof_undefined::check(ctx));
+    issues.extend(s7743_parenthesized_arrow_iife::check(ctx));
     issues.extend(s7744_useless_fallback_spread::check(ctx));
     issues.extend(s7746_useless_promise_resolve_reject::check(ctx));
     issues.extend(s7751_prefer_array_flat::check(ctx));
