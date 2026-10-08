@@ -5583,3 +5583,43 @@ pattern = re.compile(r"""
     assert_eq!(issues[0].range.start.column, 5);
     assert_eq!(issues[0].range.end.column, 7);
 }
+
+#[test]
+fn current_reference_messages_include_binding_names_and_alias_guidance() {
+    let report = scan(concat!(
+        "from typing import Generic, TypeVar, TypeAlias\n",
+        "T = TypeVar('T')\n",
+        "Alias: TypeAlias = int\n",
+        "class C(Generic[T]):\n    pass\n",
+        "def f():\n",
+        "    badName = 1\n",
+        "    extra, kept = (1, [1, 2])\n",
+        "    return [value for value in kept], badName\n",
+    ));
+    for (key, message) in [
+        (
+            "python:S117",
+            "Rename this local variable \"badName\" to match the regular expression ^[_a-z][a-z0-9_]*$.",
+        ),
+        (
+            "python:S1481",
+            "Replace the unused local variable \"extra\" with \"_\".",
+        ),
+        (
+            "python:S6792",
+            "Use the \"type\" parameter syntax to declare this generic class.",
+        ),
+        (
+            "python:S6794",
+            "Use a \"type\" statement instead of this \"TypeAlias\".",
+        ),
+        (
+            "python:S7500",
+            "Replace this comprehension with passing the iterable to the collection constructor call",
+        ),
+    ] {
+        let found = findings(&report, key);
+        assert!(!found.is_empty(), "missing {key}");
+        assert_eq!(found[0].message, message, "{key}");
+    }
+}

@@ -437,7 +437,9 @@ pub fn analyze_with_context(
     issues.extend(check_license_header(options, source));
     issues.extend(check_module_name(path.as_path(), &index, source));
     issues.extend(check_hardcoded_ips(&parsed, &index, source));
-    issues.extend(check_cleartext_protocols(&parsed, &index, source, &file_ctx));
+    issues.extend(check_cleartext_protocols(
+        &parsed, &index, source, &file_ctx,
+    ));
     issues.extend(check_hardcoded_credentials(
         &parsed, &index, source, &file_ctx,
     ));

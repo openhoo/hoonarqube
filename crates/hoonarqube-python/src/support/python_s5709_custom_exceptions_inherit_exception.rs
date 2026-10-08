@@ -99,7 +99,7 @@ fn flag_flow_jump(
     index: &LineIndex,
     source: &str,
 ) {
-    if state.finally_depth > 0 {
+    if state.finally_depth > 0 && state.loop_depth <= state.finally_loop_depth {
         issues.push(issue_at(
             "python:S1143",
             match stmt {

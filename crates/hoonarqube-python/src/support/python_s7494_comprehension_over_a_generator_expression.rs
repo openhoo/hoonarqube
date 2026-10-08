@@ -36,7 +36,7 @@ pub(crate) fn flag_copy_only(
     {
         issues.push(issue_at(
             "python:S7500",
-            "Copy the iterable directly instead of using a comprehension that only renames.",
+            "Replace this comprehension with passing the iterable to the collection constructor call",
             range,
             index,
             source,
