@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "candidate_base_commit": "c920929cd8a9d635bbd25cb4f37738b2ebad08cd",
+  "binary_sha256": "b5271f7182bf274a2e4ba2290f9649483bb86ced0b4f30d3c60d7bc54a92049d",
+  "reference": "Frozen SonarQube26.9.0.129388 source-backed captures; Python plugin5.31 build36502",
+  "comparison_contract": "Canonical secondary_locations.py: unordered flows, ordered locations inside each flow, multiplicity preserved",
+  "verification": {
+    "red": "Duplication regression failed because two occurrences were incorrectly grouped into one flow",
+    "focused_tests_passed": 3,
+    "python_clippy_all_targets": "exit0 with warnings denied"
+  },
+  "regressions": [
+    "s1192_groups_duplicates_file_wide_with_primary_at_first_occurrence",
+    "s1192_exclusion_regex_suppresses_matches",
+    "s1192_sees_duplicates_inside_pep695_type_aliases"
+  ],
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 77,
+      "s1192_canonical_comparison": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "rules": [
+          "python:S1192"
+        ],
+        "native_findings": 0,
+        "reference_findings": 0,
+        "matched_findings": 0,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 0,
+        "reference_supporting_locations": 0,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations",
+        "differences": []
+      },
+      "remaining_canonical_flow_mismatches_by_rule": {
+        "python:S5713": 1,
+        "python:S5797": 1
+      },
+      "native_report_sha256": "1c0951d45c98d131c719aab9def25da8ed48e16c5515c2720ebd8e5ebdefbaf2",
+      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10"
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 230,
+      "s1192_canonical_comparison": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "rules": [
+          "python:S1192"
+        ],
+        "native_findings": 8,
+        "reference_findings": 8,
+        "matched_findings": 8,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 17,
+        "reference_supporting_locations": 17,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations",
+        "differences": []
+      },
+      "remaining_canonical_flow_mismatches_by_rule": {
+        "python:S5806": 1,
+        "python:S5843": 3,
+        "python:S5855": 1,
+        "python:S5869": 1,
+        "python:S5890": 1
+      },
+      "native_report_sha256": "2dd25c698c770d85c3ac2d2d671204ff975dadca7d0b545bb434bd16cd35f33a",
+      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c"
+    }
+  }
+}

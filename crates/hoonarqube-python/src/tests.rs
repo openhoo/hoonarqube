@@ -354,11 +354,16 @@ fn s1192_groups_duplicates_file_wide_with_primary_at_first_occurrence() {
             "Define a constant instead of duplicating this literal \"dup value\" 3 times."
         )
     );
-    assert_eq!(primary[0].flows.len(), 1);
-    let locations = &primary[0].flows[0].locations;
-    assert_eq!(locations.len(), 2);
-    assert_eq!(locations[0].range.start.line, 2);
-    assert_eq!(locations[1].range.start.line, 3);
+    assert_eq!(primary[0].flows.len(), 2);
+    for (flow, line) in primary[0].flows.iter().zip([2, 3]) {
+        assert_eq!(flow.locations.len(), 1);
+        let location = &flow.locations[0];
+        assert_eq!(location.message, "Duplication");
+        assert_eq!(location.range.start.line, line);
+        assert_eq!(location.range.end.line, line);
+        assert_eq!(location.range.start.column, 4);
+        assert_eq!(location.range.end.column, 15);
+    }
 
     let class_body =
         scan("class C:\n    a = \"dup value\"\n    b = \"dup value\"\n    c = \"dup value\"\n");
