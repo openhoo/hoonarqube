@@ -15,8 +15,8 @@ pub(crate) fn check_rx_repetition_hazards(
     parsed: &RxParsed,
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
+    check_rx_lazy_quantifiers(&parsed.root, push);
     for_each_rx_seq_deep(&parsed.root, &mut |seq| {
-        check_rx_lazy_quantifiers(seq, push);
         check_rx_possessive_deadlock(seq, push);
     });
     // python:S5852 — nested ambiguous repetition inside an open-ended
