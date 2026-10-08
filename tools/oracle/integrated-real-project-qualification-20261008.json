@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "source_head": "f3a45263a20973b00267d842b52398424de68ca1",
+  "binary_sha256": "55cb30dea94edb8b9f15355a390c13dff1e08f021c7fe13a8c8cb8cbfda7f7be",
+  "reference_version": "26.9.0.129388",
+  "projects": {
+    "requests": {
+      "project_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "src/requests",
+        "--format",
+        "json",
+        "--python-project",
+        "src"
+      ],
+      "complete": true,
+      "files": 19,
+      "active_rules": 398,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 77,
+        "reference_total": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 77,
+        "reference": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "report_sha256": "554af3b9a99f24fd100446512cefe2575a156a7eb7f6408e415ec9031add1009",
+      "reference_sha256": "6c9c8757abb1eb19332a9d75b16a5ca037e7445d8736b1ed8d5890cd357a0f1c"
+    },
+    "werkzeug-python": {
+      "project_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--format",
+        "json",
+        "--python-project",
+        "src",
+        "--exclude",
+        "**/*.css"
+      ],
+      "complete": true,
+      "files": 53,
+      "active_rules": 398,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 230,
+        "reference_total": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 230,
+        "reference": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 32,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 0.14703855167026605
+      },
+      "report_sha256": "f6f9dcde3155563f4840dd29d03df23cb298ece61974decb3a9ea56d3de1c719",
+      "reference_sha256": "ef367d964f28a0bc0dc05c524040b53d44d3e427e0e8d283704c3bc25c3bb235"
+    },
+    "commander": {
+      "project_commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "index.js",
+        "lib",
+        "--format",
+        "json",
+        "--typescript-project",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/commander-tsconfig.json",
+        "--typescript-module",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/compiler/node_modules/typescript"
+      ],
+      "complete": true,
+      "files": 7,
+      "active_rules": 420,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 51,
+        "reference_total": 36,
+        "matched": 36,
+        "native_only": 15,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 51,
+        "reference": 36,
+        "matched": 35,
+        "native_only": 16,
+        "reference_only": 1
+      },
+      "duplication": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "report_sha256": "668b82f9b980ce775131f2d51652b50a137cf90907f1b42b6b1415d5048c2425",
+      "reference_sha256": "567371382795bd112d968d2474d62a3b6114a93d20fd9ef3ec0802bc9b10ad7f"
+    },
+    "chi": {
+      "project_commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        ".",
+        "--format",
+        "json",
+        "--exclude",
+        "**/*_test.go",
+        "--exclude",
+        "_examples/**"
+      ],
+      "complete": true,
+      "files": 35,
+      "active_rules": 22,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 14,
+        "reference_total": 14,
+        "matched": 14,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 14,
+        "reference": 14,
+        "matched": 14,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 56,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 1.2626832018038332
+      },
+      "report_sha256": "01168959e4208ed910059e8cb675cbcce3d5d58af60f1957e808493dc365a44e",
+      "reference_sha256": "105e970344689232ddc803a246fd1f827c764714b0b09ba61cf8689a6f45afc7"
+    },
+    "zod": {
+      "project_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "packages/zod/src",
+        "--format",
+        "json",
+        "--typescript-project",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/projects/zod/tsconfig.json",
+        "--typescript-module",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/compiler/node_modules/typescript",
+        "--exclude",
+        "**/tests/**",
+        "--exclude",
+        "**/benchmarks/**"
+      ],
+      "complete": true,
+      "files": 125,
+      "active_rules": 435,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 685,
+        "reference_total": 594,
+        "matched": 533,
+        "native_only": 152,
+        "reference_only": 61
+      },
+      "exact_range_and_message": {
+        "native": 685,
+        "reference": 594,
+        "matched": 465,
+        "native_only": 220,
+        "reference_only": 129
+      },
+      "duplication": {
+        "duplicated_lines": 5084,
+        "duplicated_blocks": 1130,
+        "duplicated_files": 68,
+        "duplicated_lines_density": 13.431968295904886
+      },
+      "report_sha256": "18b8652b2357a6afe4d5a645e25cca93ddf36ebc7ae72f0513a5ddf876dcb24b",
+      "reference_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+      "clone_relations": {
+        "claim": "clone_relation_file_and_inclusive_line_multiset",
+        "native_groups": 70,
+        "reference_groups": 70,
+        "matched_groups": 70,
+        "native_only": [],
+        "reference_only": [],
+        "matched": true
+      }
+    }
+  },
+  "claim": "pinned_five_project_observed_identity_message_metric_and_duplication_comparisons",
+  "limitations": [
+    "Captured SonarQube Community Build scopes, not full corpus or Enterprise sensor parity.",
+    "Active profile finding identities and message equality are separate dimensions; rules inactive in reference are excluded only for active profile comparison.",
+    "TypeScript contexts explicitly supplied for Commander and Zod.",
+    "Python all-398-active comparison covers primary findings; secondary flows have independent residuals.",
+    "Historical quickfix replay failures remain distinct from current contract checks."
+  ],
+  "verification": {
+    "rust_core_tests": 154,
+    "rust_jsts_tests": 1370,
+    "rust_python_tests": 1295,
+    "rust_cli_unit_tests": 133,
+    "rust_cli_quickfix_tests": 5,
+    "rust_cli_semantic_tests": 2,
+    "oracle_tests": 178,
+    "python_current_quickfix_contracts": 16,
+    "clippy": "selected_changed_packages_all_targets_warnings_denied"
+  }
+}

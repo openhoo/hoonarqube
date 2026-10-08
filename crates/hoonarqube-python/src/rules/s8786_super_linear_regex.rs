@@ -1,11 +1,13 @@
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
+use ruff_text_size::TextRange;
+use std::collections::HashMap;
 
 use crate::engine::file_context::FileContext;
 use crate::engine::rx::{
-    RxAtom, RxGroupKind, RxItem, RxMatchType, RxNode, RxSeq, RxSet, collect_regex_sites,
-    parse_regex, rx_atom_first_set, rx_atom_nullable, rx_atom_zero_width, rx_is_unbounded_repeat,
-    rx_sets_intersect,
+    RxAtom, RxGroupKind, RxItem, RxMatchType, RxNode, RxSeq, collect_regex_sites, parse_regex,
+    regex_node_range, rx_atom_first_set, rx_atom_nullable, rx_atom_zero_width,
+    rx_is_unbounded_repeat, rx_sets_intersect,
 };
 use crate::support::issue_at;
 
@@ -36,9 +38,6 @@ pub(crate) fn check_s8786_super_linear_regex(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for site in collect_regex_sites(file_ctx.module_body, source) {
-        if site.verbose {
-            continue;
-        }
         let Some(units) = &site.pattern else {
             continue;
         };
@@ -49,7 +48,14 @@ pub(crate) fn check_s8786_super_linear_regex(
             issues.push(issue_at(
                 RULE_KEY,
                 MESSAGE,
-                site.pattern_range,
+                TextRange::new(
+                    regex_node_range(&parsed.root).start(),
+                    if trailing_repetition(&parsed.root) {
+                        site.content_end
+                    } else {
+                        regex_node_range(&parsed.root).end()
+                    },
+                ),
                 index,
                 source,
             ));
@@ -58,15 +64,57 @@ pub(crate) fn check_s8786_super_linear_regex(
     issues
 }
 
+fn trailing_repetition(node: &RxNode) -> bool {
+    match node {
+        RxNode::Seq(seq) => seq.items.last().is_some_and(|item| item.quant.is_some()),
+        RxNode::Alternation(branches) => branches
+            .last()
+            .is_some_and(|seq| seq.items.last().is_some_and(|item| item.quant.is_some())),
+    }
+}
+
 fn has_super_linear_pair(node: &RxNode, match_type: RxMatchType) -> bool {
     let full = matches!(match_type, RxMatchType::Full | RxMatchType::Both);
     let partial = matches!(match_type, RxMatchType::Partial | RxMatchType::Both);
+    let mut continuations = HashMap::new();
+    collect_continuations(node, false, true, &mut continuations);
     for lin in node_linearizations(node) {
-        if seq_has_super_linear(&lin, partial, full) {
+        if seq_has_super_linear(&lin, partial, full, &continuations) {
             return true;
         }
     }
     false
+}
+
+/// Preserve facts about every forward branch before paths are expanded.
+/// A successful empty branch makes the continuation unable to fail in
+/// free-end matching, even when a different branch consumes a separator.
+pub(crate) fn collect_continuations(
+    node: &RxNode,
+    outer_anchored: bool,
+    outer_nullable: bool,
+    facts: &mut HashMap<TextRange, (bool, bool)>,
+) {
+    let branches = match node {
+        RxNode::Seq(seq) => std::slice::from_ref(seq),
+        RxNode::Alternation(branches) => branches.as_slice(),
+    };
+    for seq in branches {
+        let mut anchored = outer_anchored;
+        let mut nullable = outer_nullable;
+        for item in seq.items.iter().rev() {
+            facts.insert(item.span, (anchored, nullable));
+            if let RxAtom::Group(group) = &item.atom
+                && item.quant.is_none()
+                && matches!(group.kind, RxGroupKind::Capture | RxGroupKind::NonCapture)
+            {
+                collect_continuations(&group.body, anchored, nullable, facts);
+            }
+            anchored |= item.quant.as_ref().is_none_or(|quant| quant.min > 0)
+                && node_has_end_anchor(&item.atom);
+            nullable &= item_is_nullable(item);
+        }
+    }
 }
 
 /// All linearizations of a node: transparent (capture/non-capture) groups
@@ -122,7 +170,12 @@ fn expand_item(item: &RxItem) -> Vec<Vec<&RxItem>> {
     vec![vec![item]]
 }
 
-fn seq_has_super_linear(lin: &[&RxItem], partial: bool, full: bool) -> bool {
+fn seq_has_super_linear(
+    lin: &[&RxItem],
+    partial: bool,
+    full: bool,
+    continuations: &HashMap<TextRange, (bool, bool)>,
+) -> bool {
     // Sonar keeps a deque of the last ten active non-possessive
     // repetitions; each new active repetition is checked against every
     // earlier one still in the deque.
@@ -131,7 +184,7 @@ fn seq_has_super_linear(lin: &[&RxItem], partial: bool, full: bool) -> bool {
         if !rx_is_unbounded_repeat(item) || is_zero_width(item) {
             continue;
         }
-        if !repetition_active(lin, index, full) {
+        if !repetition_active(lin, index, full, continuations) {
             continue;
         }
         if partial && reachable_from_start(lin, index) {
@@ -150,28 +203,24 @@ fn seq_has_super_linear(lin: &[&RxItem], partial: bool, full: bool) -> bool {
     false
 }
 
-fn repetition_active(lin: &[&RxItem], index: usize, full: bool) -> bool {
+fn repetition_active(
+    lin: &[&RxItem],
+    index: usize,
+    full: bool,
+    continuations: &HashMap<TextRange, (bool, bool)>,
+) -> bool {
     let item = lin[index];
     if item.quant.as_ref().is_some_and(|quant| quant.possessive) {
         return false;
     }
-    let rest = &lin[index + 1..];
-    // Match-all repetitions always run free-end: they cannot fail when the
-    // rest reaches the end without consuming input.
+    let (anchored, nullable) = continuations
+        .get(&item.span)
+        .copied()
+        .unwrap_or((false, false));
     if is_match_all(&item.atom) {
-        return !can_reach_end(rest);
+        return !nullable;
     }
-    let free_end = !full && !anchored_at_end(rest);
-    // Free-end mode: canFail is the reachability check. Strict mode (full
-    // match or anchored at the end): every state can fail.
-    !free_end || !can_reach_end(rest)
-}
-
-/// Whether every forward path from `rest` hits an end boundary (`$`,
-/// `\Z`, `\z`) before the final state. For a linearized sequence this is
-/// "some remaining item is an end anchor" — lookaround bodies count too.
-fn anchored_at_end(rest: &[&RxItem]) -> bool {
-    rest.iter().any(|item| node_has_end_anchor(&item.atom))
+    full || anchored || !nullable
 }
 
 fn node_has_end_anchor(atom: &RxAtom) -> bool {
@@ -194,50 +243,6 @@ fn node_body_has_end_anchor(node: &RxNode) -> bool {
     }
 }
 
-/// `canReachWithoutConsumingInput(state, endOfRegex)`: the rest can reach
-/// the end through epsilon/negation/boundary transitions only. Every item
-/// must be skippable; a lookaround is skippable when some body branch can
-/// reach its own end without consuming (Sonar's `EndOfLookaroundState`
-/// quirk). After an end boundary, line breaks and DOTALL dots also
-/// traverse.
-fn can_reach_end(rest: &[&RxItem]) -> bool {
-    let mut saw_end_boundary = false;
-    for item in rest {
-        if item_is_nullable(item) {
-            continue;
-        }
-        match &item.atom {
-            RxAtom::Anchor(anchor) => {
-                if anchor.is_end() {
-                    saw_end_boundary = true;
-                }
-            }
-            RxAtom::Group(group)
-                if matches!(
-                    group.kind,
-                    RxGroupKind::Lookahead
-                        | RxGroupKind::NegativeLookahead
-                        | RxGroupKind::Lookbehind
-                        | RxGroupKind::NegativeLookbehind
-                ) =>
-            {
-                if !lookaround_body_reaches_end(&group.body) {
-                    return false;
-                }
-            }
-            RxAtom::Group(group) => {
-                if !node_nullable(&group.body) {
-                    return false;
-                }
-            }
-            RxAtom::Literal(ch) if saw_end_boundary && matches!(ch, '\n' | '\r') => {}
-            RxAtom::Dot if saw_end_boundary => {}
-            _ => return false,
-        }
-    }
-    true
-}
-
 /// Some branch of the lookaround body reaches its end without consuming
 /// input (nullable path).
 fn lookaround_body_reaches_end(node: &RxNode) -> bool {
@@ -250,8 +255,7 @@ fn lookaround_body_reaches_end(node: &RxNode) -> bool {
 }
 
 /// `canReachWithoutConsumingInput(startOfRegex, rep)`: every item before
-/// `index` is skippable (same traversal as `can_reach_end`, minus the
-/// post-boundary character rule which cannot apply at the start).
+/// `index` is skippable (using the original branch graph).
 fn reachable_from_start(lin: &[&RxItem], index: usize) -> bool {
     lin[..index].iter().all(|item| {
         if item_is_nullable(item) {
@@ -318,50 +322,13 @@ fn gap_item_skippable(item: &RxItem) -> bool {
     }
 }
 
-/// `IntersectAutomataChecker.check(elem, gap)`: whether the single-element
-/// language intersects the gap's language. A gap whose mandatory items
-/// need two or more characters can only intersect a group element;
-/// otherwise first-set intersection approximates it.
+/// Repetitions can absorb a multi-character gap when their character
+/// languages overlap every mandatory atom in that gap. Optional atoms can
+/// be skipped, while a disjoint mandatory delimiter separates the repeats.
 fn intersects_element_language(elem: &RxAtom, gap: &[&RxItem]) -> bool {
-    let mandatory: Vec<&RxItem> = gap
-        .iter()
-        .copied()
+    gap.iter()
         .filter(|item| item_is_mandatory(item))
-        .collect();
-    let min_len: u32 = mandatory.iter().map(|item| item_min_len(item)).sum();
-    let Some(gap_first) = gap_first_set(gap) else {
-        return true;
-    };
-    if min_len >= 2 {
-        return matches!(elem, RxAtom::Group(_))
-            && rx_atom_first_set(elem).is_some_and(|set| rx_sets_intersect(&set, &gap_first));
-    }
-    rx_atom_first_set(elem).is_none_or(|set| rx_sets_intersect(&set, &gap_first))
-}
-
-/// First-set of the gap's first mandatory item (nullable items before it
-/// contribute their own sets too, since they can also start the string).
-fn gap_first_set(gap: &[&RxItem]) -> Option<RxSet> {
-    let mut combined: Option<RxSet> = None;
-    for item in gap {
-        if let Some(set) = rx_atom_first_set(&item.atom) {
-            combined = Some(match combined {
-                None => set,
-                Some(previous) => union_sets(previous, set),
-            });
-        }
-        if item_is_mandatory(item) {
-            break;
-        }
-    }
-    combined
-}
-
-fn union_sets(left: RxSet, right: RxSet) -> RxSet {
-    match (left, right) {
-        (RxSet::All, _) | (_, RxSet::All) => RxSet::All,
-        (left, _) => left,
-    }
+        .all(|item| atoms_intersect(elem, &item.atom))
 }
 
 fn atoms_intersect(left: &RxAtom, right: &RxAtom) -> bool {
@@ -379,38 +346,6 @@ fn item_is_mandatory(item: &RxItem) -> bool {
     !rx_atom_nullable(&item.atom)
         && !rx_atom_zero_width(&item.atom)
         && item.quant.as_ref().is_none_or(|quant| quant.min >= 1)
-}
-
-/// Minimum characters the item consumes when it matches.
-fn item_min_len(item: &RxItem) -> u32 {
-    let base = match &item.atom {
-        RxAtom::Group(group) => node_min_len(&group.body),
-        _ => 1,
-    };
-    base * item.quant.as_ref().map_or(1, |quant| quant.min.max(1))
-}
-
-fn node_min_len(node: &RxNode) -> u32 {
-    match node {
-        RxNode::Seq(seq) => seq
-            .items
-            .iter()
-            .filter(|item| item_is_mandatory(item))
-            .map(item_min_len)
-            .sum(),
-        RxNode::Alternation(branches) => branches
-            .iter()
-            .map(|branch| {
-                branch
-                    .items
-                    .iter()
-                    .filter(|item| item_is_mandatory(item))
-                    .map(item_min_len)
-                    .sum()
-            })
-            .min()
-            .unwrap_or(0),
-    }
 }
 
 fn node_nullable(node: &RxNode) -> bool {
@@ -434,5 +369,23 @@ fn is_match_all(atom: &RxAtom) -> bool {
         RxAtom::Dot => true,
         RxAtom::Class(class) => class.negated && class.items.is_empty(),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{findings, scan};
+
+    #[test]
+    fn overlapping_repeats_account_for_multicharacter_gaps_and_branch_continuations() {
+        let positive = "import re\nre.compile(r'<meta.*?content=charset=(.+?)[>]', re.I)\n";
+        assert_eq!(findings(&scan(positive), "python:S8786").len(), 1);
+        for pattern in [r"a*XYZ+a*Q", r#"([Ww]/)?(?:"(.*?)"|(.*?))(?:\s*,\s*|$)"#] {
+            let source = format!("import re\nre.compile(r'''{pattern}''')\n");
+            assert!(
+                findings(&scan(&source), "python:S8786").is_empty(),
+                "{pattern}"
+            );
+        }
     }
 }

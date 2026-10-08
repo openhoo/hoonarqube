@@ -1,6 +1,6 @@
 use crate::support::{
     child_bodies, collect_target_names, for_each_stmt, is_known_library_exception_path, issue_at,
-    known_library_exception_bases, named_parameters, stmt_store_names,
+    known_library_exception_bases, named_parameters, stmt_store_names, to_range,
 };
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{
@@ -51,27 +51,34 @@ fn redundant_except_issue(
         .iter()
         .map(|element| (environment.resolve_expr(element), element.range()))
         .collect();
-    let redundant = redundant_entry_index(&entries, environment)?;
-    Some(issue_at(
+    let (redundant, parent) = redundant_entry_pair(&entries, environment)?;
+    let mut issue = issue_at(
         "python:S5713",
         "Remove this redundant Exception class; it derives from another which is already caught.",
         entries[redundant].1,
         index,
         source,
-    ))
+    );
+    issue.flows.push(hoonarqube_ir::IssueFlow {
+        locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+            "Parent class.",
+            to_range(entries[parent].1, index, source),
+        )],
+    });
+    Some(issue)
 }
 
-fn redundant_entry_index(
+fn redundant_entry_pair(
     entries: &[(ExceptionIdentity, TextRange)],
     environment: &ExceptionEnvironment,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     for (index, (identity, _)) in entries.iter().enumerate() {
         if !identity.is_unknown()
-            && entries[..index]
+            && let Some(parent) = entries[..index]
                 .iter()
-                .any(|(previous, _)| previous == identity)
+                .position(|(previous, _)| previous == identity)
         {
-            return Some(index);
+            return Some((index, parent));
         }
     }
     for (child_index, (child, _)) in entries.iter().enumerate() {
@@ -83,7 +90,7 @@ fn redundant_entry_index(
                 continue;
             }
             if environment.is_ancestor(child, parent) {
-                return Some(child_index);
+                return Some((child_index, parent_index));
             }
         }
     }

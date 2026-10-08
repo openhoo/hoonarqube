@@ -99,7 +99,7 @@ fn flag_flow_jump(
     index: &LineIndex,
     source: &str,
 ) {
-    if state.finally_depth > 0 {
+    if state.finally_depth > 0 && state.loop_depth <= state.finally_loop_depth {
         issues.push(issue_at(
             "python:S1143",
             match stmt {
@@ -144,7 +144,7 @@ fn flag_flow_raise(
     }
     // Sonar exempts functions called inside an except/finally body — their
     // bare raise re-raises the handled exception.
-    if current_fn.is_some_and(|name| exempt_fns.contains(name)) {
+    if current_fn.is_some_and(|name| name == "__exit__" || exempt_fns.contains(name)) {
         return;
     }
     let (key, message) = if state.context == RaiseContext::InFinally {
@@ -256,21 +256,34 @@ fn scan_flow_nested_bodies(
                 );
             }
         }
-        // Jumps bind within the innermost function scope; reset the state
-        // and remember the function name for the except-called exemption.
-        Stmt::FunctionDef(function) => {
-            scan_flow_statements_in(
-                &function.body,
-                FlowState::fresh_scope(),
-                Some(function.name.as_str()),
-                exempt_fns,
-                issues,
-                index,
-                source,
-            );
+        Stmt::ClassDef(_) | Stmt::FunctionDef(_) => {
+            scan_flow_definition(stmt, exempt_fns, issues, index, source);
         }
         _ => {}
     }
+}
+
+fn scan_flow_definition(
+    stmt: &Stmt,
+    exempt_fns: &ExceptCalledFns,
+    issues: &mut Vec<Issue>,
+    index: &LineIndex,
+    source: &str,
+) {
+    let (body, current_fn) = match stmt {
+        Stmt::FunctionDef(function) => (function.body.as_slice(), Some(function.name.as_str())),
+        Stmt::ClassDef(class) => (class.body.as_slice(), None),
+        _ => return,
+    };
+    scan_flow_statements_in(
+        body,
+        FlowState::fresh_scope(),
+        current_fn,
+        exempt_fns,
+        issues,
+        index,
+        source,
+    );
 }
 
 fn scan_try_flow(

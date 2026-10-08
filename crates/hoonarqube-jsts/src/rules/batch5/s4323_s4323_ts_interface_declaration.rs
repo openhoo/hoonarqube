@@ -16,7 +16,7 @@ impl TsTypeCollector<'_, '_> {
     /// Shared interface-body checks (`S6598` single call signature, `S4136`
     /// overload grouping) extracted from `visit_ts_interface_declaration`.
     pub(crate) fn check_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'_>) {
-        self.check_single_call_signature(&it.body.body, it.span());
+        self.check_single_call_signature(&it.body.body, true);
         self.check_overload_grouping(&it.body.body);
     }
 

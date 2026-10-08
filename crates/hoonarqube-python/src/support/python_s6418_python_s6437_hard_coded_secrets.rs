@@ -13,8 +13,6 @@ use ruff_text_size::TextRange;
 
 pub(crate) const SECRET_ENTROPY_THRESHOLD: f64 = 3.0;
 
-pub(crate) const SECRET_HIGH_ENTROPY_THRESHOLD: f64 = 4.5;
-
 pub(crate) const CREDENTIAL_PREFIXES: [&str; 11] = [
     "ghp_", "gho_", "AKIA", "xoxb-", "xoxa-", "xoxp-", "xoxr-", "sk_live_", "sk-", "AIza", "glpat-",
 ];

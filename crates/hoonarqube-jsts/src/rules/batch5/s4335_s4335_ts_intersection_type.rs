@@ -77,12 +77,14 @@ impl TsTypeCollector<'_, '_> {
     }
 
     /// Whether `member` is a type without members: `null`, `undefined`,
-    /// `void`, or a reference to an interface with no members and no heritage.
+    /// `void`, an empty object type literal, or a reference to an interface
+    /// with no members and no heritage.
     fn is_type_without_members(&self, member: &TSType<'_>) -> bool {
         match member {
             TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) | TSType::TSVoidKeyword(_) => {
                 true
             }
+            TSType::TSTypeLiteral(literal) => literal.members.is_empty(),
             TSType::TSTypeReference(reference) => self.resolves_to_empty_interface(reference),
             _ => false,
         }
@@ -140,6 +142,36 @@ impl TsTypeCollector<'_, '_> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s4335_reports_empty_literal_in_indexed_access_intersections() {
+        let source = "type Output<T extends Record<string, string>> = T[keyof T] & {};";
+        let report = ts(source);
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "typescript:S4335")
+            .unwrap();
+        assert_eq!(
+            &source[issue.range.start.column as usize..issue.range.end.column as usize],
+            "{}"
+        );
+        assert_eq!(
+            issue.message,
+            "Remove this type without members or change this type intersection."
+        );
+        assert_eq!(
+            count_key(&ts_keys("type NonNull<T> = T & {};"), "typescript:S4335"),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &ts_keys("type Branded = string & { brand: never };"),
+                "typescript:S4335"
+            ),
+            0
+        );
+    }
 
     #[test]
     fn branded_type_intersections_stay_silent() {

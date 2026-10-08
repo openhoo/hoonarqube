@@ -437,8 +437,7 @@ fn singleton_char_is_safe(site: &RegexSite, ch: char, pos: usize) -> bool {
         .is_none_or(|byte| !matches!(*byte, b'b' | b'B' | b'k' | b'1'..=b'9'))
 }
 
-/// `S6353`: `{1}` / `{1,1}` quantifiers and duplicate-only classes with a
-/// concise rewrite.
+/// `S6353`: redundant and concise greedy quantifiers plus character classes.
 fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedRegex) {
     for alternative in &parsed.alternatives {
         walk_pattern_nodes(alternative, &mut |node| match node {
@@ -456,6 +455,35 @@ fn check_concise_shapes(sink: &mut IssueSink, site: &RegexSite, parsed: &ParsedR
                     &format!("Remove redundant quantifier {verbose}."),
                     site.sub_span(node_start(node).unwrap_or(*pos), pos + verbose.len()),
                 );
+            }
+            PatternNode::Quantified {
+                node,
+                min,
+                max,
+                verbose,
+                pos,
+                ..
+            } if verbose.starts_with('{') && verbose.ends_with('}') => {
+                let concise = match (*min, *max) {
+                    (0, Some(1)) => Some("?".to_owned()),
+                    (0, None) => Some("*".to_owned()),
+                    (1, None) => Some("+".to_owned()),
+                    (min, Some(max)) if min == max && verbose.contains(',') => {
+                        Some(format!("{{{min}}}"))
+                    }
+                    _ => None,
+                };
+                if let Some(concise) = concise {
+                    let start = node_start(node).unwrap_or_else(|| pos.saturating_sub(1));
+                    sink.emit_span(
+                        RuleScope::Both,
+                        "S6353",
+                        &format!(
+                            "Use concise quantifier syntax '{concise}' instead of '{verbose}'."
+                        ),
+                        site.sub_span(start, pos + verbose.len()),
+                    );
+                }
             }
             PatternNode::Class {
                 negated,
@@ -708,7 +736,7 @@ fn check_regex_complexity(sink: &mut IssueSink, site: &RegexSite, parsed: &Parse
             &format!(
                 "Simplify this regular expression to reduce its complexity from {score} to the {REGEX_COMPLEXITY_THRESHOLD} allowed."
             ),
-            site.whole_pattern_span(),
+            site.span,
         );
     }
 }
@@ -1155,6 +1183,45 @@ mod tests {
         assert_eq!(count_key(&constructor, "javascript:S6397"), 1);
         let typescript = findings("const re = /[\\d]/;\n", JstsLanguage::TypeScript);
         assert_eq!(count_key(&typescript, "typescript:S6397"), 1);
+    }
+
+    #[test]
+    fn s6353_reports_concise_quantifier_forms_at_the_quantified_atom() {
+        for (pattern, replacement, original, expected_span) in [
+            ("a{0,1}", "?", "{0,1}", "a{0,1}"),
+            ("a{0,}", "*", "{0,}", "a{0,}"),
+            ("a{1,}", "+", "{1,}", "a{1,}"),
+            ("(?:ab){3,3}", "{3}", "{3,3}", "(?:ab){3,3}"),
+            (".{0,}", "*", "{0,}", ".{0,}"),
+        ] {
+            let source = format!("const re = /{pattern}/;\n");
+            let report = js(&source);
+            let target: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S6353")
+                .collect();
+            assert_eq!(target.len(), 1, "{pattern}");
+            let issue = target[0];
+            assert_eq!(
+                issue.message,
+                format!("Use concise quantifier syntax '{replacement}' instead of '{original}'.")
+            );
+            assert_eq!(
+                &source[issue.range.start.column as usize..issue.range.end.column as usize],
+                expected_span
+            );
+        }
+        for pattern in ["a?", "a*", "a+", "a{3}", "a{2,3}", "a{0,2}", "a{2,}"] {
+            assert_eq!(
+                count_key(
+                    &js_keys(&format!("const re = /{pattern}/;\n")),
+                    "javascript:S6353"
+                ),
+                0,
+                "{pattern}"
+            );
+        }
     }
 
     #[test]

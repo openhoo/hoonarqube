@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "binary_sha256": "662bde29b8f7c46df133b9b7167ac80ddef5d943fdbf1d0389822f6ac4fe356d",
+  "contracts_sha256": "0aaf0335c71f4c5d6dbb2a0556daf658fea0676ea28f7dc27017daf0b20274b1",
+  "replay_script_sha256": "304361a00d86d08aed95ca305ac68c3729ec5944b98b26fa82ad2e802ca67779",
+  "raw_result_sha256": "818302f1df853b921a0a1c975758e644d601a95f234b9c86a385101726e31db1",
+  "historical_result_sha256": "884160115463814481b5e408fddeef0c6586fd5bbae22bcc2c21ca6e35c08a16",
+  "historical_summary_retained": {
+    "applications": 65,
+    "fail": 9,
+    "native_action_gap": 0,
+    "native_action_refusal": 0,
+    "no_action_declared": 0,
+    "no_action_expected": 0,
+    "pass": 55,
+    "safety_refused": 1,
+    "unavailable": 0
+  },
+  "historical_selected_rows": [
+    {
+      "rule_key": "python:S1720",
+      "action_id": "s1720-add-docstring",
+      "status": "fail",
+      "failures": [
+        "initial analyze: expected exactly one actionable python:S1720 finding, found 0"
+      ]
+    },
+    {
+      "rule_key": "python:S1854",
+      "action_id": "s1854-remove-unused-assignment",
+      "status": "fail",
+      "failures": [
+        "initial analyze: expected exactly one actionable python:S1854 finding, found 0"
+      ]
+    },
+    {
+      "rule_key": "python:S3923",
+      "action_id": "s3923-remove-if-statement",
+      "status": "fail",
+      "failures": [
+        "native finding edits do not produce the manifest expected projection",
+        "fix-apply: expected exit code 0, got 1",
+        "fix-apply did not report a written file",
+        "fix-apply reported no applied rule fix",
+        "fix-apply did not independently verify the applied action",
+        "fix-apply final bytes differ from the native projection",
+        "final analyze did not reduce the targeted rule finding"
+      ]
+    },
+    {
+      "rule_key": "python:S4144",
+      "action_id": "s4144-call-original-method",
+      "status": "fail",
+      "failures": [
+        "initial analyze: expected exactly one actionable python:S4144 finding, found 0"
+      ]
+    },
+    {
+      "rule_key": "python:S5719",
+      "action_id": "s5719-add-cls",
+      "status": "pass",
+      "failures": []
+    },
+    {
+      "rule_key": "python:S5719",
+      "action_id": "s5719-add-self",
+      "status": "fail",
+      "failures": [
+        "safety control regular-method-without-receiver: expected increased findings {'python:S2325': 1}, found {}",
+        "safety control regular-method-without-receiver: unsafe apply was not refused"
+      ]
+    },
+    {
+      "rule_key": "python:S6545",
+      "action_id": "s6545-use-builtin-generic",
+      "status": "fail",
+      "failures": [
+        "safety control unused-typing-import: expected increased findings {'python:S1128': 1}, found {}",
+        "safety control unused-typing-import: unsafe apply was not refused"
+      ]
+    },
+    {
+      "rule_key": "python:S6553",
+      "action_id": "s6553-use-blank",
+      "status": "fail",
+      "failures": [
+        "initial analyze: expected exactly one actionable python:S6553 finding, found 0"
+      ]
+    }
+  ],
+  "current_summary": {
+    "current_contract_pass": 16
+  },
+  "current_cases": [
+    {
+      "failures": [],
+      "initial_target_count": 1,
+      "mode": "apply",
+      "name": "missing-docstring-strict",
+      "profile": "strict",
+      "reason": "S1720 is inactive in the reference profile; strict findings must remain actionable through fix.",
+      "rule": "python:S1720",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 0,
+      "mode": "no_action",
+      "name": "missing-docstring-reference-inactive",
+      "profile": "sonar-parity",
+      "reason": "Preserve reference-inactive profile boundary.",
+      "rule": "python:S1720",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 1,
+      "mode": "apply",
+      "name": "dead-store-local",
+      "profile": "sonar-parity",
+      "reason": "Reference subscribes to function definitions; positive qualification must use a function-local binding.",
+      "rule": "python:S1854",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 0,
+      "mode": "no_action",
+      "name": "dead-store-module-control",
+      "profile": "sonar-parity",
+      "reason": "Historical positive fixture was outside the rule scope.",
+      "rule": "python:S1854",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 0,
+      "mode": "no_action",
+      "name": "dead-store-preserve-sentinel",
+      "profile": "sonar-parity",
+      "reason": "Keep sentinel and RHS-effect exclusions.",
+      "rule": "python:S1854",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 1,
+      "mode": "no_action",
+      "name": "dead-store-preserve-call",
+      "profile": "sonar-parity",
+      "reason": "Keep sentinel and RHS-effect exclusions.",
+      "rule": "python:S1854",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 1,
+      "mode": "apply",
+      "name": "identical-methods-minimum-body",
+      "profile": "sonar-parity",
+      "reason": "The reference minimum implementation length is three source lines.",
+      "rule": "python:S4144",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 0,
+      "mode": "no_action",
+      "name": "identical-one-line-control",
+      "profile": "sonar-parity",
+      "reason": "Historical positive fixture was below the source-backed body-length gate.",
+      "rule": "python:S4144",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 1,
+      "mode": "apply",
+      "name": "django-model-field",
+      "profile": "sonar-parity",
+      "reason": "Django model ancestry is required, not an arbitrary top-level API-looking call.",
+      "rule": "python:S6553",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "initial_target_count": 0,
+      "mode": "no_action",
+      "name": "django-top-level-control",
+      "profile": "sonar-parity",
+      "reason": "Retain ancestry qualification boundary.",
+      "rule": "python:S6553",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "guard_increase": {
+        "python:S2325": 0
+      },
+      "initial_target_count": 1,
+      "mode": "apply",
+      "name": "instance-empty-receiver",
+      "profile": "sonar-parity",
+      "reason": "S2325 requires a valuable body; pass-only methods stay exempt.",
+      "rule": "python:S5719",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "guard_increase": {
+        "python:S1128": 0
+      },
+      "initial_target_count": 1,
+      "mode": "apply",
+      "name": "builtin-generic-exempt-import",
+      "profile": "sonar-parity",
+      "reason": "S1128 explicitly exempts typing imports; no newly unused-import warning is expected.",
+      "rule": "python:S6545",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "guard_increase": {
+        "python:S2201": 1
+      },
+      "initial_target_count": 1,
+      "mode": "safety_refusal",
+      "name": "identical-if-historical-refusal",
+      "profile": "sonar-parity",
+      "reason": "Native preserves truth evaluation; upstream x=1 projection loses __bool__ effects. CLI must refuse the native projection because S2201 increases.",
+      "rule": "python:S3923",
+      "status": "current_contract_pass"
+    },
+    {
+      "failures": [],
+      "guard_increase": {
+        "python:S2201": 1
+      },
+      "initial_target_count": 1,
+      "mode": "safety_refusal",
+      "name": "identical-if-runtime-truth",
+      "profile": "sonar-parity",
+      "reason": "Independent original/projected Python execution preserves truth effects and exceptions; refusal keeps original bytes.",
+      "rule": "python:S3923",
+      "runtime_equivalent": true,
+      "status": "current_contract_pass",
+      "upstream_projection_changes_runtime": true
+    },
+    {
+      "failures": [],
+      "guard_increase": {
+        "python:S2201": 1
+      },
+      "initial_target_count": 1,
+      "mode": "safety_refusal",
+      "name": "identical-if-runtime-false",
+      "profile": "sonar-parity",
+      "reason": "Independent original/projected Python execution preserves truth effects and exceptions; refusal keeps original bytes.",
+      "rule": "python:S3923",
+      "runtime_equivalent": true,
+      "status": "current_contract_pass",
+      "upstream_projection_changes_runtime": true
+    },
+    {
+      "failures": [],
+      "guard_increase": {
+        "python:S2201": 1
+      },
+      "initial_target_count": 1,
+      "mode": "safety_refusal",
+      "name": "identical-if-runtime-exception",
+      "profile": "sonar-parity",
+      "reason": "Independent original/projected Python execution preserves truth effects and exceptions; refusal keeps original bytes.",
+      "rule": "python:S3923",
+      "runtime_equivalent": true,
+      "status": "current_contract_pass",
+      "upstream_projection_changes_runtime": true
+    }
+  ],
+  "historical_policy": "Keep historical failures verbatim. These current contracts provide separate qualification and do not change or silently reclassify the historical manifest.",
+  "source_different_boundary": {
+    "rule": "python:S3923",
+    "native_projection": "Preserve condition truth evaluation before collapsing identical branches",
+    "historical_upstream_projection": "Remove condition evaluation",
+    "runtime_controls": 3,
+    "native_runtime_equivalent": true,
+    "upstream_projection_changes_runtime": true,
+    "native_apply": "Refused without writing when python:S2201 increases"
+  }
+}

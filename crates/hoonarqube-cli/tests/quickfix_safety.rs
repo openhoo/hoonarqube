@@ -133,3 +133,52 @@ fn supported_mechanical_apply_preserves_python_runtime_types_and_effects() {
     assert_eq!(before.stdout, after.stdout);
     assert_eq!(before.stderr, after.stderr);
 }
+
+#[test]
+fn strict_quickfix_preserves_profile_during_planning_and_reanalysis() {
+    let fixture = Fixture::new("strict-docstring");
+    let original = "\"\"\"Module docstring.\"\"\"\ndef f():\n    return 1\n";
+    let path = fixture.0.join("t.py");
+    std::fs::write(&path, original).expect("fixture");
+    let default = fixture.run(&[
+        "fix",
+        "--suggestion",
+        "python:S1720=s1720-add-docstring",
+        "--apply",
+        "--json",
+        "t.py",
+    ]);
+    assert_eq!(default.status.code(), Some(1));
+    assert_eq!(std::fs::read_to_string(&path).expect("readback"), original);
+    let strict = fixture.run(&[
+        "fix",
+        "--profile",
+        "strict",
+        "--suggestion",
+        "python:S1720=s1720-add-docstring",
+        "--apply",
+        "--json",
+        "t.py",
+    ]);
+    assert!(strict.status.success(), "{strict:?}");
+    let result: serde_json::Value =
+        serde_json::from_slice(&strict.stdout).expect("strict apply JSON");
+    assert_eq!(result["verified"], 1);
+    assert_eq!(result["unverified"], 0);
+    assert_eq!(result["files"][0]["written"], true);
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("readback"),
+        "\"\"\"Module docstring.\"\"\"\ndef f():\n    \"\"\" doc \"\"\"\n    return 1\n"
+    );
+    let after = fixture.run(&["analyze", "--profile", "strict", "--format", "json", "t.py"]);
+    assert!(after.status.success());
+    let after: serde_json::Value =
+        serde_json::from_slice(&after.stdout).expect("strict analysis JSON");
+    assert!(
+        after["files"][0]["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .all(|issue| issue["rule_key"] != "python:S1720")
+    );
+}

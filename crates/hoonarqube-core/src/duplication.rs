@@ -848,7 +848,81 @@ impl MatchEngine<'_> {
                 .ok_or_else(|| "duplication window index changed unexpectedly".to_owned())?;
             self.process_bucket(key, references)?;
         }
+        self.complete_token_line_relations(index)?;
         Ok(std::mem::take(&mut self.groups))
+    }
+
+    fn complete_token_line_relations(
+        &mut self,
+        index: &HashMap<WindowKey, Vec<WindowRef>>,
+    ) -> Result<(), String> {
+        for group_index in 0..self.groups.len() {
+            let group = &self.groups[group_index];
+            if !uses_token_lines(group.language) {
+                continue;
+            }
+            let representative = group.representative;
+            let length = group.length;
+            let key = WindowKey {
+                language: group.language,
+                length: self.options.min_lines as usize,
+                hash_a: range_hash(
+                    &self.files[representative.file].prefix_a,
+                    self.powers_a,
+                    representative.start,
+                    self.options.min_lines as usize,
+                ),
+                hash_b: range_hash(
+                    &self.files[representative.file].prefix_b,
+                    self.powers_b,
+                    representative.start,
+                    self.options.min_lines as usize,
+                ),
+            };
+            let Some(candidates) = index.get(&key) else {
+                continue;
+            };
+            for &candidate in candidates {
+                self.complete_group_occurrence(group_index, representative, candidate, length)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn complete_group_occurrence(
+        &mut self,
+        group_index: usize,
+        representative: TokenOccurrence,
+        candidate: WindowRef,
+        length: usize,
+    ) -> Result<(), String> {
+        self.budget.charge(1)?;
+        let file = &self.files[candidate.file];
+        if length > file.ids.len().saturating_sub(candidate.start) {
+            return Ok(());
+        }
+        let occurrence = make_occurrence(candidate.file, candidate.start, length)?;
+        if self.groups[group_index]
+            .occurrence_set
+            .contains(&occurrence)
+        {
+            return Ok(());
+        }
+        if !equal_ids(
+            &self.files[representative.file],
+            representative.start,
+            file,
+            candidate.start,
+            length,
+            &mut self.budget,
+        )? || !eligible_span(file.language, file, candidate.start, length, self.options)?
+        {
+            return Ok(());
+        }
+        let group = &mut self.groups[group_index];
+        group.occurrence_set.insert(occurrence);
+        group.occurrences.push(occurrence);
+        Ok(())
     }
 
     fn process_bucket(&mut self, key: WindowKey, references: &[WindowRef]) -> Result<(), String> {
@@ -1273,7 +1347,12 @@ fn suppress_contained_groups(
 
     for group_index in order {
         let group = &groups[group_index];
-        if group_is_redundant(group, &accepted_by_file, files, budget)? {
+        let redundant = if uses_token_lines(group.language) {
+            group_is_redundant_in_single_group(group, &groups, &accepted, files, budget)?
+        } else {
+            group_is_redundant(group, &accepted_by_file, files, budget)?
+        };
+        if redundant {
             continue;
         }
         accepted.push(group_index);
@@ -1294,6 +1373,67 @@ fn suppress_contained_groups(
         result.push(state);
     }
     Ok(result)
+}
+
+/// Sonar's token-line collector suppresses a clone only when one earlier
+/// clone relation covers every occurrence on exactly the same resources.
+/// Pooling occurrences from unrelated groups destroys that relation.
+fn group_is_redundant_in_single_group(
+    group: &GroupState,
+    groups: &[GroupState],
+    accepted: &[usize],
+    files: &[PreparedFile],
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    let resources = group_resources(group, budget)?;
+    for &index in accepted {
+        budget.charge(1)?;
+        let earlier = &groups[index];
+        if earlier.language != group.language || earlier.length <= group.length {
+            continue;
+        }
+        if resources != group_resources(earlier, budget)? {
+            continue;
+        }
+        if group_is_covered_by(group, earlier, files, budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn group_resources(group: &GroupState, budget: &mut WorkBudget) -> Result<BTreeSet<usize>, String> {
+    let mut resources = BTreeSet::new();
+    for occurrence in &group.occurrences {
+        budget.charge(1)?;
+        resources.insert(occurrence.file);
+    }
+    Ok(resources)
+}
+
+fn group_is_covered_by(
+    group: &GroupState,
+    earlier: &GroupState,
+    files: &[PreparedFile],
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    for short in &group.occurrences {
+        let mut occurrence_covered = false;
+        for long in &earlier.occurrences {
+            budget.charge(1)?;
+            if short.file != long.file {
+                continue;
+            }
+            if occurrence_is_contained(*short, group.length, *long, files, budget)? {
+                occurrence_covered = true;
+                break;
+            }
+        }
+        if !occurrence_covered {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn group_is_redundant(
@@ -1325,27 +1465,44 @@ fn occurrence_is_covered(
 ) -> Result<bool, String> {
     for long_occurrence in &accepted_by_file[short_occurrence.file] {
         budget.charge(1)?;
-        let long_length = occurrence_length(*long_occurrence);
-        if long_length <= group_length
-            || long_occurrence.start > short_occurrence.start
-            || long_occurrence.end < short_occurrence.end
-        {
-            continue;
-        }
-        let offset = short_occurrence.start - long_occurrence.start;
-        let file = &files[short_occurrence.file];
-        if equal_ids(
-            file,
-            long_occurrence.start + offset,
-            file,
-            short_occurrence.start,
+        if occurrence_is_contained(
+            short_occurrence,
             group_length,
+            *long_occurrence,
+            files,
             budget,
         )? {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+fn occurrence_is_contained(
+    short: TokenOccurrence,
+    group_length: usize,
+    long: TokenOccurrence,
+    files: &[PreparedFile],
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    let long_length = occurrence_length(long);
+    if long.file != short.file
+        || long_length <= group_length
+        || long.start > short.start
+        || long.end < short.end
+    {
+        return Ok(false);
+    }
+    let offset = short.start - long.start;
+    let file = &files[short.file];
+    equal_ids(
+        file,
+        long.start + offset,
+        file,
+        short.start,
+        group_length,
+        budget,
+    )
 }
 
 fn containment_group_order(left: &GroupState, right: &GroupState) -> Ordering {
@@ -1664,8 +1821,9 @@ fn u64_as_f64(value: u64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        DiagonalKey, DuplicationFile, DuplicationOptions, StartInterval, WorkBudget, covered_start,
-        detect_duplications, insert_coverage,
+        DiagonalKey, DuplicationFile, DuplicationOptions, GroupState, PreparedFile, StartInterval,
+        TokenOccurrence, WorkBudget, covered_start, detect_duplications, insert_coverage,
+        suppress_contained_groups,
     };
     use crate::Language;
     use crate::source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
@@ -1738,6 +1896,152 @@ mod tests {
         for occurrence in &result.groups[0].occurrences {
             assert_eq!((occurrence.start_line, occurrence.end_line), (1, 16));
         }
+    }
+
+    #[test]
+    fn javascript_clone_relations_include_occurrences_inside_longer_matches() {
+        let common: Vec<String> = (0..20).map(|index| format!("shared{index}")).collect();
+        let mut symbols = vec!["prefix", "different", "suffix", "other"];
+        symbols.extend(common.iter().map(String::as_str));
+        let make_file = |path: &str, prefix: &str, suffix: &str| {
+            let mut units = vec![(prefix, 1, 1)];
+            units.extend(common.iter().enumerate().map(|(index, image)| {
+                (
+                    image.as_str(),
+                    u32::try_from(index + 2).unwrap(),
+                    u32::try_from(index + 2).unwrap(),
+                )
+            }));
+            units.push((suffix, 22, 22));
+            file(path, Language::JavaScript, &symbols, &units, 22)
+        };
+        let inputs = [
+            make_file("a.js", "prefix", "suffix"),
+            make_file("b.js", "prefix", "other"),
+            make_file("c.js", "different", "suffix"),
+        ];
+        let result = detect_duplications(&inputs, &options(10, 10)).expect("complete");
+        let common_group = result
+            .groups
+            .iter()
+            .find(|group| {
+                group
+                    .occurrences
+                    .iter()
+                    .any(|occurrence| occurrence.start_line == 2 && occurrence.end_line == 21)
+            })
+            .expect("common clone relation");
+        assert_eq!(common_group.occurrences.len(), 3);
+        assert_eq!(result.metrics.duplicated_blocks, 7);
+    }
+
+    fn prepared(path: &str) -> PreparedFile {
+        PreparedFile {
+            path: PathBuf::from(path),
+            language: Language::JavaScript,
+            lines: 40,
+            ids: vec![1; 40],
+            starts: vec![1; 40],
+            ends: vec![1; 40],
+            byte_starts: (0..40).collect(),
+            byte_ends: (1..41).collect(),
+            source_tokens: (0..40).collect(),
+            unit_starts: (0..40).collect(),
+            unit_ends: (0..40).collect(),
+            prefix_a: Vec::new(),
+            prefix_b: Vec::new(),
+        }
+    }
+    fn group(length: usize, positions: &[(usize, usize)]) -> GroupState {
+        let occurrences: Vec<_> = positions
+            .iter()
+            .map(|&(file, start)| TokenOccurrence {
+                file,
+                start,
+                end: start + length - 1,
+            })
+            .collect();
+        GroupState {
+            language: Language::JavaScript,
+            length,
+            hash_a: 0,
+            hash_b: 0,
+            representative: occurrences[0],
+            occurrence_set: occurrences.iter().copied().collect(),
+            occurrences,
+        }
+    }
+    #[test]
+    fn js_containment_cannot_pool_unrelated_groups_or_file_sets() {
+        let files = vec![prepared("a.js"), prepared("b.js"), prepared("c.js")];
+        let mut budget = WorkBudget {
+            used: 0,
+            limit: 10000,
+        };
+        let output = suppress_contained_groups(
+            vec![
+                group(10, &[(0, 0), (1, 0)]),
+                group(9, &[(0, 20), (1, 20)]),
+                group(3, &[(0, 2), (1, 22)]),
+            ],
+            &files,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            output.len(),
+            3,
+            "different accepted groups cannot jointly hide a clone"
+        );
+        let output = suppress_contained_groups(
+            vec![
+                group(10, &[(0, 0), (1, 0), (2, 0)]),
+                group(3, &[(0, 2), (1, 2)]),
+            ],
+            &files,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            output.len(),
+            2,
+            "a superset of files is a different clone relation"
+        );
+        let output = suppress_contained_groups(
+            vec![group(10, &[(0, 0), (1, 0)]), group(3, &[(0, 2), (1, 2)])],
+            &files,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(
+            output.len(),
+            1,
+            "one group on exactly the same files covers the clone"
+        );
+        let mut legacy = vec![
+            group(10, &[(0, 0), (1, 0)]),
+            group(9, &[(0, 20), (1, 20)]),
+            group(3, &[(0, 2), (1, 22)]),
+        ];
+        for group in &mut legacy {
+            group.language = Language::Go;
+        }
+        let output = suppress_contained_groups(legacy, &files, &mut budget).unwrap();
+        assert_eq!(
+            output.len(),
+            2,
+            "other language suppression keeps its existing contract"
+        );
+        let mut exhausted = WorkBudget { used: 0, limit: 0 };
+        assert!(
+            suppress_contained_groups(
+                vec![group(10, &[(0, 0), (1, 0)]), group(3, &[(0, 2), (1, 2)])],
+                &files,
+                &mut exhausted
+            )
+            .is_err(),
+            "containment cannot return a partial result after exhausting its budget"
+        );
     }
 
     fn facts(

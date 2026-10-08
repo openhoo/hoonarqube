@@ -1,0 +1,58 @@
+{
+  "qualified_at": "2026-10-08T08:39:07.700424+00:00",
+  "scope": "Actual CLI replay against frozen Sonar captures; explicit Python project namespace; no new live scan claimed.",
+  "binary_sha256": "fd9f02d1acee215ff5caa23f29447d317a77800ca5e8691e32a522729ad97374",
+  "source_context_fix": "Analysis module names use the same project-relative namespace as loaded facts; original output paths retained. Python context fingerprint bumped to v3.",
+  "tests": {
+    "python_project_namespace_red": "assertion0vs1",
+    "python_project_namespace_green": "passed",
+    "semantic_cli_tests": "10/10 passed with canonical TMPDIR; originalMac /var symlink refusal retained in separate log",
+    "clippy_cli_D_warnings": "passed"
+  },
+  "projects": {
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "command": [
+        "hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--python-project",
+        "src",
+        "--format",
+        "json",
+        "--exclude",
+        "**/*.css"
+      ],
+      "reference_sha256": "ef367d964f28a0bc0dc05c524040b53d44d3e427e0e8d283704c3bc25c3bb235",
+      "native_report_sha256": "f973fbd1001f75d642b46d02ad31963685466854eed7fbd26e6c3ca3b290f57a",
+      "complete": true,
+      "report_paths_preserved": true,
+      "actual_count": 7,
+      "reference_count": 7,
+      "exact_matches": 7,
+      "missing": [],
+      "unexpected": []
+    },
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "command": [
+        "hoonarqube",
+        "analyze",
+        "src/requests",
+        "--python-project",
+        "src",
+        "--format",
+        "json"
+      ],
+      "reference_sha256": "6c9c8757abb1eb19332a9d75b16a5ca037e7445d8736b1ed8d5890cd357a0f1c",
+      "native_report_sha256": "15e875e369bb8fd1fb659beefd0108c9c8a7f2c1125767c8ef3ef8341d616799",
+      "complete": true,
+      "report_paths_preserved": true,
+      "actual_count": 0,
+      "reference_count": 0,
+      "exact_matches": 0,
+      "missing": [],
+      "unexpected": []
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "0f7e4a2d0caa7508b1527dde83b19a5df9004d71",
+  "native_binary_sha256": "a7a0a26d3625625534d548197f1befc83e494affb054f18ff3270d3d0bda62de",
+  "rules": [
+    "S1444",
+    "S6535",
+    "S6959"
+  ],
+  "claim": "Exact existing primary identities and messages in frozen project captures; no new detector coverage",
+  "checks": {
+    "tests": 1375,
+    "clippy_all_targets": "PASS",
+    "regression": "qualified_static_reduce_and_regex_messages_preserve_primary_findings",
+    "original_defect": "Executed regression fails on original static-property message; passes after correction."
+  },
+  "projects": {
+    "commander": {
+      "claim": "observed_identity_differences",
+      "native_total": 1,
+      "reference_total": 1,
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 0,
+      "files": 7,
+      "complete": true,
+      "report_sha256": "93ada6aafeb3e968cb6c0df7ecdc27f3f22d8846176273251b2f0ffb32eb3e9e",
+      "message_differences": []
+    },
+    "zod": {
+      "claim": "observed_identity_differences",
+      "native_total": 42,
+      "reference_total": 42,
+      "matched": 42,
+      "native_only": 0,
+      "reference_only": 0,
+      "files": 125,
+      "complete": true,
+      "report_sha256": "be43876a488bfd394983af7f7257e99b43abb83df3b188228829c484d57a3866",
+      "message_differences": []
+    }
+  }
+}

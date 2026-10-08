@@ -182,6 +182,25 @@ pub(crate) fn run_checker_fallbacks(
             .next()
             .unwrap_or(&quickfix.rule_key);
         match rule {
+            "S2871" => {
+                let message = if quickfix
+                    .actions
+                    .iter()
+                    .any(|action| action.id == "s2871-suggest-language-sensitive-order")
+                {
+                    "Provide a compare function that depends on \"String.localeCompare\", to reliably sort elements alphabetically."
+                } else {
+                    "Provide a compare function to avoid sorting elements alphabetically."
+                };
+                emit_span(
+                    &mut sink,
+                    RuleScope::Both,
+                    "S2871",
+                    message,
+                    source,
+                    &quickfix.subject_span,
+                );
+            }
             "S1125" => emit_span(
                 &mut sink,
                 RuleScope::Both,

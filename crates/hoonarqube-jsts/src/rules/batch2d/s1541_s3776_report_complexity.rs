@@ -12,7 +12,12 @@ const MAX_CYCLOMATIC_COMPLEXITY: u32 = 10;
 
 impl FunctionMetricsCollector<'_> {
     /// Emits the threshold findings for one measured unit.
-    pub(crate) fn report_complexity(&mut self, walker: &ComplexityWalker, anchor: Span) {
+    pub(crate) fn report_complexity(
+        &mut self,
+        walker: &ComplexityWalker,
+        anchor: Span,
+        cognitive_anchor: Span,
+    ) {
         if walker.cognitive > MAX_COGNITIVE_COMPLEXITY {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -21,7 +26,7 @@ impl FunctionMetricsCollector<'_> {
                     "Refactor this function to reduce its Cognitive Complexity from {} to the {} allowed.",
                     walker.cognitive, MAX_COGNITIVE_COMPLEXITY
                 ),
-                anchor,
+                cognitive_anchor,
             );
         }
         if walker.cyclomatic > MAX_CYCLOMATIC_COMPLEXITY {

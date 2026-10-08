@@ -270,7 +270,11 @@ impl<'a> Visit<'a> for SwitchFlowCollector<'a, '_> {
                 );
             }
         }
-        let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
+        let tested_cases = it
+            .cases
+            .iter()
+            .filter(|case| case.test.is_some() && !case.consequent.is_empty())
+            .count();
         if tested_cases > MAX_SWITCH_CASES {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -279,12 +283,14 @@ impl<'a> Visit<'a> for SwitchFlowCollector<'a, '_> {
                 oxc_span::Span::new(it.span.start, it.span.start.saturating_add(6)),
             );
         }
-        if (1..=MAX_TINY_SWITCH_CASES).contains(&tested_cases) {
+        if it.cases.len() < 2
+            || (it.cases.len() == 2 && it.cases.iter().any(|case| case.test.is_none()))
+        {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S1301",
-                "Replace this switch statement with an if statement.",
-                it.span(),
+                "Replace this \"switch\" statement by \"if\" statements to increase readability.",
+                oxc_span::Span::new(it.span.start, it.span.start.saturating_add(6)),
             );
         }
         self.switch_cases.push(self.alloc(&it.cases).as_slice());
@@ -659,10 +665,6 @@ fn is_fallthrough_comment(text: &str) -> bool {
     false
 }
 
-/// `S1301`: switches with at most this many tested cases are flagged as
-/// convertible to `if` (frozen catalog default).
-const MAX_TINY_SWITCH_CASES: usize = 2;
-
 // ===== Batch2b: statement-shape and control-flow walks =====
 //
 // Family A — switch/if-chain flow: `S126`, `S128`, `S131`, `S4524`,
@@ -809,11 +811,47 @@ mod tests {
     }
 
     #[test]
+    fn switch_size_rules_distinguish_clauses_from_nonempty_cases() {
+        let mut source = String::from("switch (value) {\n");
+        for n in 0..35 {
+            let _ = writeln!(source, "case {n}:");
+        }
+        source.push_str("work(); break;\ndefault: fallback();\n}\n");
+        assert_eq!(count_key(&js_keys(&source), "javascript:S1479"), 0);
+    }
+
+    #[test]
+    fn switch_size_rules_require_default_in_two_clause_switches() {
+        assert_eq!(
+            count_key(
+                &js_keys("switch (value) { case 1: a(); break; case 2: b(); break; }"),
+                "javascript:S1301"
+            ),
+            0
+        );
+        let report = js("switch (value) { case 1: a(); break; default: b(); }");
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S1301")
+            .unwrap();
+        assert_eq!((issue.range.start.column, issue.range.end.column), (0, 6));
+        assert_eq!(
+            issue.message,
+            "Replace this \"switch\" statement by \"if\" statements to increase readability."
+        );
+        assert_eq!(
+            count_key(&js_keys("switch (value) {}"), "javascript:S1301"),
+            1
+        );
+    }
+
+    #[test]
     fn s1301_flags_switches_convertible_to_if() {
         let two_cases = js_keys(
             "switch (x) {\n  case 1:\n    f();\n    break;\n  case 2:\n    g();\n    break;\n  default:\n    break;\n}\n",
         );
-        assert_eq!(count_key(&two_cases, "javascript:S1301"), 1);
+        assert_eq!(count_key(&two_cases, "javascript:S1301"), 0);
 
         let one_case =
             js_keys("switch (x) {\n  case 1:\n    f();\n    break;\n  default:\n    break;\n}\n");
@@ -886,11 +924,11 @@ mod tests {
     }
 
     #[test]
-    fn s1301_two_cases_without_default_remain_convertible() {
+    fn s1301_two_cases_without_default_remain_switches() {
         let no_default = js_keys(
             "switch (x) {\n  case 1:\n    f();\n    break;\n  case 2:\n    g();\n    break;\n}\n",
         );
-        assert_eq!(count_key(&no_default, "javascript:S1301"), 1);
+        assert_eq!(count_key(&no_default, "javascript:S1301"), 0);
     }
 
     #[test]

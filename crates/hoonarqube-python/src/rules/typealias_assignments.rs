@@ -20,7 +20,7 @@ pub(crate) fn check_typealias_assignments(
         {
             issues.push(issue_at(
                 "python:S6794",
-                "Use the type statement for this alias.",
+                "Use a \"type\" statement instead of this \"TypeAlias\".",
                 stmt.range(),
                 index,
                 source,

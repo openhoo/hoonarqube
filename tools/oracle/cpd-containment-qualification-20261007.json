@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "claim": "selected_minimized_CPD_containment_reference",
+  "source_commit": "1ba5116edca521768a2ed3d16c5e70fb409b6e5d",
+  "reference_server": "26.9.0.129388",
+  "before": {
+    "duplicated_lines": 84,
+    "duplicated_blocks": 4
+  },
+  "after": {
+    "duplicated_blocks": 8,
+    "duplicated_files": 3,
+    "duplicated_lines": 84,
+    "duplicated_lines_density": 95.45454545454545
+  },
+  "reference": {
+    "duplicated_lines": 84,
+    "duplicated_blocks": 8,
+    "duplicated_files": 3,
+    "display_density": 95.5
+  },
+  "matched_group_relations": 3,
+  "native_group_relations": 3,
+  "reference_group_relations": 3,
+  "relations_matched": true,
+  "reference_sha256": "38c9ec846e78e8ea424b9536c0659ea7c81f11c564ff62170e45d73f2672534c",
+  "source_sha256": "82aba0566a1d523ff6476079e6159df22f226ed78c303a50611d31e1b6b25288",
+  "native_library_probe": true,
+  "cli_integration_verification": "required_by_integrator",
+  "zod_isolated_delta": {
+    "before_blocks": 392,
+    "after_blocks": 984,
+    "reference_blocks": 1130,
+    "before_and_after_lines": 6466,
+    "reference_lines": 5084,
+    "token_images": "before separate lexical repair"
+  }
+}

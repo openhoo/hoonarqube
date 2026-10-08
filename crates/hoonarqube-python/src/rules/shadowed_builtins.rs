@@ -49,6 +49,8 @@ pub(crate) fn check_shadowed_builtins(
                 index,
                 source,
             );
+            issue.flows =
+                other_assignment_flows(bindings, binding.range, &supported, index, source);
             issue.alternatives = alternatives_for_binding(
                 table,
                 scope_index,
@@ -62,6 +64,32 @@ pub(crate) fn check_shadowed_builtins(
         }
     }
     issues
+}
+
+fn other_assignment_flows(
+    bindings: &[crate::engine::scope::Binding],
+    primary: TextRange,
+    supported: &[TextRange],
+    index: &LineIndex,
+    source: &str,
+) -> Vec<hoonarqube_ir::IssueFlow> {
+    let mut ranges: Vec<_> = bindings
+        .iter()
+        .filter(|binding| binding.kind == BindingKind::Assignment)
+        .map(|binding| binding.range)
+        .filter(|range| *range != primary && supported.contains(range))
+        .collect();
+    ranges.sort_unstable_by_key(Ranged::start);
+    ranges.dedup();
+    ranges
+        .into_iter()
+        .map(|range| hoonarqube_ir::IssueFlow {
+            locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                "Variable also assigned here.",
+                to_range(range, index, source),
+            )],
+        })
+        .collect()
 }
 
 fn supported_assignment_ranges(
@@ -224,6 +252,39 @@ fn is_descendant(table: &SymbolTable, mut child: usize, ancestor: usize) -> bool
 #[cfg(test)]
 mod tests {
     use crate::test_support::{findings, scan};
+    #[test]
+    fn s5806_secondary_locations_record_other_assignments_in_the_same_scope() {
+        let report = scan(concat!(
+            "def process():\n",
+            "    len = 1\n",
+            "    len = 2\n",
+            "    return len\n",
+            "def other():\n",
+            "    len = 3\n",
+            "    return len\n",
+        ));
+        let issues = findings(&report, "python:S5806");
+        assert_eq!(issues.len(), 2);
+        let reassigned = issues
+            .iter()
+            .find(|issue| issue.range.start.line == 2)
+            .unwrap();
+        assert_eq!(reassigned.flows.len(), 1);
+        let location = &reassigned.flows[0].locations[0];
+        assert_eq!(location.message, "Variable also assigned here.");
+        assert_eq!(location.range.start.line, 3);
+        assert_eq!(location.range.end.line, 3);
+        assert_eq!(location.range.start.column, 4);
+        assert_eq!(location.range.end.column, 7);
+        assert!(
+            issues
+                .iter()
+                .find(|issue| issue.range.start.line == 6)
+                .unwrap()
+                .flows
+                .is_empty()
+        );
+    }
     #[test]
     fn s5806_rename_alternative_rewrites_all_resolved_usages() {
         let source = "def process(items):\n    len = len(items)\n    return len\n";

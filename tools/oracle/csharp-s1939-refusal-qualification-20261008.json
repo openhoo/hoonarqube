@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "claim": "native_independent_reanalysis_refusal_with_unchanged_source",
+  "source_commit": "e8e2d41",
+  "rule_key": "csharpsquid:S1939",
+  "action_id": "csharp.s1939.remove-redundant-inheritance-entry",
+  "status": "safety_refusal_observed",
+  "frozen_harness_status": "fail",
+  "frozen_harness_failures_retained": [
+    "fix-apply: expected exit code 0, got 1",
+    "fix-apply did not report a written file",
+    "fix-apply reported no applied rule fix",
+    "fix-apply did not independently verify the applied action",
+    "fix-apply final bytes differ from the native projection",
+    "final analyze did not reduce the targeted rule finding"
+  ],
+  "sdk_version": "10.0.111",
+  "binary_sha256": "356c242964fc798fc6c0e809e75b068f73680ebb6165c5a7d72fe2beefd4bc74",
+  "before_counts": {
+    "csharpsquid:S1939": 1,
+    "csharpsquid:S3903": 3,
+    "csharpsquid:S4023": 2
+  },
+  "projected_counts": {
+    "csharpsquid:S2094": 1,
+    "csharpsquid:S3903": 3,
+    "csharpsquid:S4023": 2
+  },
+  "projected_regressions": {
+    "csharpsquid:S2094": 1
+  },
+  "projected_analysis_complete": true,
+  "target_removed_in_projection": true,
+  "apply_exit_code": 1,
+  "applied": 0,
+  "written": false,
+  "initial_source_sha256": "c8eaa31ab4df2252ea56e048aa04a984445157e86d669a1f8049bf41bce3406a",
+  "final_source_sha256": "c8eaa31ab4df2252ea56e048aa04a984445157e86d669a1f8049bf41bce3406a",
+  "bytes_unchanged": true,
+  "projected_source_sha256": "dd9807440a618f17bfee65cc06d94266c25c5682c915baca1568954d43b89ba0",
+  "actual_detector_regression_reason": "S1939.cs: 1 of 1 projected rule fix(es) did not pass independent verification (csharpsquid:S1939: csharpsquid:S1939 count 1 -> 0 (verified 1, unverified 0); regressions: csharpsquid:S2094 +1)",
+  "negative_control": {
+    "status": "safety_refusal",
+    "bytes_unchanged": true,
+    "selected_action": false
+  },
+  "evidence_base": "hoonarqube-parity-20261007/remaining/qualification/quickfix-csharp-refusals-current",
+  "application_dir": "applications/csharp/013-csharpsquid_S1939-csharp.s1939.remove-redundant-inheritance-entry",
+  "evidence_sha256": {
+    "initial-analyze-report.json": "5a0905a6112f371a97093627b0a0772199f867ea4be190829f7feeff84e206de",
+    "final-analyze-report.json": "5a0905a6112f371a97093627b0a0772199f867ea4be190829f7feeff84e206de",
+    "projected-independent-report.json": "da56e4df53813edd2d9178bbf9663ee1ac5973c7666d5f07219f8e2cbf010014",
+    "projected-independent-command.json": "67f62cffe8bb8979053553f69ab7b7e8cc96dd50cd347542f29ec5f1baf60ac1",
+    "invocations/fix-apply/parsed.json": "675566327e7909fce14ab8db11ffaf0a3ef0eaec2cc02082087e8f94de750185",
+    "invocations/fix-apply/stderr.bin": "09bd6b71ac8c4ff582093f631ceb065ee841fd4d6fea94e29ca94b315912db5e"
+  },
+  "limitations": [
+    "Qualifies the observed fail-closed safeguard; it does not claim successful application of the frozen provider remedy.",
+    "Frozen harness result remains failed because its existing contract expects successful application."
+  ]
+}

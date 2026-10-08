@@ -199,7 +199,7 @@ fn push_local_name_issue(
     }
     issues.push(issue_at(
         "python:S117",
-        "Rename this local variable to match the regular expression '^[_a-z][a-z0-9_]*$'.",
+        &format!("Rename this local variable \"{name}\" to match the regular expression ^[_a-z][a-z0-9_]*$."),
         range,
         index,
         source,

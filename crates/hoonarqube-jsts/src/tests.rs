@@ -1622,6 +1622,143 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
 }
 
 #[test]
+fn qualified_static_reduce_and_regex_messages_preserve_primary_findings() {
+    let static_report = ts("class Example { static value = 1; }");
+    let static_issue = static_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S1444")
+        .unwrap();
+    assert_eq!(
+        static_issue.message,
+        "Make this public static property readonly."
+    );
+    let reduce_report = js("const sum = values.reduce((total, value) => total + value);");
+    let reduce_issue = reduce_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "javascript:S6959")
+        .unwrap();
+    assert_eq!(
+        reduce_issue.message,
+        "Add an initial value to this \"reduce()\" call."
+    );
+    for (pattern, escaped) in [(r"a\-b", r"\-"), (r"[\.]", r"\."), (r"[\[]", r"\[")] {
+        let source = format!("const expression = /{pattern}/;");
+        let report = js(&source);
+        let targets: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6535")
+            .collect();
+        assert_eq!(targets.len(), 1, "{pattern}");
+        assert_eq!(
+            targets[0].message,
+            format!("Unnecessary escape character: {escaped}.")
+        );
+        assert_eq!(
+            &source[targets[0].range.start.column as usize..targets[0].range.end.column as usize],
+            "\\"
+        );
+    }
+}
+
+#[test]
+fn semantic_s2871_string_sort_surfaces_checker_action_without_duplicate_findings() {
+    use crate::project_context::{
+        SemanticFileFacts, SemanticQuickfixAction, SemanticQuickfixEdit, SemanticQuickfixFact,
+        SemanticSpan,
+    };
+    let source = "const names: string[] = ['b', 'a'];\nconst sorted = names.sort();\n";
+    let start = u32::try_from(source.find(".sort").unwrap()).unwrap() + 1;
+    let insertion = start + 5;
+    let mut facts = SemanticFileFacts::default();
+    facts.facts.quickfixes.push(SemanticQuickfixFact {
+        rule_key: "S2871".to_owned(),
+        subject_span: SemanticSpan {
+            start,
+            end: start + 4,
+        },
+        actions: vec![SemanticQuickfixAction {
+            id: "s2871-suggest-language-sensitive-order".to_owned(),
+            message: "Add a comparator function to sort in ascending language-sensitive order"
+                .to_owned(),
+            edits: vec![SemanticQuickfixEdit {
+                span: SemanticSpan {
+                    start: insertion,
+                    end: insertion,
+                },
+                replacement: "(a, b) => a.localeCompare(b)".to_owned(),
+            }],
+        }],
+    });
+    let report = crate::analyze_with_facts(
+        PathBuf::from("case.ts"),
+        source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+        Some(&facts),
+    );
+    let target: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S2871")
+        .collect();
+    assert_eq!(target.len(), 1);
+    assert_eq!(
+        target[0].message,
+        "Provide a compare function that depends on \"String.localeCompare\", to reliably sort elements alphabetically."
+    );
+    assert_eq!(target[0].alternatives.len(), 1);
+    assert_eq!(
+        target[0].alternatives[0].id,
+        "s2871-suggest-language-sensitive-order"
+    );
+    let numeric_source = source
+        .replace("string[]", "number[]")
+        .replace("['b', 'a']", "[22, 111]");
+    let numeric_start = u32::try_from(numeric_source.find(".sort").unwrap()).unwrap() + 1;
+    facts.facts.quickfixes[0].subject_span = SemanticSpan {
+        start: numeric_start,
+        end: numeric_start + 4,
+    };
+    facts.facts.quickfixes[0].actions[0].id = "s2871-suggest-numeric-order".to_owned();
+    facts.facts.quickfixes[0].actions[0].edits[0].span = SemanticSpan {
+        start: numeric_start + 5,
+        end: numeric_start + 5,
+    };
+    let numeric = crate::analyze_with_facts(
+        PathBuf::from("case.ts"),
+        &numeric_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+        Some(&facts),
+    );
+    assert_eq!(
+        numeric
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S2871")
+            .count(),
+        1
+    );
+    facts.facts.quickfixes[0].actions.clear();
+    let unavailable = crate::analyze_with_facts(
+        PathBuf::from("case.ts"),
+        source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+        Some(&facts),
+    );
+    assert!(
+        !unavailable
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "typescript:S2871")
+    );
+}
+
+#[test]
 fn s4322_quickfix_refuses_rest_and_inserts_missing_annotation_after_parameters() {
     let rest_source = "\
 type Foo = { kind?: string };
@@ -3731,5 +3868,94 @@ fn semantic_at_respects_compiler_library_target_for_literal_receivers() {
             .iter()
             .any(|i| i.rule_key == "typescript:S7755")
     );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn semantic_helper_output_budget_accepts_large_projects_and_enforces_exact_bound() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    for (label, configured, bytes, expected_complete) in [
+        ("large-default", None, 9 * 1024 * 1024, true),
+        ("exact-configured", Some(32768), 32768, true),
+        ("over-configured", Some(32768), 32769, false),
+    ] {
+        let root = issue36_temp_dir(label);
+        let path = root.join("input.ts");
+        let source = "export const value = 1;\n";
+        write_issue36_file(&path, source);
+        let script = root.join("fixture-helper.cjs");
+        write_issue36_file(
+            &script,
+            &format!(
+                r"
+const request = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const output = JSON.stringify({{
+ schema_version: 1, complete: true, compiler_version: '6.0.3', fingerprint: 'bounded-output-test',
+ files: request.files.map(file => ({{path: file.path, source_digest: file.digest, language: 'typescript', module_kind: 'esm', facts: {{}}, imports: []}})),
+ dependencies: [], diagnostics: []
+}});
+process.stdout.write(output + ' '.repeat({bytes} - Buffer.byteLength(output)));
+"
+            ),
+        );
+        let mut config = TypeScriptProjectConfig::without_tsconfig(root.clone())
+            .with_helper(PathBuf::from("node"), script);
+        if let Some(limit) = configured {
+            config.max_output_bytes = limit;
+        }
+        let result = ProjectSemanticContext::load(
+            &config,
+            &ProjectSemanticSources::from_pairs([(path, source.to_owned())]),
+        );
+        if expected_complete {
+            let context = result.expect("valid response within output budget");
+            assert!(context.is_complete(), "{:?}", context.diagnostics());
+        } else {
+            let error = result.expect_err("one excess byte must fail closed");
+            assert_eq!(error.code, "JS_CONTEXT_OUTPUT_LIMIT");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[test]
+fn semantic_deprecation_uses_compiler_diagnostics_for_overloads_and_accessors() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+interface Legacy {
+ /** @deprecated use modern instead */ old(): void;
+ old(value: number): void;
+}
+class Counter {
+ /** @deprecated use state instead */ get count() { return 0; }
+ set count(value: number) {}
+}
+export function use(value: Legacy) { value.old(); }
+";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-deprecated-overloads",
+        &package,
+        &[("src/input.ts", source)],
+    );
+    let report = semantic_quickfix_analysis(&context, &root, "src/input.ts", source);
+    let issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.rule_key == "typescript:S1874")
+        .collect();
+    assert_eq!(
+        issues.len(),
+        1,
+        "declaration siblings are not deprecated uses"
+    );
+    assert_eq!(issues[0].range.start.line, 10);
     let _ = fs::remove_dir_all(root);
 }

@@ -1147,6 +1147,8 @@ pub(crate) enum RxMatchType {
 /// One `re.<fn>(...)` call site relevant to the regex rules.
 pub(crate) struct RegexSite {
     pub(crate) pattern_range: TextRange,
+    pub(crate) opener_range: TextRange,
+    pub(crate) content_end: TextSize,
     pub(crate) pattern: Option<Vec<RxUnit>>,
     pub(crate) repl: Option<RegexLiteral>,
     pub(crate) verbose: bool,
@@ -1250,17 +1252,100 @@ pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite>
         } else {
             None
         };
+        let verbose = has_verbose_flag(&call.arguments);
+        let pattern = pattern_expr.and_then(|expr| decode_regex_literal(expr, source));
+        let pattern_range = pattern_expr.map_or_else(|| call.range(), Ranged::range);
+        let opener_range = pattern
+            .as_ref()
+            .and_then(|literal| literal.units.first())
+            .map_or(pattern_range, |unit| {
+                TextRange::at(unit.at - TextSize::new(2), TextSize::new(1))
+            });
+        let content_end = pattern
+            .as_ref()
+            .and_then(|literal| literal.units.last())
+            .map_or(pattern_range.end(), |unit| {
+                unit.at + TextSize::from(to_u32(unit.ch.len_utf8()))
+            });
         sites.push(RegexSite {
-            pattern_range: pattern_expr.map_or_else(|| call.range(), Ranged::range),
-            pattern: pattern_expr
-                .and_then(|expr| decode_regex_literal(expr, source))
-                .map(|literal| literal.units),
+            pattern_range,
+            opener_range,
+            content_end,
+            pattern: pattern.map(|literal| {
+                if verbose {
+                    verbose_regex_units(&literal.units)
+                } else {
+                    literal.units
+                }
+            }),
             repl,
-            verbose: has_verbose_flag(&call.arguments),
+            verbose,
             match_type: site_match_type(&path, call, body),
         });
     });
     sites
+}
+
+/// Extended-mode whitespace and comments have no matching semantics outside
+/// character classes. Retain each surviving character's original offset.
+fn verbose_regex_units(units: &[RxUnit]) -> Vec<RxUnit> {
+    let mut result = Vec::new();
+    let mut state = VerboseRegexState::default();
+    for unit in units {
+        if state.keeps(unit.ch) {
+            result.push(*unit);
+        }
+    }
+    result
+}
+
+#[derive(Default)]
+struct VerboseRegexState {
+    escaped: bool,
+    in_class: bool,
+    comment: bool,
+}
+
+impl VerboseRegexState {
+    fn keeps(&mut self, character: char) -> bool {
+        if self.comment {
+            if matches!(character, '\n' | '\r') {
+                self.comment = false;
+            }
+            return false;
+        }
+        if self.escaped {
+            self.escaped = false;
+            return true;
+        }
+        if character == '\\' {
+            self.escaped = true;
+            return true;
+        }
+        if !self.in_class && character == '#' {
+            self.comment = true;
+            return false;
+        }
+        if !self.in_class && character.is_ascii_whitespace() {
+            return false;
+        }
+        match character {
+            '[' => self.in_class = true,
+            ']' => self.in_class = false,
+            _ => {}
+        }
+        true
+    }
+}
+
+pub(crate) fn regex_node_range(node: &RxNode) -> TextRange {
+    match node {
+        RxNode::Seq(seq) => seq.span,
+        RxNode::Alternation(branches) => TextRange::new(
+            branches.first().unwrap().span.start(),
+            branches.last().unwrap().span.end(),
+        ),
+    }
 }
 
 // --- shared regex-AST walkers and predicates --------------------------------
@@ -1643,6 +1728,15 @@ pub(crate) fn rx_branch_covered_by(earlier: &RxSeq, later: &RxSeq) -> bool {
     if rx_seq_equivalent(earlier, later) {
         return true;
     }
+    if let [covering] = earlier.items.as_slice()
+        && let RxAtom::Class(class) = &covering.atom
+        && let Some(quant) = &covering.quant
+        && !class.negated
+        && later.items.iter().all(|item| matches!(&item.atom, RxAtom::Literal(ch) if item.quant.is_none() && class_contains_char(class, *ch)))
+        && u32::try_from(later.items.len()).is_ok_and(|length| quant.min <= length && quant.max.is_none_or(|max| max >= length))
+    {
+        return true;
+    }
     let Some(later_item) = single(later) else {
         return false;
     };
@@ -1689,19 +1783,23 @@ pub(crate) fn is_repetitive(quant: &RxQuant) -> bool {
 /// Whether the body can match the same input in structurally different ways.
 pub(crate) fn rx_body_ambiguous(node: &RxNode) -> bool {
     match node {
-        RxNode::Alternation(_) => true,
+        RxNode::Alternation(branches) => branches.iter().enumerate().any(|(index, branch)| {
+            branches[index + 1..].iter().any(|other| {
+                match (rx_branch_first_set(branch), rx_branch_first_set(other)) {
+                    (Some(left), Some(right)) => rx_sets_intersect(&left, &right),
+                    _ => true,
+                }
+            })
+        }),
         RxNode::Seq(seq) => {
-            if seq
-                .items
-                .iter()
-                .any(|item| item.quant.as_ref().is_some_and(|quant| quant.min == 0))
-            {
-                return true;
-            }
             let repetitive: Vec<&RxItem> = seq
                 .items
                 .iter()
-                .filter(|item| item.quant.as_ref().is_some_and(is_repetitive))
+                .filter(|item| {
+                    item.quant
+                        .as_ref()
+                        .is_some_and(|quant| quant.max != Some(quant.min))
+                })
                 .collect();
             match repetitive.len() {
                 0 => false,

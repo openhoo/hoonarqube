@@ -39,7 +39,7 @@ mod tests {
 
     #[test]
     fn s1313_flags_ipv4_and_ipv6() {
-        let flagged = scan("ip = \"192.168.1.1\"\nhost = \"2001:db8::1\"\n");
+        let flagged = scan("ip = \"192.168.1.1\"\nhost = \"fd31:f903:5ab5:1::1\"\n");
         assert!(!findings(&flagged, "python:S1313").is_empty());
     }
 
@@ -96,12 +96,12 @@ mod docstring_prose_tests {
             "    .. deprecated:: 2.0\n",
             "    Prose such as be:: de:: ead:: stays documentation only.\n",
             "    \"\"\"\n",
-            "    host = \"2001:db8::1\"\n",
+            "    host = \"fd31:f903:5ab5:1::1\"\n",
             "    return host\n",
         );
         let flagged = scan(source);
         let found = findings(&flagged, "python:S1313");
         assert_eq!(found.len(), 1);
-        assert!(found[0].message.contains("2001:db8::1"));
+        assert!(found[0].message.contains("fd31:f903:5ab5:1::1"));
     }
 }

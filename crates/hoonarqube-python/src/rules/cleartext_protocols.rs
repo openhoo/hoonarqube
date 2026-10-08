@@ -1,4 +1,7 @@
-use crate::support::{for_each_stmt, for_each_stmt_expr, to_range};
+use crate::engine::file_context::FileContext;
+use crate::support::{
+    NameResolution, WebFrameworkFacts, for_each_stmt, for_each_stmt_expr, issue_at, to_range,
+};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, ModModule, Stmt};
 use ruff_python_parser::Parsed;
@@ -13,6 +16,7 @@ pub(crate) fn check_cleartext_protocols(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
+    file_ctx: &FileContext<'_>,
 ) -> Vec<Issue> {
     const CLEARTEXT_SCHEMES: [&str; 3] = ["http://", "ftp://", "telnet://"];
     // Sonar's CleartextProtocolFilter safe-host pattern: localhost,
@@ -88,9 +92,9 @@ pub(crate) fn check_cleartext_protocols(
             issues.push(Issue {
                 rule_key: "python:S5332".to_string(),
                 message: match protocol {
-                    "http" => "Using http protocol is insecure. Use https instead",
-                    "ftp" => "Using ftp protocol is insecure. Use sftp, scp or ftps instead",
-                    "telnet" => "Using telnet protocol is insecure. Use ssh instead",
+                    "http" => "Using HTTP protocol is insecure. Use HTTPS instead.",
+                    "ftp" => "Using FTP protocol is insecure. Use SFTP, SCP or FTPS instead.",
+                    "telnet" => "Using Telnet protocol is insecure. Use SSH instead.",
                     _ => unreachable!("fixed cleartext protocol list"),
                 }
                 .to_string(),
@@ -101,7 +105,61 @@ pub(crate) fn check_cleartext_protocols(
             });
         }
     });
+    if !file_ctx.calls.iter().any(|call| matches!(call.func.as_ref(), Expr::Attribute(method) if matches!(method.attr.as_str(), "serve_forever" | "server_bind"))) {
+        return issues;
+    }
+    let facts = WebFrameworkFacts::build(file_ctx);
+    for call in &file_ctx.calls {
+        if sensitive_http_super_call(call, &facts) {
+            issues.push(issue_at(
+                "python:S5332",
+                "Using HTTP protocol is insecure. Use HTTPS instead.",
+                call.range(),
+                index,
+                source,
+            ));
+        }
+    }
     issues
+}
+
+/// The super-call contract depends on the enclosing class's imported base,
+/// not the class name or the last segment of the method. Unknown bases and
+/// locally replaced `super` bindings do not prove an HTTP server operation.
+fn sensitive_http_super_call(
+    call: &ruff_python_ast::ExprCall,
+    facts: &WebFrameworkFacts<'_>,
+) -> bool {
+    let Expr::Attribute(method) = call.func.as_ref() else {
+        return false;
+    };
+    if !matches!(method.attr.as_str(), "serve_forever" | "server_bind") {
+        return false;
+    }
+    let Expr::Call(receiver) = method.value.as_ref() else {
+        return false;
+    };
+    let Expr::Name(super_name) = receiver.func.as_ref() else {
+        return false;
+    };
+    if super_name.id.as_str() != "super"
+        || !matches!(
+            facts.resolve_name("super", receiver.range()),
+            NameResolution::Unbound
+        )
+    {
+        return false;
+    }
+    facts.enclosing_class(call.range()).is_some_and(|class| {
+        class.bases().iter().any(|base| {
+            facts.expr_fqn(base).is_some_and(|fqn| {
+                matches!(
+                    fqn.as_str(),
+                    "http.server.HTTPServer" | "http.server.ThreadingHTTPServer"
+                )
+            })
+        })
+    })
 }
 
 fn for_each_value_string_element(stmts: &[Stmt], visit: &mut impl FnMut(&str, TextRange)) {
@@ -151,6 +209,41 @@ fn protocol_host(authority: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use crate::test_support::{findings, scan};
+
+    #[test]
+    fn s5332_resolves_http_server_super_calls_through_import_aliases() {
+        let source = concat!(
+            "from http.server import HTTPServer as Server\n",
+            "class Development(Server):\n",
+            "    def serve_forever(self, poll_interval=0.5):\n",
+            "        super().serve_forever(poll_interval=poll_interval)\n",
+        );
+        let report = scan(source);
+        let issues = findings(&report, "python:S5332");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[0].message,
+            "Using HTTP protocol is insecure. Use HTTPS instead."
+        );
+        assert_eq!(issues[0].range.start.line, 4);
+        assert_eq!(issues[0].range.start.column, 8);
+        assert_eq!(issues[0].range.end.column, 58);
+    }
+
+    #[test]
+    fn s5332_requires_http_base_provenance_and_an_unshadowed_super() {
+        let source = concat!(
+            "from http.server import HTTPServer\n",
+            "class Other(Unknown):\n",
+            "    def serve(self):\n        super().serve_forever()\n",
+            "class Shadowed(HTTPServer):\n",
+            "    def serve(self, super):\n        super().serve_forever()\n",
+            "HTTPServer = factory()\n",
+            "class Rebound(HTTPServer):\n",
+            "    def serve(self):\n        super().server_bind()\n",
+        );
+        assert!(findings(&scan(source), "python:S5332").is_empty());
+    }
 
     #[test]
     fn s5332_flags_remote_cleartext_urls_and_spares_safe_hosts() {
@@ -213,7 +306,7 @@ mod tests {
         assert!(
             found
                 .iter()
-                .all(|issue| issue.message.starts_with("Using http"))
+                .all(|issue| issue.message.starts_with("Using HTTP"))
         );
     }
 
@@ -257,7 +350,7 @@ mod docstring_prose_tests {
         assert!(
             found[0]
                 .message
-                .starts_with("Using http protocol is insecure")
+                .starts_with("Using HTTP protocol is insecure")
         );
     }
 }
