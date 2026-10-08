@@ -120,7 +120,7 @@ pub(crate) fn check_collection_and_object_calls(
         sink.emit_span(
             RuleScope::Both,
             "S6959",
-            "Provide an initial accumulator value to this \"reduce\".",
+            "Add an initial value to this \"reduce()\" call.",
             match member {
                 MemberExpression::StaticMemberExpression(member) => member.property.span(),
                 MemberExpression::ComputedMemberExpression(member) => member.expression.span(),

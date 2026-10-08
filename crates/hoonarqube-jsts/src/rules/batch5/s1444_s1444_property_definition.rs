@@ -18,7 +18,7 @@ impl TsTypeCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::TsOnly,
                 "S1444",
-                "Add the readonly modifier to this static property.",
+                "Make this public static property readonly.",
                 it.key.span(),
             );
         }

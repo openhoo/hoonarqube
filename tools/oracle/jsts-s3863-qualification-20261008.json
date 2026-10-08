@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "be6acaf1508d5037eb4c44776fbf74a8c8c8d4b9",
+  "native_binary_sha256": "e3d998cf3944853a5f01166b11c9f218945fade013ce26e21a694a1bc630c7a5",
+  "rule": "S3863",
+  "checks": {
+    "tests": 1374,
+    "clippy_all_targets": "PASS",
+    "regression": "s3863_selects_source_literals_and_separates_value_namespaces",
+    "original_defect": "Executed regression shows entire import statement instead of source literal before correction."
+  },
+  "fresh_controls": {
+    "source_commit": "99bd4778",
+    "reference_issues_sha256": "cc961f485aafef6196b7fe2e33a4359a8c14346d621c181a7bfea62cd6c616ce",
+    "matched": 14,
+    "native_only": 0,
+    "reference_only": 0,
+    "boundary": "Exact primary identity and grouping qualification; resolved module paths in messages are platform-dependent."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 6,
+    "reference_total": 6,
+    "matched": 6,
+    "native_only": 0,
+    "reference_only": 0,
+    "complete": true,
+    "files": 125,
+    "report_sha256": "e971ede2b41388d6333924b6f369c7af0c42ce63dacd2f5fdd2a795cf275dd69"
+  },
+  "baseline_zod": {
+    "matched": 0,
+    "native_only": 10,
+    "reference_only": 6
+  },
+  "limitations": [
+    "Fresh reference resolves existing fixture modules to the scanner path /usr/src/dep.js; native message retains the original module spelling. These fresh messages are not claimed byte-identical.",
+    "Pinned Zod unresolved-module primary identities and source-spelled messages match.",
+    "No quickfix qualification."
+  ]
+}

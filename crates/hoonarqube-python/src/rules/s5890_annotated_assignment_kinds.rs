@@ -6,6 +6,7 @@ use crate::engine::project_context::{
 };
 use crate::support::expr_normalized_text;
 use crate::support::issue_at;
+use crate::support::to_range;
 use crate::support::typed_literal_kind;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Stmt;
@@ -41,9 +42,19 @@ pub(crate) fn check_s5890_annotated_assignment_kinds(
             && (hint.is_some() || resolver.known_non_optional_class(&assign.annotation))
         {
             let annotation_text = expr_normalized_text(&assign.annotation, source);
-            issues.push(issue_at("python:S5890", &format!(
-                "Replace the type hint \"{annotation_text}\" with \"Optional[{annotation_text}]\" or don't assign \"None\" to this expression"
-            ), value.range(), index, source));
+            let mut issue = issue_at(
+                "python:S5890",
+                &format!(
+                    "Replace the type hint \"{annotation_text}\" with \"Optional[{annotation_text}]\" or don't assign \"None\" to this expression"
+                ),
+                value.range(),
+                index,
+                source,
+            );
+            issue
+                .flows
+                .push(annotation_flow(&assign.annotation, index, source));
+            issues.push(issue);
             continue;
         }
         let Some(hint) = hint else {
@@ -60,7 +71,7 @@ pub(crate) fn check_s5890_annotated_assignment_kinds(
             "none" => "None",
             other => other,
         };
-        issues.push(issue_at(
+        let mut issue = issue_at(
             "python:S5890",
             &format!(
                 "Assign to \"{target_text}\" a value of type \"{annotation_text}\" instead of \"{actual_type}\" or update its type hint."
@@ -68,9 +79,26 @@ pub(crate) fn check_s5890_annotated_assignment_kinds(
             value.range(),
             index,
             source,
-        ));
+        );
+        issue
+            .flows
+            .push(annotation_flow(&assign.annotation, index, source));
+        issues.push(issue);
     }
     issues
+}
+
+fn annotation_flow(
+    annotation: &ruff_python_ast::Expr,
+    index: &LineIndex,
+    source: &str,
+) -> hoonarqube_ir::IssueFlow {
+    hoonarqube_ir::IssueFlow {
+        locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+            "",
+            to_range(annotation.range(), index, source),
+        )],
+    }
 }
 
 #[cfg(test)]
@@ -102,6 +130,13 @@ mod tests {
         assert_eq!(issues[0].range.start.line, 4);
         assert_eq!(issues[0].range.start.column, 24);
         assert_eq!(issues[0].range.end.column, 28);
+        assert_eq!(issues[0].flows.len(), 1);
+        let hint = &issues[0].flows[0].locations[0];
+        assert!(hint.message.is_empty());
+        assert_eq!(hint.range.start.line, 4);
+        assert_eq!(hint.range.end.line, 4);
+        assert_eq!(hint.range.start.column, 18);
+        assert_eq!(hint.range.end.column, 21);
     }
 
     #[test]

@@ -65,20 +65,17 @@ pub(crate) fn check_duplicated_string_literals(
             index,
             source,
         );
-        let secondary_locations = occurrences
+        issue.flows = occurrences
             .iter()
             .filter(|(candidate, _, _)| candidate == text)
             .skip(1)
-            .map(|(_, _, secondary_range)| {
-                FlowLocation::in_primary_file(
+            .map(|(_, _, secondary_range)| hoonarqube_ir::IssueFlow {
+                locations: vec![FlowLocation::in_primary_file(
                     "Duplication",
                     to_range(*secondary_range, index, source),
-                )
+                )],
             })
             .collect::<Vec<_>>();
-        if !secondary_locations.is_empty() {
-            issue = issue.with_flow(secondary_locations);
-        }
         issues.push(issue);
     }
     issues

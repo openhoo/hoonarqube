@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "candidate_base_commit": "0b7b86c28189765911707040975ec18d38a8bcfa",
+  "binary_sha256": "5379e848e131490105c209fc4175342262b355789f5b9350a2ff4832951aac53",
+  "reference": "Frozen SonarQube26.9.0.129388 source-backed captures; Python plugin5.31 build36502",
+  "comparison_contract": "Canonical secondary_locations.py: unordered flows, ordered locations inside each flow, multiplicity preserved",
+  "verification": {
+    "red": "Regression failed before production change because supporting metadata was absent or grouped incorrectly",
+    "focused_tests_passed": 5,
+    "python_clippy_all_targets": "exit0 with warnings denied"
+  },
+  "regressions": [
+    "s5713_flags_subclass_and_parent_sharing_an_except_clause",
+    "s5713_flags_imported_and_aliased_stdlib_exception_pairs",
+    "s5713_flags_imported_library_exception_hierarchies"
+  ],
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 77,
+      "selected_rule_canonical_comparison": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "rules": [
+          "python:S5713"
+        ],
+        "native_findings": 1,
+        "reference_findings": 1,
+        "matched_findings": 1,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 1,
+        "reference_supporting_locations": 1,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations",
+        "differences": []
+      },
+      "remaining_canonical_flow_mismatches_by_rule": {
+        "python:S5797": 1
+      },
+      "native_report_sha256": "7117a798559e32bd401ef7fc05bc0622327bcf0871627d797093f968c4a70acb",
+      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10",
+      "command": [
+        "/Users/wakemeup/projects/openhoo/.targets/hoonarqube-python-remaining-20261007/debug/hoonarqube",
+        "analyze",
+        "src/requests",
+        "--format",
+        "json",
+        "--python-project",
+        "src"
+      ]
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 230,
+      "selected_rule_canonical_comparison": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "rules": [
+          "python:S5713"
+        ],
+        "native_findings": 0,
+        "reference_findings": 0,
+        "matched_findings": 0,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 0,
+        "reference_supporting_locations": 0,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations",
+        "differences": []
+      },
+      "remaining_canonical_flow_mismatches_by_rule": {
+        "python:S5806": 1,
+        "python:S5843": 3,
+        "python:S5855": 1,
+        "python:S5869": 1,
+        "python:S5890": 1
+      },
+      "native_report_sha256": "2dd25c698c770d85c3ac2d2d671204ff975dadca7d0b545bb434bd16cd35f33a",
+      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c",
+      "command": [
+        "/Users/wakemeup/projects/openhoo/.targets/hoonarqube-python-remaining-20261007/debug/hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--format",
+        "json",
+        "--python-project",
+        "src",
+        "--exclude",
+        "**/*.css"
+      ]
+    }
+  }
+}

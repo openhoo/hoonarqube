@@ -1622,6 +1622,143 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
 }
 
 #[test]
+fn qualified_static_reduce_and_regex_messages_preserve_primary_findings() {
+    let static_report = ts("class Example { static value = 1; }");
+    let static_issue = static_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "typescript:S1444")
+        .unwrap();
+    assert_eq!(
+        static_issue.message,
+        "Make this public static property readonly."
+    );
+    let reduce_report = js("const sum = values.reduce((total, value) => total + value);");
+    let reduce_issue = reduce_report
+        .issues
+        .iter()
+        .find(|issue| issue.rule_key == "javascript:S6959")
+        .unwrap();
+    assert_eq!(
+        reduce_issue.message,
+        "Add an initial value to this \"reduce()\" call."
+    );
+    for (pattern, escaped) in [(r"a\-b", r"\-"), (r"[\.]", r"\."), (r"[\[]", r"\[")] {
+        let source = format!("const expression = /{pattern}/;");
+        let report = js(&source);
+        let targets: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6535")
+            .collect();
+        assert_eq!(targets.len(), 1, "{pattern}");
+        assert_eq!(
+            targets[0].message,
+            format!("Unnecessary escape character: {escaped}.")
+        );
+        assert_eq!(
+            &source[targets[0].range.start.column as usize..targets[0].range.end.column as usize],
+            "\\"
+        );
+    }
+}
+
+#[test]
+fn semantic_s2871_string_sort_surfaces_checker_action_without_duplicate_findings() {
+    use crate::project_context::{
+        SemanticFileFacts, SemanticQuickfixAction, SemanticQuickfixEdit, SemanticQuickfixFact,
+        SemanticSpan,
+    };
+    let source = "const names: string[] = ['b', 'a'];\nconst sorted = names.sort();\n";
+    let start = u32::try_from(source.find(".sort").unwrap()).unwrap() + 1;
+    let insertion = start + 5;
+    let mut facts = SemanticFileFacts::default();
+    facts.facts.quickfixes.push(SemanticQuickfixFact {
+        rule_key: "S2871".to_owned(),
+        subject_span: SemanticSpan {
+            start,
+            end: start + 4,
+        },
+        actions: vec![SemanticQuickfixAction {
+            id: "s2871-suggest-language-sensitive-order".to_owned(),
+            message: "Add a comparator function to sort in ascending language-sensitive order"
+                .to_owned(),
+            edits: vec![SemanticQuickfixEdit {
+                span: SemanticSpan {
+                    start: insertion,
+                    end: insertion,
+                },
+                replacement: "(a, b) => a.localeCompare(b)".to_owned(),
+            }],
+        }],
+    });
+    let report = crate::analyze_with_facts(
+        PathBuf::from("case.ts"),
+        source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+        Some(&facts),
+    );
+    let target: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S2871")
+        .collect();
+    assert_eq!(target.len(), 1);
+    assert_eq!(
+        target[0].message,
+        "Provide a compare function that depends on \"String.localeCompare\", to reliably sort elements alphabetically."
+    );
+    assert_eq!(target[0].alternatives.len(), 1);
+    assert_eq!(
+        target[0].alternatives[0].id,
+        "s2871-suggest-language-sensitive-order"
+    );
+    let numeric_source = source
+        .replace("string[]", "number[]")
+        .replace("['b', 'a']", "[22, 111]");
+    let numeric_start = u32::try_from(numeric_source.find(".sort").unwrap()).unwrap() + 1;
+    facts.facts.quickfixes[0].subject_span = SemanticSpan {
+        start: numeric_start,
+        end: numeric_start + 4,
+    };
+    facts.facts.quickfixes[0].actions[0].id = "s2871-suggest-numeric-order".to_owned();
+    facts.facts.quickfixes[0].actions[0].edits[0].span = SemanticSpan {
+        start: numeric_start + 5,
+        end: numeric_start + 5,
+    };
+    let numeric = crate::analyze_with_facts(
+        PathBuf::from("case.ts"),
+        &numeric_source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+        Some(&facts),
+    );
+    assert_eq!(
+        numeric
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S2871")
+            .count(),
+        1
+    );
+    facts.facts.quickfixes[0].actions.clear();
+    let unavailable = crate::analyze_with_facts(
+        PathBuf::from("case.ts"),
+        source,
+        JstsLanguage::TypeScript,
+        &AnalyzerOptions::default(),
+        Some(&facts),
+    );
+    assert!(
+        !unavailable
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "typescript:S2871")
+    );
+}
+
+#[test]
 fn s4322_quickfix_refuses_rest_and_inserts_missing_annotation_after_parameters() {
     let rest_source = "\
 type Foo = { kind?: string };

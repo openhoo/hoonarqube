@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "2f43ff4",
+  "native_binary_sha256": "a5e38037a53ce4fd6c2b99d92d649aa4a3649ae19040734acd0381273c481c9b",
+  "reference_boundary": "Frozen typed quickfix manifests remain unchanged. Current replay migrates a vanished temporary S4322 compiler proof to persistent storage; this is fresh native and compiler execution, not a fresh upstream capture.",
+  "compiler": {
+    "version": "6.0.3",
+    "package_json_sha256": "9332e97c30d3e53ed54910b89207ed657fb444066484df6e5b6965bf130865e9"
+  },
+  "manifests": {
+    "jsts-derived-overlay": {
+      "sha256": "532b6d9f059e51225d6104e758d150368ae0edf0ee620030c6c3ffcac45db882",
+      "bytes": 34792
+    },
+    "jsts-expressions": {
+      "sha256": "4a72333aa28d660299e21fa68b52b95bc82867b6f0872ffa9fdab06aca9a6365",
+      "bytes": 218098
+    },
+    "jsts-typed": {
+      "sha256": "f6139fac8e508e571a60b2e0b301794c66b5ecc6ca7d37a1ba186c1f98127565",
+      "bytes": 221149
+    }
+  },
+  "summary": {
+    "applications": 9,
+    "fail": 0,
+    "native_action_gap": 0,
+    "native_action_refusal": 1,
+    "no_action_declared": 0,
+    "no_action_expected": 3,
+    "pass": 5,
+    "safety_refused": 0,
+    "unavailable": 0
+  },
+  "applications": [
+    {
+      "row_index": 102,
+      "rule_key": "typescript:S2871",
+      "action_id": "s2871-suggest-numeric-order",
+      "status": "pass",
+      "failures": []
+    },
+    {
+      "row_index": 103,
+      "rule_key": "typescript:S2871",
+      "action_id": "s2871-suggest-numeric-order",
+      "status": "pass",
+      "failures": []
+    },
+    {
+      "row_index": 104,
+      "rule_key": "typescript:S2871",
+      "action_id": "s2871-suggest-language-sensitive-order",
+      "status": "pass",
+      "failures": []
+    },
+    {
+      "row_index": 105,
+      "rule_key": "typescript:S2871",
+      "action_id": null,
+      "status": "no_action_expected",
+      "failures": []
+    },
+    {
+      "row_index": 106,
+      "rule_key": "typescript:S2871",
+      "action_id": null,
+      "status": "no_action_expected",
+      "failures": []
+    },
+    {
+      "row_index": 117,
+      "rule_key": "typescript:S4322",
+      "action_id": "s4322-use-type-predicate",
+      "status": "pass",
+      "failures": []
+    },
+    {
+      "row_index": 118,
+      "rule_key": "typescript:S4322",
+      "action_id": null,
+      "status": "native_action_refusal",
+      "failures": []
+    },
+    {
+      "row_index": 119,
+      "rule_key": "typescript:S4322",
+      "action_id": "s4322-use-type-predicate",
+      "status": "pass",
+      "failures": []
+    },
+    {
+      "row_index": 120,
+      "rule_key": "typescript:S4322",
+      "action_id": null,
+      "status": "no_action_expected",
+      "failures": []
+    }
+  ],
+  "s4322_upstream_invalid_proof": {
+    "source": "type Foo = { kind?: string };\nfunction isFoo(...values: Foo[]): values[0] is Foo {\n  return (values[0] as Foo).kind !== undefined;\n}\nexport { isFoo };\n",
+    "source_sha256": "c2d65013fde4faa545026b03bad2ae8359b07aae8bff7b0c38384261c209f3cf",
+    "compiler_exit": 1,
+    "diagnostics": [
+      {
+        "code": 2749,
+        "category": 1,
+        "message": "'values' refers to a value, but is being used as a type here. Did you mean 'typeof values'?"
+      },
+      {
+        "code": 1144,
+        "category": 1,
+        "message": "'{' or ';' expected."
+      },
+      {
+        "code": 2304,
+        "category": 1,
+        "message": "Cannot find name 'is'."
+      },
+      {
+        "code": 1434,
+        "category": 1,
+        "message": "Unexpected keyword or identifier."
+      },
+      {
+        "code": 2693,
+        "category": 1,
+        "message": "'Foo' only refers to a type, but is being used as a value here."
+      }
+    ]
+  },
+  "s2871_regression": "semantic_s2871_string_sort_surfaces_checker_action_without_duplicate_findings",
+  "checks": {
+    "jsts_tests": 1371,
+    "clippy_all_targets": "PASS",
+    "s2871_original_defect": "Executed regression fails with zero findings before the fallback fix; passes with one actionable string-sort finding afterward.",
+    "actual_string_sort_application": "CLI before/apply/after exits zero; edited source equals frozen projection."
+  },
+  "limitations": [
+    "Safety refusal is separate from upstream parity.",
+    "Runtime alphabetical ordering changes intentionally when the user selects the language-sensitive comparator suggestion.",
+    "Standalone syntax-only string sorting retains its current exemption; compiler context proves this finding."
+  ]
+}

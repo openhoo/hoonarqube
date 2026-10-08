@@ -7,6 +7,7 @@ use crate::engine::project_context::{
 use crate::support::expr_normalized_text;
 use crate::support::for_each_return_in_scope;
 use crate::support::issue_at;
+use crate::support::to_range;
 use crate::support::typed_literal_kind;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Stmt;
@@ -45,7 +46,7 @@ pub(crate) fn check_s5886_return_hint_mismatches(
             let Some(actual_type) = actual_type else {
                 return;
             };
-            issues.push(issue_at(
+            let mut issue = issue_at(
                 "python:S5886",
                 &format!(
                     "Return a value of type \"{annotation_text}\" instead of \"{actual_type}\" or update function \"{}\" type hint.",
@@ -54,7 +55,20 @@ pub(crate) fn check_s5886_return_hint_mismatches(
                 value.range(),
                 index,
                 source,
-            ));
+            );
+            issue.flows = [
+                (function.name.range(), "Function definition."),
+                (annotation.range(), "Type hint."),
+            ]
+            .into_iter()
+            .map(|(range, message)| hoonarqube_ir::IssueFlow {
+                locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                    message,
+                    to_range(range, index, source),
+                )],
+            })
+            .collect();
+            issues.push(issue);
         });
     }
     issues
@@ -119,6 +133,21 @@ mod tests {
         assert_eq!(issues[0].range.start.line, 5);
         assert_eq!(issues[0].range.start.column, 11);
         assert_eq!(issues[0].range.end.column, 20);
+        assert_eq!(issues[0].flows.len(), 2);
+        for (flow, (message, start, end)) in issues[0]
+            .flows
+            .iter()
+            .zip([("Function definition.", 4, 7), ("Type hint.", 13, 21)])
+        {
+            assert_eq!(flow.locations.len(), 1);
+            let location = &flow.locations[0];
+            assert_eq!(location.message, message);
+            assert_eq!(location.range.start.line, 4);
+            assert_eq!(location.range.start.column, start);
+            assert_eq!(location.range.end.line, 4);
+            assert_eq!(location.range.end.column, end);
+            assert!(location.path.is_none());
+        }
     }
 
     #[test]

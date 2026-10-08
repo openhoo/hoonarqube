@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "claim": "unavailable_frozen_reference_artifacts",
+  "state": "blocked",
+  "historical_archive_preserved": true,
+  "historical_result_sha256": "15780e9a10e65e0291af0df5d0d60365f7b88bb5c9bbc14681f5d407672363f6",
+  "historical_summary": {
+    "applications": 60,
+    "fail": 14,
+    "native_action_gap": 0,
+    "native_action_refusal": 0,
+    "no_action_declared": 0,
+    "no_action_expected": 0,
+    "pass": 37,
+    "safety_refused": 9,
+    "unavailable": 0
+  },
+  "manifest_sha256": "7e738aa05a023de7327f698b91c842ae376b043d3ce0be47d62c13dd266c7209",
+  "path_base": "hoonarqube-parity-20261007/remaining/qualification/quickfix-replay-ts6-complete",
+  "affected_applications": 11,
+  "missing_artifact_count": 10,
+  "entries": [
+    {
+      "rule_key": "csharpsquid:S1116",
+      "action_id": "csharp.s1116.remove-empty-statement",
+      "application_dir": "applications/csharp/001-csharpsquid_S1116-csharp.s1116.remove-empty-statement",
+      "kind": "negative_compiler_refusal",
+      "path": "quickfix-complete-csharp/applications/csharp/001-csharpsquid_S1116-csharp.s1116.remove-empty-statement/invocations/negative-analyze/parsed.json",
+      "recorded_artifact_sha256": null,
+      "hash_note": "No artifact hash recorded by frozen contract; only source hash is pinned.",
+      "recorded_source_sha256": "4cc946969a824feb7213043f7c7126ba37287504546e4fe27e1bb71b3c344c04",
+      "compiler_error_ids": [
+        "CS1597"
+      ],
+      "actual_exit_code": 2,
+      "actual_project_complete": false,
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S1858",
+      "action_id": "csharp.s1858.remove-redundant-tostring",
+      "application_dir": "applications/csharp/011-csharpsquid_S1858-csharp.s1858.remove-redundant-tostring",
+      "kind": "negative_compiler_refusal",
+      "path": "quickfix-complete-csharp/applications/csharp/011-csharpsquid_S1858-csharp.s1858.remove-redundant-tostring/invocations/negative-analyze/parsed.json",
+      "recorded_artifact_sha256": null,
+      "hash_note": "No artifact hash recorded by frozen contract; only source hash is pinned.",
+      "recorded_source_sha256": "d1a7253a92069006575d96c2b89430d3b368b62452e8fa807a31dbe6ab02d23d",
+      "compiler_error_ids": [
+        "CS0103"
+      ],
+      "actual_exit_code": 2,
+      "actual_project_complete": false,
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3169",
+      "action_id": "csharp.s3169.change-orderby-to-thenby",
+      "application_dir": "applications/csharp/026-csharpsquid_S3169-csharp.s3169.change-orderby-to-thenby",
+      "kind": "negative_compiler_refusal",
+      "path": "quickfix-complete-csharp/applications/csharp/026-csharpsquid_S3169-csharp.s3169.change-orderby-to-thenby/invocations/negative-analyze/parsed.json",
+      "recorded_artifact_sha256": null,
+      "hash_note": "No artifact hash recorded by frozen contract; only source hash is pinned.",
+      "recorded_source_sha256": "d8cf0791bc74ec01d6ec368199fc6c69e87e5bec15e2fec84b7af7fd5a83f5f2",
+      "compiler_error_ids": [
+        "CS1061"
+      ],
+      "actual_exit_code": 2,
+      "actual_project_complete": false,
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3234",
+      "action_id": "csharp.s3234.remove-suppress-finalize",
+      "application_dir": "applications/csharp/028-csharpsquid_S3234-csharp.s3234.remove-suppress-finalize",
+      "kind": "reference_provenance",
+      "path": "csharp-provider-targeted-sidecar.json",
+      "recorded_artifact_sha256": "743e63c88abcad9a589f3638234acdc83b045b2b732bd0b5229ad4c3ea367ebe",
+      "recorded_source_sha256": "26c622c5de510f13161af997583e7516c99d0268023685dd83265ad7271ed12c",
+      "recorded_final_source_sha256": "d0f33c5d225c76996d5ffa83b5035caee9011c1e1a7870bb0a0c99fa0d7f9d48",
+      "selector": "1-282",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3234",
+      "action_id": "csharp.s3234.remove-suppress-finalize",
+      "application_dir": "applications/csharp/028-csharpsquid_S3234-csharp.s3234.remove-suppress-finalize",
+      "kind": "reference_no_action",
+      "path": "csharp-provider-reference-final.json",
+      "recorded_artifact_sha256": "bc17b51bf2e38adb27838977ee3ab554f1fa15197c65642fc832cd06fe42d6c9",
+      "recorded_source_sha256": "bb924782fecfa5d1398fcab75e82598c2cad9467641ddf40ba88f32921e0aa7b",
+      "name": "frozen-upstream-positive-no-target",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3254",
+      "action_id": "csharp.s3254.remove-default-argument",
+      "application_dir": "applications/csharp/032-csharpsquid_S3254-csharp.s3254.remove-default-argument",
+      "kind": "reference_fixall",
+      "path": "csharp-provider-s3254-fixall.json",
+      "recorded_artifact_sha256": "ca8c8b5ddfb9bc8c737f9c70e274e701042bd6d75d5158fd44d5ede97c452cbd",
+      "recorded_source_sha256": "0021cf396a67ac0fbb46288f6eb5e021afd272ca289e2bfe04e2f60cf081cba2",
+      "recorded_final_source_sha256": "97a174b547e742e1e3734067dd924446ecd838565ef75a6a13f2b1121522bd25",
+      "selector": "1-147",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3262",
+      "action_id": "csharp.s3262.add-params",
+      "application_dir": "applications/csharp/035-csharpsquid_S3262-csharp.s3262.add-params",
+      "kind": "negative_compiler_refusal",
+      "path": "quickfix-complete-csharp/applications/csharp/035-csharpsquid_S3262-csharp.s3262.add-params/invocations/negative-analyze/parsed.json",
+      "recorded_artifact_sha256": null,
+      "hash_note": "No artifact hash recorded by frozen contract; only source hash is pinned.",
+      "recorded_source_sha256": "98f131bbe32d55c5a2e03f2871c788672dc6a04878839ae44f8e9a4f43310b3b",
+      "compiler_error_ids": [
+        "CS0115"
+      ],
+      "actual_exit_code": 2,
+      "actual_project_complete": false,
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3451",
+      "action_id": "csharp.s3451.use-default-parameter-value-attribute",
+      "application_dir": "applications/csharp/043-csharpsquid_S3451-csharp.s3451.use-default-parameter-value-attribute",
+      "kind": "reference_provenance",
+      "path": "csharp-provider-targeted-sidecar.json",
+      "recorded_artifact_sha256": "743e63c88abcad9a589f3638234acdc83b045b2b732bd0b5229ad4c3ea367ebe",
+      "recorded_source_sha256": "0723975a423954611ae00bd5ce51b918037b92c1c45240b3ecfc8061416114df",
+      "recorded_final_source_sha256": "5b5fc5393815961a147d91557cc2beaea03cea9325bd214eaf0d58a6826593fc",
+      "selector": "1-282",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3451",
+      "action_id": "csharp.s3451.use-default-parameter-value-attribute",
+      "application_dir": "applications/csharp/043-csharpsquid_S3451-csharp.s3451.use-default-parameter-value-attribute",
+      "kind": "reference_no_action",
+      "path": "csharp-provider-reference-final.json",
+      "recorded_artifact_sha256": "bc17b51bf2e38adb27838977ee3ab554f1fa15197c65642fc832cd06fe42d6c9",
+      "recorded_source_sha256": "77a95bd6e70e6d94a4ef9e2a3a4e91c16496b25e1801c664005ddbea1ff67881",
+      "name": "frozen-upstream-positive-no-target",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3532",
+      "action_id": "csharp.s3532.remove-empty-default",
+      "application_dir": "applications/csharp/046-csharpsquid_S3532-csharp.s3532.remove-empty-default",
+      "kind": "negative_compiler_refusal",
+      "path": "quickfix-complete-csharp/applications/csharp/046-csharpsquid_S3532-csharp.s3532.remove-empty-default/invocations/negative-analyze/parsed.json",
+      "recorded_artifact_sha256": null,
+      "hash_note": "No artifact hash recorded by frozen contract; only source hash is pinned.",
+      "recorded_source_sha256": "674dab3aa428425ca741f4cf38dc60d2fb6d11576209c919bab6e09b99d28ef3",
+      "compiler_error_ids": [
+        "CS8070"
+      ],
+      "actual_exit_code": 2,
+      "actual_project_complete": false,
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3604",
+      "action_id": "csharp.s3604.remove-redundant-initializer",
+      "application_dir": "applications/csharp/048-csharpsquid_S3604-csharp.s3604.remove-redundant-initializer",
+      "kind": "reference_provenance",
+      "path": "csharp-provider-targeted-sidecar.json",
+      "recorded_artifact_sha256": "743e63c88abcad9a589f3638234acdc83b045b2b732bd0b5229ad4c3ea367ebe",
+      "recorded_source_sha256": "29e74fb42f0e754975ebf08ceabdbec3a731f95762a5b46287016252b5e02c61",
+      "recorded_final_source_sha256": "adef26cdd459012b622faaa2c7f2e85cbcd52fcf90cf85e1098d6a6c49b63840",
+      "selector": "1-282",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S3604",
+      "action_id": "csharp.s3604.remove-redundant-initializer",
+      "application_dir": "applications/csharp/048-csharpsquid_S3604-csharp.s3604.remove-redundant-initializer",
+      "kind": "reference_no_action",
+      "path": "csharp-provider-reference-final.json",
+      "recorded_artifact_sha256": "bc17b51bf2e38adb27838977ee3ab554f1fa15197c65642fc832cd06fe42d6c9",
+      "recorded_source_sha256": "6098675b6462e86009e5e7e18dfa93155bf0ffbcf36db705da83a97acf4a5440",
+      "name": "frozen-upstream-positive-no-target",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S6613",
+      "action_id": "csharp.s6613.use-linkedlist-property",
+      "application_dir": "applications/csharp/052-csharpsquid_S6613-csharp.s6613.use-linkedlist-property",
+      "kind": "reference_provenance",
+      "path": "csharp-provider-s6613-actionable.json",
+      "recorded_artifact_sha256": "b20a080ce7bd5e54df5ae5fba0d00d7356c2f57cb4ab377c7137616a7fb1f17e",
+      "recorded_source_sha256": "ba6634fa512c87efc049ac71db88cdf1ce55b25a823e8546af7efab7f02c06f2",
+      "recorded_final_source_sha256": "49253e2c1d955a3d1e6fd82ed130822e1184991ea8a119f28021013811a59056",
+      "selector": null,
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S6961",
+      "action_id": "csharp.s6961.change-to-controllerbase",
+      "application_dir": "applications/csharp/053-csharpsquid_S6961-csharp.s6961.change-to-controllerbase",
+      "kind": "reference_provenance",
+      "path": "csharp-provider-s6961-actionable.json",
+      "recorded_artifact_sha256": "c4077fc48edbaf6f2dd29ec45b6c4f29bbe3eb477550e90b92b8db01db26db96",
+      "recorded_source_sha256": "bdf6a508c0084a078744c65a957488812cae0681bd261b17e246973b26161d6f",
+      "recorded_final_source_sha256": "203f0c5d7ac04b5bceb539d125a4947f46fc89cc3de9889a0924c37d5a5657cb",
+      "selector": "1-92",
+      "exists_at_manifest_relative_path": false
+    },
+    {
+      "rule_key": "csharpsquid:S6961",
+      "action_id": "csharp.s6961.change-to-controllerbase",
+      "application_dir": "applications/csharp/053-csharpsquid_S6961-csharp.s6961.change-to-controllerbase",
+      "kind": "reference_no_action",
+      "path": "csharp-provider-reference-final.json",
+      "recorded_artifact_sha256": "bc17b51bf2e38adb27838977ee3ab554f1fa15197c65642fc832cd06fe42d6c9",
+      "recorded_source_sha256": "859e5389137ebbc8744e76a2f0036018d85433510e910d84db03200866a2e302",
+      "name": "frozen-upstream-positive-no-target",
+      "exists_at_manifest_relative_path": false
+    }
+  ],
+  "next_action": "Recover original bytes matching recorded hashes, or create separately labeled new upstream qualification and update the current contract with retained provenance.",
+  "limitations": [
+    "Historical failed result is unchanged.",
+    "These unavailable references are not passing skips.",
+    "No synthetic provider evidence or replacement historical hashes were generated."
+  ]
+}
