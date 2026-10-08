@@ -18,7 +18,8 @@ SEMVER_TEXT = (
 )
 SEMVER = re.compile(rf"^{SEMVER_TEXT}$")
 WORKSPACE_VERSION = re.compile(
-    r'(?ms)(^\[workspace\.package\]\s*$.*?^version\s*=\s*")[^"]+("\s*$)'
+    r'(?m)(^\[workspace\.package\][ \t]*\n(?:(?![ \t]*\[)[^\n]*\n)*?'
+    r'^version[ \t]*=[ \t]*")[^"]+("[ \t]*$)'
 )
 INTERNAL_DEPENDENCY = re.compile(
     r"(?ms)^[ \t]*hoonarqube(?:-[a-z0-9-]+)?[ \t]*=[ \t]*\{"
@@ -92,18 +93,22 @@ def main() -> int:
         ROOT / "actions" / "README.md",
     ]
     drifted: list[Path] = []
+    updates: list[tuple[Path, str]] = []
     for path in paths:
         current = path.read_text(encoding="utf-8")
         updated = synchronized(path, version)
         if current == updated:
             continue
         drifted.append(path.relative_to(ROOT))
-        if not args.check:
-            path.write_text(updated, encoding="utf-8")
+        updates.append((path, updated))
 
     if args.check and drifted:
         joined = ", ".join(str(path) for path in drifted)
         raise RuntimeError(f"release version drift: {joined}")
+    # Validate every target before changing any release metadata.
+    if not args.check:
+        for path, updated in updates:
+            path.write_text(updated, encoding="utf-8")
     return 0
 
 

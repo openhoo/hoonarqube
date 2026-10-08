@@ -2163,11 +2163,36 @@ fn validate_restore_history_chains(
         {
             return Err(ApiError::conflict());
         }
-        if !history_chain_matches(entries.values().copied(), review.state) {
+        if !history_chain_matches(entries.values().copied(), review.state)
+            || !entries
+                .last_key_value()
+                .is_some_and(|(_, latest)| review_matches_history(review, latest))
+        {
             return Err(ApiError::conflict());
         }
     }
     Ok(())
+}
+
+// A live review and its latest audit entry are written in one transaction.
+// Restoration must preserve that invariant instead of importing two different
+// accounts of who reviewed which analysis, when, and for what reason.
+fn review_matches_history(review: &BackupReview, latest: &BackupHistory) -> bool {
+    (
+        review.analysis_id,
+        review.version,
+        review.state,
+        &review.updated_by,
+        &review.updated_at,
+        &review.reason,
+    ) == (
+        latest.analysis_id,
+        latest.version,
+        latest.new_state,
+        &latest.actor,
+        &latest.created_at,
+        &latest.reason,
+    )
 }
 
 fn validate_restore_deletions(
@@ -3226,6 +3251,130 @@ mod tests {
         serde_json::from_slice(&response.body).expect("JSON response body")
     }
 
+    fn reviewable_report() -> &'static str {
+        r#"{"schema_version":1,"files":[{"path":"a.py","language":"python","issues":[{"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":20}}}],"metrics":{"lines":2,"code_lines":1,"comment_lines":1}}],"project":{"metrics":{"files":1,"lines":2,"code_lines":1,"comment_lines":1},"files":[{"path":"a.py","classification":"source","status":"complete","metrics":{"lines":2,"code_lines":1,"comment_lines":1},"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"reason":null}],"duplications":[],"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"complete":true,"warnings":[],"roots":["a.py"]},"assessment":{"schema_version":3,"context":{"analyzer_version":"hoonarqube-cli/0.8.2","catalog_digest":"d9ce2a1a13961a57f4dede498924fd3518312e8de5a4a5bc671952c73c158a84","options_digest":"471a1bbba734ab8a2da6fa62d0d84d5dd967dd2e1476565c78de6881b54b48d1","scope_digest":"dc756006f7d7366908f4cff666986e61f0fbd42c39b18381e745422035d69e36"},"sources":[{"path":"a.py","content_digest":"f89600824c3f62a48dcc441d730d7d43f1923b7b37bccb3a0536d109c1199764","line_digests":["1dd36e4257b84fc35cfcaca20a29fcbbd61530714fcbde191251b7d679dd9a44","e09e09453d48049c48cadbc630a121ed1b033498846be9aba19eafb8ab73f917"],"findings":[{"issue_index":0,"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","source_digest":"2837a0fd9c3732d35586b5be9794e0511049637f586fba20edb81d67b7d237f8","context_digest":"c2d980f6467c3167454753db29f2986ca82af25bd310de58bb297175584b3e30","start_line":1,"end_line":1,"occurrence":0,"content_identity":"7adf5f8ba5eb9ee66cc0e57217b0cf038955673f8f2156e35d664e146042a5ce","identity":"506e1fcd2d2ab0df6909a6d7df84a4c48c623b893175bf1251c636ce01ff2e8b","ambiguous":false,"path":"a.py"}]}]}}"#
+    }
+
+    async fn export_reviewed_backup(source: SocketAddr) -> (Value, i64) {
+        let report: Value = serde_json::from_str(reviewable_report()).expect("reviewable report");
+        let ingested = ingest_report(source, "reviewed", report.clone()).await;
+        assert_eq!(ingested.status, 200);
+        let analysis_id = json_body(&ingested)["analysis"]["id"]
+            .as_i64()
+            .expect("analysis id");
+        let second = ingest_report(source, "later", report).await;
+        assert_eq!(second.status, 200);
+        let second_id = json_body(&second)["analysis"]["id"]
+            .as_i64()
+            .expect("second id");
+        let findings = api_request(
+            source,
+            "GET",
+            &format!("/api/v1/projects/demo/analyses/{analysis_id}/findings"),
+            None,
+            "",
+        )
+        .await;
+        let identity = json_body(&findings)["findings"][0]["identity"].clone();
+        for (version, state) in [(0, "accepted"), (1, "open")] {
+            let review = api_request(source, "POST", "/api/v1/projects/demo/reviews", Some("application/json"),
+                &json!({"schema_version": 1, "analysis_id": analysis_id, "identity": identity,
+                    "kind": "finding", "state": state, "reason": "reviewed", "expected_version": version}).to_string()).await;
+            assert_eq!(review.status, 200);
+        }
+        let exported = api_request(source, "GET", "/api/v1/projects/demo/export", None, "").await;
+        assert_eq!(exported.status, 200);
+        (json_body(&exported), second_id)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_restore_binds_review_summary_to_latest_history() {
+        let (source, source_server) = spawn_test_service().await;
+        let (clean, second_id) = export_reviewed_backup(source).await;
+        let (destination, destination_server) = spawn_test_service().await;
+        for field in ["updated_by", "reason", "updated_at", "analysis_id"] {
+            let mut corrupted = clean.clone();
+            corrupted["reviews"][0][field] = match field {
+                "updated_by" => json!("different-actor"),
+                "reason" => json!("different-reason"),
+                "updated_at" => json!("2026-09-21T10:00:00Z"),
+                "analysis_id" => json!(second_id),
+                _ => unreachable!(),
+            };
+            let restored = api_request(
+                destination,
+                "POST",
+                "/api/v1/projects/demo/restore",
+                Some("application/json"),
+                &corrupted.to_string(),
+            )
+            .await;
+            assert_api_error(&restored, 409, "conflict");
+            let projects = api_request(destination, "GET", "/api/v1/projects", None, "").await;
+            assert!(
+                json_body(&projects)["projects"]
+                    .as_array()
+                    .expect("projects")
+                    .is_empty()
+            );
+        }
+        let restored = api_request(
+            destination,
+            "POST",
+            "/api/v1/projects/demo/restore",
+            Some("application/json"),
+            &clean.to_string(),
+        )
+        .await;
+        assert_eq!(restored.status, 200);
+        let reviews = api_request(
+            destination,
+            "GET",
+            "/api/v1/projects/demo/reviews",
+            None,
+            "",
+        )
+        .await;
+        let review = json_body(&reviews)["reviews"][0].clone();
+        assert_eq!(review["version"], 2);
+        assert_eq!(review["state"], "open");
+        assert_eq!(review["updated_by"], clean["reviews"][0]["updated_by"]);
+        assert_eq!(review["reason"], clean["reviews"][0]["reason"]);
+        assert_eq!(review["updated_at"], clean["reviews"][0]["updated_at"]);
+        let replay = api_request(
+            destination,
+            "POST",
+            "/api/v1/projects/demo/restore",
+            Some("application/json"),
+            &clean.to_string(),
+        )
+        .await;
+        assert_eq!(replay.status, 200);
+        for field in ["analyses", "findings", "reviews", "history"] {
+            assert_eq!(json_body(&replay)["restore"][field], 0);
+        }
+        let history = api_request(
+            destination,
+            "GET",
+            &format!("/api/v1/projects/demo/reviews/{}/history", review["id"]),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(history.status, 200);
+        assert_eq!(
+            json_body(&history)["history"]
+                .as_array()
+                .expect("history")
+                .len(),
+            2
+        );
+        source_server.abort();
+        let _ = source_server.await;
+        destination_server.abort();
+        let _ = destination_server.await;
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn deleted_project_rejects_idempotent_analysis_replay() {
         async fn ingest(address: SocketAddr, body: &str) -> RawHttpResponse {
@@ -3294,7 +3443,7 @@ mod tests {
             .await
         }
         let (address, server) = spawn_test_service().await;
-        let report = r#"{"schema_version":1,"files":[{"path":"a.py","language":"python","issues":[{"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":20}}}],"metrics":{"lines":2,"code_lines":1,"comment_lines":1}}],"project":{"metrics":{"files":1,"lines":2,"code_lines":1,"comment_lines":1},"files":[{"path":"a.py","classification":"source","status":"complete","metrics":{"lines":2,"code_lines":1,"comment_lines":1},"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"reason":null}],"duplications":[],"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"complete":true,"warnings":[],"roots":["a.py"]},"assessment":{"schema_version":3,"context":{"analyzer_version":"hoonarqube-cli/0.8.2","catalog_digest":"d9ce2a1a13961a57f4dede498924fd3518312e8de5a4a5bc671952c73c158a84","options_digest":"471a1bbba734ab8a2da6fa62d0d84d5dd967dd2e1476565c78de6881b54b48d1","scope_digest":"dc756006f7d7366908f4cff666986e61f0fbd42c39b18381e745422035d69e36"},"sources":[{"path":"a.py","content_digest":"f89600824c3f62a48dcc441d730d7d43f1923b7b37bccb3a0536d109c1199764","line_digests":["1dd36e4257b84fc35cfcaca20a29fcbbd61530714fcbde191251b7d679dd9a44","e09e09453d48049c48cadbc630a121ed1b033498846be9aba19eafb8ab73f917"],"findings":[{"issue_index":0,"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","source_digest":"2837a0fd9c3732d35586b5be9794e0511049637f586fba20edb81d67b7d237f8","context_digest":"c2d980f6467c3167454753db29f2986ca82af25bd310de58bb297175584b3e30","start_line":1,"end_line":1,"occurrence":0,"content_identity":"7adf5f8ba5eb9ee66cc0e57217b0cf038955673f8f2156e35d664e146042a5ce","identity":"506e1fcd2d2ab0df6909a6d7df84a4c48c623b893175bf1251c636ce01ff2e8b","ambiguous":false,"path":"a.py"}]}]}}"#;
+        let report = reviewable_report();
         let ingest = async |commit: &str, analyzed_at: &str| {
             ingest_analysis(address, commit, analyzed_at, report).await
         };
