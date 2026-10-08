@@ -305,3 +305,60 @@ fn is_whitelisted(package: &str, whitelist: &[String]) -> bool {
                 && package.as_bytes().get(item.len()) == Some(&b'/'))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::project_context::{
+        ProjectSemanticContext, ProjectSemanticSources, TypeScriptProjectConfig,
+    };
+    use crate::{AnalyzerOptions, JstsLanguage};
+    use std::{fs, path::PathBuf};
+
+    #[test]
+    fn s6551_explicit_string_uses_compiler_argument_type_and_builtin_symbol() {
+        let Some(package) = std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE") else {
+            return;
+        };
+        let root = std::env::temp_dir().join(format!("hoonarqube-s6551-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let source = "export {};\nfunction definite(value: {}) { return String(value); }\nfunction possible(value: {} | undefined) { return String(value); }\nclass Custom { toString() { return 'ok'; } }\nclass Primitive { [Symbol.toPrimitive]() { return 'ok'; } }\nfunction clean(custom: Custom, primitive: Primitive, text: string, unknown: unknown, any: any) { return [String(custom), String(primitive), String(text), String(unknown), String(any)]; }\nfunction shadow(String: (v: {}) => string, value: {}) { return String(value); }\nfunction narrowed(value: {} | string) { if (typeof value === 'string') return String(value); return ''; }\n";
+        let path = root.join("input.ts");
+        fs::write(&path, source).unwrap();
+        fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"strict":true,"target":"ES2022","noEmit":true},"files":["input.ts"]}"#).unwrap();
+        let config =
+            TypeScriptProjectConfig::new(&root).with_typescript_package(PathBuf::from(package));
+        let context = ProjectSemanticContext::load(
+            &config,
+            &ProjectSemanticSources::from_pairs(vec![(path.clone(), source.to_owned())]),
+        )
+        .unwrap();
+        assert!(context.is_complete(), "{:?}", context.diagnostics());
+        let analysis = context.analyze_with_context(
+            path,
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = analysis
+            .report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S6551")
+            .collect();
+        assert_eq!(findings.len(), 2);
+        for (finding, line, column, certainty) in
+            [(findings[0], 2, 45, "will"), (findings[1], 3, 57, "may")]
+        {
+            assert_eq!(finding.range.start.line, line);
+            assert_eq!(finding.range.start.column, column);
+            assert_eq!(finding.range.end.column, column + 5);
+            assert_eq!(
+                finding.message,
+                format!(
+                    "'value' {certainty} use Object's default stringification format ('[object Object]') when stringified."
+                )
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+}

@@ -1594,9 +1594,9 @@ function collectQuickfixes(ts, checker, program, sourceFile, config) {
   return facts;
 }
 
-// Compiler-backed receiver and implicit coercion evidence. Facts are source-bound
+// Compiler-backed receiver and coercion evidence. Facts are source-bound
 // and deliberately retain negative method evidence so syntax guesses cannot win.
-function collectCoercionFacts(ts, checker, sourceFile) {
+function collectCoercionFacts(ts, checker, sourceFile, program) {
   const at_receivers = [];
   const stringifications = [];
   const seenReceivers = new Set();
@@ -1667,6 +1667,12 @@ function collectCoercionFacts(ts, checker, sourceFile) {
       message: `'${node.getText(sourceFile)}' ${result} use Object's default stringification format ('[object Object]') when stringified.` });
   }
   function visit(node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && node.expression.text === 'String' && node.arguments.length === 1
+      && !ts.isSpreadElement(node.arguments[0])
+      && quickfixDefaultLibraryValue(ts, checker, program, sourceFile, node.expression, 'String')) {
+      coerce(node.arguments[0]);
+    }
     if (ts.isElementAccessExpression(node) && node.argumentExpression
       && ts.isBinaryExpression(node.argumentExpression)
       && node.argumentExpression.operatorToken.kind === ts.SyntaxKind.MinusToken) {
@@ -2029,7 +2035,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     }
   }
 
-  return { deprecated, assertions, nullish, usages, quickfixes, promise_usages, ...collectCoercionFacts(ts, checker, sourceFile) };
+  return { deprecated, assertions, nullish, usages, quickfixes, promise_usages, ...collectCoercionFacts(ts, checker, sourceFile, program) };
 }
 
 function moduleKind(ts, sourceFile) {
