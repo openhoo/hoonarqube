@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "source_head": "864a276e1f1c8a8ba259828793865c8f9560f162",
+  "binary_sha256": "327bf1fc270083c8b3e140b06ab4a59575e22ed70f23c473457830a0c2243368",
+  "reference_version": "26.9.0.129388",
+  "projects": {
+    "requests": {
+      "project_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/package7-final-hoonarqube",
+        "analyze",
+        "src/requests",
+        "--format",
+        "json",
+        "--python-project",
+        "src"
+      ],
+      "complete": true,
+      "files": 19,
+      "active_rules": 398,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 77,
+        "reference_total": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 77,
+        "reference": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "report_sha256": "213cea1e16497c1a07f58e2a11dc317e9504a9458d6ab164ab6ed4311891ebde",
+      "reference_sha256": "6c9c8757abb1eb19332a9d75b16a5ca037e7445d8736b1ed8d5890cd357a0f1c",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 77,
+        "reference_findings": 77,
+        "matched_findings": 77,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 243,
+        "reference_supporting_locations": 243,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "werkzeug-python": {
+      "project_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/package7-final-hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--format",
+        "json",
+        "--python-project",
+        "src",
+        "--exclude",
+        "**/*.css"
+      ],
+      "complete": true,
+      "files": 53,
+      "active_rules": 398,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 230,
+        "reference_total": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 230,
+        "reference": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 32,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 0.14703855167026605
+      },
+      "report_sha256": "9e1ee7e870ed67d562226e46a64351d919738758ec4fc6066916b65e4c293750",
+      "reference_sha256": "ef367d964f28a0bc0dc05c524040b53d44d3e427e0e8d283704c3bc25c3bb235",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 230,
+        "reference_findings": 230,
+        "matched_findings": 230,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 990,
+        "reference_supporting_locations": 990,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "commander": {
+      "project_commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/package7-final-hoonarqube",
+        "analyze",
+        "index.js",
+        "lib",
+        "--format",
+        "json",
+        "--typescript-project",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/commander-tsconfig.json",
+        "--typescript-module",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/compiler/node_modules/typescript"
+      ],
+      "complete": true,
+      "files": 7,
+      "active_rules": 420,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 46,
+        "reference_total": 36,
+        "matched": 36,
+        "native_only": 10,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 46,
+        "reference": 36,
+        "matched": 36,
+        "native_only": 10,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "report_sha256": "364eb4593293d1c2937f4bf1349004a512333c3b64d66ee948be9bb8aa2efcae",
+      "reference_sha256": "567371382795bd112d968d2474d62a3b6114a93d20fd9ef3ec0802bc9b10ad7f",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 46,
+        "reference_findings": 36,
+        "matched_findings": 33,
+        "native_only": 13,
+        "reference_only": 3,
+        "native_supporting_locations": 0,
+        "reference_supporting_locations": 61,
+        "matched": false,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "chi": {
+      "project_commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/package7-final-hoonarqube",
+        "analyze",
+        ".",
+        "--format",
+        "json",
+        "--exclude",
+        "**/*_test.go",
+        "--exclude",
+        "_examples/**"
+      ],
+      "complete": true,
+      "files": 35,
+      "active_rules": 22,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 14,
+        "reference_total": 14,
+        "matched": 14,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 14,
+        "reference": 14,
+        "matched": 14,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 56,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 1.2626832018038332
+      },
+      "report_sha256": "01168959e4208ed910059e8cb675cbcce3d5d58af60f1957e808493dc365a44e",
+      "reference_sha256": "105e970344689232ddc803a246fd1f827c764714b0b09ba61cf8689a6f45afc7",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 14,
+        "reference_findings": 14,
+        "matched_findings": 14,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 129,
+        "reference_supporting_locations": 129,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "zod": {
+      "project_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/package7-final-hoonarqube",
+        "analyze",
+        "packages/zod/src",
+        "--format",
+        "json",
+        "--typescript-project",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/projects/zod/tsconfig.json",
+        "--typescript-module",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/compiler/node_modules/typescript",
+        "--exclude",
+        "**/tests/**",
+        "--exclude",
+        "**/benchmarks/**"
+      ],
+      "complete": true,
+      "files": 125,
+      "active_rules": 435,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 675,
+        "reference_total": 594,
+        "matched": 587,
+        "native_only": 88,
+        "reference_only": 7
+      },
+      "exact_range_and_message": {
+        "native": 675,
+        "reference": 594,
+        "matched": 578,
+        "native_only": 97,
+        "reference_only": 16
+      },
+      "duplication": {
+        "duplicated_lines": 5084,
+        "duplicated_blocks": 1130,
+        "duplicated_files": 68,
+        "duplicated_lines_density": 13.431968295904886
+      },
+      "report_sha256": "40c8632edebca0e8bda8f801f668fae915189883d88d389565bd5e32698d7746",
+      "reference_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+      "clone_relations": {
+        "claim": "clone_relation_file_and_inclusive_line_multiset",
+        "native_groups": 70,
+        "reference_groups": 70,
+        "matched_groups": 70,
+        "native_only": [],
+        "reference_only": [],
+        "matched": true
+      },
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 675,
+        "reference_findings": 594,
+        "matched_findings": 445,
+        "native_only": 230,
+        "reference_only": 149,
+        "native_supporting_locations": 2,
+        "reference_supporting_locations": 2644,
+        "matched": false,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    }
+  },
+  "checks": {
+    "jsts_tests": 1395,
+    "oracle_tests": 179,
+    "typescript_compiler": "6.0.3",
+    "workspace_all_targets_all_features_clippy": "PASS",
+    "rust_format": "PASS",
+    "diff_check": "PASS",
+    "version_sync": "PASS"
+  },
+  "zod_exact_all_rule_delta_from_package6_repaired": {
+    "removed": {
+      "S1848": 3,
+      "S6757": 4
+    },
+    "added": {},
+    "other_changes": 0
+  },
+  "limitations": [
+    "Zod retains88native-only and7missing primary identities;4unresolved S5869 Unicode observations and3deliberate S6654 policy suppressions remain counted.",
+    "S6757 fresh controls retain2extra null-test classifications and2missing nested callback frames;8of10 reference findings match exact primary/message.",
+    "S1848 lexical try-body exemption includes delayed callbacks and try-finally, following captured reference behavior.",
+    "Commander10native-only and3flow differences persist.",
+    "17licensed C#rules and11historical applications with missing provenance remain explicit.",
+    "This qualifies a bounded source package, not full SonarQube or React parity."
+  ]
+}
