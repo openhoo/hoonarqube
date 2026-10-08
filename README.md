@@ -374,6 +374,10 @@ Project/compiler contexts use these existing flags:
   `--csharp-project`.
 - `--python-project PATH` supplies a project root/module namespace for the
   source-snapshot cross-file rules; it does not execute Python code.
+  Include imported class definitions in the scan for cross-module S5886 return
+  types and S5890 assignment annotations. For a `src` layout, use
+  `hoonarqube analyze src --python-project src`; report paths retain the scan
+  paths while imports resolve within the selected namespace.
   For `python:S6554`, include the model and its imported base-class sources in
   the scan to recognize inherited `__str__` implementations. File-only scans
   resolve local inheritance; unknown external bases do not establish an
