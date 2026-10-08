@@ -7,7 +7,9 @@ use crate::rules::shared::expression_through_this_link;
 use crate::rules::shared::regex_pattern_text;
 use crate::rules::tier_b::s2259_tb_null_accesses::NullAccessCollector;
 use crate::rules::tier_b::s2589_tb_constant_conditions::ConstantConditionCollector;
-use crate::rules::tier_b::s2933_tb_readonly_candidate_fields::ReadonlyFieldCollector;
+use crate::rules::tier_b::s2933_tb_readonly_candidate_fields::{
+    ReadonlyField, ReadonlyFieldCollector, ReadonlyFinding,
+};
 use crate::rules::tier_b::s3353_tb_let_to_const::LetToConstCollector;
 use crate::rules::tier_b::s4030_tb_useless_collections::UselessCollectionCollector;
 use crate::rules::tier_b::s4043_tb_in_place_captures::InPlaceCaptureCollector;
@@ -876,7 +878,8 @@ impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
         walk_class(self, class);
         let fields = self.stack.pop().unwrap_or_default();
         let class_writes = &self.writes[write_start..];
-        for (field_name, field_span, initialized) in fields {
+        let mut candidates = Vec::new();
+        for (field_name, declaration_span, initialized) in fields {
             let field_writes: Vec<_> = class_writes
                 .iter()
                 .filter(|(name, _, _)| *name == field_name)
@@ -887,8 +890,21 @@ impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
             let readonly_candidate = (initialized || !field_writes.is_empty())
                 && field_writes.iter().all(|(_, _, in_ctor)| *in_ctor);
             if readonly_candidate {
-                self.findings.push(field_span);
+                candidates.push(ReadonlyField {
+                    name: field_name.to_string(),
+                    span: declaration_span,
+                });
             }
+        }
+        if !candidates.is_empty() {
+            let class_span = class.id.as_ref().map_or_else(
+                || Span::new(class.span.start, class.span.start + 5),
+                |id| id.span,
+            );
+            self.findings.push(ReadonlyFinding {
+                class_span,
+                fields: candidates,
+            });
         }
         self.writes.truncate(write_start);
     }
@@ -906,7 +922,12 @@ impl<'p> Visit<'p> for ReadonlyFieldCollector<'p> {
             && let Some(name) = readonly_field_name(&definition.key)
             && let Some(fields) = self.stack.last_mut()
         {
-            fields.push((name, definition.key.span(), definition.value.is_some()));
+            let declaration_span = if definition.accessibility == Some(TSAccessibility::Private) {
+                Span::new(definition.span.start, definition.key.span().end)
+            } else {
+                definition.key.span()
+            };
+            fields.push((name, declaration_span, definition.value.is_some()));
         }
         walk_property_definition(self, definition);
     }
