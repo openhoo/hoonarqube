@@ -2994,7 +2994,14 @@ fn s5713_flags_subclass_and_parent_sharing_an_except_clause() {
         "class NotFound(AppError):\n    pass\n",
         "try:\n    pass\nexcept (NotFound, AppError):\n    pass\n"
     );
-    assert_eq!(findings_of(flagged_direct, "python:S5713").len(), 1);
+    let direct = scan(flagged_direct);
+    let found = findings(&direct, "python:S5713");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].flows.len(), 1);
+    let parent = &found[0].flows[0].locations[0];
+    assert_eq!(parent.message, "Parent class.");
+    assert_eq!(parent.range.start, pos(7, 18));
+    assert_eq!(parent.range.end, pos(7, 26));
 
     let flagged_transitive = concat!(
         "class Top(Exception):\n    pass\n",
