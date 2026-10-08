@@ -235,6 +235,42 @@ mod tests {
     }
 
     #[test]
+    fn cognitive_complexity_flattens_logical_chains_in_source_order() {
+        let nested = "if (a) { if (a) { if (a) { if (a) { if (a) {} } } } }";
+        for (expression, score) in [
+            ("a && b && c && d", 16),
+            ("((a && b) && (c && d))", 16),
+            ("a && b || c && d", 17),
+            ("(a || b || c) ?? d", 15),
+            ("a && b; c && d", 17),
+        ] {
+            let report = js(&format!(
+                "function f(a, b, c, d) {{{nested} {expression};}}"
+            ));
+            let cognitive: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S3776")
+                .collect();
+            if score == 15 {
+                assert!(
+                    cognitive.is_empty(),
+                    "default-value chain must remain clean"
+                );
+            } else {
+                assert_eq!(cognitive.len(), 1);
+                assert_eq!(
+                    cognitive[0].message,
+                    format!(
+                        "Refactor this function to reduce its Cognitive Complexity from {score} to the 15 allowed."
+                    ),
+                    "expression: {expression}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn cyclomatic_complexity_boundary_is_ten() {
         let source = |count: usize| {
             let mut text = String::from("function f(a) {\n");

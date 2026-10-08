@@ -197,14 +197,12 @@ impl<'a> Visit<'a> for ComplexityWalker {
         // Cognitive: only `&&` counts, once per operator change in the
         // flattened chain (SonarJS JS-272: `||`/`??` are short-circuit and
         // default-value idioms that add no cognitive weight).
+        self.visit_operand(&it.left);
         if it.operator == LogicalOperator::And && self.logic_prev != Some(LogicalOperator::And) {
             self.cognitive += 1;
         }
-        let saved_prev = self.logic_prev;
-        self.visit_operand(&it.left);
         self.logic_prev = Some(it.operator);
         self.visit_operand(&it.right);
-        self.logic_prev = saved_prev;
     }
 
     fn visit_break_statement(&mut self, it: &BreakStatement<'a>) {
@@ -227,8 +225,9 @@ impl<'a> Visit<'a> for ComplexityWalker {
             // A logical expression reached here is always a chain head:
             // nested logicals arrive through `visit_operand` instead.
             Expression::LogicalExpression(inner) => {
-                self.logic_prev = None;
+                let previous = self.logic_prev.take();
                 self.visit_logical_expression(inner);
+                self.logic_prev = previous;
             }
             _ => walk_expression(self, it),
         }
@@ -277,7 +276,7 @@ impl ComplexityWalker {
     /// extend the chain in-order, anything else is walked with the chain
     /// state suspended so contained logicals start their own chains.
     fn visit_operand(&mut self, expression: &Expression<'_>) {
-        if let Expression::LogicalExpression(inner) = expression {
+        if let Expression::LogicalExpression(inner) = crate::support::unparenthesized(expression) {
             self.visit_logical_expression(inner);
         } else {
             let saved = self.logic_prev;
