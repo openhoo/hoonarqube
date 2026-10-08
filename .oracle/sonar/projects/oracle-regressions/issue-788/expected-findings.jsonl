@@ -1,1 +1,2 @@
 {"rule": "typescript:S1451", "file": "control-flow.ts", "message": "Add or update the header of this file.", "range": {"start": {"line": 1, "column": 0}, "end": {"line": 1, "column": 0}}}
+{"rule": "typescript:S2301", "file": "control-flow.ts", "message": "Provide multiple methods instead of using \"value\" to determine which action to take.", "range": {"start": {"line": 2, "column": 6}, "end": {"line": 2, "column": 11}}}

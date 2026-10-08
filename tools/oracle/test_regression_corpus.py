@@ -19,9 +19,11 @@ reference-aligned ``S5843`` score stays below the threshold so that rule is
 absent. ``issue-791`` pins an empty file because the fixed analyzer emits
 no findings at all for it.
 
-No SonarQube reference capture exists for these fixtures and none is
-fabricated: this suite compares native output against the pinned
-expectations only.
+Most fixtures have no SonarQube reference capture: this suite compares native
+output against pinned expectations. The issue-788 S2301 row additionally has
+bounded exact-source captures with and without a strict TypeScript config; see
+``issue788-s2301-corpus-qualification-20261008.json``. The original S3972
+absence and complete finding-multiset assertions remain unchanged.
 """
 
 import json
