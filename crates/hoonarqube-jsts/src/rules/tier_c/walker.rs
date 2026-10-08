@@ -4,12 +4,12 @@ use super::s6523_mixed_optional_chains::{
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::engine::scope_model::ClassCensus;
-use crate::engine::scope_model::FunctionCensus;
+use crate::engine::scope_model::{FunctionCensus, boolean_selector_parameters};
 use crate::support::IssueSink;
 use crate::support::LineIndex;
 use crate::support::span_issue;
 use crate::support::unparenthesized;
-use hoonarqube_ir::Issue;
+use hoonarqube_ir::{FlowLocation, Issue, IssueFlow};
 use oxc_ast::ast::{
     ArrowFunctionExpression, AwaitExpression, BinaryExpression, CallExpression,
     ConditionalExpression, Expression, ExpressionStatement, LogicalExpression, MemberExpression,
@@ -393,6 +393,26 @@ impl<'a> Visit<'a> for TierCCoercionCollector<'_, '_> {
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
     let mut issues = check_tier_c_rules(ctx.program, ctx.index, ctx.language);
+    if let Some(semantic) = ctx.semantic {
+        for selector in boolean_selector_parameters(semantic) {
+            let mut issue = span_issue(
+                ctx.index,
+                format!("{}:S2301", ctx.language.prefix()),
+                format!(
+                    "Provide multiple methods instead of using \"{}\" to determine which action to take.",
+                    selector.name
+                ),
+                selector.condition,
+            );
+            issue.flows.push(IssueFlow {
+                locations: vec![FlowLocation::in_primary_file(
+                    format!("Parameter \"{}\" was declared here", selector.name),
+                    ctx.index.range(selector.declaration),
+                )],
+            });
+            issues.push(issue);
+        }
+    }
     if ctx.semantic_facts.is_some() {
         issues.retain(|issue| {
             !issue.rule_key.ends_with(":S6551") && !issue.rule_key.ends_with(":S4123")
@@ -926,6 +946,91 @@ mod tests {
 
         // Both catalog scopes carry S2301.
         assert_eq!(count_key(&ts_keys(SWITCH_VIOLATION), "typescript:S2301"), 1);
+    }
+
+    #[test]
+    fn s2301_boolean_selectors_resolve_callback_parameter_ownership() {
+        for (source, name) in [
+            (
+                "function act(input: boolean) { if (input) return 1; else return 0; }",
+                "input",
+            ),
+            (
+                "const callback = { reverse: (arbitrary: boolean) => { if (arbitrary === true) return 1; else return 0; } };",
+                "arbitrary",
+            ),
+            (
+                "const callback = (value: boolean) => { if (!value) return 1; else return 0; };",
+                "value",
+            ),
+            (
+                "function dataElse(input: boolean) { if (input) return input; else return false; }",
+                "input",
+            ),
+            (
+                "function captured(input: boolean) { return () => { if (input) return 1; else return 0; }; }",
+                "input",
+            ),
+            (
+                "function outer(input: boolean) { return (input: boolean) => { if (input) return 1; else return 0; }; }",
+                "input",
+            ),
+            (
+                "function inferred(input = true) { if (input) return 1; else return 0; }",
+                "input",
+            ),
+        ] {
+            let report = ts(source);
+            let findings: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|i| i.rule_key == "typescript:S2301")
+                .collect();
+            assert_eq!(findings.len(), 1, "{source}");
+            let branch = source.find("if (").unwrap();
+            let condition = u32::try_from(branch + source[branch..].find(name).unwrap()).unwrap();
+            assert_eq!(findings[0].range.start, pos(1, condition));
+            assert_eq!(
+                findings[0].range.end,
+                pos(1, condition + u32::try_from(name.len()).unwrap())
+            );
+            assert_eq!(
+                findings[0].message,
+                format!(
+                    "Provide multiple methods instead of using \"{name}\" to determine which action to take."
+                )
+            );
+            assert_eq!(findings[0].flows.len(), 1);
+            assert_eq!(
+                findings[0].flows[0].locations[0].message,
+                format!("Parameter \"{name}\" was declared here")
+            );
+        }
+        for source in [
+            "const act = (input: boolean) => input ? 1 : 0;",
+            "function data(input: boolean) { if (input) return input; return false; }",
+            "function forwarded(input: boolean) { console.log(input); if (input) return 1; return 0; }",
+            "function nested(input: boolean) { return () => { if (input) return 1; return 0; }; }",
+            "function shadow(input: boolean) { { const input = true; if (input) return 1; } return 0; }",
+            "function untyped(input) { if (input === true) return 1; else return 0; }",
+            "function repeated(input: boolean) { if (input) return 1; if (!input) return 0; return -1; }",
+            "function loop(input: boolean) { while (input) console.log('tick'); }",
+            "const data = (input: boolean) => input === true;",
+            "function noElse(input: boolean) { if (input) return 1; return 0; }",
+            "function forwardedElse(input: boolean) { console.log(input); if (input) return 1; else return 0; }",
+            "function repeatedElse(input: boolean) { if (input) console.log('yes'); else console.log('no'); if (input) return 1; else return 0; }",
+            "function capturedData(input: boolean) { const capture = () => input; if (input) return 1; else return 0; }",
+        ] {
+            assert_eq!(
+                count_key(&ts_keys(source), "typescript:S2301"),
+                0,
+                "{source}"
+            );
+        }
+        let conjunction = ts(
+            "function act(input: boolean, other: boolean) { if (input && other) return 1; else return 0; }",
+        );
+        assert_eq!(count_key(&report_keys(&conjunction), "typescript:S2301"), 2);
     }
 
     #[test]
