@@ -81,7 +81,16 @@ impl PythonProjectContext {
     pub fn add_path(&mut self, path: impl Into<PathBuf>, source: &str) -> String {
         let path = path.into();
         let module_name = module_name_from_path(&path);
-        self.add_module(module_name.clone(), source);
+        let facts_name = if path.file_name().is_some_and(|name| name == "__init__.py") {
+            format!("{module_name}.__init__")
+        } else {
+            module_name.clone()
+        };
+        let parsed = parse(source);
+        self.modules.insert(
+            module_name.clone(),
+            build_module_facts(&facts_name, &parsed),
+        );
         module_name
     }
 
@@ -95,6 +104,7 @@ impl PythonProjectContext {
 #[derive(Debug, Clone)]
 pub(crate) struct ModuleFacts {
     pub(crate) name: String,
+    is_package: bool,
     scopes: Vec<ScopeFacts>,
     symbols: Vec<SymbolFact>,
 }
@@ -126,6 +136,7 @@ enum SymbolFact {
     Class {
         name: String,
         bases: Vec<RefExpr>,
+        bases_complete: bool,
         scope: usize,
         at: TextSize,
         str_method: Option<bool>,
@@ -278,9 +289,235 @@ enum DjangoClassProperty {
     StrMethod,
 }
 
+/// Nominal compatibility remains unknown when any source ancestry is missing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NominalCompatibility {
+    Compatible,
+    Incompatible,
+    Unknown,
+}
+
+#[derive(Clone, Copy)]
+enum NominalClass<'a> {
+    User(&'a ModuleFacts, usize),
+    Builtin(&'static str),
+}
+
+impl NominalClass<'_> {
+    fn identity(self) -> (String, usize) {
+        match self {
+            Self::User(module, symbol) => (module.name.clone(), symbol),
+            Self::Builtin(name) => (format!("builtins.{name}"), usize::MAX),
+        }
+    }
+
+    fn name(self) -> String {
+        match self {
+            Self::User(module, symbol) => match &module.symbols[symbol] {
+                SymbolFact::Class { name, .. } => name.clone(),
+            },
+            Self::Builtin(name) => name.to_owned(),
+        }
+    }
+}
+
 impl<'a> GraphqlResolver<'a> {
     pub(crate) fn new(current: &'a ModuleFacts, project: &'a PythonProjectContext) -> Self {
         Self { current, project }
+    }
+
+    /// Returns a constructor's nominal type only when closed, source-backed
+    /// ancestry proves it cannot populate the expected annotation.
+    pub(crate) fn incompatible_constructor_type(
+        &self,
+        expected: &Expr,
+        actual: &Expr,
+    ) -> Option<String> {
+        let Expr::Call(call) = actual else {
+            return None;
+        };
+        let expected = self.nominal_expression(expected)?;
+        let actual = self.nominal_expression(&call.func)?;
+        let mut visited = Vec::new();
+        (self.nominal_compatibility(actual, expected, &mut visited)
+            == NominalCompatibility::Incompatible)
+            .then(|| actual.name())
+    }
+
+    /// `None` cannot be an instance of a resolved nominal class other than
+    /// builtin `object`. Unions, forward references and unresolved aliases
+    /// intentionally remain outside this proof.
+    pub(crate) fn known_non_optional_class(&self, annotation: &Expr) -> bool {
+        self.nominal_expression(annotation)
+            .is_some_and(|class| !matches!(class, NominalClass::Builtin("object")))
+    }
+
+    fn nominal_expression(&self, expression: &Expr) -> Option<NominalClass<'_>> {
+        let reference = ref_expr(expression)?;
+        self.nominal_reference(
+            self.current,
+            self.current.scope_at(expression.start()),
+            expression.start(),
+            &reference,
+            &mut Vec::new(),
+        )
+    }
+
+    fn nominal_reference<'b>(
+        &'b self,
+        module: &'b ModuleFacts,
+        scope: usize,
+        at: TextSize,
+        reference: &RefExpr,
+        visited: &mut Vec<(String, String)>,
+    ) -> Option<NominalClass<'b>> {
+        let marker = (module.name.clone(), reference_text(reference));
+        if visited.len() >= 128 || visited.contains(&marker) {
+            return None;
+        }
+        visited.push(marker);
+        let result = match reference {
+            RefExpr::Name(name) => match module.lookup_binding_with_scope(scope, name, at) {
+                Some((binding_scope, value)) => {
+                    self.nominal_value(module, binding_scope, at, value, visited)
+                }
+                None => builtin_nominal_class(name).map(NominalClass::Builtin),
+            },
+            RefExpr::Attribute(base, name) => {
+                let module_name =
+                    self.resolve_module_reference(module, scope, at, base, &mut Vec::new());
+                self.nominal_module_member(module_name.as_deref(), name, visited)
+            }
+            RefExpr::Module(_) => None,
+        };
+        visited.pop();
+        result
+    }
+
+    fn nominal_module_member<'b>(
+        &'b self,
+        module_name: Option<&str>,
+        name: &str,
+        visited: &mut Vec<(String, String)>,
+    ) -> Option<NominalClass<'b>> {
+        let module_name = module_name?;
+        if module_name == "builtins" {
+            return builtin_nominal_class(name).map(NominalClass::Builtin);
+        }
+        let target = self.module(module_name)?;
+        self.nominal_value(
+            target,
+            0,
+            TextSize::new(u32::MAX),
+            target.module_binding(name)?,
+            visited,
+        )
+    }
+
+    fn nominal_value<'b>(
+        &'b self,
+        module: &'b ModuleFacts,
+        scope: usize,
+        at: TextSize,
+        value: &ValueFact,
+        visited: &mut Vec<(String, String)>,
+    ) -> Option<NominalClass<'b>> {
+        match value {
+            ValueFact::Symbol(symbol) => Some(NominalClass::User(module, *symbol)),
+            ValueFact::Reference(reference) => {
+                self.nominal_reference(module, scope, at, reference, visited)
+            }
+            _ => None,
+        }
+    }
+
+    fn nominal_compatibility(
+        &self,
+        actual: NominalClass<'_>,
+        expected: NominalClass<'_>,
+        visited: &mut Vec<(String, usize)>,
+    ) -> NominalCompatibility {
+        if actual.identity() == expected.identity() {
+            return NominalCompatibility::Compatible;
+        }
+        let identity = actual.identity();
+        if visited.len() >= 128 || visited.contains(&identity) {
+            return NominalCompatibility::Unknown;
+        }
+        visited.push(identity);
+        let result = match actual {
+            NominalClass::Builtin(name) => {
+                self.builtin_nominal_compatibility(name, expected, visited)
+            }
+            NominalClass::User(module, symbol) => {
+                self.user_nominal_compatibility(module, symbol, expected, visited)
+            }
+        };
+        visited.pop();
+        result
+    }
+
+    fn builtin_nominal_compatibility(
+        &self,
+        actual: &str,
+        expected: NominalClass<'_>,
+        visited: &mut Vec<(String, usize)>,
+    ) -> NominalCompatibility {
+        if matches!(
+            (actual, expected),
+            ("int" | "bool", NominalClass::Builtin("float"))
+                | ("int" | "float" | "bool", NominalClass::Builtin("complex"))
+        ) {
+            return NominalCompatibility::Compatible;
+        }
+        let parent = match actual {
+            "object" => return NominalCompatibility::Incompatible,
+            "bool" => "int",
+            "Exception" => "BaseException",
+            "RuntimeError" | "ValueError" | "TypeError" => "Exception",
+            _ => "object",
+        };
+        self.nominal_compatibility(NominalClass::Builtin(parent), expected, visited)
+    }
+
+    fn user_nominal_compatibility(
+        &self,
+        module: &ModuleFacts,
+        symbol: usize,
+        expected: NominalClass<'_>,
+        visited: &mut Vec<(String, usize)>,
+    ) -> NominalCompatibility {
+        let Some(SymbolFact::Class {
+            bases,
+            bases_complete,
+            scope,
+            at,
+            ..
+        }) = module.symbols.get(symbol)
+        else {
+            return NominalCompatibility::Unknown;
+        };
+        if !bases_complete {
+            return NominalCompatibility::Unknown;
+        }
+        if bases.is_empty() {
+            return self.nominal_compatibility(NominalClass::Builtin("object"), expected, visited);
+        }
+        let before = TextSize::new(u32::from(*at).saturating_sub(1));
+        let mut outcome = NominalCompatibility::Incompatible;
+        for base in bases {
+            let compatibility = self
+                .nominal_reference(module, *scope, before, base, &mut Vec::new())
+                .map_or(NominalCompatibility::Unknown, |base| {
+                    self.nominal_compatibility(base, expected, visited)
+                });
+            match compatibility {
+                NominalCompatibility::Compatible => return compatibility,
+                NominalCompatibility::Unknown => outcome = compatibility,
+                NominalCompatibility::Incompatible => {}
+            }
+        }
+        outcome
     }
 
     pub(crate) fn django_model_str_facts(&self, at: TextSize) -> (bool, bool) {
@@ -937,6 +1174,29 @@ fn known_module_member_resolution(fqn: &str) -> Option<SymbolResolution> {
     }
 }
 
+fn builtin_nominal_class(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "object" => "object",
+        "int" => "int",
+        "bool" => "bool",
+        "float" => "float",
+        "complex" => "complex",
+        "str" => "str",
+        "bytes" => "bytes",
+        "list" => "list",
+        "dict" => "dict",
+        "set" => "set",
+        "tuple" => "tuple",
+        "frozenset" => "frozenset",
+        "BaseException" => "BaseException",
+        "Exception" => "Exception",
+        "RuntimeError" => "RuntimeError",
+        "ValueError" => "ValueError",
+        "TypeError" => "TypeError",
+        _ => return None,
+    })
+}
+
 fn symbol_safety(module: &ModuleFacts, symbol: usize) -> GraphqlSafety {
     match module.symbols.get(symbol) {
         Some(SymbolFact::Class { name, .. })
@@ -956,6 +1216,22 @@ fn bound_value_is_safe(module: &ModuleFacts, value: &ValueFact) -> bool {
     }
 }
 
+pub(crate) fn build_current_module_facts(
+    module_name: &str,
+    parsed: &Parsed<ModModule>,
+    project: &PythonProjectContext,
+) -> ModuleFacts {
+    if project
+        .modules
+        .get(module_name)
+        .is_some_and(|facts| facts.is_package)
+    {
+        build_module_facts(&format!("{module_name}.__init__"), parsed)
+    } else {
+        build_module_facts(module_name, parsed)
+    }
+}
+
 pub(crate) fn build_module_facts(module_name: &str, parsed: &Parsed<ModModule>) -> ModuleFacts {
     let end = parsed
         .syntax()
@@ -963,7 +1239,11 @@ pub(crate) fn build_module_facts(module_name: &str, parsed: &Parsed<ModModule>) 
         .last()
         .map_or(TextSize::new(0), Ranged::end);
     let mut facts = ModuleFacts {
-        name: module_name.to_string(),
+        name: module_name
+            .strip_suffix(".__init__")
+            .unwrap_or(module_name)
+            .to_string(),
+        is_package: module_name.ends_with(".__init__"),
         scopes: vec![ScopeFacts {
             parent: None,
             kind: ScopeKind::Module,
@@ -1035,7 +1315,12 @@ fn collect_import_from(
     import: &ruff_python_ast::StmtImportFrom,
     at: TextSize,
 ) {
-    let module_name = relative_module_name(&facts.name, import.level, import.module.as_deref());
+    let import_origin = if facts.is_package {
+        format!("{}.__init__", facts.name)
+    } else {
+        facts.name.clone()
+    };
+    let module_name = relative_module_name(&import_origin, import.level, import.module.as_deref());
     for alias in &import.names {
         if alias.name.as_str() == "*" {
             continue;
@@ -1119,6 +1404,10 @@ fn collect_class(
     facts.symbols.push(SymbolFact::Class {
         name: class.name.as_str().to_string(),
         bases: class.bases().iter().filter_map(ref_expr).collect(),
+        bases_complete: class.arguments.as_ref().is_none_or(|arguments| {
+            arguments.args.iter().all(|base| ref_expr(base).is_some())
+                && arguments.keywords.is_empty()
+        }),
         scope,
         at: class.start(),
         str_method: class_str_method(class),
