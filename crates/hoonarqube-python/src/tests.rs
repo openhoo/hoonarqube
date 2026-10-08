@@ -3546,7 +3546,17 @@ fn s1066_flags_sole_nested_if_without_clauses() {
     assert_eq!(findings(&flagged, "python:S1066").len(), 1);
     // A chain of three mergeable levels flags both inner ifs.
     let chain = scan("if a:\n    if b:\n        if c:\n            work()\n");
-    assert_eq!(findings(&chain, "python:S1066").len(), 2);
+    let found = findings(&chain, "python:S1066");
+    assert_eq!(found.len(), 2);
+    for (issue, (line, column)) in found.iter().zip([(1, 0), (2, 4)]) {
+        assert_eq!(issue.flows.len(), 1);
+        assert_eq!(issue.flows[0].locations.len(), 1);
+        let enclosing = &issue.flows[0].locations[0];
+        assert_eq!(enclosing.message, "enclosing");
+        assert_eq!(enclosing.range.start, pos(line, column));
+        assert_eq!(enclosing.range.end, pos(line, column + 2));
+        assert!(enclosing.path.is_none());
+    }
 }
 
 #[test]
@@ -3582,6 +3592,11 @@ fn s1066_flags_collapsible_if_as_sole_elif_statement() {
     let found = findings(&flagged, "python:S1066");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].range.start.line, 5);
+    assert_eq!(found[0].flows.len(), 1);
+    let enclosing = &found[0].flows[0].locations[0];
+    assert_eq!(enclosing.message, "enclosing");
+    assert_eq!(enclosing.range.start, pos(4, 4));
+    assert_eq!(enclosing.range.end, pos(4, 8));
     let else_suite = scan("if a:\n    work()\nelse:\n    if b:\n        work()\n");
     assert!(findings(&else_suite, "python:S1066").is_empty());
 }

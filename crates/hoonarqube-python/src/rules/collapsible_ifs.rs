@@ -101,7 +101,15 @@ fn collapsible_inner(
     if outer.elif_else_clauses.is_empty()
         && let [Stmt::If(inner)] = outer.body.as_slice()
     {
-        push_collapsible(inner, outer, parsed, issues, index, source);
+        push_collapsible(
+            inner,
+            outer,
+            TextRange::new(outer.start(), outer.start() + TextSize::new(2)),
+            parsed,
+            issues,
+            index,
+            source,
+        );
     }
     // The reference ignores `elif` branches except the last one when the
     // chain has no `else`: only that final elif can merge upward.
@@ -116,13 +124,23 @@ fn collapsible_inner(
     if let Some(last) = last_tested.filter(|_| !has_else)
         && let [Stmt::If(inner)] = outer.elif_else_clauses[last].body.as_slice()
     {
-        push_collapsible(inner, outer, parsed, issues, index, source);
+        let clause = &outer.elif_else_clauses[last];
+        push_collapsible(
+            inner,
+            outer,
+            TextRange::new(clause.start(), clause.start() + TextSize::new(4)),
+            parsed,
+            issues,
+            index,
+            source,
+        );
     }
 }
 
 fn push_collapsible(
     inner: &StmtIf,
     outer: &StmtIf,
+    enclosing_keyword: TextRange,
     parsed: &Parsed<ModModule>,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
@@ -136,7 +154,7 @@ fn push_collapsible(
     {
         return;
     }
-    issues.push(Issue::new(
+    let mut issue = Issue::new(
         "python:S1066",
         "Merge this if statement with the enclosing one.",
         to_range(
@@ -144,5 +162,12 @@ fn push_collapsible(
             index,
             source,
         ),
-    ));
+    );
+    issue.flows.push(hoonarqube_ir::IssueFlow {
+        locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+            "enclosing",
+            to_range(enclosing_keyword, index, source),
+        )],
+    });
+    issues.push(issue);
 }

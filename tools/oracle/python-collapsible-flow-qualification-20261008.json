@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "candidate_base_commit": "5ad963362622f7357ca6833592908c1e57a03604",
+  "binary_sha256": "3a6eb833f029b2ce0973d0146f68dd3c7b35efa7937f2ac16e8e5ca36c9765c0",
+  "reference": "Frozen source-backed SonarQube 26.9.0.129388 capture, Python plugin 5.31 build 36502",
+  "regressions": [
+    "s1066_flags_sole_nested_if_without_clauses",
+    "s1066_flags_collapsible_if_as_sole_elif_statement",
+    "s1066_spares_semantics_changing_shapes"
+  ],
+  "verification": {
+    "red": "2 tests failed because enclosing flows were absent; 1 clean-control test passed",
+    "focused_tests_passed": 3,
+    "clippy_python_all_targets": "exit 0, warnings denied"
+  },
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 77,
+      "s1066": {
+        "findings": 3,
+        "ordered_exact": 3,
+        "secondary_multiset_exact": 3,
+        "reference_secondary_locations": 3
+      },
+      "remaining_secondary_content_by_rule": {
+        "python:S5713": 1,
+        "python:S5797": 1,
+        "python:S6792": 1
+      },
+      "remaining_ordered_sequence_by_rule": {
+        "python:S5713": 1,
+        "python:S5797": 1,
+        "python:S6796": 1,
+        "python:S6792": 1
+      },
+      "native_report_sha256": "befc58c0f5a16b22f0f001b760a4af64d60157eda5720474b764ec564594a44c",
+      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10"
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 230,
+      "s1066": {
+        "findings": 3,
+        "ordered_exact": 3,
+        "secondary_multiset_exact": 3,
+        "reference_secondary_locations": 3
+      },
+      "remaining_secondary_content_by_rule": {
+        "python:S6792": 7,
+        "python:S1192": 8,
+        "python:S5886": 6,
+        "python:S5806": 1,
+        "python:S5843": 3,
+        "python:S5855": 1,
+        "python:S5869": 1,
+        "python:S5890": 1
+      },
+      "remaining_ordered_sequence_by_rule": {
+        "python:S6792": 7,
+        "python:S6796": 21,
+        "python:S1192": 8,
+        "python:S5886": 6,
+        "python:S5806": 1,
+        "python:S5843": 3,
+        "python:S5855": 1,
+        "python:S5869": 1,
+        "python:S5890": 1
+      },
+      "native_report_sha256": "a55e9013efa952f445df68ddcea68aabd1f2c077ac7e8759adf146098374e859",
+      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c"
+    }
+  },
+  "interpretation": "All six captured S1066 findings now carry exact ordered enclosing keyword spans/messages. The nested-if chain and final-elif keyword regression retain the correct immediate enclosing keyword. Remaining Python flow differences are explicit; this receipt does not claim full Python flow parity."
+}
