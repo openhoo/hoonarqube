@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "base_commit": "23daf628b979543f64051c1f9eedd2d47ab3267f",
+  "native_source_commit": "23fa18828adf2eb5435706c7718535f52d7178f4",
+  "native_binary_sha256": "2379ea3ccb2a4260394a1e3140cb7ad202024e8da93f23f804d613563d524284",
+  "rules": [
+    "S4623"
+  ],
+  "change": "Require optional/default declaration evidence for removal; accepting undefined in a required parameter type no longer qualifies. Ambient undefined resolution and refusal gates are unchanged.",
+  "checks": {
+    "tests": 1392,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "helper_syntax_check": "PASS",
+    "local_dogfood_S3776": 0,
+    "regression": "s4623_required_undefined_arguments_are_not_removable",
+    "red": "Executed regression found eight diagnostics instead of two: six mandatory arguments were incorrectly actionable.",
+    "green": "Only optional/defaulted arguments remain diagnostic and actionable. Generic, union, any/unknown, mandatory overload, rest and Set calls remain clean. Applied projected optional/default edits typecheck and preserve runtime output; independent compiler reanalysis is S4623-clean.",
+    "actual_cli_fix_safety": [
+      {
+        "name": "optional",
+        "package6_S4623": 1,
+        "before_S4623": 1,
+        "after_S4623": 0,
+        "planned": 1,
+        "applied": 1,
+        "verified": 1,
+        "unverified": 0,
+        "typecheck_before": "PASS",
+        "typecheck_after": "PASS",
+        "runtime_before": "[2,7]\n",
+        "runtime_after": "[2,7]\n",
+        "source_unchanged": false,
+        "required_source_sha256": null,
+        "other_issues_unchanged": true,
+        "explicit_selection_exit": 0,
+        "status": "PASS"
+      },
+      {
+        "name": "default",
+        "package6_S4623": 1,
+        "before_S4623": 1,
+        "after_S4623": 0,
+        "planned": 1,
+        "applied": 1,
+        "verified": 1,
+        "unverified": 0,
+        "typecheck_before": "PASS",
+        "typecheck_after": "PASS",
+        "runtime_before": "[2,7]\n",
+        "runtime_after": "[2,7]\n",
+        "source_unchanged": false,
+        "required_source_sha256": null,
+        "other_issues_unchanged": true,
+        "explicit_selection_exit": 0,
+        "status": "PASS"
+      },
+      {
+        "name": "required",
+        "package6_S4623": 5,
+        "before_S4623": 0,
+        "after_S4623": 0,
+        "planned": 0,
+        "applied": 0,
+        "verified": 0,
+        "unverified": 0,
+        "typecheck_before": "PASS",
+        "typecheck_after": "PASS",
+        "runtime_before": "[[null,1],{},true,true,0]\n",
+        "runtime_after": "[[null,1],{},true,true,0]\n",
+        "source_unchanged": true,
+        "required_source_sha256": "20d1ee4ac71cbc5692cd6cc69069b781186a22657b0d8b533f0124f8a4e7fb0f",
+        "other_issues_unchanged": true,
+        "explicit_selection_exit": 1,
+        "status": "PASS"
+      }
+    ],
+    "cli_safety_script_sha256": "eb39413992c8bd2a7d5209f6e1cda64948affcc5da7523d644ec1dfd08b0309d"
+  },
+  "fresh_reference_contract": {
+    "source_commit": "ef8abcc3577bfb9c5527744a92199af6cb3cd7d2",
+    "cases": 13,
+    "issues_sha256": "2a8c5ca1a5cd3d9bf1cde8775aca1d272ff1443c029b7bd149a8824c303aded8",
+    "active_rules_sha256": "ff6ac8982f02f587e5bb32be4f4abc71a225b9e8ba55860100c8b0eef191ea53",
+    "source_sha256": "d04cdab1331510861a082ea2ef52c5b214bc0d810cb109141a0ca12e7a11070c",
+    "native_report_sha256": "1eac00abbbcc370c83d93376a2cca4dd811b7d75c8f6defefa993f55b84c6560",
+    "comparison": {
+      "native_total": 3,
+      "reference_total": 3,
+      "matched": 3,
+      "native_only": 0,
+      "reference_only": 0
+    },
+    "exact_primary_messages": 3,
+    "actionable_optional_default": 2,
+    "shadowed_undefined_diagnostic_with_no_action": 1,
+    "basis": "Required generic/union/any/unknown/Set/overload/rest arguments and middle undefined clean; optional/default trailing arguments diagnostic with quickfixAvailable=true. Existing shadowed-undefined finding retained with native refusal."
+  },
+  "zod_reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822"
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 682,
+    "reference_total": 594,
+    "matched": 587,
+    "native_only": 95,
+    "reference_only": 7,
+    "complete": true,
+    "files": 125,
+    "removed_identities": [
+      {
+        "identity": [
+          "typescript:S4623",
+          "packages/zod/src/v3/types.ts",
+          4493,
+          16,
+          4493,
+          25
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S4623",
+          "packages/zod/src/v4/core/schemas.ts",
+          2183,
+          59,
+          2183,
+          68
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S4623",
+          "packages/zod/src/v4/core/schemas.ts",
+          2707,
+          43,
+          2707,
+          52
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S4623",
+          "packages/zod/src/v4/core/schemas.ts",
+          2717,
+          98,
+          2717,
+          107
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "added_identities": [],
+    "before_native_total": 686,
+    "before_matched": 587,
+    "before_native_only": 99,
+    "before_reference_only": 7,
+    "report_sha256": "b0751cb58965fd5dabb8475fdf14dafdf7097c8a8ca6859aaee46aef12d076bb",
+    "baseline_report_sha256": "6e1b2a52779893f17603a49a367c7373f2a5f9a36ff9d821a08830e092c19f41",
+    "baseline_binary_sha256": "3eafb0236000e318ce016129216407fb65bdf0b531aee5f2273ffd2967f00635",
+    "baseline_source_commit": "b88991d14043e6c90e93412a56a58d6cc1dab24f",
+    "baseline_jsts_and_helper_trees_equal_to_base": {
+      "crates/hoonarqube-jsts": "069018902804fd99671d6567bf42c88361fd32d8",
+      "tools/semantic/typescript/semantic-helper.cjs": "c89b2db72abee75eb1f487571db676d23d92d9ef"
+    },
+    "full_all_rule_primary_delta": {
+      "removed_S4623": 4,
+      "added": 0,
+      "other_changes": 0
+    }
+  },
+  "limitations": [
+    "No new Zod reference capture; frozen source and captured435 active rules reused.",
+    "Fresh reference marks the shadowed undefined optional call diagnostic and quickfixAvailable=true; native preserves its existing stronger no-removal gate.",
+    "CLI mandatory-call refusal returns exit1 with selected suggestion unavailable; required bytes and compiler/runtime outcomes remain unchanged.",
+    "No additional overload/rest eligibility policy introduced.",
+    "Seven reference-only identities and95 native-only observations remain unresolved on this candidate."
+  ]
+}
