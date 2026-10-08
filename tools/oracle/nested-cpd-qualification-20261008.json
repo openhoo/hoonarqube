@@ -31,7 +31,8 @@
     "duplicated_blocks": 7,
     "duplicated_lines": 64,
     "duplicated_files": 3,
-    "relations": 3
+    "relations": 3,
+    "scanner_execution_exit_code": 0
   },
   "native": {
     "binary_sha256": "0ef08aada4edebd46b44864a273e01dbae978d103da3d577892a21266f7c5362",
@@ -53,7 +54,8 @@
     "live/nested-relations/scanner.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "live/nested-relations/compute-engine.json": "cc99c49d2bf2dd03919f6336b3b0f6693017c475966e9ce32e2bd49230460fe9",
     "live/nested-relations/measures.json": "3297f8e5b0e0c33aaac9f40a17c5c1f2f7e2483d7946052b96475de2898eb0fe",
-    "live/nested-relations/duplications-all-files.json": "f28c8dfa2af629de8429a234871ca7c5c73acc0cd7ac8ba91707a5dc493df7f9"
+    "live/nested-relations/duplications-all-files.json": "f28c8dfa2af629de8429a234871ca7c5c73acc0cd7ac8ba91707a5dc493df7f9",
+    "live/nested-relations/scanner-execution.json": "6fc063594c0dcdc62285f54b09e4a0b70e41642f6a52aba05e189dc0d26a044a"
   },
   "limitations": [
     "Focused original nested clone control, not a full corpus qualification.",
