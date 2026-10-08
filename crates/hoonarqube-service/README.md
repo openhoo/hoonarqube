@@ -31,7 +31,10 @@ scan warnings, measured source/test metrics must match their file reports,
 and project totals count complete source files only. Duplicate inventory paths,
 impossible file counters, and NUL-containing paths are rejected. Incomplete
 reports and excluded scopes remain supported. Previously stored contradictory
-reports must be corrected before they can be restored.
+reports must be corrected before they can be restored. Restored review summaries
+must match their latest immutable history entry, including the reviewed analysis,
+state, version, actor, timestamp, and reason; contradictory backups are refused
+before creating a project or writing any rows.
 
 ## Focused verification
 
