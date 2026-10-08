@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "a6ff3f3",
+  "native_binary_sha256": "b900318f0177fa29c4df3a259e2b6901fa79395b7c30dc62fbf1f30fbffd9065",
+  "rules": [
+    "S6571",
+    "S2201",
+    "S6606"
+  ],
+  "checks": {
+    "tests": 1379,
+    "clippy_all_targets": "PASS",
+    "typescript_version": "6.0.3",
+    "regressions": [
+      "qualified_contextual_union_and_map_messages",
+      "semantic_s6606_distinguishes_assignment_and_logical_or_messages"
+    ],
+    "red": "Executed unknown-union and assignment-message regressions before correction; both failed on prior generic message."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 17,
+    "reference_total": 9,
+    "matched": 9,
+    "native_only": 8,
+    "reference_only": 0,
+    "matched_messages_exact": 9,
+    "all_rule_primary_multiset_unchanged": true,
+    "complete": true,
+    "files": 125,
+    "report_sha256": "73e4c38cb4528d18a79a8f13dcf6707fe8ecc9188ee2ac192d8a1fc18f0eec56",
+    "reference_issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3"
+  },
+  "fresh_union_and_map_controls": {
+    "source_commit": "e0f0bad2",
+    "matched_primary_messages": 4,
+    "reference_issues_sha256": "26959ac48cf33fc292a674133322cf6b66c5fe5b8f11bd76d88ff66fa5752ff8",
+    "boundary": "Qualifies three direct top-type constituent messages plus discarded map message only; other detector discrepancies are retained."
+  },
+  "limitations": [
+    "Eight pre-existing target-rule native-only Zod primary identities are unchanged.",
+    "Fresh discarded slice call remains reference-only; no new detector coverage claimed.",
+    "Fresh simple duplicated branch is native-only and is outside this message package.",
+    "Original fresh string equality nullish assignment remains reference-only. Corrected local object-or-undefined assignment remains native-only; assignment message qualification uses the four matched frozen Zod identities.",
+    "No quickfix or detector behavior changed."
+  ]
+}
