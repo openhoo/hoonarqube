@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "014fdcef72d5888f0131dc78cf0b5565156aa827",
+  "rule": "S6650",
+  "native_binary_sha256": "6d829bd29779404476e4cc9f2394d40f20425f7bead3960bfe44aa4bfab0e5b3",
+  "checks": {
+    "tests": 1381,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "regression": "s6650_distinguishes_object_literals_from_binding_renames",
+    "red": "Executed regression failed on object literal JavaScript: two findings instead of zero.",
+    "green": "JavaScript and TypeScript object literals remain clean; destructuring/import/export same-name renames each remain positive; distinct aliases remain clean; nested object-property class/value traversal retained."
+  },
+  "reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+    "basis": "Captured active S6650 describes import/export/destructuring renaming; frozen typed Zod reference has no findings at the fourteen object literal properties."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 684,
+    "reference_total": 594,
+    "matched": 577,
+    "native_only": 107,
+    "reference_only": 17,
+    "complete": true,
+    "files": 125,
+    "before_native_only": 121,
+    "before_matched": 577,
+    "before_reference_only": 17,
+    "report_sha256": "04932977b8366ca1ad75785a1aa782d01fa179a68792d5fd9d4cca22a333dd86",
+    "baseline_report_sha256": "69e206a734985cec90fd5aeac795a52f0cd0f8f22f0f3709d33fc9f6f953e4ad",
+    "full_all_rule_primary_delta": {
+      "removed": 14,
+      "added": 0,
+      "all_removed_are_S6650_object_literals": true
+    },
+    "removed_identities": [
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/helpers/parseUtil.ts",
+          75,
+          4,
+          75,
+          24
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          129,
+          25,
+          129,
+          43
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          1170,
+          6,
+          1170,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          1178,
+          6,
+          1178,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          1187,
+          6,
+          1187,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          1195,
+          6,
+          1195,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          1550,
+          6,
+          1550,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          3355,
+          6,
+          3355,
+          16
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          3356,
+          6,
+          3356,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          3987,
+          6,
+          3987,
+          20
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          4026,
+          6,
+          4026,
+          18
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v3/types.ts",
+          4216,
+          6,
+          4216,
+          20
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v4/core/schemas.ts",
+          3470,
+          51,
+          3470,
+          63
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6650",
+          "packages/zod/src/v4/core/schemas.ts",
+          3521,
+          8,
+          3521,
+          16
+        ],
+        "multiplicity": 1
+      }
+    ]
+  },
+  "limitations": [
+    "Only object-literal rule scope corrected.",
+    "No new reference scan or quickfix qualification; existing frozen source and captured active rule contract used.",
+    "Seventeen existing reference-only identities and 107 other native-only observations remain unresolved."
+  ]
+}
