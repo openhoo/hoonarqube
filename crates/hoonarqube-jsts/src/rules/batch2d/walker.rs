@@ -271,6 +271,43 @@ mod tests {
     }
 
     #[test]
+    fn cognitive_complexity_nests_loop_bodies_not_header_expressions() {
+        let nested = "if (a) { if (a) { if (a) { if (a) { if (a) {} } } } }";
+        for header in [
+            "for (let i = a ? 1 : 2; i < 0; i++) {}",
+            "for (const value of (a ? b : c)) {}",
+            "for (const key in (a ? b : c)) {}",
+            "while (a ? b : c) {}",
+            "do {} while (a ? b : c);",
+            "switch (a ? b : c) { case 1: break; }",
+        ] {
+            let report = js(&format!("function f(a, b, c) {{{nested} {header}}}"));
+            let issue = report
+                .issues
+                .iter()
+                .find(|issue| issue.rule_key == "javascript:S3776")
+                .unwrap();
+            assert_eq!(
+                issue.message,
+                "Refactor this function to reduce its Cognitive Complexity from 17 to the 15 allowed.",
+                "header: {header}"
+            );
+        }
+        let report = js(&format!(
+            "function f(a, b, c) {{{nested} for (;;) {{ a ? b : c; }} }}"
+        ));
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S3776")
+            .unwrap();
+        assert_eq!(
+            issue.message,
+            "Refactor this function to reduce its Cognitive Complexity from 18 to the 15 allowed."
+        );
+    }
+
+    #[test]
     fn cyclomatic_complexity_boundary_is_ten() {
         let source = |count: usize| {
             let mut text = String::from("function f(a) {\n");

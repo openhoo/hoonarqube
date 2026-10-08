@@ -57,8 +57,7 @@ use oxc_ast_visit::walk::{
     walk_export_default_declaration_kind, walk_expression, walk_for_in_statement,
     walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_if_statement,
     walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
-    walk_object_expression, walk_statements, walk_switch_statement, walk_try_statement,
-    walk_while_statement,
+    walk_object_expression, walk_statements, walk_try_statement, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -129,23 +128,38 @@ impl<'a> Visit<'a> for ComplexityWalker {
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
-        self.enter_nested(|walker| walk_for_statement(walker, it));
+        if let Some(init) = &it.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &it.test {
+            self.visit_expression(test);
+        }
+        if let Some(update) = &it.update {
+            self.visit_expression(update);
+        }
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
-        self.enter_nested(|walker| walk_for_in_statement(walker, it));
+        self.visit_for_statement_left(&it.left);
+        self.visit_expression(&it.right);
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
-        self.enter_nested(|walker| walk_for_of_statement(walker, it));
+        self.visit_for_statement_left(&it.left);
+        self.visit_expression(&it.right);
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
-        self.enter_nested(|walker| walk_while_statement(walker, it));
+        self.visit_expression(&it.test);
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
-        self.enter_nested(|walker| walk_do_while_statement(walker, it));
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
+        self.visit_expression(&it.test);
     }
 
     fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
@@ -155,9 +169,10 @@ impl<'a> Visit<'a> for ComplexityWalker {
         self.cognitive += 1 + self.nesting;
         let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
         self.cyclomatic += u32::try_from(tested_cases).unwrap_or(u32::MAX);
+        self.visit_expression(&it.discriminant);
         let saved = self.nesting;
         self.nesting += 1;
-        walk_switch_statement(self, it);
+        self.visit_switch_cases(&it.cases);
         self.nesting = saved;
     }
 
@@ -286,7 +301,7 @@ impl ComplexityWalker {
     }
 
     /// Walks one loop-like construct: `1 + nesting` increments with all
-    /// contents nested one level deeper.
+    /// body contents nested one level deeper.
     fn enter_nested(&mut self, walk_children: impl FnOnce(&mut Self)) {
         self.cognitive += 1 + self.nesting;
         self.cyclomatic += 1;
