@@ -42,7 +42,7 @@
     "Eight pre-existing target-rule native-only Zod primary identities are unchanged.",
     "Fresh discarded slice call remains reference-only; no new detector coverage claimed.",
     "Fresh simple duplicated branch is native-only and is outside this message package.",
-    "Original fresh string equality nullish assignment remains reference-only. Corrected local object-or-undefined assignment remains native-only; assignment message qualification uses the four matched frozen Zod identities.",
+    "Original fresh string equality nullish assignment is reference-only. Fresh local object and member controls have no tsconfig in reference scope; their clean S6606 reports are not equivalent to native strict compiler analysis. No typed parity claim is made for those controls. Assignment message qualification uses the four matched frozen Zod typed identities.",
     "No quickfix or detector behavior changed."
   ]
 }
