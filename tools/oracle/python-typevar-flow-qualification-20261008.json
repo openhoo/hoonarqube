@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "candidate_base_commit": "95cad300b671c368c249666ddf33ea58fae80b65",
+  "binary_sha256": "c5048124e11d51805691ea22526e068593001657fb6127d479b3668cebbf4226",
+  "implementation_sha256": "987095b85988cf56b78b9eccf36c8337241d4543c4dce8f55a5200b85504ca9d",
+  "reference": {
+    "sonarqube_version": "26.9.0.129388",
+    "python_plugin_version": "5.31 build 36502",
+    "source_commit": "f4ab8a54df0522ead664280a1f83d7109a35e96b"
+  },
+  "projects": {
+    "requests": {
+      "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 77,
+      "s6796": {
+        "findings": 5,
+        "ordered_exact": 4,
+        "secondary_multiset_exact": 5,
+        "reference_secondary_locations": 11
+      },
+      "s6796_ordered_sequence_residual": 1,
+      "all_python_secondary_content_residuals": {
+        "python:S5713": 1,
+        "python:S5797": 1,
+        "python:S1066": 3,
+        "python:S6792": 1
+      },
+      "all_python_ordered_sequence_residuals": {
+        "python:S5713": 1,
+        "python:S5797": 1,
+        "python:S1066": 3,
+        "python:S6796": 1,
+        "python:S6792": 1
+      },
+      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10",
+      "reference_source_inventory_sha256": "ce5e64c9c6026af15cbd5b7fd74364f469bc80a663c75166b89c75b8dd5a6362",
+      "native_report_sha256": "ec011e48940c69ef77818467ca1c669a2d792fc02968813b5e53fb026ec29972"
+    },
+    "werkzeug-python": {
+      "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "all_source_hashes_verified": true,
+      "all_active_primary_findings_and_messages_exact": 230,
+      "s6796": {
+        "findings": 79,
+        "ordered_exact": 58,
+        "secondary_multiset_exact": 79,
+        "reference_secondary_locations": 219
+      },
+      "s6796_ordered_sequence_residual": 21,
+      "all_python_secondary_content_residuals": {
+        "python:S6792": 7,
+        "python:S1066": 3,
+        "python:S1192": 8,
+        "python:S5886": 6,
+        "python:S5806": 1,
+        "python:S5843": 3,
+        "python:S5855": 1,
+        "python:S5869": 1,
+        "python:S5890": 1
+      },
+      "all_python_ordered_sequence_residuals": {
+        "python:S6792": 7,
+        "python:S1066": 3,
+        "python:S6796": 21,
+        "python:S1192": 8,
+        "python:S5886": 6,
+        "python:S5806": 1,
+        "python:S5843": 3,
+        "python:S5855": 1,
+        "python:S5869": 1,
+        "python:S5890": 1
+      },
+      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c",
+      "reference_source_inventory_sha256": "32f8564ecd96b12a367a4db87dbe880ad43b158f3b1e8e06f26c455cb74c1b85",
+      "native_report_sha256": "5f2477818f216061d22668d45a0fcfc0e7e8f47b715c91e720e1985c20979468"
+    }
+  },
+  "regressions": [
+    "s6796_secondary_locations_preserve_uses_and_deduplicate_assignments",
+    "remaining_s6796_requires_direct_annotations_and_typing_provenance"
+  ],
+  "verification": {
+    "regression_red": "1 failed because the existing finding emitted no flows",
+    "s6796_focused_tests_passed": 3,
+    "python_clippy_all_targets": "exit 0 with warnings denied",
+    "actual_cli_replay": "both frozen source inventories verified; complete native scope"
+  },
+  "interpretation": "All 84 captured S6796 findings now have exact independent secondary-location multisets including message, file, and both span endpoints. The implementation orders uses and deduplicated assignments by source position. The upstream check collects these independent locations in Java HashSets, and 22 captured sequences retain different ordering. Ordered-flow parity is not claimed for those sequences."
+}

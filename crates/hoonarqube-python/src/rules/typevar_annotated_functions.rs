@@ -3,6 +3,7 @@ use crate::engine::scope::BindingKind;
 use crate::support::WebFrameworkFacts;
 use crate::support::function_parameters;
 use crate::support::issue_at;
+use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
@@ -46,9 +47,11 @@ pub(crate) fn check_typevar_annotated_functions(
                     .and_then(|parameter| parameter.annotation.as_deref()),
             )
             .chain(function.returns.as_deref());
-        let flagged = annotations.into_iter().any(|annotation| {
+        let mut uses = Vec::new();
+        let mut assignments = Vec::new();
+        for annotation in annotations {
             let Expr::Name(name) = annotation else {
-                return false;
+                continue;
             };
             // A function's signature is evaluated in its defining scope, not
             // the new body scope, even when a parameter shadows this name.
@@ -57,30 +60,55 @@ pub(crate) fn check_typevar_annotated_functions(
                 let symbols = &table.scopes[current];
                 if let Some(bindings) = symbols.bindings.get(name.id.as_str()) {
                     let [binding] = bindings.as_slice() else {
-                        return false;
+                        break;
                     };
                     if binding.kind != BindingKind::Assignment {
-                        return false;
+                        break;
                     }
                     let Some(Expr::Call(call)) =
                         file_ctx.assigned_values().get(&binding.range).copied()
                     else {
-                        return false;
+                        break;
                     };
-                    return facts.expr_fqn(&call.func).as_deref() == Some("typing.TypeVar");
+                    if facts.expr_fqn(&call.func).as_deref() == Some("typing.TypeVar") {
+                        uses.push(name.range());
+                        assignments.push(call.range());
+                    }
+                    break;
                 }
                 scope = symbols.parent;
             }
-            false
-        });
-        if flagged {
-            issues.push(issue_at(
+        }
+        if !uses.is_empty() {
+            let mut issue = issue_at(
                 "python:S6796",
                 "Use a generic type parameter for this function instead of a \"TypeVar\".",
                 function.name.range(),
                 index,
                 source,
-            ));
+            );
+            // The upstream analyzer gathers independent secondary locations
+            // in sets. Preserve their contents with a deterministic source
+            // order rather than depending on an object's identity hash.
+            uses.sort_unstable_by_key(Ranged::start);
+            assignments.sort_unstable_by_key(Ranged::start);
+            assignments.dedup();
+            issue.flows = uses
+                .into_iter()
+                .map(|range| (range, "Use of \"TypeVar\" here."))
+                .chain(
+                    assignments
+                        .into_iter()
+                        .map(|range| (range, "\"TypeVar\" is assigned here.")),
+                )
+                .map(|(range, message)| hoonarqube_ir::IssueFlow {
+                    locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                        message,
+                        to_range(range, index, source),
+                    )],
+                })
+                .collect();
+            issues.push(issue);
         }
     }
     issues
@@ -128,5 +156,47 @@ mod tests {
                 "Use a generic type parameter for this function instead of a \"TypeVar\"."
             );
         }
+    }
+
+    #[test]
+    fn s6796_secondary_locations_preserve_uses_and_deduplicate_assignments() {
+        let report = scan(concat!(
+            "from typing import TypeVar as TV\n",
+            "T = TV('T')\n",
+            "U = TV('U')\n",
+            "def identity(x: T, y: U) -> T:\n    return x\n",
+            "def outer():\n",
+            "    T = int\n",
+            "    def shadowed(x: T):\n        return x\n",
+            "def compound(x: list[T]):\n    return x\n",
+        ));
+        let found = findings(&report, "python:S6796");
+        assert_eq!(found.len(), 1);
+        let locations: Vec<_> = found[0]
+            .flows
+            .iter()
+            .map(|flow| {
+                assert_eq!(flow.locations.len(), 1);
+                let location = &flow.locations[0];
+                assert!(location.path.is_none());
+                (
+                    location.message.as_str(),
+                    location.range.start.line,
+                    location.range.start.column,
+                    location.range.end.line,
+                    location.range.end.column,
+                )
+            })
+            .collect();
+        assert_eq!(
+            locations,
+            vec![
+                ("Use of \"TypeVar\" here.", 4, 16, 4, 17),
+                ("Use of \"TypeVar\" here.", 4, 22, 4, 23),
+                ("Use of \"TypeVar\" here.", 4, 28, 4, 29),
+                ("\"TypeVar\" is assigned here.", 2, 4, 2, 11),
+                ("\"TypeVar\" is assigned here.", 3, 4, 3, 11),
+            ]
+        );
     }
 }
