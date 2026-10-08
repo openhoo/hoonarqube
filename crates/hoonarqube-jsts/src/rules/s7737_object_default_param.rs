@@ -5,7 +5,7 @@
 // `no-object-as-default-parameter` at the version pinned by SonarJS 13.x
 // (v65.0.1, wrapped by SonarJS S7737): a function parameter whose default
 // value is a non-empty object literal is reported. Identifier parameters
-// are anchored on the identifier and name the parameter in the message;
+// are anchored on the identifier including its type annotation and name the parameter in the message;
 // destructuring parameters are anchored on the object literal. Defaults of
 // nested binding patterns (not direct function parameters) and empty or
 // non-object defaults stay silent. No auto-fix is offered: a shared
@@ -17,7 +17,7 @@ use crate::support::{IssueSink, RuleScope, unparenthesized};
 use hoonarqube_ir::Issue;
 use oxc_ast::AstKind;
 use oxc_ast::ast::{BindingPattern, Expression, FormalParameter};
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, Span};
 
 /// Entry point: `javascript:S7737` + `typescript:S7737` object default
 /// parameter check over the parsed program. Requires the semantic model,
@@ -61,7 +61,13 @@ fn check_parameter(sink: &mut IssueSink<'_>, parameter: &FormalParameter<'_>) {
                 "Do not use an object literal as default for parameter `{}`.",
                 identifier.name
             ),
-            identifier.span,
+            Span::new(
+                identifier.span.start,
+                parameter
+                    .type_annotation
+                    .as_ref()
+                    .map_or(identifier.span.end, |annotation| annotation.span.end),
+            ),
         );
     } else {
         sink.emit_span(
@@ -108,7 +114,7 @@ export function custom<T>(
         assert_eq!(issue.range.end.line, 3);
         assert_eq!(
             issue.range.end.column,
-            u32::try_from("  params".len()).unwrap()
+            u32::try_from("  params: { message?: string }".len()).unwrap()
         );
     }
 
@@ -147,6 +153,29 @@ declare function process(
         assert!(
             report.issues.iter().all(|issue| issue.fix.is_none()),
             "S7737 must not offer an automatic fix"
+        );
+    }
+
+    #[test]
+    fn s7737_typed_parameter_anchor_excludes_initializer_and_trailing_comment() {
+        let source = "function f(params: Record<string, unknown> /* default */ = { value: 1 }) {}";
+        let report = ts(source);
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "typescript:S7737")
+            .unwrap();
+        assert_eq!(issue.range.start.column, 11);
+        assert_eq!(issue.range.end.column, 42);
+        let js_report = js("function f(params = { value: 1 }) {}");
+        let js_issue = js_report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "javascript:S7737")
+            .unwrap();
+        assert_eq!(
+            (js_issue.range.start.column, js_issue.range.end.column),
+            (11, 17)
         );
     }
 
