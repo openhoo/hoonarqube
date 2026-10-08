@@ -74,6 +74,10 @@ class SupportingLocationComparisonTests(unittest.TestCase):
         native["project"]["complete"] = False
         with self.assertRaises(ValueError):
             compare(native, reference, "p", {"go:S3776"})
+        native, reference = self.fixture()
+        reference[0]["flows"][0]["locations"][0]["component"] = "other:a.go"
+        with self.assertRaises(ValueError):
+            compare(native, reference, "p", {"go:S3776"})
 
     def test_omitted_reference_secondary_message_matches_empty_native_message(self):
         native, reference = self.fixture()
@@ -82,10 +86,6 @@ class SupportingLocationComparisonTests(unittest.TestCase):
         self.assertTrue(compare(native, reference, "p", {"go:S3776"})["matched"])
         native["files"][0]["issues"][0]["flows"][0]["locations"][0]["message"] = "+1"
         self.assertFalse(compare(native, reference, "p", {"go:S3776"})["matched"])
-        native, reference = self.fixture()
-        reference[0]["flows"][0]["locations"][0]["component"] = "other:a.go"
-        with self.assertRaises(ValueError):
-            compare(native, reference, "p", {"go:S3776"})
 
 
 if __name__ == "__main__":
