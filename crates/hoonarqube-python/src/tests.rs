@@ -4468,9 +4468,9 @@ fn s8786_flags_super_linear_regex_literals() {
     // Pinned psf/requests src/requests/utils.py#L536-L538 @ dae7ef63:
     // `charset_re` and `xml_re` pair a lazy dot run with adjacent
     // intersecting quantifiers, and `a*a*c` has two intersecting adjacent
-    // repetitions. `pragma_re`'s `content=...;?charset=` gap needs more
-    // characters than a single element supplies, and `find_title`'s
-    // `title>` gap is disjoint from `.` — both stay silent like Sonar.
+    // repetitions. Repeated dots can also absorb the multi-character
+    // `content=...;?charset=` and `title>` gaps: each mandatory character
+    // remains inside their match language.
     let flagged = scan(concat!(
         "import re\n",
         "\n",
@@ -4487,15 +4487,17 @@ fn s8786_flags_super_linear_regex_literals() {
         "    return re.compile(r'a*a*c')\n",
     ));
     let found = findings(&flagged, "python:S8786");
-    assert_eq!(found.len(), 3);
+    assert_eq!(found.len(), 5);
     assert_eq!(
         found[0].message,
         "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
     );
     assert_eq!(found[0].range.start, pos(4, 30));
     assert_eq!(found[0].range.end, pos(4, 63));
-    assert_eq!(found[1].range.start, pos(6, 26));
-    assert_eq!(found[2].range.start, pos(13, 24));
+    assert_eq!(found[1].range.start.line, 5);
+    assert_eq!(found[2].range.start, pos(6, 26));
+    assert_eq!(found[3].range.start.line, 10);
+    assert_eq!(found[4].range.start, pos(13, 24));
 }
 
 #[test]
