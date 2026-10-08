@@ -73,7 +73,7 @@ fn check_expression_rules(
         sequence_exempt_spans: HashSet::new(),
         grammar_parenthesized_depth: 0,
         required_parenthesized_spans: HashSet::new(),
-        template_depth: 0,
+        template_spans: Vec::new(),
         own_proto_bindings,
         delete_depth: 0,
         set_prototype_of_guard_depth: 0,
@@ -103,8 +103,8 @@ struct ExpressionCollector<'index, 'semantic> {
     sequence_exempt_spans: HashSet<(u32, u32)>,
     grammar_parenthesized_depth: usize,
     required_parenthesized_spans: HashSet<(u32, u32)>,
-    /// Nesting depth of template literals for `S4624`.
-    template_depth: u32,
+    /// Enclosing template literal ranges for the `S4624` delimiter-line guard.
+    template_spans: Vec<Span>,
     /// Const bindings whose initializer declares an own `__proto__`
     /// member; receiver references resolving here are own properties,
     /// not the deprecated accessor (`S6654`).
@@ -633,7 +633,10 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     }
 
     fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
-        if self.template_depth > 0 {
+        if self.template_spans.last().is_some_and(|outer| {
+            self.sink.index.pos(it.span.start).line == self.sink.index.pos(outer.start).line
+                || self.sink.index.pos(it.span.end).line == self.sink.index.pos(outer.end).line
+        }) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4624",
@@ -641,9 +644,9 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
                 it.span(),
             );
         }
-        self.template_depth += 1;
+        self.template_spans.push(it.span);
         walk_template_literal(self, it);
-        self.template_depth -= 1;
+        self.template_spans.pop();
     }
 
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
@@ -798,6 +801,16 @@ fn file_is_commonjs(ctx: &AnalysisContext) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s4624_nested_templates_on_separate_delimiter_lines_stay_clean() {
+        let separated = "const text = `prefix ${\n  flag ? `at least` : `more than`\n} suffix`;";
+        assert_eq!(count_key(&js_keys(separated), "javascript:S4624"), 0);
+        let same_line = "const text = `prefix ${`inside`} suffix`;";
+        assert_eq!(count_key(&js_keys(same_line), "javascript:S4624"), 1);
+        let closing_line = "const text = `prefix ${\n  `inside\ncontinued`} suffix`;";
+        assert_eq!(count_key(&js_keys(closing_line), "javascript:S4624"), 1);
+    }
 
     #[test]
     fn s3812_flags_negated_in_expressions_requiring_parentheses() {
