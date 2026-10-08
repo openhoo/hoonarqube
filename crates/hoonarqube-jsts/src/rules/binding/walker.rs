@@ -146,18 +146,6 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
-        if !it.shorthand
-            && let (Some(key), Expression::Identifier(value)) =
-                (property_key_name(&it.key), &it.value)
-            && key == value.name.as_str()
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6650",
-                "Remove this redundant renaming.",
-                it.span(),
-            );
-        }
         self.check_credential_pair(property_key_name(&it.key), Some(&it.value));
         self.check_undefined_value(&it.value);
         walk_object_property(self, it);
@@ -608,6 +596,38 @@ export { Model };
         // A name hit wins, so the pair emits exactly once.
         let both = js_keys("const password = 'password=hunter2'; // hooray:allow-secret\n");
         assert_eq!(count_key(&both, "javascript:S2068"), 1);
+    }
+
+    #[test]
+    fn s6650_distinguishes_object_literals_from_binding_renames() {
+        let literal = "const alpha = 1;\nconst literal = { alpha: alpha, ['alpha']: alpha, nested: { alpha: alpha } };\n";
+        let renames = "import { imported as imported } from 'module';\nconst { alpha: alpha } = input;\nexport { alpha as alpha };\n";
+        let aliases = "import { first as renamed } from 'module';\nconst { before: after } = input;\nexport { after as published };\n";
+        for language in [JstsLanguage::JavaScript, JstsLanguage::TypeScript] {
+            let literal_report = findings(literal, language);
+            let rule = format!("{}:S6650", language.prefix());
+            assert_eq!(
+                count_key(&literal_report, &rule),
+                0,
+                "object literal {language:?}"
+            );
+            let rename_report = findings(renames, language);
+            assert_eq!(
+                count_key(&rename_report, &rule),
+                3,
+                "binding renames {language:?}"
+            );
+            let alias_report = findings(aliases, language);
+            assert_eq!(
+                count_key(&alias_report, &rule),
+                0,
+                "distinct aliases {language:?}"
+            );
+        }
+        // Object-property traversal still visits values and nested classes.
+        let nested = js("const literal = { Empty: class {}, missing: undefined };\n");
+        assert_eq!(count_key(&report_keys(&nested), "javascript:S2094"), 1);
+        assert_eq!(count_key(&report_keys(&nested), "javascript:S2138"), 1);
     }
 
     #[test]

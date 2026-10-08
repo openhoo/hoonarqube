@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "rule": "S2933",
+  "scope": "Class primary and grouped independent member locations; candidate/write policy unchanged.",
+  "native_source_base": "0f3199c7792fc1016979eb1a84eae4639e16a134",
+  "regression": "s2933_groups_members_at_class_with_exact_reference_locations",
+  "red": "Executed against original source: expected three grouped findings, received four per-field findings.",
+  "green": "1385 JS/TS tests passed with explicit TypeScript 6.0.3; exact range/message and independent location assertions pass.",
+  "fresh_reference": {
+    "server_version": "26.9.0.129388",
+    "source_commit": "62eacd7f571a2ea5b3533e244e6aeebc0e4afa00",
+    "issues_sha256": "d3953e524d560b8da9dfaae392e7edda02b253dd76496b2b5cdebd053685b95d",
+    "scanner_execution_sha256": "59b76d7cf598548f94f7644fa676901a87d46702cbdd3139bb60985ebb77dee9",
+    "comparison": {
+      "claim": "selected_rule_primary_message_and_flow_comparison",
+      "rules": [
+        "typescript:S2933"
+      ],
+      "native_findings": 3,
+      "reference_findings": 3,
+      "matched_findings": 3,
+      "native_only": 0,
+      "reference_only": 0,
+      "native_supporting_locations": 4,
+      "reference_supporting_locations": 4,
+      "matched": true,
+      "flow_order": "unordered_flows_ordered_locations",
+      "differences": []
+    }
+  },
+  "evidence": {
+    "s2933-red.log": "715c3c07b2002a7a0f4fa4138e53fdb8aad7eb5ea21e527afba3a60876d74389",
+    "package5-jsts-tests.log": "a7ef7cfe434587513841958b21aa93d6bb4db6ac56316dcfd1062caf608bbb0d",
+    "package5-clippy.log": "4abb4dabf08f3c1b1cd27bfebbdcd8b346de91dfc60076f67fb9a026543ad3ab",
+    "s2933-controls-native.json": "3d44d7e866b81d4eba14f79966ef54c7304b0c52dcc665c931df4311d89a46e5",
+    "s2933-controls-flows.json": "e696232c2b01c97a823c2cd504b764cdac915bf42623c724bd31241b985a877b"
+  },
+  "limitations": [
+    "Existing candidate/write detection policy is unchanged.",
+    "No quickfix application claim."
+  ],
+  "owned_source_sha256": {
+    "crates/hoonarqube-jsts/src/rules/tier_b/s2933_tb_readonly_candidate_fields.rs": "ef265d9ff1482ab15d1772071fe7b5e30b377f01a6d1488b54e7c6cf23098b84",
+    "crates/hoonarqube-jsts/src/rules/tier_b/collectors.rs": "b67e2e4580061ad8163e841e514ceabebabc5ebdc05d4bd433a00432b756bf4b"
+  }
+}
