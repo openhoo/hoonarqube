@@ -9,6 +9,7 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to dashboard</a>
   <header class="site-header">
     <div class="wrap header-inner">
       <div>
@@ -19,7 +20,7 @@
     </div>
   </header>
 
-  <main class="wrap" id="main-content">
+  <main class="wrap" id="main-content" tabindex="-1">
     <section class="panel" aria-labelledby="connection-heading">
       <div class="section-heading">
         <div>
@@ -79,7 +80,7 @@
         <span class="badge badge-muted" id="history-count">0 analyses</span>
       </div>
       <p class="muted">Each row is a stored report for one commit. Selecting a row never changes the recorded result.</p>
-      <div class="table-wrap">
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable analysis history">
         <table>
           <caption class="sr-only">Analysis history for the selected project and branch</caption>
           <thead>
@@ -137,6 +138,7 @@
         </div>
         <div id="findings-incomplete" class="notice notice-warning" role="status" hidden></div>
         <div id="findings-error" class="notice notice-error" role="alert" hidden></div>
+        <div id="findings-loading" class="empty-state" role="status" hidden>Loading findings and reviews…</div>
         <div id="findings-empty" class="empty-state" hidden>No findings were reported for this analysis.</div>
         <div id="findings-list" class="finding-list"></div>
       </section>
@@ -171,7 +173,7 @@
             <label for="ordinary-reason">Reason</label>
             <textarea id="ordinary-reason" name="reason" rows="3" required maxlength="4000"></textarea>
           </div>
-          <button type="submit" class="button button-primary">Save ordinary review</button>
+          <button type="submit" class="button button-primary" id="ordinary-save-button">Save ordinary review</button>
         </form>
         <form id="hotspot-review-form" class="review-form" hidden>
           <input type="hidden" name="identity">
@@ -190,7 +192,7 @@
             <label for="hotspot-reason">Reason</label>
             <textarea id="hotspot-reason" name="reason" rows="3" required maxlength="4000"></textarea>
           </div>
-          <button type="submit" class="button button-primary">Save hotspot review</button>
+          <button type="submit" class="button button-primary" id="hotspot-save-button">Save hotspot review</button>
         </form>
       </div>
       <section class="audit-section" aria-labelledby="audit-heading">

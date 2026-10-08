@@ -22,6 +22,7 @@
     historyRequest: 0,
 
     busy: 0,
+    savingReview: null,
   };
   const byId = (id) => document.getElementById(id);
   const elements = {
@@ -68,6 +69,9 @@
     refreshHistory: byId("refresh-history-button"),
     globalError: byId("global-error"),
     loading: byId("loading"),
+    findingsLoading: byId("findings-loading"),
+    ordinarySave: byId("ordinary-save-button"),
+    hotspotSave: byId("hotspot-save-button"),
   };
 
   function text(value, fallback = "—") {
@@ -154,10 +158,18 @@
           : `The service returned HTTP ${response.status}.`;
         throw new ApiError(response.status, normalizeErrorMessage(payload, fallback), payload);
       }
-      return payload || {};
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new ApiError(502, "The service returned an invalid JSON response. Try the request again.");
+      }
+      return payload;
     } finally {
       setBusy(false);
     }
+  }
+
+  function responseList(payload, key) {
+    if (!Array.isArray(payload[key])) throw new ApiError(502, `The service response is missing the ${key} list. Try the request again.`);
+    return payload[key];
   }
 
   function pathPart(value) {
@@ -269,6 +281,9 @@
 
   function clearReviewSelection() {
     state.reviewRequest += 1;
+    state.savingReview = null;
+    elements.ordinarySave.disabled = false;
+    elements.hotspotSave.disabled = false;
     state.historyRequest += 1;
     state.selectedFinding = null;
     state.selectedReview = null;
@@ -297,7 +312,7 @@
     try {
       const payload = await apiRequest("/projects");
       if (requestToken !== state.sessionRequest) return;
-      fillProjects(payload.projects);
+      fillProjects(responseList(payload, "projects"));
       setSession(true);
       if (!state.projects.length) showNotice(elements.connectionError, "This token can authenticate, but it has no visible projects.", "warning");
     } catch (error) {
@@ -308,6 +323,7 @@
         fillProjects([]);
         setSession(false);
       }
+      resetSelect(elements.project, "Reconnect to load projects");
       showNotice(elements.connectionError, error.message || "Unable to load projects.");
     }
   }
@@ -324,13 +340,16 @@
       elements.scopeBadge.textContent = "No project selected";
       return;
     }
+    setBadge(elements.scopeBadge, state.project);
+    resetSelect(elements.branch, "Loading branches…");
     try {
       const payload = await apiRequest(apiPath(state.project, "/branches"));
       if (requestToken !== state.branchRequest || sessionToken !== state.sessionRequest) return;
-      fillBranches(payload.branches);
+      fillBranches(responseList(payload, "branches"));
       setBadge(elements.scopeBadge, state.project, "Project selected");
     } catch (error) {
       if (requestToken !== state.branchRequest || sessionToken !== state.sessionRequest) return;
+      resetSelect(elements.branch, "Select the project again to retry");
       showNotice(elements.scopeError, error.message || "Unable to load branches.");
       displayError(error);
     }
@@ -341,7 +360,6 @@
     clear(elements.historyBody);
     hideNotice(elements.historyError);
     const analyses = state.analyses.slice();
-    analyses.sort((left, right) => String(analysisField(right, "analyzed_at", "")).localeCompare(String(analysisField(left, "analyzed_at", ""))));
     setHidden(elements.historyPanel, false);
     setHidden(elements.historyEmpty, analyses.length !== 0);
     clear(elements.historyCount);
@@ -350,16 +368,10 @@
       const id = analysisId(summary);
       if (!id) continue;
       const row = document.createElement("tr");
-      row.tabIndex = 0;
-      row.setAttribute("role", "button");
-      row.setAttribute("aria-selected", state.analysis && analysisId(state.analysis) === id ? "true" : "false");
+      row.analysisId = id;
+      const selected = state.analysis && analysisId(state.analysis) === id;
+      row.className = selected ? "analysis-selected" : "";
       row.addEventListener("click", () => selectAnalysis(id));
-      row.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          selectAnalysis(id);
-        }
-      });
       const cells = [
         ["commit", analysisField(summary, "commit", null)],
         ["analyzed", formatDate(analysisField(summary, "analyzed_at", null))],
@@ -370,10 +382,28 @@
       for (const [kind, value] of cells) {
         const cell = document.createElement("td");
         if (kind === "commit") cell.className = "mono";
-        appendText(cell, value, kind === "completeness" ? "unknown" : "—");
+        if (kind === "commit") {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "analysis-button";
+          button.setAttribute("aria-label", `View analysis ${id}, commit ${text(value)}`);
+          button.setAttribute("aria-pressed", selected ? "true" : "false");
+          appendText(button, value, `Analysis ${id}`);
+          cell.appendChild(button);
+        } else {
+          appendText(cell, value, kind === "completeness" ? "unknown" : "—");
+        }
         row.appendChild(cell);
       }
       elements.historyBody.appendChild(row);
+    }
+  }
+
+  function updateHistorySelection() {
+    for (const row of elements.historyBody.children) {
+      const selected = state.analysis && analysisId(state.analysis) === row.analysisId;
+      row.className = selected ? "analysis-selected" : "";
+      row.children[0].children[0].setAttribute("aria-pressed", selected ? "true" : "false");
     }
   }
 
@@ -382,12 +412,16 @@
     hideNotice(elements.scopeError);
     hideNotice(elements.historyError);
     hideResults();
+    clear(elements.historyBody);
+    clear(elements.historyCount);
+    setHidden(elements.historyEmpty, true);
     if (!state.project || !state.branch) return;
     const requestToken = state.analysisRequest;
     try {
       const payload = await apiRequest(`${apiPath(state.project, "/analyses")}?branch=${encodeURIComponent(state.branch)}`);
       if (requestToken !== state.analysisRequest) return;
-      state.analyses = Array.isArray(payload.analyses) ? payload.analyses : [];
+      state.analyses = responseList(payload, "analyses");
+      state.analyses.sort((left, right) => String(analysisField(right, "analyzed_at", "")).localeCompare(String(analysisField(left, "analyzed_at", ""))));
       renderHistory();
       clear(elements.scopeBadge);
       appendText(elements.scopeBadge, `${state.project} / ${state.branch}`);
@@ -585,16 +619,18 @@
         apiRequest(`${apiPath(state.project, "/reviews")}?branch=${encodeURIComponent(state.branch)}`),
       ]);
       if (requestToken !== state.analysisRequest || !state.analysis || analysisId(state.analysis) !== id) return;
-      state.findings = Array.isArray(findingPayload.findings) ? findingPayload.findings : [];
-      state.reviews = Array.isArray(reviewPayload.reviews) ? reviewPayload.reviews : [];
+      state.findings = responseList(findingPayload, "findings");
+      state.reviews = responseList(reviewPayload, "reviews");
       if (completenessOf(state.analysis) !== "complete") {
         showNotice(elements.findingsIncomplete, "Findings are shown for an incomplete analysis. Existing reviews are not automatically resolved.", "warning");
       }
       renderFindings();
+      setHidden(elements.findingsLoading, true);
     } catch (error) {
       if (requestToken !== state.analysisRequest) return;
       state.findings = [];
       state.reviews = [];
+      setHidden(elements.findingsLoading, true);
       showNotice(elements.findingsError, error.message || "Unable to load findings.");
       displayError(error);
     }
@@ -604,9 +640,16 @@
     const requestToken = ++state.analysisRequest;
     clearReviewSelection();
     state.analysis = null;
+    updateHistorySelection();
     state.findings = [];
     state.reviews = [];
     setHidden(elements.detailPanel, true);
+    clear(elements.findingsList);
+    clear(elements.findingsCount);
+    appendText(elements.findingsCount, "Not loaded");
+    setHidden(elements.findingsEmpty, true);
+    setHidden(elements.findingsLoading, false);
+    hideNotice(elements.findingsError);
     if (!id) return;
     hideNotice(elements.globalError);
     try {
@@ -616,7 +659,8 @@
         throw new ApiError(502, "The service returned a different analysis record than requested.");
       }
       state.analysis = payload.analysis;
-      renderHistory();
+      hideNotice(elements.historyError);
+      updateHistorySelection();
       renderAnalysisDetail();
       await loadFindingsAndReviews(id, requestToken);
     } catch (error) {
@@ -663,7 +707,8 @@
     const identity = findingIdentity(finding);
     const contextId = analysisId(state.analysis);
     if (!identity || !contextId) return;
-    const requestToken = ++state.reviewRequest;
+    clearReviewSelection();
+    const requestToken = state.reviewRequest;
     state.reviewAnalysisId = contextId;
     state.selectedFinding = finding;
     const review = findingReview(finding);
@@ -679,14 +724,16 @@
     setHidden(elements.ordinaryForm, hotspot);
     setHidden(elements.hotspotForm, !hotspot);
     fillReviewForm(hotspot ? elements.hotspotForm : elements.ordinaryForm, finding, review, branchReview(finding));
+    const form = hotspot ? elements.hotspotForm : elements.ordinaryForm;
+    form.elements.namedItem("state").focus();
+    elements.reviewPanel.scrollIntoView({ block: "nearest" });
     await loadReviewHistory(requestToken, contextId);
-    if (!reviewContextCurrent(contextId, requestToken)) return;
-    elements.reviewPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function loadReviewHistory(requestToken = state.reviewRequest, contextId = state.reviewAnalysisId) {
     if (!reviewContextCurrent(contextId, requestToken)) return;
     const historyToken = ++state.historyRequest;
+    hideNotice(elements.reviewError);
     clear(elements.auditList);
     setHidden(elements.auditEmpty, true);
     if (!state.selectedFinding || !state.project || !state.branch) return;
@@ -698,7 +745,7 @@
     try {
       const payload = await apiRequest(`${apiPath(state.project, `/reviews/${pathPart(review.id)}/history`)}`);
       if (!reviewContextCurrent(contextId, requestToken) || historyToken !== state.historyRequest) return;
-      const history = Array.isArray(payload.history) ? payload.history : [];
+      const history = responseList(payload, "history");
       setHidden(elements.auditEmpty, history.length !== 0);
       for (const record of history) {
         const item = document.createElement("li");
@@ -736,8 +783,8 @@
       apiRequest(`${apiPath(state.project, "/reviews")}?branch=${encodeURIComponent(state.branch)}`),
     ]);
     if (!reviewContextCurrent(contextId, requestToken)) return;
-    state.findings = Array.isArray(findingPayload.findings) ? findingPayload.findings : [];
-    state.reviews = Array.isArray(reviewPayload.reviews) ? reviewPayload.reviews : [];
+    state.findings = responseList(findingPayload, "findings");
+    state.reviews = responseList(reviewPayload, "reviews");
     const refreshedFinding = state.findings.find(
       (finding) => findingIdentity(finding) === identity && finding && finding.kind === kind,
     );
@@ -750,7 +797,9 @@
     renderFindings();
     if (state.selectedFinding) {
       const form = findingKind(state.selectedFinding) === "hotspot" ? elements.hotspotForm : elements.ordinaryForm;
+      const reason = formValue(form, "reason");
       fillReviewForm(form, state.selectedFinding, state.selectedReview, branchReview(state.selectedFinding));
+      form.elements.namedItem("reason").value = reason;
     }
   }
 
@@ -763,9 +812,16 @@
       showNotice(elements.reviewError, "This review form is no longer bound to the selected analysis. Select the finding again.");
       return;
     }
+    if (state.savingReview === requestToken) return;
     if (!form.reportValidity()) return;
+    if (!formValue(form, "reason").trim()) {
+      showNotice(elements.reviewError, "Enter a reason with at least one non-space character.");
+      form.elements.namedItem("reason").focus();
+      return;
+    }
     hideNotice(elements.reviewError);
     hideNotice(elements.reviewMessage);
+    const submittedReason = formValue(form, "reason");
     const body = {
       schema_version: 1,
       analysis_id: contextId,
@@ -775,6 +831,9 @@
       reason: formValue(form, "reason").trim(),
       expected_version: Number(formValue(form, "expected_version")),
     };
+    state.savingReview = requestToken;
+    const saveButton = form === elements.hotspotForm ? elements.hotspotSave : elements.ordinarySave;
+    saveButton.disabled = true;
     try {
       const payload = await apiRequest(apiPath(state.project, "/reviews"), {
         method: "POST",
@@ -782,14 +841,19 @@
       });
       if (!reviewContextCurrent(contextId, requestToken)) return;
       const updated = payload.review;
-      const updatedReview = updated && typeof updated === "object" ? updated : null;
+      if (!updated || updated.identity !== body.identity || updated.kind !== body.kind
+          || updated.analysis_id !== contextId || !Number.isSafeInteger(updated.version)
+          || updated.version <= body.expected_version) {
+        throw new ApiError(502, "The service accepted the request but returned an invalid review record. Refresh the finding before retrying to verify whether it was saved.");
+      }
+      const updatedReview = updated;
       state.reviews = state.reviews.filter((review) => !(review.identity === body.identity && review.kind === body.kind));
       if (updatedReview) state.reviews.push(updatedReview);
       replaceFindingReview(body.identity, body.kind, updatedReview);
       renderFindings();
       state.selectedReview = findingReview(state.selectedFinding);
       form.elements.namedItem("expected_version").value = String(reviewVersion(state.selectedReview));
-      form.elements.namedItem("reason").value = "";
+      if (formValue(form, "reason") === submittedReason) form.elements.namedItem("reason").value = "";
       showNotice(elements.reviewMessage, "Review saved. The new version and audit entry are immutable records.", "success");
       await loadReviewHistory(requestToken, contextId);
     } catch (error) {
@@ -808,6 +872,11 @@
         showNotice(elements.reviewError, error.message || "Unable to save the review.");
       }
       displayError(error);
+    } finally {
+      if (state.savingReview === requestToken) {
+        state.savingReview = null;
+        saveButton.disabled = false;
+      }
     }
   }
   function disconnect() {
@@ -848,12 +917,14 @@
     setBadge(elements.scopeBadge, "No project selected");
     hideResults();
     state.token = token;
+    elements.disconnect.disabled = false;
     loadProjects();
   });
   elements.disconnect.addEventListener("click", disconnect);
   elements.project.addEventListener("change", loadBranches);
   elements.branch.addEventListener("change", () => {
     state.branch = elements.branch.value;
+    setBadge(elements.scopeBadge, state.branch ? `${state.project} / ${state.branch}` : state.project);
     hideResults();
     elements.loadScope.disabled = !elements.project.value || !elements.branch.value;
   });

@@ -89,7 +89,8 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-tr:focus-visible {
+.table-wrap:focus-visible,
+a:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
@@ -218,7 +219,8 @@ main {
   font-size: 0.76rem;
   font-weight: 700;
   line-height: 1.2;
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .badge-muted {
@@ -395,7 +397,7 @@ tbody tr {
 }
 
 tbody tr:hover,
-tbody tr[aria-selected="true"] {
+tbody tr.analysis-selected {
   background: var(--accent-soft);
 }
 
@@ -456,6 +458,7 @@ code,
 }
 
 .metric-name {
+  overflow-wrap: anywhere;
   display: block;
   color: var(--muted);
   font-size: 0.78rem;
@@ -547,6 +550,7 @@ code,
 }
 
 .finding-message {
+  overflow-wrap: anywhere;
   margin-bottom: 0.5rem;
   font-weight: 700;
 }
@@ -692,4 +696,37 @@ code,
   .button {
     width: 100%;
   }
+}
+
+
+.analysis-button {
+  border: 0;
+  padding: 0.2rem;
+  color: var(--accent-strong);
+  background: transparent;
+  text-align: left;
+  font-weight: 700;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -5rem;
+  z-index: 3;
+  padding: 0.7rem 1rem;
+  border-radius: 0.45rem;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.skip-link:focus { top: 1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; }
+}
+
+@media (max-width: 36rem) {
+  .finding-actions { justify-content: flex-start; }
 }
