@@ -30,14 +30,14 @@
         "python:S5797": 1,
         "python:S6792": 1
       },
-      "remaining_ordered_sequence_by_rule": {
+      "native_report_sha256": "befc58c0f5a16b22f0f001b760a4af64d60157eda5720474b764ec564594a44c",
+      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10",
+      "raw_flow_list_comparison_differences_by_rule": {
         "python:S5713": 1,
         "python:S5797": 1,
         "python:S6796": 1,
         "python:S6792": 1
-      },
-      "native_report_sha256": "befc58c0f5a16b22f0f001b760a4af64d60157eda5720474b764ec564594a44c",
-      "reference_issues_sha256": "b8983364fcad2f7c4c33a50410767cd440185665aa964e7667088cfd78bffc10"
+      }
     },
     "werkzeug-python": {
       "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
@@ -59,7 +59,9 @@
         "python:S5869": 1,
         "python:S5890": 1
       },
-      "remaining_ordered_sequence_by_rule": {
+      "native_report_sha256": "a55e9013efa952f445df68ddcea68aabd1f2c077ac7e8759adf146098374e859",
+      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c",
+      "raw_flow_list_comparison_differences_by_rule": {
         "python:S6792": 7,
         "python:S6796": 21,
         "python:S1192": 8,
@@ -69,10 +71,9 @@
         "python:S5855": 1,
         "python:S5869": 1,
         "python:S5890": 1
-      },
-      "native_report_sha256": "a55e9013efa952f445df68ddcea68aabd1f2c077ac7e8759adf146098374e859",
-      "reference_issues_sha256": "a5f8ee5e8a2ca584ecad044c5dbc74b218ea405acb0fc1afd90bb7897bd3947c"
+      }
     }
   },
-  "interpretation": "All six captured S1066 findings now carry exact ordered enclosing keyword spans/messages. The nested-if chain and final-elif keyword regression retain the correct immediate enclosing keyword. Remaining Python flow differences are explicit; this receipt does not claim full Python flow parity."
+  "interpretation": "All six captured S1066 findings now carry exact enclosing keyword spans/messages and flow grouping. The nested-if chain and final-elif keyword regression retain the immediate enclosing keyword. Remaining canonical secondary-flow content differences are explicit; the raw-flow-list comparison also reports outer presentation ordering and is not an additional parity gate.",
+  "comparison_contract": "Canonical secondary_locations.py semantics: distinct flows form a multiset; location order inside each flow and duplicate multiplicity are preserved."
 }
