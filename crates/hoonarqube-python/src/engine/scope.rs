@@ -566,10 +566,27 @@ fn collect_function_def(
     );
     let fn_scope = push_symbol_scope(table, ScopeKind::Function, current);
     table.scopes[fn_scope].body_range = Some(suite_range(&function.body));
-    let mut header_exprs: Vec<&Expr> = Vec::new();
-    push_parameter_exprs(&function.parameters, &mut header_exprs);
-    for expr in header_exprs {
-        record_expr_loads(table, current, expr, false, loop_depth);
+    for parameter in named_parameters(&function.parameters) {
+        if let Some(default) = parameter.default.as_deref() {
+            record_expr_loads(table, current, default, false, loop_depth);
+        }
+        if let Some(annotation) = parameter.parameter.annotation.as_deref() {
+            record_expr_loads(table, current, annotation, true, loop_depth);
+        }
+    }
+    for parameter in [
+        function.parameters.vararg.as_deref(),
+        function.parameters.kwarg.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(annotation) = parameter.annotation.as_deref() {
+            record_expr_loads(table, current, annotation, true, loop_depth);
+        }
+    }
+    if let Some(annotation) = function.returns.as_deref() {
+        record_expr_loads(table, current, annotation, true, loop_depth);
     }
     for parameter in named_parameters(&function.parameters) {
         bind_symbol(

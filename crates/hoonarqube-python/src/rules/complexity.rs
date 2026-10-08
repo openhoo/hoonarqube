@@ -6,6 +6,7 @@ use crate::support::for_each_function_def;
 use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
+use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::Comprehension;
@@ -13,9 +14,10 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtClassDef;
+use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 
 // --- python:FunctionComplexity / ClassComplexity / FileComplexity / S3776 ------
 //
@@ -38,9 +40,10 @@ pub(crate) fn check_cognitive_complexity(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    flag_functions(parsed, |function, cognitive, _cyclomatic, nested| {
-        if !nested && cognitive > options.maximum_cognitive_complexity {
-            issues.push(issue_at(
+    visit_cognitive_functions(parsed.syntax().body.as_slice(), |function| {
+        let (cognitive, contributions) = measure_cognitive(&function.body, parsed.tokens());
+        if cognitive > options.maximum_cognitive_complexity {
+            let mut issue = issue_at(
                 "python:S3776",
                 &format!(
                     "Refactor this function to reduce its Cognitive Complexity from {cognitive} to the {} allowed.",
@@ -49,10 +52,46 @@ pub(crate) fn check_cognitive_complexity(
                 function.name.range(),
                 index,
                 source,
-            ));
+            );
+            issue.flows = contributions
+                .into_iter()
+                .map(|(range, amount)| hoonarqube_ir::IssueFlow {
+                    locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                        if amount == 1 {
+                            "+1".to_owned()
+                        } else {
+                            format!("+{amount} (incl {} for nesting)", amount - 1)
+                        },
+                        to_range(range, index, source),
+                    )],
+                })
+                .collect();
+            issues.push(issue);
         }
     });
     issues
+}
+
+/// Visit reportable functions once. Nested definitions still contribute to
+/// their parent's score, but do not trigger their own cognitive finding.
+fn visit_cognitive_functions<'a>(
+    suite: &'a [Stmt],
+    mut visit: impl FnMut(&'a ruff_python_ast::StmtFunctionDef),
+) {
+    let mut pending: Vec<(&Stmt, bool)> = suite.iter().rev().map(|stmt| (stmt, false)).collect();
+    while let Some((stmt, nested)) = pending.pop() {
+        let child_nested = if let Stmt::FunctionDef(function) = stmt {
+            if !nested {
+                visit(function);
+            }
+            true
+        } else {
+            nested
+        };
+        for body in child_bodies(stmt).into_iter().rev() {
+            pending.extend(body.iter().rev().map(|stmt| (stmt, child_nested)));
+        }
+    }
 }
 
 pub(crate) fn check_function_complexity(
@@ -251,7 +290,9 @@ fn measure_unit(body: &[Stmt]) -> (u32, u32) {
         cognitive: 0,
         cyclomatic: 0,
         nesting: 0,
-        logic_chain: None,
+        considered_boolean: std::collections::HashSet::new(),
+        tokens: None,
+        contributions: Vec::new(),
         nested_definitions: 0,
         frames: vec![Frame::Function(body)],
     };
@@ -259,11 +300,28 @@ fn measure_unit(body: &[Stmt]) -> (u32, u32) {
     (measurer.cognitive, measurer.cyclomatic)
 }
 
+fn measure_cognitive<'a>(body: &'a [Stmt], tokens: &'a Tokens) -> (u32, Vec<(TextRange, u32)>) {
+    let mut measurer = Measurer {
+        cognitive: 0,
+        cyclomatic: 0,
+        nesting: 0,
+        considered_boolean: std::collections::HashSet::new(),
+        tokens: Some(tokens),
+        contributions: Vec::new(),
+        nested_definitions: 0,
+        frames: vec![Frame::Function(body)],
+    };
+    measurer.walk_suite(body);
+    (measurer.cognitive, measurer.contributions)
+}
+
 struct Measurer<'a> {
     cognitive: u32,
     cyclomatic: u32,
     nesting: u32,
-    logic_chain: Option<BoolOp>,
+    considered_boolean: std::collections::HashSet<TextRange>,
+    tokens: Option<&'a Tokens>,
+    contributions: Vec<(TextRange, u32)>,
     /// Depth of nested definition bodies currently walked. Structures inside
     /// a nested definition keep contributing cognitive weight to the
     /// enclosing unit (the `SonarPython` visitor never skips them), while their
@@ -283,7 +341,6 @@ enum Frame<'a> {
 
 enum ExprWork<'a> {
     Visit(&'a Expr),
-    RestoreLogic(Option<BoolOp>),
     RestoreNesting(u32),
 }
 
@@ -314,16 +371,17 @@ impl<'a> Measurer<'a> {
                     self.process_match(match_);
                     continue;
                 }
-                Stmt::For(_) | Stmt::While(_) => {
-                    // Loops nest everything they contain, header included.
-                    self.enter_nested(|measurer| {
-                        for expr in stmt_exprs(stmt) {
-                            measurer.walk_expr(expr);
-                        }
-                        for body in child_bodies(stmt) {
-                            measurer.walk_suite(body);
-                        }
-                    });
+                Stmt::For(for_) => {
+                    self.increment(for_.range(), TokenKind::For, 1 + self.nesting);
+                    self.walk_expr(&for_.target);
+                    self.walk_expr(&for_.iter);
+                    self.walk_loop_suites(&for_.body, &for_.orelse, for_.range());
+                    continue;
+                }
+                Stmt::While(while_) => {
+                    self.increment(while_.range(), TokenKind::While, 1 + self.nesting);
+                    self.walk_expr(&while_.test);
+                    self.walk_loop_suites(&while_.body, &while_.orelse, while_.range());
                     continue;
                 }
                 _ => {}
@@ -341,7 +399,7 @@ impl<'a> Measurer<'a> {
     /// branches cost one flat point each, matching the `SonarPython`
     /// cognitive fixture.
     fn process_if(&mut self, if_: &'a ruff_python_ast::StmtIf) {
-        self.cognitive += 1 + self.nesting;
+        self.increment(if_.range(), TokenKind::If, 1 + self.nesting);
         if self.nested_definitions == 0 {
             self.cyclomatic += 1;
         }
@@ -349,8 +407,17 @@ impl<'a> Measurer<'a> {
         let saved = self.nesting;
         self.nesting += 1;
         self.walk_suite(&if_.body);
+        self.nesting = saved;
         for clause in &if_.elif_else_clauses {
-            self.cognitive += 1;
+            self.increment(
+                clause.range(),
+                if clause.test.is_some() {
+                    TokenKind::Elif
+                } else {
+                    TokenKind::Else
+                },
+                1,
+            );
             if clause.test.is_some() && self.nested_definitions == 0 {
                 self.cyclomatic += 1;
             }
@@ -370,7 +437,7 @@ impl<'a> Measurer<'a> {
         self.walk_suite(&try_.body);
         for handler in &try_.handlers {
             let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
-            self.cognitive += 1 + self.nesting;
+            self.increment(handler.range(), TokenKind::Except, 1 + self.nesting);
             if self.nested_definitions == 0 {
                 self.cyclomatic += 1;
             }
@@ -382,14 +449,13 @@ impl<'a> Measurer<'a> {
             self.walk_suite(&handler.body);
             self.nesting = saved;
         }
-        self.walk_suite(&try_.orelse);
+        self.walk_else_suite(&try_.orelse, try_.range());
         self.walk_suite(&try_.finalbody);
     }
 
-    /// A `match` behaves like a switch: one increment plus one per case,
-    /// with every case body nested.
+    /// Match cases nest their statement lists; match itself adds no point.
     fn process_match(&mut self, match_: &'a ruff_python_ast::StmtMatch) {
-        self.cognitive += 1 + self.nesting;
+        self.walk_expr(&match_.subject);
         if self.nested_definitions == 0 {
             self.cyclomatic += u32::try_from(match_.cases.len()).unwrap_or(u32::MAX);
         }
@@ -404,17 +470,48 @@ impl<'a> Measurer<'a> {
         self.nesting = saved;
     }
 
-    /// Walks one loop-like construct: `1 + nesting` increments with all
-    /// contents nested one level deeper.
-    fn enter_nested(&mut self, walk_children: impl FnOnce(&mut Self)) {
-        self.cognitive += 1 + self.nesting;
+    fn walk_loop_suites(&mut self, body: &'a [Stmt], orelse: &'a [Stmt], range: TextRange) {
         if self.nested_definitions == 0 {
             self.cyclomatic += 1;
         }
         let saved = self.nesting;
         self.nesting += 1;
-        walk_children(self);
+        self.walk_suite(body);
         self.nesting = saved;
+        self.walk_else_suite(orelse, range);
+    }
+
+    fn walk_else_suite(&mut self, body: &'a [Stmt], parent: TextRange) {
+        let Some(first) = body.first() else {
+            return;
+        };
+        let range = TextRange::new(parent.start(), first.start());
+        self.cognitive += 1;
+        if let Some(tokens) = self.tokens
+            && let Some(token) = tokens
+                .in_range(range)
+                .iter()
+                .rev()
+                .find(|token| token.kind() == TokenKind::Else)
+        {
+            self.contributions.push((token.range(), 1));
+        }
+        let saved = self.nesting;
+        self.nesting += 1;
+        self.walk_suite(body);
+        self.nesting = saved;
+    }
+
+    fn increment(&mut self, range: TextRange, kind: TokenKind, amount: u32) {
+        self.cognitive += amount;
+        if let Some(tokens) = self.tokens
+            && let Some(token) = tokens
+                .in_range(range)
+                .iter()
+                .find(|token| token.kind() == kind)
+        {
+            self.contributions.push((token.range(), amount));
+        }
     }
 
     fn walk_expr(&mut self, expr: &'a Expr) {
@@ -447,7 +544,6 @@ impl<'a> Measurer<'a> {
                         pending.extend(child_exprs(other).into_iter().rev().map(ExprWork::Visit));
                     }
                 },
-                ExprWork::RestoreLogic(saved) => self.logic_chain = saved,
                 ExprWork::RestoreNesting(saved) => self.nesting = saved,
             }
         }
@@ -509,30 +605,77 @@ impl<'a> Measurer<'a> {
         self.nesting = saved_nesting;
     }
 
-    /// Scores a boolean-operator chain: its decision points count
-    /// cyclomatically only outside nested definitions, the cognitive weight
-    /// falls once per consecutive run of the same operator, and the chain's
-    /// logic context is restored after its operands.
+    /// Count consecutive operator runs in a flattened, unparenthesized chain.
+    /// Parenthesized subexpressions are independent chains. Every run is
+    /// attributed to the root binary operator, matching the reference ranges.
     fn walk_bool_op(
         &mut self,
         bool_op: &'a ruff_python_ast::ExprBoolOp,
         pending: &mut Vec<ExprWork<'a>>,
     ) {
         if self.nested_definitions == 0 {
-            self.cyclomatic += bool_op
-                .values
-                .len()
-                .saturating_sub(1)
-                .try_into()
-                .unwrap_or(u32::MAX);
+            self.cyclomatic +=
+                u32::try_from(bool_op.values.len().saturating_sub(1)).unwrap_or(u32::MAX);
         }
-        if self.logic_chain != Some(bool_op.op) {
-            self.cognitive += 1;
+        if !self.considered_boolean.contains(&bool_op.range()) {
+            let mut operators = Vec::new();
+            self.flatten_boolean(bool_op, &mut operators);
+            let mut previous = None;
+            let span = bool_op.values.iter().rev().take(2).collect::<Vec<_>>();
+            let operator_range = if span.len() == 2 {
+                TextRange::new(span[1].end(), span[0].start())
+            } else {
+                bool_op.range()
+            };
+            for operator in operators {
+                if previous != Some(operator) {
+                    self.increment(
+                        operator_range,
+                        match bool_op.op {
+                            BoolOp::And => TokenKind::And,
+                            BoolOp::Or => TokenKind::Or,
+                        },
+                        1,
+                    );
+                }
+                previous = Some(operator);
+            }
         }
-        let saved_chain = self.logic_chain;
-        self.logic_chain = Some(bool_op.op);
-        pending.push(ExprWork::RestoreLogic(saved_chain));
         pending.extend(bool_op.values.iter().rev().map(ExprWork::Visit));
+    }
+
+    fn flatten_boolean(
+        &mut self,
+        expr: &'a ruff_python_ast::ExprBoolOp,
+        operators: &mut Vec<BoolOp>,
+    ) {
+        self.considered_boolean.insert(expr.range());
+        for (index, value) in expr.values.iter().enumerate() {
+            if index > 0 {
+                operators.push(expr.op);
+            }
+            if let Expr::BoolOp(child) = value
+                && !self.is_grouped(child.range(), expr.range())
+            {
+                self.flatten_boolean(child, operators);
+            }
+        }
+    }
+
+    fn is_grouped(&self, child: TextRange, parent: TextRange) -> bool {
+        self.tokens.is_some_and(|tokens| {
+            tokens
+                .in_range(TextRange::new(parent.start(), child.start()))
+                .iter()
+                .rev()
+                .find(|token| {
+                    !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+                })
+                .is_some_and(|token| token.kind() == TokenKind::Lpar)
+        })
     }
 
     /// Scores a conditional expression at `1 + nesting` with its three
@@ -542,7 +685,11 @@ impl<'a> Measurer<'a> {
         if_exp: &'a ruff_python_ast::ExprIf,
         pending: &mut Vec<ExprWork<'a>>,
     ) {
-        self.cognitive += 1 + self.nesting;
+        self.increment(
+            TextRange::new(if_exp.body.end(), if_exp.test.start()),
+            TokenKind::If,
+            1 + self.nesting,
+        );
         let saved = self.nesting;
         self.nesting += 1;
         pending.push(ExprWork::RestoreNesting(saved));
@@ -573,6 +720,100 @@ mod tests {
 
     use crate::test_support::{findings, scan};
     use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn cognitive_branch_bodies_and_loop_headers_use_their_own_levels() {
+        let cases = [
+            (
+                "def f(a,b):\n    if a:\n        pass\n    else:\n        if b:\n            pass\n",
+                4,
+            ),
+            (
+                "def f(a,b):\n    for x in (a if b else []):\n        pass\n    else:\n        if b:\n            pass\n",
+                5,
+            ),
+            (
+                "def f(a,b):\n    try:\n        pass\n    except ValueError:\n        pass\n    else:\n        if b:\n            pass\n",
+                4,
+            ),
+            (
+                "def f(a):\n    match a:\n        case 1:\n            if a:\n                pass\n",
+                2,
+            ),
+            ("def f(a,b,c,d):\n    return a or b and c or d\n", 3),
+        ];
+        for (source, expected) in cases {
+            let options = AnalyzerOptions {
+                maximum_cognitive_complexity: 0,
+                ..AnalyzerOptions::default()
+            };
+            let report = analyze(PathBuf::from("branch_levels.py"), source, &options);
+            let issues = findings(&report, "python:S3776");
+            assert_eq!(issues.len(), 1, "{source}");
+            assert_eq!(
+                issues[0].message,
+                format!(
+                    "Refactor this function to reduce its Cognitive Complexity from {expected} to the 0 allowed."
+                ),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn cognitive_parenthesized_boolean_chains_keep_separate_runs() {
+        for (expression, expected) in [
+            ("a or (b and c) or d", 2),
+            ("(a or b) or c", 2),
+            ("a or b and c or d", 3),
+        ] {
+            let source = format!("def f(a,b,c,d):\n    return {expression}\n");
+            let options = AnalyzerOptions {
+                maximum_cognitive_complexity: 0,
+                ..AnalyzerOptions::default()
+            };
+            let report = analyze(PathBuf::from("boolean_groups.py"), &source, &options);
+            assert_eq!(
+                findings(&report, "python:S3776")[0].message,
+                format!(
+                    "Refactor this function to reduce its Cognitive Complexity from {expected} to the 0 allowed."
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn cognitive_findings_carry_exact_secondary_contributions() {
+        let source =
+            "def f(a,b):\n    if a:\n        if b:\n            pass\n    else:\n        pass\n";
+        let options = AnalyzerOptions {
+            maximum_cognitive_complexity: 0,
+            ..AnalyzerOptions::default()
+        };
+        let report = analyze(PathBuf::from("flows.py"), source, &options);
+        let issues = findings(&report, "python:S3776");
+        let rows: Vec<_> = issues[0]
+            .flows
+            .iter()
+            .flat_map(|f| &f.locations)
+            .map(|l| {
+                (
+                    l.range.start.line,
+                    l.range.start.column,
+                    l.range.end.column,
+                    l.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (2, 4, 6, "+1"),
+                (3, 8, 10, "+2 (incl 1 for nesting)"),
+                (5, 4, 8, "+1")
+            ]
+        );
+    }
 
     #[test]
     fn s3776_scores_nesting_weighted_structures() {

@@ -354,6 +354,30 @@ mod tests {
         assert_eq!(count_key(&unicode, "javascript:S5867"), 1);
     }
 
+    #[test]
+    fn regex_complexity_reports_literal_and_unnecessary_escape_reports_backslash() {
+        let source = r"const re = /(?:\d{4}-\d{2}-\d{2}|\d{8}|\d{2}[A-Z]{4}){2}/;";
+        let report = js(source);
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.rule_key == "javascript:S5843")
+            .unwrap();
+        assert_eq!(issue.range.start.column, 11);
+        assert_eq!(
+            issue.range.end.column,
+            u32::try_from(source.len() - 1).unwrap()
+        );
+        let report = js(r"const re = /[a\.]/;");
+        let issue = report
+            .issues
+            .iter()
+            .find(|i| i.rule_key == "javascript:S6535")
+            .unwrap();
+        assert_eq!(issue.range.start.column, 14);
+        assert_eq!(issue.range.end.column, 15);
+    }
+
     /// #792: the reference `S5843` scorer charges nesting-aware costs for
     /// quantifiers, lookarounds, and multi-branch disjunctions only; the
     /// slug regex scores 16 and stays under the budget of 20.

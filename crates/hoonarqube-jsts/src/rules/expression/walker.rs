@@ -43,8 +43,9 @@ use oxc_ast_visit::walk::{
     walk_sequence_expression, walk_static_block, walk_template_literal, walk_ts_type,
     walk_unary_expression, walk_variable_declarator,
 };
+use oxc_parser::Token;
 use oxc_semantic::{Semantic, SymbolId};
-use oxc_span::GetSpan;
+use oxc_span::{GetSpan, Span};
 use oxc_syntax::precedence::{GetPrecedence, Precedence};
 use oxc_syntax::scope::ScopeFlags;
 use std::collections::HashSet;
@@ -56,6 +57,7 @@ fn check_expression_rules(
     language: JstsLanguage,
     semantic: Option<&Semantic<'_>>,
     commonjs: bool,
+    tokens: &[Token],
 ) -> Vec<Issue> {
     let own_proto_bindings = collect_own_proto_bindings(program);
     let mut collector = ExpressionCollector {
@@ -71,11 +73,12 @@ fn check_expression_rules(
         sequence_exempt_spans: HashSet::new(),
         grammar_parenthesized_depth: 0,
         required_parenthesized_spans: HashSet::new(),
-        template_depth: 0,
+        template_spans: Vec::new(),
         own_proto_bindings,
         delete_depth: 0,
         set_prototype_of_guard_depth: 0,
         commonjs,
+        tokens,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -91,6 +94,7 @@ fn check_expression_rules(
 struct ExpressionCollector<'index, 'semantic> {
     sink: IssueSink<'index>,
     source: &'index str,
+    tokens: &'index [Token],
     semantic: Option<&'index Semantic<'semantic>>,
     contexts: Vec<ExpressionContext>,
     ternary_spans: HashSet<(u32, u32)>,
@@ -99,8 +103,8 @@ struct ExpressionCollector<'index, 'semantic> {
     sequence_exempt_spans: HashSet<(u32, u32)>,
     grammar_parenthesized_depth: usize,
     required_parenthesized_spans: HashSet<(u32, u32)>,
-    /// Nesting depth of template literals for `S4624`.
-    template_depth: u32,
+    /// Enclosing template literal ranges for the `S4624` delimiter-line guard.
+    template_spans: Vec<Span>,
     /// Const bindings whose initializer declares an own `__proto__`
     /// member; receiver references resolving here are own properties,
     /// not the deprecated accessor (`S6654`).
@@ -433,12 +437,22 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
                 // #819: `void <call>` is the sanctioned fire-and-forget
                 // idiom — without type information the reference treats
                 // every call-like operand as a possible promise discard.
-                if !is_call_like(&it.argument) {
+                let operand = unparenthesized(&it.argument);
+                let is_void_zero =
+                    matches!(operand, Expression::NumericLiteral(literal) if literal.value == 0.0);
+                if !is_void_zero && !is_call_like(&it.argument) {
+                    let operand_start = operand.span().start;
+                    let report_span = self
+                        .tokens
+                        .iter()
+                        .take_while(|token| token.end() <= operand_start)
+                        .last()
+                        .map_or(it.span(), |token| Span::new(token.start(), token.end()));
                     self.sink.emit_span(
                         RuleScope::Both,
                         "S3735",
                         "Remove this use of the \"void\" operator.",
-                        it.span(),
+                        report_span,
                     );
                 }
             }
@@ -619,7 +633,10 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
     }
 
     fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
-        if self.template_depth > 0 {
+        if self.template_spans.last().is_some_and(|outer| {
+            self.sink.index.pos(it.span.start).line == self.sink.index.pos(outer.start).line
+                || self.sink.index.pos(it.span.end).line == self.sink.index.pos(outer.end).line
+        }) {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4624",
@@ -627,9 +644,9 @@ impl<'a> Visit<'a> for ExpressionCollector<'_, '_> {
                 it.span(),
             );
         }
-        self.template_depth += 1;
+        self.template_spans.push(it.span);
         walk_template_literal(self, it);
-        self.template_depth -= 1;
+        self.template_spans.pop();
     }
 
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
@@ -733,8 +750,8 @@ fn has_octal_escape(text: &str) -> bool {
 /// a direct call or an optionally chained call. Mirrors the reference's
 /// no-type-services path, which accepts every call-like operand as a
 /// possible promise discard (IIFEs included, since their callee is a
-/// function expression). `void 0` and other non-call operands keep
-/// reporting.
+/// function expression). The canonical `void 0` undefined spelling
+/// also stays silent; other non-call operands keep reporting.
 fn is_call_like(expression: &Expression<'_>) -> bool {
     match unparenthesized(expression) {
         Expression::CallExpression(_) => true,
@@ -760,6 +777,7 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
         ctx.language,
         ctx.semantic,
         file_is_commonjs(ctx),
+        ctx.tokens,
     )
 }
 
@@ -783,6 +801,16 @@ fn file_is_commonjs(ctx: &AnalysisContext) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s4624_nested_templates_on_separate_delimiter_lines_stay_clean() {
+        let separated = "const text = `prefix ${\n  flag ? `at least` : `more than`\n} suffix`;";
+        assert_eq!(count_key(&js_keys(separated), "javascript:S4624"), 0);
+        let same_line = "const text = `prefix ${`inside`} suffix`;";
+        assert_eq!(count_key(&js_keys(same_line), "javascript:S4624"), 1);
+        let closing_line = "const text = `prefix ${\n  `inside\ncontinued`} suffix`;";
+        assert_eq!(count_key(&js_keys(closing_line), "javascript:S4624"), 1);
+    }
 
     #[test]
     fn s3812_flags_negated_in_expressions_requiring_parentheses() {
@@ -863,10 +891,10 @@ host = '10.0.0.1';
             js_keys("void (work());\nvoid service?.stop();\nvoid (() => init())();\n");
         assert_eq!(count_key(&call_shapes, "javascript:S3735"), 0);
 
-        // Non-call operands keep reporting: `void 0`, identifiers, and
-        // literals are not promise discards.
+        // Identifiers and nonzero literals are not promise discards;
+        // the canonical undefined spelling `void 0` stays silent.
         let non_calls = js_keys("const u = void 0;\nconst v = void value;\nconst w = void 'x';\n");
-        assert_eq!(count_key(&non_calls, "javascript:S3735"), 3);
+        assert_eq!(count_key(&non_calls, "javascript:S3735"), 2);
 
         // TypeScript shares the same operator check.
         let ts_handler = ts_keys(
@@ -874,7 +902,26 @@ host = '10.0.0.1';
         );
         assert_eq!(count_key(&ts_handler, "typescript:S3735"), 0);
         let ts_void_zero = ts_keys("const u = void 0;\n");
-        assert_eq!(count_key(&ts_void_zero, "typescript:S3735"), 1);
+        assert_eq!(count_key(&ts_void_zero, "typescript:S3735"), 0);
+    }
+
+    #[test]
+    fn void_report_uses_token_before_operand_through_parentheses() {
+        let report = ts("void value;\nvoid (value satisfies never);\nvoid (0);");
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S3735")
+            .collect();
+        assert_eq!(issues.len(), 2);
+        assert_eq!(
+            (issues[0].range.start.column, issues[0].range.end.column),
+            (0, 4)
+        );
+        assert_eq!(
+            (issues[1].range.start.column, issues[1].range.end.column),
+            (5, 6)
+        );
     }
 
     #[test]

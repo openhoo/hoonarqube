@@ -47,6 +47,19 @@ pub(crate) fn check_overwritten_parameters(
         if site.flavor != DefFlavor::Function {
             continue;
         }
+        let Some(function) = file_ctx
+            .functions
+            .iter()
+            .find(|function| function.name.range() == site.name_range)
+        else {
+            continue;
+        };
+        scan.dead_initial = crate::rules::dead_stores::dead_initial_parameters(
+            table,
+            site.own_scope,
+            &function.body,
+            &site.params,
+        );
         check_function_parameters(site, table, facts, &scan, index, source, &mut issues);
     }
     issues
@@ -58,6 +71,7 @@ pub(crate) fn check_overwritten_parameters(
 struct OverwriteScan {
     statement_ranges: Vec<TextRange>,
     augmented_targets: Vec<TextRange>,
+    dead_initial: std::collections::HashSet<TextRange>,
 }
 
 /// Flags each parameter of `site` whose initial value is never read before
@@ -161,7 +175,11 @@ fn check_function_parameters(
                     })
                 });
 
-        if !read_before_overwrite && read_after_overwrite && !used_in_sub_function {
+        if scan.dead_initial.contains(param_range)
+            && !read_before_overwrite
+            && read_after_overwrite
+            && !used_in_sub_function
+        {
             issues.push(issue_at(
                 "python:S1226",
                 &format!(

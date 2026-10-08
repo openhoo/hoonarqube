@@ -134,6 +134,9 @@ enum Command {
 
 #[derive(Clone, Debug, clap::Args)]
 struct FixOptions {
+    /// Analyzer profile used for planning and every post-edit verification.
+    #[arg(long, default_value = "sonar-parity")]
+    profile: RuleProfile,
     /// Restrict rule fixes by key or prefix (repeatable or comma-separated).
     #[arg(long = "rule", value_delimiter = ',')]
     rule: Vec<String>,
@@ -1166,6 +1169,7 @@ fn run_fix(paths: &[std::path::PathBuf], config: &FixOptions, json: bool) -> Exi
         }
     };
     let mut analyzer_options = analyze::analyzer_options_bundle(embedded());
+    analyzer_options.profile = config.profile;
     analyzer_options.python.require_type_hints = config.python_require_type_hints;
     analyzer_options
         .csharp

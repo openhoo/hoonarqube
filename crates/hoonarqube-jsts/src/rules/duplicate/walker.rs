@@ -18,6 +18,7 @@ fn check_duplicate_rules(
     source: &str,
     index: &LineIndex,
     language: JstsLanguage,
+    tokens: &[oxc_parser::Token],
 ) -> Vec<Issue> {
     let mut collector = DuplicateCollector {
         sink: IssueSink {
@@ -26,9 +27,12 @@ fn check_duplicate_rules(
             issues: Vec::new(),
         },
         source,
+        tokens,
+        function_anchors: HashMap::new(),
         if_statements: Vec::new(),
         function_bodies: Vec::new(),
         s4144_parents: Vec::new(),
+        s4144_collectable_bodies: BTreeSet::new(),
         return_groups: Vec::new(),
         return_group_anchors: Vec::new(),
         current_return_group: None,
@@ -50,13 +54,14 @@ fn check_duplicate_rules(
 struct DuplicateCollector<'a, 'index> {
     sink: IssueSink<'index>,
     source: &'a str,
+    tokens: &'index [oxc_parser::Token],
+    function_anchors: HashMap<u32, Span>,
     if_statements: Vec<&'a IfStatement<'a>>,
     function_bodies: Vec<&'a FunctionBody<'a>>,
-    /// Ancestor chain for `S4144` collection: a body participates only when
-    /// a collectable shape (function declaration, declarator- or
-    /// method-owned function/arrow) encloses it, mirroring the reference
-    /// selector set.
-    s4144_parents: Vec<bool>,
+    /// Direct AST parents identify the reference's declaration/declarator/method
+    /// selectors; a named ancestor must not admit nested callback bodies.
+    s4144_parents: Vec<AstKind<'a>>,
+    s4144_collectable_bodies: BTreeSet<u32>,
     return_groups: Vec<Vec<&'a ReturnStatement<'a>>>,
     return_group_anchors: Vec<Option<Span>>,
     current_return_group: Option<usize>,
@@ -91,30 +96,35 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
                 }
             }
             AstKind::SwitchStatement(statement) => self.check_switch_cases(statement),
-            AstKind::VariableDeclarator(declarator) => {
-                self.s4144_parents
-                    .push(declarator.init.as_ref().is_some_and(|init| {
-                        matches!(
-                            init,
-                            Expression::FunctionExpression(_)
-                                | Expression::ArrowFunctionExpression(_)
-                        )
-                    }));
+            AstKind::MethodDefinition(method) => {
+                if let Some(body) = &method.value.body {
+                    self.function_anchors
+                        .insert(body.span.start, method.key.span());
+                }
             }
-            AstKind::MethodDefinition(method) => self.s4144_parents.push(
-                matches!(
-                    method.value.r#type,
-                    oxc_ast::ast::FunctionType::FunctionExpression
-                ) && method.value.body.is_some(),
-            ),
-            AstKind::Function(function) => self.s4144_parents.push(
-                function.body.is_some()
-                    && matches!(
-                        function.r#type,
-                        oxc_ast::ast::FunctionType::FunctionDeclaration
-                    ),
-            ),
-            AstKind::ArrowFunctionExpression(_) => self.s4144_parents.push(false),
+            AstKind::Function(function) => self.record_function(function),
+            AstKind::ArrowFunctionExpression(arrow) => {
+                if let Some(body) = arrow.body.as_function_body() {
+                    let anchor = self
+                        .tokens
+                        .iter()
+                        .rev()
+                        .find(|token| {
+                            token.start() >= arrow.span.start
+                                && token.end() <= arrow.body.span().start
+                                && token.kind() == oxc_parser::Kind::Arrow
+                        })
+                        .map_or(arrow.span, |token| Span::new(token.start(), token.end()));
+                    self.function_anchors.insert(body.span.start, anchor);
+                }
+                if matches!(
+                    self.s4144_parents.last(),
+                    Some(AstKind::VariableDeclarator(_))
+                ) && let Some(body) = arrow.body.as_function_body()
+                {
+                    self.s4144_collectable_bodies.insert(body.span.start);
+                }
+            }
             AstKind::FunctionBody(body) => {
                 let group = self.return_groups.len();
                 self.return_groups.push(Vec::new());
@@ -122,7 +132,7 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
                     .push(function_name_before(self.source, body.span.start));
                 // `S4144` collects only reference-shaped functions:
                 // declarations plus declarator/method function values.
-                if self.s4144_parents.iter().any(|&collectable| collectable) {
+                if self.s4144_collectable_bodies.contains(&body.span.start) {
                     self.function_bodies.push(body);
                 }
                 self.group_stack.push(self.current_return_group);
@@ -135,21 +145,14 @@ impl<'a> Visit<'a> for DuplicateCollector<'a, '_> {
             }
             _ => {}
         }
+        self.s4144_parents.push(kind);
     }
 
     fn leave_node(&mut self, kind: AstKind<'a>) {
         if matches!(kind, AstKind::FunctionBody(_)) {
             self.current_return_group = self.group_stack.pop().flatten();
         }
-        if matches!(
-            kind,
-            AstKind::VariableDeclarator(_)
-                | AstKind::MethodDefinition(_)
-                | AstKind::Function(_)
-                | AstKind::ArrowFunctionExpression(_)
-        ) {
-            self.s4144_parents.pop();
-        }
+        self.s4144_parents.pop();
     }
 }
 
@@ -359,21 +362,71 @@ impl<'a> DuplicateCollector<'a, '_> {
                 .push(index);
         }
         for (position, body) in candidates.iter().enumerate() {
-            let matches_earlier = buckets[&body.statements.len()]
+            let earlier_body = buckets[&body.statements.len()]
                 .iter()
                 .copied()
                 .take_while(|&earlier| earlier < position)
-                .any(|earlier| candidates[earlier].content_eq(body));
-            if matches_earlier {
+                .find(|&earlier| candidates[earlier].content_eq(body));
+            if let Some(earlier) = earlier_body {
+                let anchor = self
+                    .function_anchors
+                    .get(&body.span.start)
+                    .copied()
+                    .unwrap_or(body.span);
+                let earlier_anchor = self
+                    .function_anchors
+                    .get(&candidates[earlier].span.start)
+                    .copied()
+                    .unwrap_or(candidates[earlier].span);
+                let earlier_line = self.sink.index.pos(earlier_anchor.start).line;
                 self.sink.emit_span(
                     RuleScope::Both,
                     "S4144",
-                    "This function body is identical to another function's body; \
-                     factor it out into a shared function.",
-                    body.span,
+                    &format!("Update this function so that its implementation is not identical to the one on line {earlier_line}."),
+                    anchor,
                 );
             }
         }
+    }
+
+    fn record_function(&mut self, function: &oxc_ast::ast::Function<'_>) {
+        if let Some(body) = &function.body {
+            let anchor = if matches!(
+                function.r#type,
+                oxc_ast::ast::FunctionType::FunctionDeclaration
+            ) {
+                function
+                    .id
+                    .as_ref()
+                    .map_or_else(|| self.function_keyword(function.span), |id| id.span)
+            } else {
+                self.function_keyword(function.span)
+            };
+            self.function_anchors
+                .entry(body.span.start)
+                .or_insert(anchor);
+        }
+        let collectable = matches!(
+            function.r#type,
+            oxc_ast::ast::FunctionType::FunctionDeclaration
+        ) || matches!(
+            self.s4144_parents.last(),
+            Some(AstKind::VariableDeclarator(_) | AstKind::MethodDefinition(_))
+        );
+        if collectable && let Some(body) = &function.body {
+            self.s4144_collectable_bodies.insert(body.span.start);
+        }
+    }
+
+    fn function_keyword(&self, span: Span) -> Span {
+        self.tokens
+            .iter()
+            .find(|token| {
+                token.start() >= span.start
+                    && token.end() <= span.end
+                    && token.kind() == oxc_parser::Kind::Function
+            })
+            .map_or(span, |token| Span::new(token.start(), token.end()))
     }
 
     /// `S3516`: functions whose returns all yield the same literal.
@@ -470,7 +523,7 @@ fn is_empty_block(statement: &Statement<'_>) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_duplicate_rules(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_duplicate_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.tokens)
 }
 
 #[cfg(test)]
@@ -597,6 +650,47 @@ function gamma() {
             "const one = () => {\n  a();\n  b();\n  c();\n};\nconst two = () => {\n  a();\n  b();\n  c();\n};\n",
         );
         assert_eq!(count_key(&report_keys(&arrows), "javascript:S4144"), 1);
+    }
+
+    #[test]
+    fn s4144_does_not_collect_callback_bodies_inside_named_functions() {
+        let source = "function outer() {\n  el.on('x', () => {\n    a();\n    b();\n    c();\n  });\n  el.on('y', () => {\n    a();\n    b();\n    c();\n  });\n}\n";
+        assert_eq!(count_key(&report_keys(&js(source)), "javascript:S4144"), 0);
+        let expressions = source.replace("() =>", "function ()");
+        assert_eq!(
+            count_key(&report_keys(&js(&expressions)), "javascript:S4144"),
+            0
+        );
+    }
+
+    #[test]
+    fn s4144_uses_function_main_tokens_and_first_duplicate_line() {
+        let body = "\n  setup();\n  run();\n  verify();\n";
+        let source = format!(
+            "function alpha() {{{body}}}\nfunction beta() {{{body}}}\nclass C {{ method() {{{body}}} }}\nconst arrow = () => {{{body}}};\nconst named = function named() {{{body}}};\n"
+        );
+        let report = js(&source);
+        let duplicates: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S4144")
+            .collect();
+        assert_eq!(duplicates.len(), 4);
+        for (issue, expected) in duplicates.iter().zip(["beta", "method", "=>", "function"]) {
+            assert_eq!(issue.range.start.line, issue.range.end.line);
+            let line = source
+                .lines()
+                .nth((issue.range.start.line - 1) as usize)
+                .unwrap();
+            assert_eq!(
+                &line[issue.range.start.column as usize..issue.range.end.column as usize],
+                expected
+            );
+            assert_eq!(
+                issue.message,
+                "Update this function so that its implementation is not identical to the one on line 1."
+            );
+        }
     }
 
     #[test]

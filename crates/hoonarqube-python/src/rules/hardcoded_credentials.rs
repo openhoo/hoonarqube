@@ -1,7 +1,7 @@
 use crate::engine::file_context::FileContext;
 use crate::support::CREDENTIAL_WORDS;
 use crate::support::CredentialInterpolation;
-use crate::support::collect_string_contents;
+use crate::support::collect_value_string_contents;
 use crate::support::embeds_credential;
 use crate::support::for_each_stmt_expr;
 use crate::support::name_words;
@@ -58,7 +58,7 @@ pub(crate) fn check_hardcoded_credentials(
         }
     }
     let runtime_ranges = runtime_interpolated_literal_ranges(parsed.syntax().body.as_slice());
-    for (text, range) in collect_string_contents(parsed.syntax().body.as_slice()) {
+    for (text, range) in collect_value_string_contents(parsed.syntax().body.as_slice()) {
         let interpolation = runtime_ranges
             .iter()
             .find_map(|(literal_range, kind)| (*literal_range == range).then_some(*kind));

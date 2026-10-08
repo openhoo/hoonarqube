@@ -15,13 +15,14 @@ impl TsTypeCollector<'_, '_> {
         this_param: Option<&TSThisParameter<'_>>,
         body: Option<&FunctionBody<'_>>,
         id: Option<&oxc_ast::ast::BindingIdentifier<'_>>,
+        returns_this: bool,
     ) {
         let parameter = this_param
             .is_none()
             .then(|| reference_parameter(params))
             .flatten();
         if let Some(return_type) = return_type {
-            self.check_explicit_return_type(return_type, parameter, body);
+            self.check_explicit_return_type(return_type, parameter, body, returns_this);
             return;
         }
         self.check_inferred_return_type(parameter, body, id);
@@ -32,6 +33,7 @@ impl TsTypeCollector<'_, '_> {
         return_type: &TSTypeAnnotation<'_>,
         parameter: Option<(&str, bool)>,
         body: Option<&FunctionBody<'_>>,
+        returns_this: bool,
     ) {
         // `S4322` (upstream `S4322/rule.ts`) only suggests a type predicate
         // when the body returns a guarded cast on the parameter — a plain
@@ -75,11 +77,12 @@ impl TsTypeCollector<'_, '_> {
             if let (Some(class_name), TSTypeName::IdentifierReference(identifier)) =
                 (enclosing_class, &reference.type_name)
                 && class_name.as_str() == identifier.name.as_str()
+                && returns_this
             {
                 self.sink.emit_span(
                     RuleScope::TsOnly,
                     "S6565",
-                    "Return 'this' instead of the class name type.",
+                    "Use `this` type instead.",
                     reference.span(),
                 );
             }
@@ -279,6 +282,46 @@ fn strip_parentheses<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
 
 /// `S4324`: wrapper object type names that must not appear in return types.
 const WRAPPER_TYPE_NAMES: [&str; 5] = ["String", "Number", "Boolean", "Symbol", "BigInt"];
+
+// A class annotation alone does not justify a polymorphic-this replacement:
+// factories and clone methods return new class instances. Standalone analysis
+// admits direct this returns only, keeping unknown returned values conservative.
+pub(super) fn body_returns_this(body: &FunctionBody<'_>) -> bool {
+    use oxc_ast_visit::Visit;
+    #[derive(Default)]
+    struct Returns {
+        this: bool,
+        other: bool,
+    }
+    impl<'a> Visit<'a> for Returns {
+        fn visit_return_statement(&mut self, statement: &oxc_ast::ast::ReturnStatement<'a>) {
+            match statement
+                .argument
+                .as_ref()
+                .map(crate::support::unparenthesized)
+            {
+                Some(Expression::ThisExpression(_)) => self.this = true,
+                Some(_) => self.other = true,
+                None => {}
+            }
+        }
+        fn visit_function(
+            &mut self,
+            _: &oxc_ast::ast::Function<'a>,
+            _: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+        ) {
+        }
+        fn visit_class(&mut self, _: &oxc_ast::ast::Class<'a>) {}
+    }
+    let mut returns = Returns::default();
+    returns.visit_function_body(body);
+    returns.this && !returns.other
+}
 
 #[cfg(test)]
 mod tests {

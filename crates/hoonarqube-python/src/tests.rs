@@ -4468,9 +4468,9 @@ fn s8786_flags_super_linear_regex_literals() {
     // Pinned psf/requests src/requests/utils.py#L536-L538 @ dae7ef63:
     // `charset_re` and `xml_re` pair a lazy dot run with adjacent
     // intersecting quantifiers, and `a*a*c` has two intersecting adjacent
-    // repetitions. `pragma_re`'s `content=...;?charset=` gap needs more
-    // characters than a single element supplies, and `find_title`'s
-    // `title>` gap is disjoint from `.` — both stay silent like Sonar.
+    // repetitions. Repeated dots can also absorb the multi-character
+    // `content=...;?charset=` and `title>` gaps: each mandatory character
+    // remains inside their match language.
     let flagged = scan(concat!(
         "import re\n",
         "\n",
@@ -4487,15 +4487,17 @@ fn s8786_flags_super_linear_regex_literals() {
         "    return re.compile(r'a*a*c')\n",
     ));
     let found = findings(&flagged, "python:S8786");
-    assert_eq!(found.len(), 3);
+    assert_eq!(found.len(), 5);
     assert_eq!(
         found[0].message,
         "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
     );
-    assert_eq!(found[0].range.start, pos(4, 28));
-    assert_eq!(found[0].range.end, pos(4, 64));
-    assert_eq!(found[1].range.start, pos(6, 24));
-    assert_eq!(found[2].range.start, pos(13, 22));
+    assert_eq!(found[0].range.start, pos(4, 30));
+    assert_eq!(found[0].range.end, pos(4, 63));
+    assert_eq!(found[1].range.start.line, 5);
+    assert_eq!(found[2].range.start, pos(6, 26));
+    assert_eq!(found[3].range.start.line, 10);
+    assert_eq!(found[4].range.start, pos(13, 24));
 }
 
 #[test]
@@ -5475,4 +5477,149 @@ fn remaining_collection_controls_preserve_bindings_and_iteration_values() {
         "value = 1\na = {x: value for x in xs}\nb = {x: x for x in xs}\nc = {x: 1 for x in xs if x}\n",
     );
     assert_eq!(findings(&report, "python:S7519").len(), 1);
+}
+
+#[test]
+fn remaining_nested_if_at_eighty_columns_is_reported() {
+    let source = "def f():\n    for cookie in cookies:\n        for other in others:\n            if cookie.name == name:\n                if domain is None or cookie.domain == domain:\n                    return cookie.value\n";
+    assert_eq!(findings(&scan(source), "python:S1066").len(), 1);
+}
+
+#[test]
+fn remaining_class_method_bare_raise_is_checked() {
+    let report = scan(
+        "class Server:\n    def handle_error(self):\n        if self.passthrough:\n            raise\n    def __exit__(self, typ, value, tb):\n        raise\n",
+    );
+    let issues = findings(&report, "python:S5747");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].range.start.line, 4);
+}
+
+#[test]
+fn remaining_security_rules_exempt_prose_and_unrelated_data() {
+    let report = scan(
+        "property = header_property(doc='.. versionchanged:: 2.0')\ndef f():\n    \"\"\"Example password=banana\"\"\"\n    pass\nSALT_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'\nFRAME_HTML = '<div class=frame>file %(filename)s line %(line)d</div>'\n",
+    );
+    for rule in ["python:S1313", "python:S2068", "python:S6437"] {
+        assert!(findings(&report, rule).is_empty(), "{rule}");
+    }
+}
+
+#[test]
+fn remaining_binding_rules_respect_annotations_builtins_and_paths() {
+    let report = scan(
+        "builtin_str = str\nstr = str\ndef f(x: Later):\n    return x\nclass Later:\n    pass\n",
+    );
+    assert!(findings(&report, "python:S3827").is_empty());
+    assert_eq!(
+        findings(&scan("result = missing\nmissing = 2\n"), "python:S3827").len(),
+        1
+    );
+    for source in [
+        "def f():\n    result: str\n    result = build()\n    return result\n",
+        "def f():\n    result = {}\n    result = build()\n    return result\n",
+        "def f():\n    one, two = build()\n    one, two = other()\n    return one, two\n",
+        "def f():\n    result = build()\n    try:\n        result = other()\n    except Exception:\n        return None\n    return result\n",
+    ] {
+        assert!(
+            findings(&scan(source), "python:S1854").is_empty(),
+            "{source}"
+        );
+    }
+    let report = scan(
+        "def f(secure, partitioned):\n    if partitioned:\n        secure = True\n    return secure\n",
+    );
+    assert!(findings(&report, "python:S1226").is_empty());
+    let report = scan(
+        "def f(secure, partitioned):\n    if partitioned:\n        secure = True\n    else:\n        secure = False\n    return secure\n",
+    );
+    assert_eq!(findings(&report, "python:S1226").len(), 1);
+}
+
+#[test]
+fn remaining_arity_uses_final_method_after_overload_declarations() {
+    let report = scan(
+        "import typing as t\nclass Multi:\n    @t.overload\n    def to_dict(self) -> dict: ...\n    @t.overload\n    def to_dict(self, flat: t.Literal[False]) -> dict: ...\n    def to_dict(self, flat=True):\n        return {}\n    def copy(self):\n        return self.to_dict(flat=False)\n",
+    );
+    assert!(findings(&report, "python:S930").is_empty());
+    let report = scan(
+        "class Multi:\n    def to_dict(self):\n        return {}\n    def copy(self):\n        return self.to_dict(flat=False)\n",
+    );
+    assert_eq!(findings(&report, "python:S930").len(), 1);
+}
+
+#[test]
+fn remaining_duplicate_literal_filename_gate_is_rule_specific() {
+    let source = "def first():\n    return 'a long duplicated literal'\ndef second():\n    return 'a long duplicated literal'\ndef third():\n    return 'a long duplicated literal'\n";
+    assert!(
+        findings(
+            &crate::test_support::scan_at("src/tool/test.py".into(), source),
+            "python:S1192"
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        findings(
+            &crate::test_support::scan_at("src/tool/util.py".into(), source),
+            "python:S1192"
+        )
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn remaining_verbose_regex_ignores_spacing_and_preserves_offsets() {
+    let report = scan(
+        r#"import re
+pattern = re.compile(r"""
+    [\w\d_.]+   # fields
+    """, re.VERBOSE)
+"#,
+    );
+    let issues = findings(&report, "python:S5869");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].range.start.line, 3);
+    assert_eq!(issues[0].range.start.column, 5);
+    assert_eq!(issues[0].range.end.column, 7);
+}
+
+#[test]
+fn current_reference_messages_include_binding_names_and_alias_guidance() {
+    let report = scan(concat!(
+        "from typing import Generic, TypeVar, TypeAlias\n",
+        "T = TypeVar('T')\n",
+        "Alias: TypeAlias = int\n",
+        "class C(Generic[T]):\n    pass\n",
+        "def f():\n",
+        "    badName = 1\n",
+        "    extra, kept = (1, [1, 2])\n",
+        "    return [value for value in kept], badName\n",
+    ));
+    for (key, message) in [
+        (
+            "python:S117",
+            "Rename this local variable \"badName\" to match the regular expression ^[_a-z][a-z0-9_]*$.",
+        ),
+        (
+            "python:S1481",
+            "Replace the unused local variable \"extra\" with \"_\".",
+        ),
+        (
+            "python:S6792",
+            "Use the \"type\" parameter syntax to declare this generic class.",
+        ),
+        (
+            "python:S6794",
+            "Use a \"type\" statement instead of this \"TypeAlias\".",
+        ),
+        (
+            "python:S7500",
+            "Replace this comprehension with passing the iterable to the collection constructor call",
+        ),
+    ] {
+        let found = findings(&report, key);
+        assert!(!found.is_empty(), "missing {key}");
+        assert_eq!(found[0].message, message, "{key}");
+    }
 }

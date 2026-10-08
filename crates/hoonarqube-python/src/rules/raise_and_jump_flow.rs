@@ -18,6 +18,7 @@ pub(crate) fn check_raise_and_jump_flow(
             context: RaiseContext::Outside,
             finally_depth: 0,
             loop_depth: 0,
+            finally_loop_depth: 0,
         },
         &mut issues,
         index,
@@ -73,6 +74,22 @@ mod tests {
         assert_eq!(findings(&flagged, "python:S1143").len(), 1);
         let clean = "def f():\n    try:\n        load()\n    finally:\n        release()\n";
         assert!(findings(&scan(clean), "python:S1143").is_empty());
+    }
+
+    #[test]
+    fn s1143_distinguishes_local_finally_loops_from_escaping_jumps() {
+        let local = scan(
+            "def f():\n    try:\n        work()\n    finally:\n        while ready:\n            break\n        for item in values:\n            continue\n",
+        );
+        assert!(findings(&local, "python:S1143").is_empty());
+        let escaping = scan(
+            "def f():\n    while ready:\n        try:\n            work()\n        finally:\n            break\n",
+        );
+        assert_eq!(findings(&escaping, "python:S1143").len(), 1);
+        let nested = scan(
+            "def f():\n    try:\n        work()\n    finally:\n        while ready:\n            try:\n                work()\n            finally:\n                continue\n",
+        );
+        assert_eq!(findings(&nested, "python:S1143").len(), 1);
     }
 
     #[test]

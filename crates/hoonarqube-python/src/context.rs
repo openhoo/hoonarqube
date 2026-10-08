@@ -11,6 +11,7 @@ pub(crate) struct FlowState {
     pub(crate) context: RaiseContext,
     pub(crate) finally_depth: u32,
     pub(crate) loop_depth: u32,
+    pub(crate) finally_loop_depth: u32,
 }
 
 impl FlowState {
@@ -25,6 +26,7 @@ impl FlowState {
         Self {
             context: RaiseContext::InFinally,
             finally_depth: self.finally_depth + 1,
+            finally_loop_depth: self.loop_depth,
             ..self
         }
     }
@@ -34,6 +36,7 @@ impl FlowState {
             context: RaiseContext::Outside,
             finally_depth: 0,
             loop_depth: 0,
+            finally_loop_depth: 0,
         }
     }
 }

@@ -94,3 +94,36 @@ HTTP 403 with `Jobs in this workflow run cannot be re-run`. Replacing default
 setup or suppressing the job would not qualify its upload. Acceptance requires
 a fresh successful default-setup run, retaining the failure separately until
 then.
+
+## Fresh baseline quick-fix replay
+
+`prepare_quickfix_replay.py` extracts every embedded manifest/harness only after
+checking its decoded size and SHA256. Its optional `--typescript-6-config` mode
+records a distinct migrated harness digest and explicitly acknowledges the
+`baseUrl` deprecation inherited from the fixture tsconfig, using TypeScript 6's
+`ignoreDeprecations: "6.0"`. Original files and failure receipts remain separate.
+It does not change native analysis diagnostics or the apply regression gate.
+
+```sh
+python3 tools/oracle/prepare_quickfix_replay.py \
+  --output /absolute/replay --typescript-6-config
+```
+
+Fresh replays of the baseline 0.11.0 binary, with the migrated fixture config,
+covered 65 Python, 61 JavaScript and 89 TypeScript applications. The portable
+receipt `tools/oracle/quickfix-baseline-qualification-20261007.json` lists the
+exact failed application/action identities and result hashes. These are baseline
+observations, requiring a new run against the final integrated release:
+
+| Language | Applied passes | Safety refusals | No action expected | Withheld actions | Failed |
+|---|---:|---:|---:|---:|---:|
+| Python | 57 | 1 | 0 | 0 | 7 |
+| JavaScript | 24 | 8 | 26 | 1 | 1 |
+| TypeScript | 44 | 4 | 37 | 2 | 2 |
+
+The JavaScript S2990 reference projection removes `this` but introduces S7764
+(prefer `globalThis`). The independent apply gate refuses this cross-rule
+regression. A refused write remains explicit; changing an expectation to a
+success or weakening the gate would not repair the interaction. Python missing
+detectors/safety controls need current profile checks, and TypeScript S2871 and
+S4322 require detector/action classification checks.

@@ -1707,13 +1707,6 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
   const source = sourceFile.text;
   const strictNullChecks = config.options.strictNullChecks === true
     || (config.options.strict === true && config.options.strictNullChecks !== false);
-  function addDeprecated(node, symbol, message) {
-    const itemSpan = span(source, node);
-    const key = `${itemSpan.start}:${itemSpan.end}`;
-    if (deprecatedSeen.has(key)) return;
-    deprecatedSeen.add(key);
-    deprecated.push({ span: itemSpan, message, symbol: symbol.id, declaration_path: symbol.declaration ? canonicalPath(symbol.declaration.getSourceFile().fileName) : undefined });
-  }
   // Mirrors typescript-eslint's isConditionalTest: a `||` inside a condition
   // position (possibly through logical/`!`/sequence/ternary-branch ancestors)
   // is ignored by prefer-nullish-coalescing's default ignoreConditionalTests.
@@ -1811,16 +1804,6 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
       try { symbol = checker.getSymbolAtLocation(node); } catch { symbol = undefined; }
       if (symbol) {
         const target = symbolKey(ts, checker, symbol);
-        const deprecation = jsDocDeprecated(ts, target.symbol, target.declaration);
-        const isDeclarationName = Boolean(target.declaration && target.declaration.name === node);
-        // S1874's pinned implementation consumes TypeScript suggestion
-        // diagnostics for import/export specifiers.  Keep the traversal's
-        // symbol/usages metadata, but do not duplicate either alias half with
-        // a raw JSDoc fact; all other references retain fallback coverage.
-        const isImportOrExportBinding = Boolean(
-          parent && (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)),
-        );
-        if (deprecation && !isDeclarationName && !isImportOrExportBinding) addDeprecated(node, target, deprecation);
         usages.push({ span: span(source, node), name: node.text || node.escapedText, symbol: target.id, declaration_path: target.declaration ? canonicalPath(target.declaration.getSourceFile().fileName) : undefined });
       }
     }
@@ -1982,8 +1965,9 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
 
   // TypeScript exposes deprecation findings as suggestion diagnostics.  They
   // are the authoritative range/message source used by SonarJS S1874; symbol
-  // traversal above supplies alias/local-shadowing facts for projects where
-  // the compiler does not surface a suggestion diagnostic.
+  // traversal above retains alias/local-shadowing metadata. Only diagnostics
+  // produce deprecation findings: merged declaration siblings and union
+  // properties can have deprecated JSDoc without a deprecated use.
   if (typeof checker.getSuggestionDiagnostics === 'function') {
     try {
       const suggestions = checker.getSuggestionDiagnostics(sourceFile) || [];
@@ -2004,7 +1988,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
         }
       }
     } catch (error) {
-      diagnostics.push(diagnostic('TS_HELPER_SUGGESTION_DIAGNOSTICS', `Unable to collect deprecation diagnostics: ${error.message}`, sourceFile.fileName, undefined, undefined, 'warning'));
+      diagnostics.push(diagnostic('TS_HELPER_SUGGESTION_DIAGNOSTICS', `Unable to collect deprecation diagnostics: ${error.message}`, sourceFile.fileName));
     }
   }
 

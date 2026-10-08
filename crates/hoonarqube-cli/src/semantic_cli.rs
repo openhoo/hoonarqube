@@ -26,6 +26,7 @@ pub(crate) struct ProjectSemanticContext {
     jsts_auto: Vec<hoonarqube_jsts::project_context::ProjectSemanticContext>,
     csharp: Option<hoonarqube_csharp::semantic::ProjectSemanticContext>,
     python: Option<hoonarqube_python::PythonProjectContext>,
+    python_root: Option<PathBuf>,
     complete: bool,
     diagnostics: Vec<String>,
     fingerprints: CacheFingerprints,
@@ -72,6 +73,7 @@ impl ProjectSemanticContext {
                 jsts_auto: Vec::new(),
                 csharp: None,
                 python: None,
+                python_root: None,
                 complete: true,
                 diagnostics: Vec::new(),
                 fingerprints: CacheFingerprints::default(),
@@ -108,6 +110,11 @@ impl ProjectSemanticContext {
             jsts_auto,
             csharp,
             python,
+            python_root: semantic
+                .python_project
+                .as_deref()
+                .map(project_root)
+                .map(|root| absolute_lexical(&root)),
             complete,
             diagnostics,
             fingerprints: semantic_cache_fingerprints(&fingerprints),
@@ -194,12 +201,22 @@ impl ProjectSemanticContext {
                 let Some(context) = self.python.as_ref() else {
                     return Ok(None);
                 };
-                Ok(Some(hoonarqube_python::analyze_with_context(
-                    path.to_path_buf(),
+                let absolute_path = absolute_lexical(path);
+                let module_path = self
+                    .python_root
+                    .as_deref()
+                    .and_then(|root| absolute_path.strip_prefix(root).ok())
+                    .unwrap_or(absolute_path.as_path());
+                let mut report = hoonarqube_python::analyze_with_context(
+                    module_path.to_path_buf(),
                     source,
                     &options.python,
                     context,
-                )))
+                );
+                // Module identity follows the selected import namespace;
+                // findings, fix inventory and cache keys retain the caller's path.
+                report.path = path.to_path_buf();
+                Ok(Some(report))
             }
             _ => Ok(None),
         }
@@ -777,7 +794,7 @@ fn load_python_context(
         .iter()
         .map(String::as_bytes)
         .collect::<Vec<_>>();
-    let fingerprint = digest_values("python-project-v2", &fingerprint_parts);
+    let fingerprint = digest_values("python-project-v3", &fingerprint_parts);
     fingerprints.context.push(fingerprint.clone());
     fingerprints.config.push(digest_values(
         "python-config-v1",
@@ -1352,6 +1369,67 @@ mod tests {
         assert_eq!(analyzed, original);
         assert!(diagnostics.is_empty());
     }
+    #[test]
+    fn python_project_namespace_matches_context_and_preserves_report_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "hoonarqube-python-namespace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let namespace = root.join("src");
+        fs::create_dir_all(namespace.join("pkg/views")).unwrap();
+        let response_path = namespace.join("pkg/responses.py");
+        let error_path = namespace.join("pkg/errors.py");
+        let views_path = namespace.join("pkg/views/__init__.py");
+        let response = "class Response: pass\n";
+        let error = "class Problem(Exception): pass\n";
+        let views = "from ..responses import Response\nfrom ..errors import Problem\ndef bad() -> Response:\n    return Problem()\nvalue: Response = None\n";
+        let snapshots = vec![
+            source(response_path.to_str().unwrap(), response),
+            source(error_path.to_str().unwrap(), error),
+            source(views_path.to_str().unwrap(), views),
+        ];
+        let options = AnalyzerOptionsBundle::default();
+        for project in [&root, &namespace] {
+            let semantic = SemanticOptions {
+                python_project: Some(project.clone()),
+                ..SemanticOptions::default()
+            };
+            let context =
+                ProjectSemanticContext::load(&snapshots, &semantic, &options, &[]).unwrap();
+            assert!(context.is_complete(), "{:?}", context.diagnostics());
+            let report = context
+                .analyze(&views_path, views, &options)
+                .unwrap()
+                .unwrap();
+            assert_eq!(report.path, views_path);
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key == "python:S5886")
+                    .count(),
+                1,
+                "project {}",
+                project.display()
+            );
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key == "python:S5890")
+                    .count(),
+                1,
+                "project {}",
+                project.display()
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn python_project_requires_an_existing_path_and_accepts_directory_or_file() {
         let root = std::env::temp_dir().join(format!(

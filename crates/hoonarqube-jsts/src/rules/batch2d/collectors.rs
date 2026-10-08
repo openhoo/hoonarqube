@@ -57,8 +57,7 @@ use oxc_ast_visit::walk::{
     walk_export_default_declaration_kind, walk_expression, walk_for_in_statement,
     walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_if_statement,
     walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
-    walk_object_expression, walk_statements, walk_switch_statement, walk_try_statement,
-    walk_while_statement,
+    walk_object_expression, walk_statements, walk_try_statement, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -129,23 +128,38 @@ impl<'a> Visit<'a> for ComplexityWalker {
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
-        self.enter_nested(|walker| walk_for_statement(walker, it));
+        if let Some(init) = &it.init {
+            self.visit_for_statement_init(init);
+        }
+        if let Some(test) = &it.test {
+            self.visit_expression(test);
+        }
+        if let Some(update) = &it.update {
+            self.visit_expression(update);
+        }
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
-        self.enter_nested(|walker| walk_for_in_statement(walker, it));
+        self.visit_for_statement_left(&it.left);
+        self.visit_expression(&it.right);
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
-        self.enter_nested(|walker| walk_for_of_statement(walker, it));
+        self.visit_for_statement_left(&it.left);
+        self.visit_expression(&it.right);
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
-        self.enter_nested(|walker| walk_while_statement(walker, it));
+        self.visit_expression(&it.test);
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
     }
 
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
-        self.enter_nested(|walker| walk_do_while_statement(walker, it));
+        self.enter_nested(|walker| walker.visit_statement(&it.body));
+        self.visit_expression(&it.test);
     }
 
     fn visit_switch_statement(&mut self, it: &SwitchStatement<'a>) {
@@ -155,9 +169,10 @@ impl<'a> Visit<'a> for ComplexityWalker {
         self.cognitive += 1 + self.nesting;
         let tested_cases = it.cases.iter().filter(|case| case.test.is_some()).count();
         self.cyclomatic += u32::try_from(tested_cases).unwrap_or(u32::MAX);
+        self.visit_expression(&it.discriminant);
         let saved = self.nesting;
         self.nesting += 1;
-        walk_switch_statement(self, it);
+        self.visit_switch_cases(&it.cases);
         self.nesting = saved;
     }
 
@@ -197,14 +212,12 @@ impl<'a> Visit<'a> for ComplexityWalker {
         // Cognitive: only `&&` counts, once per operator change in the
         // flattened chain (SonarJS JS-272: `||`/`??` are short-circuit and
         // default-value idioms that add no cognitive weight).
+        self.visit_operand(&it.left);
         if it.operator == LogicalOperator::And && self.logic_prev != Some(LogicalOperator::And) {
             self.cognitive += 1;
         }
-        let saved_prev = self.logic_prev;
-        self.visit_operand(&it.left);
         self.logic_prev = Some(it.operator);
         self.visit_operand(&it.right);
-        self.logic_prev = saved_prev;
     }
 
     fn visit_break_statement(&mut self, it: &BreakStatement<'a>) {
@@ -227,8 +240,9 @@ impl<'a> Visit<'a> for ComplexityWalker {
             // A logical expression reached here is always a chain head:
             // nested logicals arrive through `visit_operand` instead.
             Expression::LogicalExpression(inner) => {
-                self.logic_prev = None;
+                let previous = self.logic_prev.take();
                 self.visit_logical_expression(inner);
+                self.logic_prev = previous;
             }
             _ => walk_expression(self, it),
         }
@@ -277,7 +291,7 @@ impl ComplexityWalker {
     /// extend the chain in-order, anything else is walked with the chain
     /// state suspended so contained logicals start their own chains.
     fn visit_operand(&mut self, expression: &Expression<'_>) {
-        if let Expression::LogicalExpression(inner) = expression {
+        if let Expression::LogicalExpression(inner) = crate::support::unparenthesized(expression) {
             self.visit_logical_expression(inner);
         } else {
             let saved = self.logic_prev;
@@ -287,7 +301,7 @@ impl ComplexityWalker {
     }
 
     /// Walks one loop-like construct: `1 + nesting` increments with all
-    /// contents nested one level deeper.
+    /// body contents nested one level deeper.
     fn enter_nested(&mut self, walk_children: impl FnOnce(&mut Self)) {
         self.cognitive += 1 + self.nesting;
         self.cyclomatic += 1;
@@ -302,6 +316,8 @@ impl ComplexityWalker {
 /// unit is measured on entry; nested units are measured separately when the
 /// descent reaches them.
 pub(crate) struct FunctionMetricsCollector<'index> {
+    pub(crate) tokens: &'index [oxc_parser::Token],
+    pub(crate) property_function_anchor: Option<Span>,
     pub(crate) sink: IssueSink<'index>,
     pub(crate) array_call_spans: BTreeSet<u32>,
 }
@@ -311,7 +327,11 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
         if let Expression::FunctionExpression(function) = it {
             let exempt = function.generator;
             let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
-            self.analyze_function(function, anchor, exempt, |collector| {
+            let cognitive_anchor = self
+                .property_function_anchor
+                .take()
+                .unwrap_or_else(|| self.function_keyword_span(function.span));
+            self.analyze_function(function, anchor, cognitive_anchor, exempt, |collector| {
                 walk_expression(collector, it);
             });
         } else {
@@ -323,7 +343,11 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
         if let Declaration::FunctionDeclaration(function) = it {
             let exempt = function.generator;
             let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
-            self.analyze_function(function, anchor, exempt, |collector| {
+            let cognitive_anchor = function
+                .id
+                .as_ref()
+                .map_or_else(|| self.function_keyword_span(function.span), |id| id.span);
+            self.analyze_function(function, anchor, cognitive_anchor, exempt, |collector| {
                 walk_declaration(collector, it);
             });
         } else {
@@ -337,7 +361,11 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
         if let ExportDefaultDeclarationKind::FunctionDeclaration(function) = it {
             let exempt = function.generator;
             let anchor = function.id.as_ref().map_or(function.span(), |id| id.span);
-            self.analyze_function(function, anchor, exempt, |collector| {
+            let cognitive_anchor = function
+                .id
+                .as_ref()
+                .map_or_else(|| self.function_keyword_span(function.span), |id| id.span);
+            self.analyze_function(function, anchor, cognitive_anchor, exempt, |collector| {
                 walk_export_default_declaration_kind(collector, it);
             });
         } else {
@@ -347,18 +375,38 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
 
     fn visit_method_definition(&mut self, it: &MethodDefinition<'a>) {
         let exempt = it.kind != MethodDefinitionKind::Method || it.value.generator;
-        self.analyze_function(&it.value, it.key.span(), exempt, |collector| {
-            walk_method_definition(collector, it);
-        });
+        self.analyze_function(
+            &it.value,
+            it.key.span(),
+            it.key.span(),
+            exempt,
+            |collector| {
+                walk_method_definition(collector, it);
+            },
+        );
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        let cognitive_anchor = self.arrow_token_span(it);
         if let Some(body) = it.body.as_function_body() {
-            self.report_unit(body, it.span(), false);
+            self.report_unit(body, it.span(), cognitive_anchor, false);
         } else {
-            self.report_expression_unit(it.body.to_expression(), it.span());
+            self.report_expression_unit(it.body.to_expression(), it.span(), cognitive_anchor);
         }
         walk_arrow_function_expression(self, it);
+    }
+
+    fn visit_object_property(&mut self, it: &oxc_ast::ast::ObjectProperty<'a>) {
+        self.visit_property_key(&it.key);
+        let previous = self.property_function_anchor;
+        if matches!(
+            crate::support::unparenthesized(&it.value),
+            Expression::FunctionExpression(_)
+        ) {
+            self.property_function_anchor = Some(it.key.span());
+        }
+        self.visit_expression(&it.value);
+        self.property_function_anchor = previous;
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
@@ -368,23 +416,53 @@ impl<'a> Visit<'a> for FunctionMetricsCollector<'_> {
 }
 
 impl FunctionMetricsCollector<'_> {
+    fn function_keyword_span(&self, span: Span) -> Span {
+        self.tokens
+            .iter()
+            .find(|token| {
+                token.start() >= span.start
+                    && token.end() <= span.end
+                    && token.kind() == oxc_parser::Kind::Function
+            })
+            .map_or(span, |token| Span::new(token.start(), token.end()))
+    }
+
+    fn arrow_token_span(&self, arrow: &ArrowFunctionExpression<'_>) -> Span {
+        self.tokens
+            .iter()
+            .rev()
+            .find(|token| {
+                token.start() >= arrow.span.start
+                    && token.end() <= arrow.body.span().start
+                    && token.kind() == oxc_parser::Kind::Arrow
+            })
+            .map_or(arrow.span, |token| Span::new(token.start(), token.end()))
+    }
+
     /// Measures one function-like unit, then descends into its subtree.
     fn analyze_function(
         &mut self,
         function: &Function<'_>,
         anchor: Span,
+        cognitive_anchor: Span,
         exempt_mixed_returns: bool,
         walk_children: impl FnOnce(&mut Self),
     ) {
         if let Some(body) = &function.body {
-            self.report_unit(body, anchor, exempt_mixed_returns);
+            self.report_unit(body, anchor, cognitive_anchor, exempt_mixed_returns);
         }
         walk_children(self);
     }
 
     /// Measures a statement-list unit; `mixed` carries precomputed return
     /// information when the caller wants `S3801` checked.
-    fn report_unit(&mut self, body: &FunctionBody<'_>, anchor: Span, exempt_mixed_returns: bool) {
+    fn report_unit(
+        &mut self,
+        body: &FunctionBody<'_>,
+        anchor: Span,
+        cognitive_anchor: Span,
+        exempt_mixed_returns: bool,
+    ) {
         // Cyclomatic complexity starts at 1 (the single entry path).
         let mut walker = ComplexityWalker {
             cyclomatic: 1,
@@ -393,20 +471,25 @@ impl FunctionMetricsCollector<'_> {
         for statement in &body.statements {
             walker.visit_statement(statement);
         }
-        self.report_complexity(&walker, anchor);
+        self.report_complexity(&walker, anchor, cognitive_anchor);
         if !exempt_mixed_returns {
             self.check_mixed_returns(body, anchor);
         }
     }
 
     /// Measures an expression-bodied arrow (no `S3801`: it always yields).
-    fn report_expression_unit(&mut self, expression: &Expression<'_>, anchor: Span) {
+    fn report_expression_unit(
+        &mut self,
+        expression: &Expression<'_>,
+        anchor: Span,
+        cognitive_anchor: Span,
+    ) {
         let mut walker = ComplexityWalker {
             cyclomatic: 1,
             ..ComplexityWalker::default()
         };
         walker.visit_expression(expression);
-        self.report_complexity(&walker, anchor);
+        self.report_complexity(&walker, anchor, cognitive_anchor);
     }
 }
 

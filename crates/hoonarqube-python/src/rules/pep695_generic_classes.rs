@@ -28,7 +28,7 @@ pub(crate) fn check_pep695_generic_classes(
             if generic_base {
                 issues.push(issue_at(
                     "python:S6792",
-                    "Use PEP 695 type parameters instead of inheriting Generic[...].",
+                    "Use the \"type\" parameter syntax to declare this generic class.",
                     class.name.range(),
                     index,
                     source,

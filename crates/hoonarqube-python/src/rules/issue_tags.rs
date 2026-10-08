@@ -1,13 +1,17 @@
 use crate::support::FIXME_TAG;
 use crate::support::TODO_TAG;
 use crate::support::comment_tokens;
+use crate::support::for_each_stmt;
 use crate::support::has_person_reference;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
+use ruff_python_ast::{Stmt, token::TokenKind};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
+use ruff_text_size::TextRange;
+use std::collections::HashSet;
 
 /// python:S1134/S1135/S1707 — track FIXME/TODO comments anchored at the
 /// comment start (`#[ ]*fixme`, case-insensitively; `#\s*(?:TODO|todo|Todo)`
@@ -20,7 +24,11 @@ pub(crate) fn check_issue_tags(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    let orphan_comments = import_parenthesis_trivia(parsed);
     for comment in comment_tokens(parsed) {
+        if orphan_comments.contains(&comment.range()) {
+            continue;
+        }
         let raw = &source[comment.range()];
         let fixme_end = fixme_tag_end(raw);
         let todo_end = todo_tag_end(raw);
@@ -62,6 +70,32 @@ pub(crate) fn check_issue_tags(
     issues
 }
 
+/// The reference import tree visits imported names and statement separators,
+/// but omits its opening and closing parentheses. Trivia belongs to the next
+/// significant token, so comments immediately preceding the closing import
+/// parenthesis are absent from comment-rule traversal.
+fn import_parenthesis_trivia(parsed: &Parsed<ModModule>) -> HashSet<TextRange> {
+    let mut import_ends = HashSet::new();
+    for_each_stmt(&parsed.syntax().body, &mut |statement| {
+        if let Stmt::ImportFrom(import) = statement {
+            import_ends.insert(import.range().end());
+        }
+    });
+    let mut pending_comments = Vec::new();
+    let mut orphan_comments = HashSet::new();
+    for token in parsed.tokens() {
+        match token.kind() {
+            TokenKind::Comment => pending_comments.push(token.range()),
+            TokenKind::NonLogicalNewline | TokenKind::Indent | TokenKind::Dedent => {}
+            TokenKind::Rpar if import_ends.contains(&token.range().end()) => {
+                orphan_comments.extend(pending_comments.drain(..));
+            }
+            _ => pending_comments.clear(),
+        }
+    }
+    orphan_comments
+}
+
 /// End byte offset of an upstream RSPEC-1135 TODO tag anchored at the
 /// comment start: `#\s*(?:TODO|todo|Todo)(?!\w)` — exactly these three
 /// capitalizations, never followed by a word character.
@@ -98,6 +132,30 @@ mod tests {
 
     use crate::test_support::issue;
     use crate::{AnalyzerOptions, analyze};
+
+    #[test]
+    fn todo_comments_follow_reference_import_token_ownership() {
+        let source = concat!(
+            "from module import (\n",
+            "    First,  # TODO first name\n",
+            "    Second,  # TODO closing parenthesis\n",
+            "    # TODO closing trivia\n",
+            ")\n",
+            "values = [\n",
+            "    1,  # TODO list item\n",
+            "]\n",
+            "# TODO standalone\n",
+        );
+        let report = crate::test_support::scan(source);
+        let found = crate::test_support::findings(&report, "python:S1135");
+        assert_eq!(
+            found
+                .iter()
+                .map(|issue| issue.range.start.line)
+                .collect::<Vec<_>>(),
+            vec![2, 7, 9]
+        );
+    }
 
     #[test]
     fn todo_and_fixme_tags_are_tracked_with_person_reference() {

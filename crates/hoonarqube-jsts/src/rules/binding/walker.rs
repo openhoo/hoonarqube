@@ -4,23 +4,25 @@ use crate::context::{AnalysisContext, RuleOptions};
 use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
     IssueSink, LineIndex, RuleScope, binding_identifier_name, embeds_credential,
-    module_export_name_name, property_key_name, shannon_entropy_per_char, span_text_contains,
+    module_export_name_name, property_key_name, shannon_entropy_per_char, source_slice,
+    span_text_contains,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    AssignmentExpression, BindingPattern, CallExpression, Class, ExportSpecifier, Expression,
-    FormalParameter, Function, FunctionBody, ImportSpecifier, MethodDefinition,
-    MethodDefinitionKind, ObjectProperty, Statement, TSInterfaceDeclaration, TSSignature,
-    VariableDeclarator,
+    ArrowFunctionExpression, AssignmentExpression, BindingPattern, CallExpression, Class,
+    ExportSpecifier, Expression, FormalParameter, Function, FunctionBody, ImportSpecifier,
+    MethodDefinition, MethodDefinitionKind, ObjectProperty, Statement, TSInterfaceDeclaration,
+    TSSignature, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_assignment_expression, walk_call_expression, walk_class, walk_formal_parameter,
-    walk_function, walk_function_body, walk_method_definition, walk_object_property,
-    walk_ts_interface_declaration, walk_variable_declarator,
+    walk_arrow_function_expression, walk_assignment_expression, walk_call_expression, walk_class,
+    walk_formal_parameter, walk_function, walk_function_body, walk_method_definition,
+    walk_object_property, walk_ts_interface_declaration, walk_variable_declarator,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
+use std::collections::BTreeSet;
 
 fn check_binding_rules(
     program: &oxc_ast::ast::Program<'_>,
@@ -46,6 +48,7 @@ fn check_binding_rules(
         override_depth: 0,
         constructor_depth: 0,
         function_names: Vec::new(),
+        allowed_arrow_bodies: BTreeSet::new(),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -70,6 +73,7 @@ struct BindingCollector<'a, 'index> {
     constructor_depth: u32,
     /// Enclosing regular-function name used by `S1186` diagnostics.
     function_names: Vec<String>,
+    allowed_arrow_bodies: BTreeSet<u32>,
 }
 
 impl<'a> Visit<'a> for BindingCollector<'a, '_> {
@@ -81,6 +85,13 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
         );
         walk_function(self, it, flags);
         self.function_names.pop();
+    }
+
+    fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        if let Some(body) = it.body.as_function_body() {
+            self.allowed_arrow_bodies.insert(body.span.start);
+        }
+        walk_arrow_function_expression(self, it);
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
@@ -390,6 +401,13 @@ impl BindingCollector<'_, '_> {
     /// `S1186`: empty function bodies outside callback conventions.
     fn check_empty_function_body(&mut self, statements: &[Statement<'_>], span: Span) {
         if statements.is_empty()
+            && !self.allowed_arrow_bodies.contains(&span.start)
+            && source_slice(
+                self.source,
+                Span::new(span.start.saturating_add(1), span.end.saturating_sub(1)),
+            )
+            .trim()
+            .is_empty()
             && self.callback_argument_depth == 0
             && self.override_depth == 0
             && self.constructor_depth == 0
@@ -483,8 +501,8 @@ arr.map(function () {});
         assert_eq!(count_key(&ts_findings, "typescript:S2094"), 1);
         assert_eq!(count_key(&ts_findings, "typescript:S4023"), 1);
         assert_eq!(count_key(&ts_findings, "typescript:S4124"), 1);
-        // Callback conventions suppress `S1186`.
-        assert_eq!(count_key(&ts_findings, "typescript:S1186"), 2);
+        // Default options allow arrow functions and callback conventions.
+        assert_eq!(count_key(&ts_findings, "typescript:S1186"), 1);
 
         let js_findings = findings(ts_source, JstsLanguage::JavaScript);
         assert_eq!(count_key(&js_findings, "javascript:S4023"), 0);
@@ -648,6 +666,21 @@ export { Model };
         assert_eq!(filtered(&report, "S2094").len(), 1);
 
         assert_eq!(filtered(&report, "S1186").len(), 1);
+    }
+
+    #[test]
+    fn s1186_default_allows_arrow_bodies_and_documented_empty_functions() {
+        let report = ts(
+            "const assertEqual = <A, B>(_: A): void => {};\nconst documented = () => { /* intentional */ };\nconst fallback = enabled ? callback : (..._args: unknown[]) => {};\nfunction empty() {}\nfunction explained() { /* intentionally unused */ }\nconst wrapper = () => { function nested() {} };\n",
+        );
+        let empty: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S1186")
+            .collect();
+        assert_eq!(empty.len(), 2);
+        assert_eq!(empty[0].range.start.line, 4);
+        assert_eq!(empty[1].range.start.line, 6);
     }
 
     #[test]

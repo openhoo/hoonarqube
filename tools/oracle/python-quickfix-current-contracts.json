@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "reference_commit": "f4ab8a54df0522ead664280a1f83d7109a35e96b",
+  "historical_policy": "Keep historical failures verbatim. These current contracts provide separate qualification and do not change or silently reclassify the historical manifest.",
+  "cases": [
+    {
+      "name": "missing-docstring-strict",
+      "rule": "python:S1720",
+      "source": "\"\"\"Module docstring.\"\"\"\ndef f():\n    return 1\n",
+      "mode": "apply",
+      "profile": "strict",
+      "reason": "S1720 is inactive in the reference profile; strict findings must remain actionable through fix.",
+      "projection": "\"\"\"Module docstring.\"\"\"\ndef f():\n    \"\"\" doc \"\"\"\n    return 1\n",
+      "action": "s1720-add-docstring"
+    },
+    {
+      "name": "missing-docstring-reference-inactive",
+      "rule": "python:S1720",
+      "source": "\"\"\"Module docstring.\"\"\"\ndef f():\n    return 1\n",
+      "mode": "no_action",
+      "profile": "sonar-parity",
+      "reason": "Preserve reference-inactive profile boundary.",
+      "action": "s1720-add-docstring",
+      "target_count": 0
+    },
+    {
+      "name": "dead-store-local",
+      "rule": "python:S1854",
+      "source": "def f():\n    x = 1\n    print(x)\n    x = 2\n",
+      "mode": "apply",
+      "profile": "sonar-parity",
+      "reason": "Reference subscribes to function definitions; positive qualification must use a function-local binding.",
+      "projection": "def f():\n    x = 1\n    print(x)\n",
+      "action": "s1854-remove-unused-assignment"
+    },
+    {
+      "name": "dead-store-module-control",
+      "rule": "python:S1854",
+      "source": "x = 1\nprint(x)\nx = 2\n",
+      "mode": "no_action",
+      "profile": "sonar-parity",
+      "reason": "Historical positive fixture was outside the rule scope.",
+      "action": "s1854-remove-unused-assignment",
+      "target_count": 0
+    },
+    {
+      "name": "dead-store-preserve-sentinel",
+      "rule": "python:S1854",
+      "source": "def f():\n    x = 1\n    print(x)\n    x = 0\n",
+      "mode": "no_action",
+      "profile": "sonar-parity",
+      "reason": "Keep sentinel and RHS-effect exclusions.",
+      "action": "s1854-remove-unused-assignment",
+      "target_count": 0
+    },
+    {
+      "name": "dead-store-preserve-call",
+      "rule": "python:S1854",
+      "source": "def f():\n    x = 1\n    print(x)\n    x = work()\n",
+      "mode": "no_action",
+      "profile": "sonar-parity",
+      "reason": "Keep sentinel and RHS-effect exclusions.",
+      "action": "s1854-remove-unused-assignment",
+      "target_count": 1
+    },
+    {
+      "name": "identical-methods-minimum-body",
+      "rule": "python:S4144",
+      "source": "class C:\n    def a(self):\n        value = self.x\n        value += 1\n        return value\n    def b(self):\n        value = self.x\n        value += 1\n        return value\n",
+      "mode": "apply",
+      "profile": "sonar-parity",
+      "reason": "The reference minimum implementation length is three source lines.",
+      "projection": "class C:\n    def a(self):\n        value = self.x\n        value += 1\n        return value\n    def b(self):\n        return self.a()\n",
+      "action": "s4144-call-original-method"
+    },
+    {
+      "name": "identical-one-line-control",
+      "rule": "python:S4144",
+      "source": "class C:\n    def a(self):\n        return self.x\n    def b(self):\n        return self.x\n",
+      "mode": "no_action",
+      "profile": "sonar-parity",
+      "reason": "Historical positive fixture was below the source-backed body-length gate.",
+      "action": "s4144-call-original-method",
+      "target_count": 0
+    },
+    {
+      "name": "django-model-field",
+      "rule": "python:S6553",
+      "source": "from django.db import models\nclass Product(models.Model):\n    name = models.CharField(null=True)\n",
+      "mode": "apply",
+      "profile": "sonar-parity",
+      "reason": "Django model ancestry is required, not an arbitrary top-level API-looking call.",
+      "projection": "from django.db import models\nclass Product(models.Model):\n    name = models.CharField(blank=True)\n",
+      "action": "s6553-use-blank"
+    },
+    {
+      "name": "django-top-level-control",
+      "rule": "python:S6553",
+      "source": "from django.db import models\nname = models.CharField(null=True)\n",
+      "mode": "no_action",
+      "profile": "sonar-parity",
+      "reason": "Retain ancestry qualification boundary.",
+      "action": "s6553-use-blank",
+      "target_count": 0
+    },
+    {
+      "name": "instance-empty-receiver",
+      "rule": "python:S5719",
+      "source": "class C:\n    def method():\n        pass\n",
+      "mode": "apply",
+      "profile": "sonar-parity",
+      "reason": "S2325 requires a valuable body; pass-only methods stay exempt.",
+      "projection": "class C:\n    def method(self):\n        pass\n",
+      "regression_guard": {
+        "rule": "python:S2325",
+        "increase": 0
+      },
+      "action": "s5719-add-self"
+    },
+    {
+      "name": "builtin-generic-exempt-import",
+      "rule": "python:S6545",
+      "source": "from typing import List\nx: List[int]\n",
+      "mode": "apply",
+      "profile": "sonar-parity",
+      "reason": "S1128 explicitly exempts typing imports; no newly unused-import warning is expected.",
+      "projection": "from typing import List\nx: list[int]\n",
+      "regression_guard": {
+        "rule": "python:S1128",
+        "increase": 0
+      },
+      "action": "s6545-use-builtin-generic"
+    },
+    {
+      "name": "identical-if-historical-refusal",
+      "rule": "python:S3923",
+      "source": "if a:\n    x = 1\nelse:\n    x = 1\n",
+      "mode": "safety_refusal",
+      "profile": "sonar-parity",
+      "reason": "Native preserves truth evaluation; upstream x=1 projection loses __bool__ effects. CLI must refuse the native projection because S2201 increases.",
+      "projection": "bool((a))\nx = 1\n",
+      "regression_guard": {
+        "rule": "python:S2201",
+        "increase": 1
+      },
+      "action": "s3923-remove-if-statement"
+    },
+    {
+      "name": "identical-if-runtime-truth",
+      "rule": "python:S3923",
+      "source": "class Observed:\n    def __bool__(self):\n        print(\"truth effect\"); return True\na = Observed()\nif a:\n    x = 1\nelse:\n    x = 1\nprint(x)\n",
+      "mode": "safety_refusal",
+      "profile": "sonar-parity",
+      "reason": "Independent original/projected Python execution preserves truth effects and exceptions; refusal keeps original bytes.",
+      "projection": "class Observed:\n    def __bool__(self):\n        print(\"truth effect\"); return True\na = Observed()\nbool((a))\nx = 1\nprint(x)\n",
+      "regression_guard": {
+        "rule": "python:S2201",
+        "increase": 1
+      },
+      "runtime": true,
+      "action": "s3923-remove-if-statement"
+    },
+    {
+      "name": "identical-if-runtime-false",
+      "rule": "python:S3923",
+      "source": "class Observed:\n    def __bool__(self):\n        print(\"false effect\"); return False\na = Observed()\nif a:\n    x = 1\nelse:\n    x = 1\nprint(x)\n",
+      "mode": "safety_refusal",
+      "profile": "sonar-parity",
+      "reason": "Independent original/projected Python execution preserves truth effects and exceptions; refusal keeps original bytes.",
+      "projection": "class Observed:\n    def __bool__(self):\n        print(\"false effect\"); return False\na = Observed()\nbool((a))\nx = 1\nprint(x)\n",
+      "regression_guard": {
+        "rule": "python:S2201",
+        "increase": 1
+      },
+      "runtime": true,
+      "action": "s3923-remove-if-statement"
+    },
+    {
+      "name": "identical-if-runtime-exception",
+      "rule": "python:S3923",
+      "source": "class Observed:\n    def __bool__(self):\n        print(\"exception effect\"); raise ValueError(\"condition error\")\na = Observed()\nif a:\n    x = 1\nelse:\n    x = 1\nprint(x)\n",
+      "mode": "safety_refusal",
+      "profile": "sonar-parity",
+      "reason": "Independent original/projected Python execution preserves truth effects and exceptions; refusal keeps original bytes.",
+      "projection": "class Observed:\n    def __bool__(self):\n        print(\"exception effect\"); raise ValueError(\"condition error\")\na = Observed()\nbool((a))\nx = 1\nprint(x)\n",
+      "regression_guard": {
+        "rule": "python:S2201",
+        "increase": 1
+      },
+      "runtime": true,
+      "action": "s3923-remove-if-statement"
+    }
+  ],
+  "reference_source_sha256": {
+    "python-checks/src/main/java/org/sonar/python/checks/MethodShouldBeStaticCheck.java": "aa91c6ab3b4241de639344a4a654bcd36e63288a1ed48503e74873763e6403c0",
+    "python-checks/src/main/java/org/sonar/python/checks/UnusedImportCheck.java": "bb9f985eb7edb8bdf314c17d99e0b5e7a84379686a7187e4be15b3e822c65579",
+    "python-checks/src/main/java/org/sonar/python/checks/DuplicatedMethodImplementationCheck.java": "965b8f1fd5ed66c4eaf70b531bdda91d9a54495b261d02bb3b71f5227dcfa762",
+    "python-checks/src/main/java/org/sonar/python/checks/DeadStoreCheck.java": "0d7b8b37627a90a8f83d7935cc32b47c181e21cbfcd916b71867fbeb8b2e3804",
+    "python-checks/src/main/java/org/sonar/python/checks/django/DjangoModelStringFieldCheck.java": "f845a977ca2a6c4883b2b3a1a48e41180f55e12f8a9f1ecf7c5c4ab719b3106e"
+  }
+}

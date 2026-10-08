@@ -3733,3 +3733,92 @@ fn semantic_at_respects_compiler_library_target_for_literal_receivers() {
     );
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn semantic_helper_output_budget_accepts_large_projects_and_enforces_exact_bound() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return;
+    }
+    for (label, configured, bytes, expected_complete) in [
+        ("large-default", None, 9 * 1024 * 1024, true),
+        ("exact-configured", Some(32768), 32768, true),
+        ("over-configured", Some(32768), 32769, false),
+    ] {
+        let root = issue36_temp_dir(label);
+        let path = root.join("input.ts");
+        let source = "export const value = 1;\n";
+        write_issue36_file(&path, source);
+        let script = root.join("fixture-helper.cjs");
+        write_issue36_file(
+            &script,
+            &format!(
+                r"
+const request = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const output = JSON.stringify({{
+ schema_version: 1, complete: true, compiler_version: '6.0.3', fingerprint: 'bounded-output-test',
+ files: request.files.map(file => ({{path: file.path, source_digest: file.digest, language: 'typescript', module_kind: 'esm', facts: {{}}, imports: []}})),
+ dependencies: [], diagnostics: []
+}});
+process.stdout.write(output + ' '.repeat({bytes} - Buffer.byteLength(output)));
+"
+            ),
+        );
+        let mut config = TypeScriptProjectConfig::without_tsconfig(root.clone())
+            .with_helper(PathBuf::from("node"), script);
+        if let Some(limit) = configured {
+            config.max_output_bytes = limit;
+        }
+        let result = ProjectSemanticContext::load(
+            &config,
+            &ProjectSemanticSources::from_pairs([(path, source.to_owned())]),
+        );
+        if expected_complete {
+            let context = result.expect("valid response within output budget");
+            assert!(context.is_complete(), "{:?}", context.diagnostics());
+        } else {
+            let error = result.expect_err("one excess byte must fail closed");
+            assert_eq!(error.code, "JS_CONTEXT_OUTPUT_LIMIT");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+#[test]
+fn semantic_deprecation_uses_compiler_diagnostics_for_overloads_and_accessors() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+interface Legacy {
+ /** @deprecated use modern instead */ old(): void;
+ old(value: number): void;
+}
+class Counter {
+ /** @deprecated use state instead */ get count() { return 0; }
+ set count(value: number) {}
+}
+export function use(value: Legacy) { value.old(); }
+";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-deprecated-overloads",
+        &package,
+        &[("src/input.ts", source)],
+    );
+    let report = semantic_quickfix_analysis(&context, &root, "src/input.ts", source);
+    let issues: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.rule_key == "typescript:S1874")
+        .collect();
+    assert_eq!(
+        issues.len(),
+        1,
+        "declaration siblings are not deprecated uses"
+    );
+    assert_eq!(issues[0].range.start.line, 10);
+    let _ = fs::remove_dir_all(root);
+}

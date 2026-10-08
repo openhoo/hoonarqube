@@ -11,15 +11,20 @@ impl TsTypeCollector<'_, '_> {
         if let Some(constraint) = &it.constraint
             && matches!(
                 constraint,
-                TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::TSObjectKeyword(_)
+                TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_)
             )
         {
-            self.sink.emit_span(
-                RuleScope::TsOnly,
-                "S6569",
-                "This constraint does not meaningfully restrict the type parameter; remove it.",
-                constraint.span(),
+            let constraint_name = if matches!(constraint, TSType::TSAnyKeyword(_)) {
+                "any"
+            } else {
+                "unknown"
+            };
+            let message = format!(
+                "Constraining the generic type `{}` to `{constraint_name}` does nothing and is unnecessary.",
+                it.name.name
             );
+            self.sink
+                .emit_span(RuleScope::TsOnly, "S6569", &message, it.span());
         }
     }
 }

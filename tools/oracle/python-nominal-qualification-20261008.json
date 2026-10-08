@@ -1,0 +1,126 @@
+{
+  "project": "werkzeug",
+  "commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+  "reference": "fresh-reference/werkzeug-python/issues.json",
+  "reference_sha256": "ef367d964f28a0bc0dc05c524040b53d44d3e427e0e8d283704c3bc25c3bb235",
+  "rules": [
+    "python:S5886",
+    "python:S5890"
+  ],
+  "expected_count": 7,
+  "actual_count": 7,
+  "exact_matches": 7,
+  "missing": [],
+  "unexpected": [],
+  "acceptance_scope": "Actual CLI with the documented explicit Python project context and library analyze_with_context; frozen real-project Sonar capture.",
+  "reference_capture_date": "2026-10-07",
+  "implementation": "Source-backed class identity, import/re-export resolution, bounded ancestry and package initializer imports. Dynamic/unresolved bases, shadowed constructors and optional/unknown annotations remain unknown.",
+  "findings": [
+    {
+      "path": "src/werkzeug/debug/__init__.py",
+      "rule": "python:S5886",
+      "range": {
+        "start_line": 388,
+        "end_line": 388,
+        "start_offset": 19,
+        "end_offset": 34
+      },
+      "message": "Return a value of type \"Response\" instead of \"SecurityError\" or update function \"execute_command\" type hint."
+    },
+    {
+      "path": "src/werkzeug/debug/__init__.py",
+      "rule": "python:S5886",
+      "range": {
+        "start_line": 401,
+        "end_line": 401,
+        "start_offset": 19,
+        "end_offset": 34
+      },
+      "message": "Return a value of type \"Response\" instead of \"SecurityError\" or update function \"display_console\" type hint."
+    },
+    {
+      "path": "src/werkzeug/debug/__init__.py",
+      "rule": "python:S5886",
+      "range": {
+        "start_line": 423,
+        "end_line": 423,
+        "start_offset": 19,
+        "end_offset": 29
+      },
+      "message": "Return a value of type \"Response\" instead of \"NotFound\" or update function \"get_resource\" type hint."
+    },
+    {
+      "path": "src/werkzeug/debug/__init__.py",
+      "rule": "python:S5886",
+      "range": {
+        "start_line": 426,
+        "end_line": 426,
+        "start_offset": 23,
+        "end_offset": 33
+      },
+      "message": "Return a value of type \"Response\" instead of \"NotFound\" or update function \"get_resource\" type hint."
+    },
+    {
+      "path": "src/werkzeug/debug/__init__.py",
+      "rule": "python:S5886",
+      "range": {
+        "start_line": 468,
+        "end_line": 468,
+        "start_offset": 19,
+        "end_offset": 34
+      },
+      "message": "Return a value of type \"Response\" instead of \"SecurityError\" or update function \"pin_auth\" type hint."
+    },
+    {
+      "path": "src/werkzeug/debug/__init__.py",
+      "rule": "python:S5886",
+      "range": {
+        "start_line": 522,
+        "end_line": 522,
+        "start_offset": 19,
+        "end_offset": 34
+      },
+      "message": "Return a value of type \"Response\" instead of \"SecurityError\" or update function \"log_pin_request\" type hint."
+    },
+    {
+      "path": "src/werkzeug/routing/rules.py",
+      "rule": "python:S5890",
+      "range": {
+        "start_line": 481,
+        "end_line": 481,
+        "start_offset": 24,
+        "end_offset": 28
+      },
+      "message": "Replace the type hint \"Map\" with \"Optional[Map]\" or don't assign \"None\" to this expression"
+    }
+  ],
+  "source_sha256": {
+    "src/werkzeug/debug/__init__.py": "f34bda6af559630576d48b6bb0e2d0b9d1148b6b8a0e5c5c8e6e5c0a6794d6ee",
+    "src/werkzeug/routing/rules.py": "7868ba3c3f82386d80b3f1d8d27030fa7c58c4b4c7d05b2ea91692cbc77d1634"
+  },
+  "cli": {
+    "command": [
+      "hoonarqube",
+      "analyze",
+      "src/werkzeug",
+      "--python-project",
+      ".",
+      "--format",
+      "json",
+      "--exclude",
+      "**/*.css"
+    ],
+    "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+    "binary_sha256": "55645395bb1cbb4fa6b923dbf4b9144dc18166e530dbc232ea455a2f2e1a9466",
+    "native_report_sha256": "f973fbd1001f75d642b46d02ad31963685466854eed7fbd26e6c3ca3b290f57a",
+    "reference_capture_sha256": "ef367d964f28a0bc0dc05c524040b53d44d3e427e0e8d283704c3bc25c3bb235",
+    "project_complete": true,
+    "expected_count": 7,
+    "actual_count": 7,
+    "exact_matches": 7,
+    "missing": [],
+    "unexpected": [],
+    "context_requirement": "--python-project supplies explicit import namespace; a plain CLI scan provides only file-local facts."
+  },
+  "cli_namespace_qualification": "python-cli-namespace-qualification-20261008.json"
+}

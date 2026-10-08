@@ -518,9 +518,15 @@ fn tier_a2_general_checks(
     path: &Path,
     issues: &mut Vec<Issue>,
 ) {
-    issues.extend(check_duplicated_string_literals(
-        parsed, index, source, options,
-    ));
+    if !path
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .is_some_and(|name| name.starts_with("test"))
+    {
+        issues.extend(check_duplicated_string_literals(
+            parsed, index, source, options,
+        ));
+    }
     issues.extend(check_open_modes(index, source, file_ctx));
     issues.extend(check_weak_hashing(index, source, file_ctx));
     issues.extend(check_insecure_temp_files(index, source, file_ctx));
@@ -818,6 +824,20 @@ pub(crate) fn check_tier_c_security_battery(
     project: &PythonProjectContext,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    issues.extend(check_s5890_annotated_assignment_kinds(
+        index,
+        source,
+        file_ctx,
+        module_name,
+        project,
+    ));
+    issues.extend(check_s5886_return_hint_mismatches(
+        index,
+        source,
+        file_ctx,
+        module_name,
+        project,
+    ));
     tier_c_core_security_checks(parsed, index, source, file_ctx, &mut issues);
     tier_c_web_crypto_checks(parsed, index, source, file_ctx, &mut issues);
     tier_c_cloud_data_checks(
@@ -1030,10 +1050,7 @@ pub(crate) fn check_tier_c_semantic_battery(
     issues.extend(check_s5756_non_callable_callees(parsed, index, source));
     issues.extend(check_s3699_used_void_outputs(parsed, index, source));
     issues.extend(check_s935_bare_returns(index, source, file_ctx));
-    issues.extend(check_s5890_annotated_assignment_kinds(
-        index, source, file_ctx,
-    ));
-    issues.extend(check_s5886_return_hint_mismatches(index, source, file_ctx));
+
     let signatures = LocalSignatures::new(parsed.syntax().body.as_slice());
     issues.extend(check_s930_arity_mismatches(
         parsed,
