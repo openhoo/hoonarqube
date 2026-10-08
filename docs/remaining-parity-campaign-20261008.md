@@ -175,3 +175,14 @@ controls; differences across those captures cannot establish a false positive
 under equivalent configuration. Seventeen Zod primary identities, other
 JS/TS flows/messages and active native-only observations remain for independent
 qualification. Licensed C# and missing historical provenance boundaries persist.
+
+
+## Package5: binding scopes and contextual primary identities
+
+S6650 now considers binding/import/export aliases rather than object literal properties. S2310 preserves the documented update/compound skip-ahead exemptions. Namespace-default aliases use S7734 while actual namespace re-exports retain S7763. S6564 uses alias-name primaries and referenced-type messages. S2933 groups members at the class primary with independent declaration locations; candidate/write policy is unchanged.
+
+The frozen package5 executable, TypeScript 6.0.3 and original reference sources yield 583/594 Zod primary identities, 574/594 exact range/messages and 441/594 canonical flows. Active native-only observations fall from 121 to 100; 11 missing identities remain. Commander retains 36/36 matched identities and messages with 10 native-only observations and 33/36 canonical flows. Requests77, Werkzeug230 and chi14 retain exact primary/message/flow matches. All five duplication summaries and 70 Zod clone relations remain exact.
+
+Executed qualification: 1385 JS/TS tests, workspace all-target/all-feature Clippy with warnings denied, Rust formatting, downloaded pinned0.3.1 dogfood across1480 files with zero Rust:S3776. Fresh S2933 controls match all three findings and four contributor locations, including anonymous-class keyword primary and mutable clean control. Owning automated regressions and executed red/green results are pinned in the rule-specific receipts; integrated results are in `tools/oracle/integrated-package5-qualification-20261008.json`.
+
+Remaining typed/policy, regexp performance, message and supporting-flow differences remain unresolved. Seventeen licensed C# sensor rules and eleven historical C# applications still lack required reference/provenance. This package makes no quickfix application or full Sonar/security parity claim.
