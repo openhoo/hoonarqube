@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "base_commit": "38760c3d2da1ff7eb65503d8655a56764d274877",
+  "native_source_commit": "f246dd30b4ab90414c5c9d62da9443e30a59a719",
+  "native_binary_sha256": "de13f9541a4703f7dd5ab187ed1897086f211bcf7b901a14ea960f193d7e2280",
+  "rules": [
+    "S2301"
+  ],
+  "checks": {
+    "tests": 1386,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "local_dogfood_S3776": 0,
+    "regression": "s2301_boolean_selectors_resolve_callback_parameter_ownership",
+    "red": "Executed regression found zero S2301 findings for a boolean parameter used in if/else instead of one.",
+    "green": "Independent parameter names, direct/comparison/negated conditions, anonymous and nested callbacks, captured and shadowed parameters, branch-local uses and inferred boolean defaults have exact condition primaries and declaration flows. Data outside the if/else, no-else conditions, ternaries, loops and untyped comparisons remain clean. Existing string selector tests retained."
+  },
+  "reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+    "basis": "Frozen Zod boolean callback primary/message/flow plus three fresh real scanner captures establish if/else and use-ownership policy."
+  },
+  "fresh_controls": [
+    {
+      "name": "controls",
+      "cases": 16,
+      "source_commit": "c69848e16ae175c37f536438984f1ab2bed2d973",
+      "source_sha256": "cc07b38a15059ac9880c031d75e3c2f320faccfac9f7542fa80df47806f6d80b",
+      "issues_sha256": "3ee965c8008975fef701e4647af6a3bbb87ea82a52292133e3543560727195bb",
+      "active_rules_sha256": "24673f61013e6cb3c9f524f70ad1a7615897dba9647c876fd7addb833e912081",
+      "report_sha256": "641af895db4c265d62e4aa3f821c976aa3776bdfb0be1c50badf839a7914930a",
+      "baseline_report_sha256": "cf2d1ff1c97358ab81175d05ea3016b096a95afcce22d14a413cb71d01a747e3",
+      "comparison": {
+        "native_total": 7,
+        "reference_total": 6,
+        "matched": 6,
+        "native_only": 1,
+        "reference_only": 0
+      },
+      "exact_primary_message_flow_matches": 6,
+      "all_rule_primary_delta": {
+        "added_S2301": 6,
+        "removed": 0,
+        "other_changes": 0
+      },
+      "limitations": [
+        "One existing legacy string-selector native-only finding retained unchanged."
+      ]
+    },
+    {
+      "name": "boundaries",
+      "cases": 9,
+      "source_commit": "83f368514c7b924a70dd455ba138d346c62eb80f",
+      "source_sha256": "a669fff941e963fd60a63095a7157f56a552352e1f418fa9a40687191647852d",
+      "issues_sha256": "2c7163517d10d85cdaf91f0f2d25bed59a38a1244f4665fdc9ac51342e7697a3",
+      "active_rules_sha256": "e1c079d883742faf6ad12c1c787900271ba47c4aa638a3b89212a11947460b9c",
+      "report_sha256": "4e0fad53ce7893feed67b40ad1c1b404708e3648c1b8a30d6a273cb15aedbe1c",
+      "baseline_report_sha256": "4803ee3d84714a76dcd8789f7ac5848dddba3360fcf7482f10908cb0c3e99033",
+      "comparison": {
+        "native_total": 8,
+        "reference_total": 8,
+        "matched": 8,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_primary_message_flow_matches": 8,
+      "all_rule_primary_delta": {
+        "added_S2301": 8,
+        "removed": 0,
+        "other_changes": 0
+      },
+      "limitations": []
+    },
+    {
+      "name": "data",
+      "cases": 5,
+      "source_commit": "46e4fc0b195fab1c5ba13f34114dfb3a9fec57d2",
+      "source_sha256": "3dc642580dec27d883edff21412a05555a41aba503d70cbb11a797f6c7c4cdfa",
+      "issues_sha256": "549e95ec30b9901931523eca0c6cd44a9a6ad3f95c02881ee24a9364affb0b91",
+      "active_rules_sha256": "dfde3e6751c81114d672950a6d28506d73ad8f774a87e8f4871faa4d63374cde",
+      "report_sha256": "1b4b987acdb32e3c67c9f08847ef356dc4bc55faa013988c00d2e24a47b6497f",
+      "baseline_report_sha256": "243e592bbb12e4589311c5bcd2218bcbcae808ef63c78af43a0f14988418c77d",
+      "comparison": {
+        "native_total": 2,
+        "reference_total": 2,
+        "matched": 2,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_primary_message_flow_matches": 2,
+      "all_rule_primary_delta": {
+        "added_S2301": 2,
+        "removed": 0,
+        "other_changes": 0
+      },
+      "limitations": []
+    }
+  ],
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 684,
+    "reference_total": 594,
+    "matched": 584,
+    "native_only": 100,
+    "reference_only": 10,
+    "complete": true,
+    "files": 125,
+    "removed_identities": [],
+    "added_identities": [
+      {
+        "identity": [
+          "typescript:S2301",
+          "packages/zod/src/v4/core/api.ts",
+          1838,
+          10,
+          1838,
+          15
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "before_matched": 583,
+    "before_native_only": 100,
+    "before_reference_only": 11,
+    "report_sha256": "25aa1dad06dd8e953b41a7d599ac2d0189b7069c47067a1176da16c7017a6d8e",
+    "baseline_report_sha256": "110b7fb46a58dd161803515f2ec9d273de1a4a45d9d3f0e6f5be8edeb90312bb",
+    "baseline_binary_sha256": "12fc59e614930aa1a44a920547cde61af9805a7da4f942e307a0f3750046ad8b",
+    "full_all_rule_primary_delta": {
+      "removed": 0,
+      "added_S2301": 1,
+      "new_native_only": 0,
+      "other_changes": 0
+    },
+    "exact_primary_message_flows": [
+      {
+        "identity": [
+          "typescript:S2301",
+          "packages/zod/src/v4/core/api.ts",
+          1838,
+          10,
+          1838,
+          15
+        ],
+        "message": "Provide multiple methods instead of using \"input\" to determine which action to take.",
+        "flows": [
+          {
+            "locations": [
+              {
+                "message": "Parameter \"input\" was declared here",
+                "range": {
+                  "start": {
+                    "line": 1837,
+                    "column": 24
+                  },
+                  "end": {
+                    "line": 1837,
+                    "column": 38
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Boolean type evidence is bounded to explicit boolean annotations and unannotated boolean-literal defaults; broader type aliases or inferred callback parameter types are not claimed.",
+    "Existing named string-selector heuristic is preserved, including its observed clean-reference mismatch in the fresh controls.",
+    "Parameter uses confined to the chosen if/else branches remain eligible; branch-local data use is a real captured positive, while data uses elsewhere are clean.",
+    "No quickfix qualification; captured reference marks S2301 quickFixAvailable=false.",
+    "Ten reference-only identities and 100 native-only observations remain on isolated package5 plus this candidate."
+  ]
+}
