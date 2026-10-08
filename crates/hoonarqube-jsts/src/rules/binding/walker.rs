@@ -225,12 +225,8 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
                 .iter()
                 .any(FormalParameter::has_modifier)
         {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6647",
-                "Remove this constructor or add its logic.",
-                it.span(),
-            );
+            self.sink
+                .emit_span(RuleScope::Both, "S6647", "Useless constructor.", it.span());
         }
         if it.r#override {
             self.override_depth += 1;

@@ -274,7 +274,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4138",
-                "Expected a \"for-of\" loop instead of a \"for\" loop with this simple iteration.",
+                "Expected a `for-of` loop instead of a `for` loop with this simple iteration.",
                 it.span(),
             );
         }

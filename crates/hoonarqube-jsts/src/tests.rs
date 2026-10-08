@@ -1682,6 +1682,43 @@ function shadowed(Promise: { all(values: number[]): number[] }) {
 }
 
 #[test]
+fn qualified_constructor_catch_optional_chain_and_loop_messages() {
+    let cases = [
+        (
+            "class Example { constructor() {} }",
+            "S6647",
+            "Useless constructor.",
+        ),
+        (
+            "function run() { try { work(); more(); } catch (error) {} }",
+            "S2486",
+            "Handle this exception, don't catch it at all, or explain in a comment why it is ignored.",
+        ),
+        (
+            "const value = a !== undefined && a.b();",
+            "S6582",
+            "Prefer using an optional chain expression instead, as it's more concise and easier to read.",
+        ),
+        (
+            "for (let i = 0; i < values.length; i++) { use(values[i]); }",
+            "S4138",
+            "Expected a `for-of` loop instead of a `for` loop with this simple iteration.",
+        ),
+    ];
+    for (source, rule, message) in cases {
+        for report in [js(source), ts(source)] {
+            let targets: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(&format!(":{rule}")))
+                .collect();
+            assert_eq!(targets.len(), 1, "{rule}");
+            assert_eq!(targets[0].message, message, "{rule}");
+        }
+    }
+}
+
+#[test]
 fn qualified_static_reduce_and_regex_messages_preserve_primary_findings() {
     let static_report = ts("class Example { static value = 1; }");
     let static_issue = static_report
