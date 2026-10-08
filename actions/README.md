@@ -22,7 +22,7 @@ concatenated documents leave any existing report untouched.
 ```yaml
 - uses: openhoo/hoonarqube/actions/analyze@6c274a2f157364c2b7f5e8756f6204663937c7e1 # pinned revision
   with:
-    version: 0.11.0
+    version: 0.11.1
     paths: |
       src
       tests
@@ -60,7 +60,7 @@ empty for older releases to preserve their uncached behavior.
 - id: hoonarqube
   uses: openhoo/hoonarqube/actions/code-quality@6c274a2f157364c2b7f5e8756f6204663937c7e1 # pinned revision
   with:
-    version: 0.11.0
+    version: 0.11.1
     paths: |
       src
       tests

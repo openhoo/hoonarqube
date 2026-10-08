@@ -814,7 +814,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hoonarqube"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-core",
@@ -823,7 +823,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-bench"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-csharp",
@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-catalog"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hex",
  "serde",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-cli"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "atomicwrites",
  "clap",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "base64",
  "hoonarqube-catalog",
@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-csharp"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -908,11 +908,11 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-dataflow"
-version = "0.11.0"
+version = "0.11.1"
 
 [[package]]
 name = "hoonarqube-go"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ir"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-java"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-jsts"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-core",
  "hoonarqube-ir",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-python"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-ir",
  "ruff_python_ast",
@@ -970,7 +970,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-ruby"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-ir",
  "tree-sitter",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-rust"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "hoonarqube-ir",
  "regex",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "hoonarqube-service"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "axum",
  "hex",
@@ -2580,9 +2580,9 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+checksum = "4e7523beb55eece201a2356bee0bbca0d1ab466c14c07703b2e0ee6d42cb0c2c"
 dependencies = [
  "serde_core",
 ]
@@ -2802,9 +2802,9 @@ dependencies = [
 
 [[package]]
 name = "thin-vec"
-version = "0.2.20"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4568d7e143ec86d2021c338bae2afa88699e84b8e0af523626654fe6f03a1748"
+checksum = "d6a4b9ba8738cb4a4f399d37e266becfd475e75eb73425b87a05a2f2039ba63e"
 
 [[package]]
 name = "thiserror"
@@ -2936,18 +2936,18 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.3+spec-1.1.0"
+version = "1.1.4+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
+checksum = "bed810ee007d8e7f9cf20b4774e7198142fa27186e0f805871da7f3c39eaf333"
 dependencies = [
  "winnow 1.0.4",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.1.2+spec-1.1.0"
+version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "tower"
@@ -3454,7 +3454,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "clap",

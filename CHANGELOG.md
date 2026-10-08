@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1 (2026-10-08)
+
+### Bug Fixes
+
+- close qualified real-project ranges, flows and duplication gaps (#866) (6b44e40)
+
 ## 0.11.0 (2026-10-07)
 
 ### Features
