@@ -851,7 +851,11 @@ impl StatementCollector<'_, '_> {
         self.sink.emit_span(
             RuleScope::Both,
             rule,
-            "Remove this useless statement; the result is discarded.",
+            if property == "map" {
+                "Consider using \"forEach\" instead of \"map\" as its return value is not being used here."
+            } else {
+                "Remove this useless statement; the result is discarded."
+            },
             call.span(),
         );
     }

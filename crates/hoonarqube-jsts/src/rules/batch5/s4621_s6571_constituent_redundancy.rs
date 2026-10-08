@@ -159,7 +159,15 @@ impl TsTypeCollector<'_, '_> {
     }
 
     fn emit_redundant_constituent(&mut self, ts_type: &TSType<'_>, container: &str) {
-        let message = format!("Remove this redundant member from the {container} type.");
+        let message = match (keyword_name(ts_type), container) {
+            (Some(name @ ("any" | "unknown")), "union") => {
+                format!("'{name}' overrides all other types in this union type.")
+            }
+            (Some("unknown"), "intersection") => {
+                "'unknown' is overridden by other types in this intersection type.".to_owned()
+            }
+            _ => format!("Remove this redundant member from the {container} type."),
+        };
         self.sink
             .emit_span(RuleScope::TsOnly, "S6571", &message, ts_type.span());
     }

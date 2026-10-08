@@ -1682,6 +1682,71 @@ function shadowed(Promise: { all(values: number[]): number[] }) {
 }
 
 #[test]
+fn qualified_contextual_union_and_map_messages() {
+    let cases = [
+        (
+            "type Result = string | unknown;",
+            "S6571",
+            "'unknown' overrides all other types in this union type.",
+        ),
+        (
+            "type Result = string | any;",
+            "S6571",
+            "'any' overrides all other types in this union type.",
+        ),
+        (
+            "type Result = string & unknown;",
+            "S6571",
+            "'unknown' is overridden by other types in this intersection type.",
+        ),
+        (
+            "function run(values: number[]) { values.map(value => value * 2); }",
+            "S2201",
+            "Consider using \"forEach\" instead of \"map\" as its return value is not being used here.",
+        ),
+    ];
+    for (source, rule, message) in cases {
+        let report = ts(source);
+        let targets: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(&format!(":{rule}")))
+            .collect();
+        assert_eq!(targets.len(), 1, "{rule}");
+        assert_eq!(targets[0].message, message, "{rule}");
+    }
+}
+
+#[test]
+fn semantic_s6606_distinguishes_assignment_and_logical_or_messages() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = "export function defaults(value: { name: string } | undefined, fallback: { name: string }, text: string | undefined) {\n const result = text || 'fallback';\n if (!value) { value = fallback; }\n return result;\n}\n";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-nullish-messages",
+        &package,
+        &[("case.ts", source)],
+    );
+    let report = semantic_quickfix_analysis(&context, &root, "case.ts", source);
+    let targets: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S6606")
+        .collect();
+    assert_eq!(targets.len(), 2);
+    assert_eq!(
+        targets[0].message,
+        "Prefer using nullish coalescing operator (`??`) instead of a logical or (`||`), as it is a safer operator."
+    );
+    assert_eq!(
+        targets[1].message,
+        "Prefer using nullish coalescing operator (`??=`) instead of an assignment expression, as it is simpler to read."
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn qualified_constructor_catch_optional_chain_and_loop_messages() {
     let cases = [
         (
