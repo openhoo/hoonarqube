@@ -70,6 +70,11 @@ impl FunctionContextCollector<'_, '_> {
                 first_default.get_or_insert(item.span());
                 continue;
             }
+            // An optional parameter may be omitted just like a defaulted one.
+            // Keep the first default pending if a later required parameter follows.
+            if item.optional {
+                continue;
+            }
             if let Some(span) = first_default.take() {
                 self.sink.emit_span(
                     RuleScope::Both,
@@ -408,6 +413,24 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn s1788_allows_optional_after_default_but_keeps_later_required_positive() {
+        for source in [
+            "function f(first = 1, later?: boolean) { return [first, later]; }",
+            "function f(first = 1, /** @deprecated */ later?: boolean) { return [first, later]; }",
+            "const f = (first = 1, later?: boolean) => [first, later];",
+            "class C { f(first = 1, later?: boolean) { return [first, later]; } }",
+        ] {
+            assert_eq!(filtered(&ts(source), "S1788").len(), 0, "{source}");
+        }
+        for source in [
+            "function f(first = 1, later: boolean) { return [first, later]; }",
+            "function f(first = 1, later?: boolean, last: number) { return [first, later, last]; }",
+        ] {
+            assert_eq!(filtered(&ts(source), "S1788").len(), 1, "{source}");
+        }
     }
 
     #[test]

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "rule": "S5869",
+  "classification": "unresolved_native_unicode_coverage_and_reference_template_inconsistency",
+  "source_commit": "ae44199fbf5d6d3627b6653442aec17b20128c81",
+  "reference_version": "26.9.0.129388",
+  "reference_issues_sha256": "167501840961b2ec2b15bb628bb94712fa23e3ab2da0d0b6fd1f7b3255389237",
+  "reference_scanner_sha256": "ac26bc4eabde63fb6a1336ff96ef87e4c4dd64d59d9e74f0a2a909a37182e8dc",
+  "source_fixture_sha256": "d831f6fd7314c89a04d673ab3c510db0e4320dc5005a156a37aa4135f07bfa13",
+  "runtime_equivalence": {
+    "runtime": "v26.10.0",
+    "pattern_equal": true,
+    "regexp_source_equal": true,
+    "pattern_sha256": "00f0240cce8f9e596595400774d2c3adc90f3382b33952e9a2f04473026de206",
+    "fixture_sha256": "d831f6fd7314c89a04d673ab3c510db0e4320dc5005a156a37aa4135f07bfa13",
+    "matches": [
+      {
+        "input": "",
+        "string_constructor": false,
+        "template_constructor": false
+      },
+      {
+        "input": "A",
+        "string_constructor": false,
+        "template_constructor": false
+      },
+      {
+        "input": "1",
+        "string_constructor": true,
+        "template_constructor": true
+      },
+      {
+        "input": "\ud83d\ude00",
+        "string_constructor": true,
+        "template_constructor": true
+      },
+      {
+        "input": "\ud83e\uddb0",
+        "string_constructor": true,
+        "template_constructor": true
+      },
+      {
+        "input": "\ud83c\udde9\ud83c\uddea",
+        "string_constructor": true,
+        "template_constructor": true
+      },
+      {
+        "input": "\ud83e\uddb0\ud83d\ude00",
+        "string_constructor": true,
+        "template_constructor": true
+      }
+    ]
+  },
+  "observations": {
+    "reference_literal_unicode_findings": 0,
+    "reference_quoted_string_constructor_findings": 0,
+    "reference_template_string_constructor_findings": 1,
+    "reference_template_supporting_locations": 36
+  },
+  "inference": "Reference Unicode-template interpretation is inconsistent across runtime-equivalent string forms. This capture cannot establish the exact Unicode member/flow semantics required to close the four frozen missing observations.",
+  "limitations": [
+    "Native Unicode property class overlap remains unimplemented/unqualified.",
+    "Four frozen Zod primary observations remain missing and are not removed from parity counts.",
+    "A consistent member-level reference contract or independent normative Unicode set qualification is needed.",
+    "No production detector suppression or fixture-specific matching is introduced."
+  ]
+}

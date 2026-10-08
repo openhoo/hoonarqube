@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "rule": "S1788",
+  "scope": "Optional parameters following defaults are compliant; a later required parameter still triggers the default.",
+  "native_base": "5e6af1fc98a7369b8e428bf2754f6237919b6550",
+  "regression": "s1788_allows_optional_after_default_but_keeps_later_required_positive",
+  "red": "Executed first default followed by optional control reports1 instead of0.",
+  "green": "Executed six boundary controls pass, including deprecated optional, arrow/method parameters and optional-then-required.",
+  "reference": {
+    "version": "26.9.0.129388",
+    "source_commit": "42e126bf7e06eec42ddfd91c5da747d694d90e78",
+    "issues_sha256": "3f9405f61256d36d339e1a3218d1ef118e7278b7d7e2761904662fb471ba6b2e",
+    "scanner_sha256": "cb58a22b757374ddeadc1046e6796409fc65c5939cb61d10205a79f36c0c6836",
+    "comparison": {
+      "claim": "selected_rule_primary_message_and_flow_comparison",
+      "rules": [
+        "typescript:S1788"
+      ],
+      "native_findings": 2,
+      "reference_findings": 2,
+      "matched_findings": 2,
+      "native_only": 0,
+      "reference_only": 0,
+      "native_supporting_locations": 0,
+      "reference_supporting_locations": 0,
+      "matched": true,
+      "flow_order": "unordered_flows_ordered_locations",
+      "differences": []
+    }
+  },
+  "evidence": {
+    "s1788-red.log": "9f46361f2a4f74bc34c578a29d9ebbccf0adbbd8d9a1f7ce193b319f59c37dea",
+    "s1788-green.log": "bc19307dd958b495fd27a7ad78aca4937cadae0ce5ce90c35b41a04e17bc59b1",
+    "s1788-controls-native.json": "ca4f585d240c24bc4a97835a1c4abcc19fb56a5c5d0a0a76def34cf0a853a573",
+    "s1788-controls-comparison.json": "1156f4cfb773143419d16bf2f62fbfe55cd25137ce27da0a2a6f18e0152b2e69"
+  },
+  "limitations": [
+    "No default evaluation order or quickfix behavior is changed."
+  ]
+}
