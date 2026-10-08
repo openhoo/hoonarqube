@@ -5,12 +5,13 @@ use crate::support::for_each_stmt;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
 use crate::support::string_value_text;
+use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Pattern;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 
 pub(crate) fn check_constant_conditions(
     index: &LineIndex,
@@ -58,7 +59,7 @@ struct NameEvent<'a> {
 #[derive(Clone, Copy)]
 enum NameEventKind {
     /// Plain `name = <constant>` with exactly one bare-name target.
-    Constant(bool),
+    Constant(bool, TextRange),
     /// Any other bind or unbind: aug-assign, for/with targets, imports,
     /// tuple unpacking, `del`, walrus, annotations, nested definitions.
     OtherBinding,
@@ -177,13 +178,40 @@ fn report_condition_issue(
     if matches!(stmt, Stmt::While(_)) && constant_truth(test).is_some() {
         return;
     }
-    issues.push(issue_at(
+    let mut issue = issue_at(
         "python:S5797",
         "Replace this expression; used as a condition it will always be constant.",
         test.range(),
         index,
         source,
-    ));
+    );
+    issue
+        .flows
+        .extend(constant_assignment_flow(test, facts, index, source));
+    issues.push(issue);
+}
+
+fn constant_assignment_flow(
+    test: &Expr,
+    facts: &ScopeFacts<'_>,
+    index: &LineIndex,
+    source: &str,
+) -> Option<hoonarqube_ir::IssueFlow> {
+    let Expr::Name(name) = test else {
+        return None;
+    };
+    // Called only after successful propagation, which proves this binding
+    // is the sole event in the same block before the condition.
+    let event = facts.events.iter().find(|event| event.name == name.id)?;
+    let NameEventKind::Constant(_, range) = event.kind else {
+        return None;
+    };
+    Some(hoonarqube_ir::IssueFlow {
+        locations: vec![hoonarqube_ir::FlowLocation::in_primary_file(
+            "Last assignment.",
+            to_range(range, index, source),
+        )],
+    })
 }
 
 fn condition_truth(test: &Expr, block: u32, pos: usize, facts: &ScopeFacts) -> Option<bool> {
@@ -208,7 +236,7 @@ fn propagated_truth(name: &str, block: u32, pos: usize, facts: &ScopeFacts) -> O
         return None;
     }
     match event.kind {
-        NameEventKind::Constant(truth) if event.block == block && event.pos < pos => Some(truth),
+        NameEventKind::Constant(truth, _) if event.block == block && event.pos < pos => Some(truth),
         _ => None,
     }
 }
@@ -343,7 +371,7 @@ fn for_each_header_binding<'a>(stmt: &'a Stmt, visit: &mut impl FnMut(&'a str, N
 
 fn constant_binding_kind(value: &Expr) -> NameEventKind {
     match constant_truth(value) {
-        Some(truth) => NameEventKind::Constant(truth),
+        Some(truth) => NameEventKind::Constant(truth, value.range()),
         None => NameEventKind::OtherBinding,
     }
 }
@@ -499,10 +527,19 @@ mod tests {
         // Constant `if` conditions stay in scope.
         let flagged = scan("if True:\n    pass\n");
         assert_eq!(findings(&flagged, "python:S5797").len(), 1);
+        assert!(findings(&flagged, "python:S5797")[0].flows.is_empty());
         // A `while` condition constant only through one propagated binding
         // is not the literal idiom and stays flagged.
         let propagated = scan("def spin():\n    entdig = None\n    while entdig:\n        break\n");
-        assert_eq!(findings(&propagated, "python:S5797").len(), 1);
+        let found = findings(&propagated, "python:S5797");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].flows.len(), 1);
+        let assignment = &found[0].flows[0].locations[0];
+        assert_eq!(assignment.message, "Last assignment.");
+        assert_eq!(assignment.range.start.line, 2);
+        assert_eq!(assignment.range.end.line, 2);
+        assert_eq!(assignment.range.start.column, 13);
+        assert_eq!(assignment.range.end.column, 17);
         // A genuinely variable `while` condition is not a finding either.
         let clean = scan("def spin(items):\n    while items:\n        items.pop()\n");
         assert!(findings(&clean, "python:S5797").is_empty());
