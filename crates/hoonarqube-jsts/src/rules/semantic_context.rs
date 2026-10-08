@@ -361,4 +361,101 @@ mod tests {
         }
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn s4623_required_undefined_arguments_are_not_removable() {
+        let Some(package) = std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE") else {
+            return;
+        };
+        let root = std::env::temp_dir().join(format!("hoonarqube-s4623-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let source = "export {};\nfunction requiredUnion(value: number | undefined) { return value; }\nconst requiredGeneric = <T>(value: T) => ({ value });\nfunction requiredAny(value: any) { return value; }\nfunction requiredUnknown(value: unknown) { return value; }\nfunction optional(value?: number) { return value ?? 7; }\nfunction defaulted(value: number = 7) { return value; }\nfunction overloaded(value: undefined): undefined;\nfunction overloaded(value: number): number;\nfunction overloaded(value: number | undefined) { return value; }\nfunction rest(...items: undefined[]) { return items.length; }\nconst values = new Set<string | undefined>();\nvalues.add(undefined);\nvalues.has(undefined);\nvalues.delete(undefined);\nconsole.log(JSON.stringify([requiredUnion(undefined), requiredGeneric(undefined), requiredAny(undefined), requiredUnknown(undefined), overloaded(undefined), rest(undefined), optional(undefined), defaulted(undefined), values.size]));\n";
+        let path = root.join("input.ts");
+        fs::write(&path, source).unwrap();
+        fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"strict":true,"target":"ES2022","module":"CommonJS","noEmit":true},"files":["input.ts"]}"#).unwrap();
+        let config =
+            TypeScriptProjectConfig::new(&root).with_typescript_package(PathBuf::from(&package));
+        let context = ProjectSemanticContext::load(
+            &config,
+            &ProjectSemanticSources::from_pairs(vec![(path.clone(), source.to_owned())]),
+        )
+        .unwrap();
+        assert!(context.is_complete(), "{:?}", context.diagnostics());
+        let analysis = context.analyze_with_context(
+            path.clone(),
+            source,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = analysis
+            .report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S4623")
+            .collect();
+        assert_eq!(
+            findings.len(),
+            2,
+            "Required arguments must not have a diagnostic or deletion action"
+        );
+        let index = crate::support::LineIndex::new(source);
+        for (finding, call, prefix) in [
+            (findings[0], "optional(undefined)", 9_u32),
+            (findings[1], "defaulted(undefined)", 10),
+        ] {
+            let start = u32::try_from(source.find(call).unwrap()).unwrap() + prefix;
+            assert_eq!(
+                finding.range,
+                index.range(oxc_span::Span::new(start, start + 9))
+            );
+            assert_eq!(finding.message, "Remove this redundant \"undefined\".");
+            assert_eq!(finding.alternatives.len(), 1);
+            assert_eq!(
+                finding.alternatives[0].id,
+                "s4623-remove-undefined-argument"
+            );
+        }
+        let edits: Vec<_> = findings
+            .iter()
+            .flat_map(|i| i.alternatives[0].fix.edits.iter())
+            .collect();
+        let projected = hoonarqube_ir::apply_fixes(source, &edits).unwrap();
+        assert_eq!(
+            projected,
+            source
+                .replace("optional(undefined)", "optional()")
+                .replace("defaulted(undefined)", "defaulted()")
+        );
+        let verify = |text: &str| {
+            fs::write(&path, text).unwrap();
+            let output = std::process::Command::new("node").arg("-e").arg("const ts=require(process.argv[1]); const fs=require('fs'); const path=process.argv[2]; const options={strict:true,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,noEmit:true}; const program=ts.createProgram([path],options); if(ts.getPreEmitDiagnostics(program).length)process.exit(1); eval(ts.transpileModule(fs.readFileSync(path,'utf8'),{compilerOptions:options}).outputText);").arg(&package).arg(&path).output().unwrap();
+            assert!(output.status.success(), "{output:?}");
+            output.stdout
+        };
+        let before = verify(source);
+        let after = verify(&projected);
+        assert_eq!(
+            before, after,
+            "Optional/default fixes must preserve runtime output"
+        );
+        let after_context = ProjectSemanticContext::load(
+            &config,
+            &ProjectSemanticSources::from_pairs(vec![(path.clone(), projected.clone())]),
+        )
+        .unwrap();
+        assert!(after_context.is_complete());
+        let after_analysis = after_context.analyze_with_context(
+            path,
+            &projected,
+            JstsLanguage::TypeScript,
+            &AnalyzerOptions::default(),
+        );
+        assert!(
+            !after_analysis
+                .report
+                .issues
+                .iter()
+                .any(|i| i.rule_key == "typescript:S4623")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

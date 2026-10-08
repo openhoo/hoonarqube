@@ -1289,9 +1289,7 @@ function collectQuickfixes(ts, checker, program, sourceFile, config) {
     let eligible = false;
     if (parameter) {
       const declaration = parameter.valueDeclaration || parameter.declarations?.[0];
-      const type = quickfixSymbolType(checker, parameter, node);
-      eligible = Boolean(declaration?.questionToken || declaration?.initializer
-        || quickfixTypeParts(type).some(item => Boolean(item.flags & ts.TypeFlags.Undefined)));
+      eligible = Boolean(declaration?.questionToken || declaration?.initializer);
     }
     // The spelling `undefined` is not proof of the global value: a shadowing
     // parameter or local binding must keep its argument. Only the ambient
