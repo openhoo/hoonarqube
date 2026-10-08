@@ -1,5 +1,5 @@
 function maybe(condition, value) {
   if (condition)
-    render(
-      value);
+    render(value);
+    followUp(value);
 }

@@ -11,7 +11,8 @@ use oxc_ast::ast::{
     ForInStatement, ForOfStatement, ForStatement, Function, FunctionBody, FunctionType,
     IfStatement, ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind,
     LabeledStatement, NewExpression, ReturnStatement, Statement, StaticBlock, SwitchCase,
-    ThrowStatement, VariableDeclaration, VariableDeclarationKind, WhileStatement, WithStatement,
+    TSModuleBlock, ThrowStatement, VariableDeclaration, VariableDeclarationKind, WhileStatement,
+    WithStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -19,8 +20,8 @@ use oxc_ast_visit::walk::{
     walk_expression_statement, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
     walk_function, walk_function_body, walk_if_statement, walk_import_declaration,
     walk_labeled_statement, walk_program, walk_return_statement, walk_statement, walk_static_block,
-    walk_switch_case, walk_throw_statement, walk_variable_declaration, walk_while_statement,
-    walk_with_statement,
+    walk_switch_case, walk_throw_statement, walk_ts_module_block, walk_variable_declaration,
+    walk_while_statement, walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
 use std::collections::HashMap;
@@ -218,6 +219,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     }
 
     fn visit_program(&mut self, it: &oxc_ast::ast::Program<'a>) {
+        self.check_misleading_statement_layout(&it.body);
         self.statement_scopes.push(self.alloc(&it.body).as_slice());
         self.s1199_list_kinds.push(S1199ListKind::Program);
         walk_program(self, it);
@@ -303,6 +305,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     }
 
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
+        self.check_misleading_statement_layout(&it.body);
         let parent_kind = self.s1199_parent_kind(it);
         let fallback = matches!(
             parent_kind,
@@ -374,6 +377,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
     }
 
     fn visit_function_body(&mut self, it: &FunctionBody<'a>) {
+        self.check_misleading_statement_layout(&it.statements);
         let saved_current = self.current_statement_is_if;
         let saved_parent = self.if_parent_is_if;
         self.current_statement_is_if = false;
@@ -388,6 +392,11 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         self.statement_scopes.pop();
         self.if_parent_is_if = saved_parent;
         self.current_statement_is_if = saved_current;
+    }
+
+    fn visit_ts_module_block(&mut self, it: &TSModuleBlock<'a>) {
+        self.check_misleading_statement_layout(&it.body);
+        walk_ts_module_block(self, it);
     }
 
     fn visit_if_statement(&mut self, it: &IfStatement<'a>) {
@@ -532,6 +541,71 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 }
 
 impl StatementCollector<'_, '_> {
+    fn check_misleading_statement_layout(&mut self, statements: &[Statement<'_>]) {
+        for pair in statements.windows(2) {
+            let (top, next) = (&pair[0], &pair[1]);
+            let (body, conditional) = match top {
+                Statement::IfStatement(statement) => (
+                    statement
+                        .alternate
+                        .as_ref()
+                        .unwrap_or(&statement.consequent),
+                    true,
+                ),
+                Statement::ForStatement(statement) => (&statement.body, false),
+                Statement::ForInStatement(statement) => (&statement.body, false),
+                Statement::ForOfStatement(statement) => (&statement.body, false),
+                Statement::WhileStatement(statement) => (&statement.body, false),
+                _ => continue,
+            };
+            if matches!(body, Statement::BlockStatement(_)) {
+                continue;
+            }
+            let top_start = self.sink.index.pos(top.span().start);
+            let top_end = self.sink.index.pos(top.span().end);
+            let body_start = self.sink.index.pos(body.span().start);
+            let body_end = self.sink.index.pos(body.span().end);
+            let next_start = self.sink.index.pos(next.span().start);
+            let adjacent = body_end.line == next_start.line;
+            let piled =
+                body_start.column == next_start.column && body_start.column > top_start.column;
+            let inline_indented =
+                body_start.line == top_end.line && next_start.column > top_start.column;
+            let (included, excluded) = if conditional {
+                ("conditionally", "unconditionally")
+            } else {
+                ("in a loop", "only once")
+            };
+            let description = if adjacent {
+                "This statement will not be executed".to_owned()
+            } else if piled || inline_indented {
+                "This line will not be executed".to_owned()
+            } else {
+                continue;
+            };
+            let first = if piled && !adjacent {
+                let mut last_line = body_start.line;
+                for statement in statements {
+                    let start = self.sink.index.pos(statement.span().start);
+                    let end = self.sink.index.pos(statement.span().end);
+                    if end.line > body_start.line {
+                        if start.column != body_start.column {
+                            break;
+                        }
+                        last_line = end.line;
+                    }
+                }
+                format!(
+                    "first line of this {}-line block",
+                    last_line - body_start.line + 1
+                )
+            } else {
+                "first statement".to_owned()
+            };
+            self.sink.emit_span(RuleScope::Both, "S2681", &format!("{description} {included}; only the {first} will be. The rest will execute {excluded}."), next.span());
+        }
+    }
+
     fn s1199_parent_kind(&self, it: &BlockStatement<'_>) -> Option<S1199ListKind> {
         let statements = self.statement_scopes.last()?;
         let kind = *self.s1199_list_kinds.last()?;
@@ -644,22 +718,13 @@ impl StatementCollector<'_, '_> {
         }
     }
 
-    /// `S121` (unbraced control-structure bodies) and `S2681` (the same
-    /// bodies spanning several lines).
+    /// `S121`: unbraced control-structure bodies.
     fn check_control_structure_body(&mut self, body: &Statement<'_>, message: &str) {
         if matches!(body, Statement::BlockStatement(_)) {
             return;
         }
         self.sink
             .emit_span(RuleScope::Both, "S121", message, body.span());
-        if self.sink.index.covered_lines(body.span()).count() > 1 {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2681",
-                "Put this unbraced statement on one line or use curly braces.",
-                body.span(),
-            );
-        }
     }
 
     /// `S1066`: an `if` whose consequent block holds exactly one `if`
@@ -1103,9 +1168,57 @@ function clean() {
     }
 
     #[test]
+    fn s2681_reports_only_following_statements_with_misleading_layout() {
+        for source in [
+            "if (flag)\n  call(\n    arg);\n",
+            "if (flag)\n  call();\nother();\n",
+            "if (flag) { call(); }\n  other();\n",
+            "if (flag)\n  call();\nelse\n  other(\n    arg);\n",
+        ] {
+            assert_eq!(
+                count_key(&js_keys(source), "javascript:S2681"),
+                0,
+                "{source}"
+            );
+        }
+        for (source, expected_message) in [
+            (
+                "if (flag) call(); other();",
+                "This statement will not be executed conditionally; only the first statement will be. The rest will execute unconditionally.",
+            ),
+            (
+                "if (flag)\n  call();\n  other();",
+                "This line will not be executed conditionally; only the first line of this 2-line block will be. The rest will execute unconditionally.",
+            ),
+            (
+                "if (flag) call();\n  other();",
+                "This line will not be executed conditionally; only the first statement will be. The rest will execute unconditionally.",
+            ),
+            (
+                "while (flag)\n  call();\n  other();",
+                "This line will not be executed in a loop; only the first line of this 2-line block will be. The rest will execute only once.",
+            ),
+        ] {
+            let report = js(source);
+            let target: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S2681")
+                .collect();
+            assert_eq!(target.len(), 1, "{source}");
+            assert_eq!(target[0].message, expected_message);
+            assert_eq!(target[0].range.start.line as usize, source.lines().count());
+            assert_eq!(
+                target[0].range.start.column as usize,
+                source.lines().last().unwrap().find("other").unwrap()
+            );
+        }
+    }
+
+    #[test]
     fn s121_and_s2681_distinguish_braced_else_if_and_unbraced_bodies() {
         let multiline = js_keys("if (a)\n  g(\n    b);\n");
-        assert_eq!(count_key(&multiline, "javascript:S2681"), 1);
+        assert_eq!(count_key(&multiline, "javascript:S2681"), 0);
         assert_eq!(count_key(&multiline, "javascript:S121"), 1);
 
         let oneline = js_keys("if (a) g(b);\n");
@@ -1115,7 +1228,7 @@ function clean() {
         assert_eq!(count_key(&braced, "javascript:S2681"), 0);
         assert_eq!(count_key(&braced, "javascript:S121"), 0);
         let unbraced_else = js_keys("if (a) {\n  f();\n} else\n  g(\n    c);\n");
-        assert_eq!(count_key(&unbraced_else, "javascript:S2681"), 1);
+        assert_eq!(count_key(&unbraced_else, "javascript:S2681"), 0);
         assert_eq!(count_key(&unbraced_else, "javascript:S121"), 1);
 
         // A standard `else if` is itself a braced if statement, not an
@@ -1132,7 +1245,7 @@ function clean() {
 
         let nested_unbraced_else_if =
             js_keys("if (a) {\n  f();\n} else /* keep this comment */ if (b)\n  g(\n    c);\n");
-        assert_eq!(count_key(&nested_unbraced_else_if, "javascript:S2681"), 1);
+        assert_eq!(count_key(&nested_unbraced_else_if, "javascript:S2681"), 0);
         assert_eq!(count_key(&nested_unbraced_else_if, "javascript:S121"), 1);
     }
 
