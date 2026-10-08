@@ -1290,41 +1290,52 @@ pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite>
 /// character classes. Retain each surviving character's original offset.
 fn verbose_regex_units(units: &[RxUnit]) -> Vec<RxUnit> {
     let mut result = Vec::new();
-    let mut escaped = false;
-    let mut in_class = false;
-    let mut comment = false;
+    let mut state = VerboseRegexState::default();
     for unit in units {
-        if comment {
-            if matches!(unit.ch, '\n' | '\r') {
-                comment = false;
-            }
-            continue;
-        }
-        if escaped {
+        if state.keeps(unit.ch) {
             result.push(*unit);
-            escaped = false;
-            continue;
         }
-        if unit.ch == '\\' {
-            escaped = true;
-            result.push(*unit);
-            continue;
-        }
-        if !in_class && unit.ch == '#' {
-            comment = true;
-            continue;
-        }
-        if !in_class && unit.ch.is_ascii_whitespace() {
-            continue;
-        }
-        if unit.ch == '[' {
-            in_class = true;
-        } else if unit.ch == ']' {
-            in_class = false;
-        }
-        result.push(*unit);
     }
     result
+}
+
+#[derive(Default)]
+struct VerboseRegexState {
+    escaped: bool,
+    in_class: bool,
+    comment: bool,
+}
+
+impl VerboseRegexState {
+    fn keeps(&mut self, character: char) -> bool {
+        if self.comment {
+            if matches!(character, '\n' | '\r') {
+                self.comment = false;
+            }
+            return false;
+        }
+        if self.escaped {
+            self.escaped = false;
+            return true;
+        }
+        if character == '\\' {
+            self.escaped = true;
+            return true;
+        }
+        if !self.in_class && character == '#' {
+            self.comment = true;
+            return false;
+        }
+        if !self.in_class && character.is_ascii_whitespace() {
+            return false;
+        }
+        match character {
+            '[' => self.in_class = true,
+            ']' => self.in_class = false,
+            _ => {}
+        }
+        true
+    }
 }
 
 pub(crate) fn regex_node_range(node: &RxNode) -> TextRange {

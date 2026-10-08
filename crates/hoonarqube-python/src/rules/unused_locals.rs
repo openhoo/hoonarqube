@@ -25,27 +25,11 @@ pub(crate) fn check_unused_locals(
     // are exempt in the reference.
     let mut tuple_target_ranges = std::collections::HashSet::new();
     let mut unpacking_target_ranges = std::collections::HashSet::new();
-    for stmt in file_ctx.stmts.iter().copied() {
-        if let Stmt::Assign(assignment) = stmt {
-            for target in &assignment.targets {
-                if matches!(target, Expr::Tuple(_) | Expr::List(_)) {
-                    collect_target_ranges(target, &mut unpacking_target_ranges);
-                }
-            }
-        }
-        let target = match stmt {
-            Stmt::For(node) => Some(node.target.as_ref()),
-            _ => None,
-        };
-        if let Some(ruff_python_ast::Expr::Tuple(_) | ruff_python_ast::Expr::List(_)) = target {
-            let mut names = Vec::new();
-            crate::support::collect_target_names(target.unwrap(), &mut names);
-            for name in names {
-                let _ = name;
-            }
-            collect_target_ranges(target.unwrap(), &mut tuple_target_ranges);
-        }
-    }
+    collect_unpacking_exemptions(
+        &file_ctx.stmts,
+        &mut unpacking_target_ranges,
+        &mut tuple_target_ranges,
+    );
     let mut issues = Vec::new();
     for (scope_idx, scope) in table.scopes.iter().enumerate() {
         // Module-level bindings are the import surface: every name the
@@ -70,6 +54,29 @@ pub(crate) fn check_unused_locals(
         );
     }
     issues
+}
+
+fn collect_unpacking_exemptions(
+    statements: &[&Stmt],
+    unpacking_target_ranges: &mut std::collections::HashSet<TextRange>,
+    tuple_target_ranges: &mut std::collections::HashSet<TextRange>,
+) {
+    for stmt in statements.iter().copied() {
+        if let Stmt::Assign(assignment) = stmt {
+            for target in &assignment.targets {
+                if matches!(target, Expr::Tuple(_) | Expr::List(_)) {
+                    collect_target_ranges(target, unpacking_target_ranges);
+                }
+            }
+        }
+        let target = match stmt {
+            Stmt::For(node) => Some(node.target.as_ref()),
+            _ => None,
+        };
+        if let Some(ruff_python_ast::Expr::Tuple(_) | ruff_python_ast::Expr::List(_)) = target {
+            collect_target_ranges(target.unwrap(), tuple_target_ranges);
+        }
+    }
 }
 
 /// Flags each unused local binding in `scope` that the reference reports.

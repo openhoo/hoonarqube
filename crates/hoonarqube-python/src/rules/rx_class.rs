@@ -101,29 +101,15 @@ fn check_duplicates_in_class(
                 seen_ranges.push((*low, *high));
             }
             RxClassItem::Esc(escape) => {
-                if seen_esc.contains(escape)
-                    || (*escape == RxEscClass::Digit && seen_esc.contains(&RxEscClass::Word))
-                {
-                    let highlighted_escape =
-                        if *escape == RxEscClass::Digit && seen_esc.contains(&RxEscClass::Word) {
-                            &RxEscClass::Word
-                        } else {
-                            escape
-                        };
-                    let symbol = match highlighted_escape {
-                        RxEscClass::Digit => "\\d",
-                        RxEscClass::Word => "\\w",
-                        RxEscClass::Space => "\\s",
-                        _ => return,
+                if seen_esc.contains(escape) || digit_is_covered(*escape, &seen_esc) {
+                    let Some(range) = duplicate_escape_range(*escape, &seen_esc, class, source)
+                    else {
+                        return;
                     };
-                    let relative = source[class.span].find(symbol).unwrap_or(0);
                     push(
                         "python:S5869",
                         "Remove duplicates in this character class.",
-                        TextRange::at(
-                            class.span.start() + TextSize::from(to_u32(relative)),
-                            TextSize::new(2),
-                        ),
+                        range,
                     );
                     return;
                 }
@@ -131,6 +117,34 @@ fn check_duplicates_in_class(
             }
         }
     }
+}
+
+fn digit_is_covered(escape: RxEscClass, seen: &[RxEscClass]) -> bool {
+    escape == RxEscClass::Digit && seen.contains(&RxEscClass::Word)
+}
+
+fn duplicate_escape_range(
+    escape: RxEscClass,
+    seen: &[RxEscClass],
+    class: &RxClass,
+    source: &str,
+) -> Option<TextRange> {
+    let highlighted = if digit_is_covered(escape, seen) {
+        RxEscClass::Word
+    } else {
+        escape
+    };
+    let symbol = match highlighted {
+        RxEscClass::Digit => "\\d",
+        RxEscClass::Word => "\\w",
+        RxEscClass::Space => "\\s",
+        _ => return None,
+    };
+    let relative = source[class.span].find(symbol).unwrap_or(0);
+    Some(TextRange::at(
+        class.span.start() + TextSize::from(to_u32(relative)),
+        TextSize::new(2),
+    ))
 }
 
 fn single_character_class_interior(class: &RxClass, source: &str) -> Option<TextRange> {
