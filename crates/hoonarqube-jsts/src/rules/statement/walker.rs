@@ -6,16 +6,16 @@ use crate::support::{
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    BlockStatement, CallExpression, ContinueStatement, DebuggerStatement, DoWhileStatement,
-    EmptyStatement, ExportAllDeclaration, Expression, ExpressionStatement, ForInStatement,
-    ForOfStatement, ForStatement, Function, FunctionBody, FunctionType, IfStatement,
-    ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind, LabeledStatement,
-    NewExpression, ReturnStatement, Statement, StaticBlock, SwitchCase, ThrowStatement,
-    VariableDeclaration, VariableDeclarationKind, WhileStatement, WithStatement,
+    BlockStatement, CallExpression, CatchClause, ContinueStatement, DebuggerStatement,
+    DoWhileStatement, EmptyStatement, ExportAllDeclaration, Expression, ExpressionStatement,
+    ForInStatement, ForOfStatement, ForStatement, Function, FunctionBody, FunctionType,
+    IfStatement, ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind,
+    LabeledStatement, NewExpression, ReturnStatement, Statement, StaticBlock, SwitchCase,
+    ThrowStatement, VariableDeclaration, VariableDeclarationKind, WhileStatement, WithStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
-    walk_block_statement, walk_do_while_statement, walk_export_all_declaration,
+    walk_block_statement, walk_catch_clause, walk_do_while_statement, walk_export_all_declaration,
     walk_expression_statement, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
     walk_function, walk_function_body, walk_if_statement, walk_import_declaration,
     walk_labeled_statement, walk_program, walk_return_statement, walk_statement, walk_static_block,
@@ -48,6 +48,7 @@ fn check_statement_rules(
         strict_scopes: Vec::new(),
         current_statement_is_if: false,
         if_parent_is_if: false,
+        empty_catch_body: None,
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -90,6 +91,7 @@ struct StatementCollector<'a, 'index> {
     /// Tracks whether the current `statement` is a direct child of an if.
     current_statement_is_if: bool,
     if_parent_is_if: bool,
+    empty_catch_body: Option<Span>,
 }
 
 /// One `import` declaration's `S3863` grouping key plus its report span.
@@ -294,6 +296,12 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
             .emit_span(RuleScope::Both, "S1116", "Unnecessary semicolon.", it.span);
     }
 
+    fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
+        let previous = self.empty_catch_body.replace(it.body.span);
+        walk_catch_clause(self, it);
+        self.empty_catch_body = previous;
+    }
+
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
         let parent_kind = self.s1199_parent_kind(it);
         let fallback = matches!(
@@ -313,7 +321,7 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         if let Some(parent_kind) = parent_kind {
             self.s1199_candidates.push((it.span(), parent_kind));
         }
-        if it.body.is_empty() {
+        if it.body.is_empty() && self.empty_catch_body != Some(it.span) {
             self.check_empty_block(it);
         }
         self.s1199_active_blocks.push(it.span());
@@ -1152,6 +1160,38 @@ function clean() {
             "import type { A } from './a';\nimport type { B } from './b';\nimport type { C } from './a';\n",
         );
         assert_eq!(count_key(&nonadjacent, "typescript:S3863"), 2);
+    }
+
+    #[test]
+    fn s108_allows_empty_catches_but_keeps_empty_conditional_blocks() {
+        let report = js("try { work(); other(); } catch (error) {}\nif (condition) {}\n");
+        let empty_blocks: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S108")
+            .collect();
+        assert_eq!(empty_blocks.len(), 1);
+        assert_eq!(empty_blocks[0].range.start.line, 2);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.rule_key == "javascript:S2486")
+        );
+        assert_eq!(
+            count_key(
+                &ts_keys("try { work(); } catch (_error: unknown) {}"),
+                "typescript:S108"
+            ),
+            0
+        );
+        assert_eq!(
+            count_key(
+                &js_keys("try { work(); } catch (error) { if (condition) {} }"),
+                "javascript:S108"
+            ),
+            1
+        );
     }
 
     #[test]
