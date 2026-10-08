@@ -1704,6 +1704,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
   const assertions = [];
   const nullish = [];
   const usages = [];
+  const promise_usages = [];
   const source = sourceFile.text;
   const strictNullChecks = config.options.strictNullChecks === true
     || (config.options.strict === true && config.options.strictNullChecks !== false);
@@ -1798,7 +1799,43 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     return { info, ok: objectOrNullishTypeInfo(info, checker, type) };
   };
 
+  function hasOpaqueType(type) {
+    return !type || (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter | ts.TypeFlags.Never)) !== 0;
+  }
+  function mayBeThenable(type, node) {
+    if (hasOpaqueType(type)) return true;
+    if (type.isUnion?.()) return type.types.some(part => mayBeThenable(part, node));
+    const then = checker.getPropertyOfType(type, 'then');
+    if (!then) return false;
+    const thenType = checker.getTypeOfSymbolAtLocation(then, node);
+    const parts = thenType.isUnion?.() ? thenType.types : [thenType];
+    return parts.some(part => hasOpaqueType(part) || checker.getSignaturesOfType(part, ts.SignatureKind.Call).length > 0);
+  }
+
   function visit(node, parent) {
+    if (ts.isAwaitExpression(node)) {
+      const type = checker.getTypeAtLocation(node.expression);
+      if (!mayBeThenable(type, node)) promise_usages.push({ span: span(source, node), kind: 'await' });
+    }
+    if (ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'all'
+      && node.arguments.length === 1
+      && ts.isIdentifier(node.expression.expression)
+      && node.expression.expression.text === 'Promise'
+      && quickfixDefaultLibraryValue(ts, checker, program, sourceFile, node.expression.expression, 'Promise')) {
+      const argument = node.arguments[0];
+      const type = checker.getTypeAtLocation(argument);
+      let elements = [];
+      if (checker.isTupleType(type)) elements = checker.getTypeArguments(type);
+      else if (checker.isArrayType(type)) {
+        const element = checker.getIndexTypeOfType(type, ts.IndexKind.Number);
+        if (element) elements = element.isUnion?.() ? element.types : [element];
+      }
+      if (elements.some(element => !mayBeThenable(element, argument))) {
+        promise_usages.push({ span: span(source, argument), kind: 'all' });
+      }
+    }
     if (ts.isIdentifier(node) || ts.isPrivateIdentifier?.(node)) {
       let symbol;
       try { symbol = checker.getSymbolAtLocation(node); } catch { symbol = undefined; }
@@ -1992,7 +2029,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     }
   }
 
-  return { deprecated, assertions, nullish, usages, quickfixes, ...collectCoercionFacts(ts, checker, sourceFile) };
+  return { deprecated, assertions, nullish, usages, quickfixes, promise_usages, ...collectCoercionFacts(ts, checker, sourceFile) };
 }
 
 function moduleKind(ts, sourceFile) {

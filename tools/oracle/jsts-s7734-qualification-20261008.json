@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "cee6b061432dfdd058527169fab740e2d79e63b0",
+  "native_binary_sha256": "33137bc0740393c3eddd8a49c378e88d73656e95a912a694d576054946c87c43",
+  "rules": [
+    "S7734",
+    "S7763"
+  ],
+  "checks": {
+    "tests": 1382,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "existing_s7763_controls": 10,
+    "local_dogfood_S3776": 0,
+    "regression": "s7734_distinguishes_namespace_default_aliases_from_reexports",
+    "red": "Executed regression found zero S7734 issues instead of one on namespace named default alias.",
+    "green": "Exact S7734 message and alias span in JS/TS; normal namespace re-export remains S7763; namespace with local usage retains default-syntax diagnostic without re-export suggestion; dedicated default export stays clean."
+  },
+  "reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+    "basis": "Three frozen Zod namespace default alias specifiers have S7734 with the default-export-specific message, replacing native S7763 at the same spans."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 684,
+    "reference_total": 594,
+    "matched": 580,
+    "native_only": 104,
+    "reference_only": 14,
+    "complete": true,
+    "files": 125,
+    "before_matched": 577,
+    "before_native_only": 107,
+    "before_reference_only": 17,
+    "target_primary_messages_exact": 3,
+    "report_sha256": "552188baaf13e5de77eb28f202409a1870941789cbb75ce1a5af847e2699a174",
+    "baseline_report_sha256": "04932977b8366ca1ad75785a1aa782d01fa179a68792d5fd9d4cca22a333dd86",
+    "full_all_rule_primary_delta": {
+      "removed_S7763": 3,
+      "added_S7734": 3,
+      "locations_identical": true,
+      "other_changes": 0
+    },
+    "removed_identities": [
+      {
+        "identity": [
+          "typescript:S7763",
+          "packages/zod/src/index.ts",
+          7,
+          12,
+          7,
+          24
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S7763",
+          "packages/zod/src/v4/classic/index.ts",
+          5,
+          12,
+          5,
+          24
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S7763",
+          "packages/zod/src/v4/index.ts",
+          4,
+          9,
+          4,
+          22
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "added_identities": [
+      {
+        "identity": [
+          "typescript:S7734",
+          "packages/zod/src/index.ts",
+          7,
+          12,
+          7,
+          24
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S7734",
+          "packages/zod/src/v4/classic/index.ts",
+          5,
+          12,
+          5,
+          24
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S7734",
+          "packages/zod/src/v4/index.ts",
+          4,
+          9,
+          4,
+          22
+        ],
+        "multiplicity": 1
+      }
+    ]
+  },
+  "limitations": [
+    "Coverage is restricted to imported namespace bindings exported through named default specifiers; other S7734 named-default import/export forms are not claimed.",
+    "No new reference scan or quickfix qualification; existing frozen source and captured active rule descriptions used.",
+    "Fourteen existing reference-only identities and 104 other native-only observations remain unresolved."
+  ]
+}

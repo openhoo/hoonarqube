@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-08",
+  "source_head": "ac874c7fd6fc7b1ff313dfde595f8d6217c70dfb",
+  "binary_sha256": "d5cdf7c21928230d7902eb0f52ea5c7a432169446c4c7940aa185a2b13d1ddf8",
+  "reference_version": "26.9.0.129388",
+  "projects": {
+    "requests": {
+      "project_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "src/requests",
+        "--format",
+        "json",
+        "--python-project",
+        "src"
+      ],
+      "complete": true,
+      "files": 19,
+      "active_rules": 398,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 77,
+        "reference_total": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 77,
+        "reference": 77,
+        "matched": 77,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "report_sha256": "213cea1e16497c1a07f58e2a11dc317e9504a9458d6ab164ab6ed4311891ebde",
+      "reference_sha256": "6c9c8757abb1eb19332a9d75b16a5ca037e7445d8736b1ed8d5890cd357a0f1c",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 77,
+        "reference_findings": 77,
+        "matched_findings": 77,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 243,
+        "reference_supporting_locations": 243,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "werkzeug-python": {
+      "project_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "src/werkzeug",
+        "--format",
+        "json",
+        "--python-project",
+        "src",
+        "--exclude",
+        "**/*.css"
+      ],
+      "complete": true,
+      "files": 53,
+      "active_rules": 398,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 230,
+        "reference_total": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 230,
+        "reference": 230,
+        "matched": 230,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 32,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 0.14703855167026605
+      },
+      "report_sha256": "9e1ee7e870ed67d562226e46a64351d919738758ec4fc6066916b65e4c293750",
+      "reference_sha256": "ef367d964f28a0bc0dc05c524040b53d44d3e427e0e8d283704c3bc25c3bb235",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 230,
+        "reference_findings": 230,
+        "matched_findings": 230,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 990,
+        "reference_supporting_locations": 990,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "commander": {
+      "project_commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "index.js",
+        "lib",
+        "--format",
+        "json",
+        "--typescript-project",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/commander-tsconfig.json",
+        "--typescript-module",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/compiler/node_modules/typescript"
+      ],
+      "complete": true,
+      "files": 7,
+      "active_rules": 420,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 46,
+        "reference_total": 36,
+        "matched": 36,
+        "native_only": 10,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 46,
+        "reference": 36,
+        "matched": 36,
+        "native_only": 10,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 0,
+        "duplicated_blocks": 0,
+        "duplicated_files": 0,
+        "duplicated_lines_density": 0.0
+      },
+      "report_sha256": "364eb4593293d1c2937f4bf1349004a512333c3b64d66ee948be9bb8aa2efcae",
+      "reference_sha256": "567371382795bd112d968d2474d62a3b6114a93d20fd9ef3ec0802bc9b10ad7f",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 46,
+        "reference_findings": 36,
+        "matched_findings": 33,
+        "native_only": 13,
+        "reference_only": 3,
+        "native_supporting_locations": 0,
+        "reference_supporting_locations": 61,
+        "matched": false,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "chi": {
+      "project_commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        ".",
+        "--format",
+        "json",
+        "--exclude",
+        "**/*_test.go",
+        "--exclude",
+        "_examples/**"
+      ],
+      "complete": true,
+      "files": 35,
+      "active_rules": 22,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 14,
+        "reference_total": 14,
+        "matched": 14,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "exact_range_and_message": {
+        "native": 14,
+        "reference": 14,
+        "matched": 14,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "duplication": {
+        "duplicated_lines": 56,
+        "duplicated_blocks": 2,
+        "duplicated_files": 1,
+        "duplicated_lines_density": 1.2626832018038332
+      },
+      "report_sha256": "01168959e4208ed910059e8cb675cbcce3d5d58af60f1957e808493dc365a44e",
+      "reference_sha256": "105e970344689232ddc803a246fd1f827c764714b0b09ba61cf8689a6f45afc7",
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 14,
+        "reference_findings": 14,
+        "matched_findings": 14,
+        "native_only": 0,
+        "reference_only": 0,
+        "native_supporting_locations": 129,
+        "reference_supporting_locations": 129,
+        "matched": true,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    },
+    "zod": {
+      "project_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "source_hashes_verified": true,
+      "command": [
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/core-target/debug/hoonarqube",
+        "analyze",
+        "packages/zod/src",
+        "--format",
+        "json",
+        "--typescript-project",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/projects/zod/tsconfig.json",
+        "--typescript-module",
+        "/Users/wakemeup/.codex/artifacts/hoonarqube-parity-20261007/remaining/jsts/compiler/node_modules/typescript",
+        "--exclude",
+        "**/tests/**",
+        "--exclude",
+        "**/benchmarks/**"
+      ],
+      "complete": true,
+      "files": 125,
+      "active_rules": 435,
+      "identity_comparison": {
+        "claim": "observed_identity_differences",
+        "native_total": 698,
+        "reference_total": 594,
+        "matched": 577,
+        "native_only": 121,
+        "reference_only": 17
+      },
+      "exact_range_and_message": {
+        "native": 698,
+        "reference": 594,
+        "matched": 568,
+        "native_only": 130,
+        "reference_only": 26
+      },
+      "duplication": {
+        "duplicated_lines": 5084,
+        "duplicated_blocks": 1130,
+        "duplicated_files": 68,
+        "duplicated_lines_density": 13.431968295904886
+      },
+      "report_sha256": "d85b03993c3e2e98488420daf2038c146ca6ba8923ca1d2b0307d0a49374b2d7",
+      "reference_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+      "clone_relations": {
+        "claim": "clone_relation_file_and_inclusive_line_multiset",
+        "native_groups": 70,
+        "reference_groups": 70,
+        "matched_groups": 70,
+        "native_only": [],
+        "reference_only": [],
+        "matched": true
+      },
+      "flows": {
+        "claim": "selected_rule_primary_message_and_flow_comparison",
+        "native_findings": 698,
+        "reference_findings": 594,
+        "matched_findings": 435,
+        "native_only": 263,
+        "reference_only": 159,
+        "native_supporting_locations": 0,
+        "reference_supporting_locations": 2644,
+        "matched": false,
+        "flow_order": "unordered_flows_ordered_locations"
+      }
+    }
+  },
+  "build_source_head": "8fed7fe0424187c17c1d013b05986ac6e361da96",
+  "source_head_note": "Report capture at ac874c7 adds only the frozen C# receipt to the executable build source; compiled source unchanged.",
+  "checks": {
+    "jsts_tests": 1380,
+    "python_tests": 1299,
+    "clippy_all_targets": "PASS with warnings denied",
+    "format": "PASS",
+    "ruff_extended_and_format": "PASS",
+    "oracle_tests": {
+      "passed": 179,
+      "source": "Executed 179/179 at package3; oracle executable/test sources unchanged by package4."
+    },
+    "pinned_dogfood": {
+      "version": "0.3.1",
+      "files": 1480,
+      "rust_S3776": 0
+    },
+    "current_python_quickfix": {
+      "pass": 16,
+      "result_sha256": "ebe9e87a347d4de1f80d4f162463ffa6856651ef8d20244daa1bf3482d411cfe"
+    }
+  },
+  "csharp_frozen_replay": {
+    "receipt": "package3-csharp-qualification-20261008.json",
+    "applications": 60,
+    "pass": 38,
+    "safety_refused": 9,
+    "raw_fail": 13,
+    "raw_fail_classification": {
+      "missing_frozen_provenance": 11,
+      "independent_regression_guards": 2
+    },
+    "unavailable": 0,
+    "binary_sha256": "a2767852b6c7e078081a108d37708f0d658e58c7c7e853aded46a7ea494d43df",
+    "scope": "Frozen package3 executable; this package changes no C# production source."
+  },
+  "limitations": [
+    "17 remaining Zod missing primary identities and 121 active native-only observations require independent classification.",
+    "JavaScript/TypeScript supporting metadata, message differences and compiler rendering boundaries remain distinct.",
+    "Security hotspot parity requires separate reference capture.",
+    "17 licensed C# rules require licensed reference server; eleven historical applications depend on ten missing frozen proof artifacts.",
+    "Historical raw failures are preserved; successful safety refusal does not become successful application parity."
+  ]
+}

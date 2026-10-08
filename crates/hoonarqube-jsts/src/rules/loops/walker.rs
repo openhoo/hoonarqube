@@ -9,12 +9,12 @@ use crate::support::{
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, BinaryOperator, BreakStatement, CallExpression,
-    ComputedMemberExpression, ContinueStatement, DoWhileStatement, Expression, ForInStatement,
-    ForOfStatement, ForStatement, ForStatementInit, Function, IdentifierReference,
-    MethodDefinition, ReturnStatement, Statement, StaticBlock, SwitchCase, ThisExpression,
-    ThrowStatement, UnaryExpression, UnaryOperator, UpdateExpression, UpdateOperator,
-    VariableDeclarationKind, VariableDeclarator, WhileStatement,
+    ArrowFunctionExpression, AssignmentExpression, AssignmentOperator, BinaryOperator,
+    BreakStatement, CallExpression, ComputedMemberExpression, ContinueStatement, DoWhileStatement,
+    Expression, ForInStatement, ForOfStatement, ForStatement, ForStatementInit, Function,
+    IdentifierReference, MethodDefinition, ReturnStatement, Statement, StaticBlock, SwitchCase,
+    ThisExpression, ThrowStatement, UnaryExpression, UnaryOperator, UpdateExpression,
+    UpdateOperator, VariableDeclarationKind, VariableDeclarator, WhileStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -274,7 +274,7 @@ impl<'a> LoopFlowCollector<'a, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S4138",
-                "Expected a \"for-of\" loop instead of a \"for\" loop with this simple iteration.",
+                "Expected a `for-of` loop instead of a `for` loop with this simple iteration.",
                 it.span(),
             );
         }
@@ -610,7 +610,8 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
     }
 
     fn visit_assignment_expression(&mut self, it: &AssignmentExpression<'a>) {
-        if let Some(name) = assignment_target_name(&it.left)
+        if it.operator == AssignmentOperator::Assign
+            && let Some(name) = assignment_target_name(&it.left)
             && self.inside_counter_scope(name)
         {
             self.sink.emit_span(
@@ -621,19 +622,6 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             );
         }
         walk_assignment_expression(self, it);
-    }
-
-    fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
-        if let Some(name) = update_target_name(it)
-            && self.inside_counter_scope(name)
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2310",
-                &format!("Remove this assignment of \"{name}\"."),
-                it.argument.span(),
-            );
-        }
     }
 
     fn visit_for_statement(&mut self, it: &ForStatement<'a>) {
@@ -939,15 +927,27 @@ mod tests {
     }
 
     #[test]
-    fn s2310_flags_counter_writes_inside_loop_body() {
+    fn s2310_flags_simple_assignment_but_allows_counter_updates() {
         let assigned = js_keys("for (let i = 0; i < n; i++) {\n  i = 5;\n}\n");
         assert_eq!(count_key(&assigned, "javascript:S2310"), 1);
 
         let updated = js_keys("for (let i = 0; i < n; i++) {\n  i++;\n}\n");
-        assert_eq!(count_key(&updated, "javascript:S2310"), 1);
+        assert_eq!(count_key(&updated, "javascript:S2310"), 0);
 
         let other_variable = js_keys("for (let i = 0; i < n; i++) {\n  j = 5;\n}\n");
         assert_eq!(count_key(&other_variable, "javascript:S2310"), 0);
+    }
+
+    #[test]
+    fn s2310_allows_surrogate_and_opcode_consumption_updates() {
+        let surrogate = js_keys(
+            "for (let i = 0; i < value.length; i++) {\n  if (value.charCodeAt(i) >= 0xD800 && value.charCodeAt(i) <= 0xDBFF) { i++; }\n}\n",
+        );
+        assert_eq!(count_key(&surrogate, "javascript:S2310"), 0);
+        let opcode = js_keys(
+            "for (let i = 0; i < codes.length; i++) {\n  if (codes[i] > 0) { consume(codes[++i], codes[++i]); }\n}\n",
+        );
+        assert_eq!(count_key(&opcode, "javascript:S2310"), 0);
     }
 
     #[test]
@@ -1084,9 +1084,9 @@ mod tests {
     }
 
     #[test]
-    fn s2310_compound_assignment_to_counter_flags_other_target_passes() {
+    fn s2310_allows_compound_skip_ahead_and_other_target_updates() {
         let compound = js_keys("for (let i = 0; i < n; i++) {\n  i += 2;\n}\n");
-        assert_eq!(count_key(&compound, "javascript:S2310"), 1);
+        assert_eq!(count_key(&compound, "javascript:S2310"), 0);
 
         let other_target =
             js_keys("let total = 0;\nfor (let i = 0; i < n; i++) {\n  total += i;\n}\n");

@@ -10,9 +10,9 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, BindingPattern, CallExpression, Class,
-    ExportSpecifier, Expression, FormalParameter, Function, FunctionBody, ImportSpecifier,
-    MethodDefinition, MethodDefinitionKind, ObjectProperty, Statement, TSInterfaceDeclaration,
-    TSSignature, VariableDeclarator,
+    ClassElement, ExportSpecifier, Expression, FormalParameter, Function, FunctionBody,
+    ImportSpecifier, MethodDefinition, MethodDefinitionKind, ObjectProperty, Statement,
+    TSInterfaceDeclaration, TSSignature, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -146,18 +146,6 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 
     fn visit_object_property(&mut self, it: &ObjectProperty<'a>) {
-        if !it.shorthand
-            && let (Some(key), Expression::Identifier(value)) =
-                (property_key_name(&it.key), &it.value)
-            && key == value.name.as_str()
-        {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6650",
-                "Remove this redundant renaming.",
-                it.span(),
-            );
-        }
         self.check_credential_pair(property_key_name(&it.key), Some(&it.value));
         self.check_undefined_value(&it.value);
         walk_object_property(self, it);
@@ -180,13 +168,26 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 
     fn visit_class(&mut self, it: &Class<'a>) {
-        if it.body.body.is_empty() {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2094",
-                "Remove or implement this empty class.",
-                it.span(),
-            );
+        if it.heritage.is_none() {
+            let message = if it.body.body.is_empty() {
+                Some("Unexpected empty class.")
+            } else if let [ClassElement::MethodDefinition(constructor)] = it.body.body.as_slice()
+                && constructor.kind == MethodDefinitionKind::Constructor
+                && !constructor
+                    .value
+                    .params
+                    .items
+                    .iter()
+                    .any(FormalParameter::has_modifier)
+            {
+                Some("Unexpected class with only a constructor.")
+            } else {
+                None
+            };
+            if let Some(message) = message {
+                let span = it.id.as_ref().map_or(it.span(), GetSpan::span);
+                self.sink.emit_span(RuleScope::Both, "S2094", message, span);
+            }
         }
         walk_class(self, it);
     }
@@ -225,12 +226,8 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
                 .iter()
                 .any(FormalParameter::has_modifier)
         {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S6647",
-                "Remove this constructor or add its logic.",
-                it.span(),
-            );
+            self.sink
+                .emit_span(RuleScope::Both, "S6647", "Useless constructor.", it.span());
         }
         if it.r#override {
             self.override_depth += 1;
@@ -602,6 +599,38 @@ export { Model };
     }
 
     #[test]
+    fn s6650_distinguishes_object_literals_from_binding_renames() {
+        let literal = "const alpha = 1;\nconst literal = { alpha: alpha, ['alpha']: alpha, nested: { alpha: alpha } };\n";
+        let renames = "import { imported as imported } from 'module';\nconst { alpha: alpha } = input;\nexport { alpha as alpha };\n";
+        let aliases = "import { first as renamed } from 'module';\nconst { before: after } = input;\nexport { after as published };\n";
+        for language in [JstsLanguage::JavaScript, JstsLanguage::TypeScript] {
+            let literal_report = findings(literal, language);
+            let rule = format!("{}:S6650", language.prefix());
+            assert_eq!(
+                count_key(&literal_report, &rule),
+                0,
+                "object literal {language:?}"
+            );
+            let rename_report = findings(renames, language);
+            assert_eq!(
+                count_key(&rename_report, &rule),
+                3,
+                "binding renames {language:?}"
+            );
+            let alias_report = findings(aliases, language);
+            assert_eq!(
+                count_key(&alias_report, &rule),
+                0,
+                "distinct aliases {language:?}"
+            );
+        }
+        // Object-property traversal still visits values and nested classes.
+        let nested = js("const literal = { Empty: class {}, missing: undefined };\n");
+        assert_eq!(count_key(&report_keys(&nested), "javascript:S2094"), 1);
+        assert_eq!(count_key(&report_keys(&nested), "javascript:S2138"), 1);
+    }
+
+    #[test]
     fn s6650_flags_import_and_export_renames_aliasing_passes() {
         let import_rename = js_keys("import { alpha as alpha } from 'm';\n");
         assert_eq!(count_key(&import_rename, "javascript:S6650"), 1);
@@ -643,6 +672,63 @@ export { Model };
         let typescript = ts_keys("let normalName = 4;\n");
         assert_eq!(count_key(&typescript, "typescript:S1527"), 0);
         assert_eq!(count_key(&typescript, "typescript:S2137"), 0);
+    }
+
+    #[test]
+    fn s2094_reports_abstract_class_with_only_empty_constructor() {
+        let report = ts("abstract class Empty {\n  constructor(...values: any[]) {}\n}\n");
+        let target: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S2094"))
+            .collect();
+        assert_eq!(target.len(), 1);
+        assert_eq!(target[0].range.start, pos(1, 15));
+        assert_eq!(target[0].range.end, pos(1, 20));
+        assert_eq!(
+            target[0].message,
+            "Unexpected class with only a constructor."
+        );
+        for source in [
+            "class Empty { constructor() { work(); } }",
+            "class Empty { constructor() { /* marker */ } }",
+        ] {
+            let report = ts(source);
+            let target: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2094"))
+                .collect();
+            assert_eq!(target.len(), 1);
+            assert_eq!(
+                target[0].message,
+                "Unexpected class with only a constructor."
+            );
+        }
+        for source in ["class Empty { /* marker */ }", "class Empty {}"] {
+            let report = ts(source);
+            let target: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2094"))
+                .collect();
+            assert_eq!(target.len(), 1);
+            assert_eq!(target[0].message, "Unexpected empty class.");
+        }
+        for source in [
+            "class Derived extends Base {}",
+            "class Derived extends Base { constructor() { super(); } }",
+            "class Populated { constructor(public value: number) {} }",
+            "class Populated { value = 1; constructor() {} }",
+        ] {
+            assert!(
+                ts(source)
+                    .issues
+                    .iter()
+                    .all(|issue| !issue.rule_key.ends_with(":S2094")),
+                "{source}"
+            );
+        }
     }
 
     #[test]

@@ -228,6 +228,8 @@ pub struct SemanticFileFacts {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SemanticFacts {
     #[serde(default)]
+    pub promise_usages: Vec<PromiseUsageFact>,
+    #[serde(default)]
     pub at_receivers: Vec<AtReceiverFact>,
     #[serde(default)]
     pub stringifications: Vec<StringificationFact>,
@@ -241,6 +243,12 @@ pub struct SemanticFacts {
     pub usages: Vec<SymbolUsageFact>,
     #[serde(default)]
     pub quickfixes: Vec<SemanticQuickfixFact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromiseUsageFact {
+    pub span: SemanticSpan,
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -484,6 +492,7 @@ fn validate_quickfix_facts(
         .iter()
         .map(|f| &f.span)
         .chain(facts.stringifications.iter().map(|f| &f.span))
+        .chain(facts.promise_usages.iter().map(|f| &f.span))
     {
         if !valid_semantic_span(source, span) {
             diagnostics.push(SemanticDiagnostic {

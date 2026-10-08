@@ -5650,3 +5650,46 @@ fn current_reference_messages_include_binding_names_and_alias_guidance() {
         assert_eq!(found[0].message, message, "{key}");
     }
 }
+
+#[test]
+fn s5869_supporting_locations_retain_additional_duplicate_member_spans() {
+    for (source, expected) in [
+        (
+            r#"import re
+value = re.compile(r"[\w\d_.]")
+"#,
+            vec![r"\d", "_"],
+        ),
+        (
+            r#"import re
+value = re.compile(r"[a\u0061a]")
+"#,
+            vec![r"\u0061", "a"],
+        ),
+    ] {
+        let report = scan(source);
+        let issues = findings(&report, "python:S5869");
+        assert_eq!(issues.len(), 1);
+        let line = source.lines().nth(1).unwrap();
+        let actual: Vec<_> = issues[0]
+            .flows
+            .iter()
+            .map(|flow| {
+                assert_eq!(flow.locations.len(), 1);
+                let location = &flow.locations[0];
+                assert_eq!(location.message, "Additional duplicate");
+                assert_eq!(location.range.start.line, 2);
+                assert_eq!(location.range.end.line, 2);
+                &line[location.range.start.column as usize..location.range.end.column as usize]
+            })
+            .collect();
+        assert_eq!(actual, expected);
+    }
+    assert!(
+        findings(
+            &scan("import re\nvalue = re.compile(r'[abc]')\n"),
+            "python:S5869"
+        )
+        .is_empty()
+    );
+}

@@ -167,11 +167,18 @@ fn rx_item_equivalent(left: &RxItem, right: &RxItem) -> bool {
         }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub(crate) struct RxClass {
     pub(crate) negated: bool,
     pub(crate) items: Vec<RxClassItem>,
+    pub(crate) member_spans: Vec<TextRange>,
     pub(crate) span: TextRange,
+}
+
+impl PartialEq for RxClass {
+    fn eq(&self, other: &Self) -> bool {
+        self.negated == other.negated && self.items == other.items && self.span == other.span
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -945,6 +952,7 @@ impl<'a> RxParser<'a> {
             false
         };
         let mut items = Vec::new();
+        let mut member_spans = Vec::new();
         let mut first = true;
         loop {
             let Some(unit) = self.peek() else {
@@ -955,21 +963,28 @@ impl<'a> RxParser<'a> {
                 break;
             }
             first = false;
-            self.parse_class_item(&mut items)?;
+            self.parse_class_item(&mut items, &mut member_spans)?;
         }
         let end = self.consumed_end(start);
         Ok(RxClass {
             negated,
             items,
+            member_spans,
             span: TextRange::new(start, end),
         })
     }
 
     /// One class member, including `-range-` composition.
-    fn parse_class_item(&mut self, items: &mut Vec<RxClassItem>) -> RxResult<()> {
+    fn parse_class_item(
+        &mut self,
+        items: &mut Vec<RxClassItem>,
+        spans: &mut Vec<TextRange>,
+    ) -> RxResult<()> {
+        let start = self.peek().map_or(TextSize::new(0), |unit| unit.at);
         let element = self.parse_class_element()?;
         let RxClassItem::Char(low) = element else {
             items.push(element);
+            spans.push(TextRange::new(start, self.consumed_end(start)));
             return Ok(());
         };
         let dashes = self.peek().is_some_and(|u| u.ch == '-')
@@ -979,6 +994,7 @@ impl<'a> RxParser<'a> {
             match self.parse_class_element()? {
                 RxClassItem::Char(high) if high >= low => {
                     items.push(RxClassItem::Range(low, high));
+                    spans.push(TextRange::new(start, self.consumed_end(start)));
                 }
                 _ => {
                     return Err(self.err_at(self.peek()));
@@ -986,11 +1002,13 @@ impl<'a> RxParser<'a> {
             }
         } else {
             items.push(RxClassItem::Char(low));
+            spans.push(TextRange::new(start, self.consumed_end(start)));
             if self.peek().is_some_and(|u| u.ch == '-')
                 && self.peek_second().is_some_and(|u| u.ch == ']')
             {
-                self.bump();
+                let dash = self.bump().expect("checked trailing dash");
                 items.push(RxClassItem::Char('-'));
+                spans.push(TextRange::new(dash.at, self.consumed_end(dash.at)));
             }
         }
         Ok(())
@@ -1939,4 +1957,91 @@ fn rx_item_complexity(item: &RxItem, level: u32) -> u32 {
         cost += rx_complexity(&group.body, inner_level);
     }
     cost
+}
+
+/// Source-backed explanations of the existing complexity score. Distinct
+/// contributions are independent secondary locations, not one execution path.
+pub(crate) fn rx_complexity_contributions(
+    parsed: &RxParsed,
+    units: &[RxUnit],
+    content_end: TextSize,
+) -> Vec<(TextRange, u32)> {
+    let source = RxComplexitySource {
+        units,
+        backrefs: &parsed.backrefs,
+        content_end,
+    };
+    let mut contributions = Vec::new();
+    source.visit_node(&parsed.root, 1, &mut contributions);
+    contributions
+}
+
+struct RxComplexitySource<'a> {
+    units: &'a [RxUnit],
+    backrefs: &'a [RxBackrefRecord],
+    content_end: TextSize,
+}
+
+impl RxComplexitySource<'_> {
+    fn visit_node(&self, node: &RxNode, level: u32, out: &mut Vec<(TextRange, u32)>) {
+        match node {
+            RxNode::Alternation(branches) => {
+                for (position, branch) in branches.iter().take(branches.len() - 1).enumerate() {
+                    out.push((
+                        TextRange::at(branch.span.end(), TextSize::new(1)),
+                        if position == 0 { level } else { 1 },
+                    ));
+                }
+                for branch in branches {
+                    self.visit_sequence(branch, level + 1, out);
+                }
+            }
+            RxNode::Seq(seq) => self.visit_sequence(seq, level, out),
+        }
+    }
+
+    fn visit_sequence(&self, seq: &RxSeq, level: u32, out: &mut Vec<(TextRange, u32)>) {
+        for item in &seq.items {
+            if let Some(quantifier) = &item.quant {
+                // The reference quantifier token consumes extended-mode
+                // trivia up to the next retained regex character.
+                let next = self
+                    .units
+                    .partition_point(|unit| unit.at < quantifier.span.end());
+                let end = self
+                    .units
+                    .get(next)
+                    .map_or(self.content_end, |unit| unit.at);
+                out.push((TextRange::new(quantifier.span.start(), end), level));
+            }
+            self.visit_atom(item, level, out);
+        }
+    }
+
+    fn visit_atom(&self, item: &RxItem, level: u32, out: &mut Vec<(TextRange, u32)>) {
+        match &item.atom {
+            RxAtom::Class(class) => {
+                out.push((TextRange::at(class.span.start(), TextSize::new(1)), 1));
+            }
+            RxAtom::Backref(_) | RxAtom::NamedRef(_) => {
+                if let Some(reference) = self
+                    .backrefs
+                    .iter()
+                    .find(|reference| reference.span.start() == item.span.start())
+                {
+                    out.push((reference.span, 1));
+                }
+            }
+            RxAtom::Group(group) => {
+                if !matches!(group.kind, RxGroupKind::Capture | RxGroupKind::NonCapture) {
+                    out.push((
+                        TextRange::new(group.span.start(), regex_node_range(&group.body).start()),
+                        level,
+                    ));
+                }
+                self.visit_node(&group.body, level + u32::from(item.quant.is_some()), out);
+            }
+            _ => {}
+        }
+    }
 }

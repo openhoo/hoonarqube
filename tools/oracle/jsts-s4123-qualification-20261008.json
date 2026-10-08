@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "2aeed9f94001d2b9fd4dfcd334c7557f65caceab",
+  "native_binary_sha256": "ec958b2d978fbf82f42cfca52f3ddb651235ad971f7ddb5804d8b62d7cc9527e",
+  "rule": "S4123",
+  "typescript_version": "6.0.3",
+  "checks": {
+    "tests": 1376,
+    "typescript_compiler_regression_executed": true,
+    "clippy_all_targets": "PASS",
+    "regression": "semantic_s4123_requires_nonpromise_types_for_await_and_promise_all",
+    "original_defect": "Before change compiler regression produced only two findings; frozen Zod had five missing and two extra primary identities. Fresh reference additionally confirms mixed value/Promise aggregation is positive."
+  },
+  "fresh_controls": {
+    "source_commit": "ed9646f2",
+    "claim": "observed_identity_differences",
+    "native_total": 10,
+    "reference_total": 10,
+    "matched": 10,
+    "native_only": 0,
+    "reference_only": 0,
+    "messages_exact": true,
+    "complete": true,
+    "files": 18,
+    "report_sha256": "effd59973d752388f81970c3a3741cfac778f98c949b80b82d74b45c6fa12e9c",
+    "reference_issues_sha256": "5db15cab3d7e122cfd5190ae080c6e1c0d4989c23aa27e394364d18d7d3853b4"
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 5,
+    "reference_total": 5,
+    "matched": 5,
+    "native_only": 0,
+    "reference_only": 0,
+    "messages_exact": true,
+    "complete": true,
+    "files": 125,
+    "report_sha256": "a51745a41accf71f2bc4f1de4ee7209eb32437600c0051caba96046ea1b957b0",
+    "reference_issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3"
+  },
+  "negative_controls": [
+    "any/unknown awaited values",
+    "structural PromiseLike",
+    "number-or-Promise awaited union",
+    "Promise-only aggregation",
+    "unknown/empty aggregation arrays",
+    "shadowed local Promise.all",
+    "await Reflect.apply(async callback)"
+  ],
+  "limitations": [
+    "Compiler-backed behavior requires complete semantic facts; syntax-only fallback remains unchanged.",
+    "This package qualifies Promise.all and await; no claim of new aggregator coverage or quickfix qualification."
+  ]
+}

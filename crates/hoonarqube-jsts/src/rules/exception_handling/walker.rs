@@ -121,7 +121,7 @@ impl<'index> ExceptionHandlingCollector<'index> {
         self.sink.emit_span(
             RuleScope::Both,
             "S2486",
-            "Handle this exception or don't catch it at all.",
+            "Handle this exception, don't catch it at all, or explain in a comment why it is ignored.",
             handler.span(),
         );
     }
@@ -579,7 +579,7 @@ function silent() {
             vec![(
                 (28, 4),
                 (30, 3),
-                "Handle this exception or don't catch it at all."
+                "Handle this exception, don't catch it at all, or explain in a comment why it is ignored."
             )]
         );
     }

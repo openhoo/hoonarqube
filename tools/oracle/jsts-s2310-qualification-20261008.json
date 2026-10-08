@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "rule": "S2310",
+  "scope": "Documented update and compound-assignment exemptions; direct assignments remain positive.",
+  "native_source_base": "a673d38a2ac8573adc06b3dc95d84e575984a9a3",
+  "owned_source_sha256": "3428e4b30879aadb4e49b77ea8b575bf6bf20e095cb67407b7e274b4e09d24c6",
+  "regressions": [
+    "s2310_flags_simple_assignment_but_allows_counter_updates",
+    "s2310_allows_compound_skip_ahead_and_other_target_updates",
+    "s2310_allows_surrogate_and_opcode_consumption_updates"
+  ],
+  "red": "Three executed regressions fail against the original update/compound emission.",
+  "green": "All three pass; direct counter assignment and unrelated variable controls preserved.",
+  "fresh_reference": {
+    "server_version": "26.9.0.129388",
+    "source_commit": "bff62a2fdd2c6761f964d8d5dcd19c724ebdf945",
+    "source_hashes_verified": true,
+    "complete_files": 18,
+    "matched_identities_and_messages": 2,
+    "native_only": 0,
+    "reference_only": 0,
+    "issues_sha256": "b54cd85f4a0539d2a1c6de0d2992cb8d1889e3cbcc399ab5b7db69d74b955997",
+    "scanner_execution_sha256": "5f44e65f0dc5af93e21519b5e52c5be2f45e922577a3e16c5ea6772e668081d9"
+  },
+  "evidence": {
+    "jsts/s2310-red.log": "1a5d1bab5dfbc2ca786f490331dabba9e41cf80d4e15bde0f35a08168edc30d7",
+    "jsts/s2310-green.log": "5903ef639a1c4512d281ec4b90769afe83f2d6c68eaee8ee1a5c61d16dbc8bf4",
+    "jsts/s2310-controls-native.json": "abf73d28273b4678f849fbe3cecd964e8be355707422e1a5b6fbecc3e4002e37",
+    "jsts/s2310-controls-comparison.json": "f0813713831969dd4850fde656ef2960d50484148462ba46523f3572b2636df7"
+  },
+  "limitations": [
+    "Splice compensation for a simple assignment is not changed by this package.",
+    "No quickfix or execution change; only emitted findings are corrected."
+  ]
+}

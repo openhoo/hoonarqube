@@ -1,5 +1,6 @@
 // Rule module s2933_tb_readonly_candidate_fields (generated).
 use crate::support::{IssueSink, RuleScope};
+use hoonarqube_ir::{FlowLocation, IssueFlow};
 use oxc_ast_visit::Visit;
 use oxc_span::Span;
 
@@ -11,22 +12,47 @@ pub(crate) fn check_tb_readonly_candidate_fields(
 ) {
     let mut collector = ReadonlyFieldCollector::default();
     collector.visit_program(program);
-    for span in collector.findings {
-        sink.emit_span(
-            RuleScope::TsOnly,
-            "S2933",
-            "This field is never reassigned after initialization; declare it 'readonly'.",
-            span,
-        );
+    for finding in collector.findings {
+        let message = if finding.fields.len() == 1 {
+            "Mark this member as `readonly`."
+        } else {
+            "Mark these members as `readonly`."
+        };
+        sink.emit_span(RuleScope::TsOnly, "S2933", message, finding.class_span);
+        if RuleScope::TsOnly.active(sink.language)
+            && let Some(issue) = sink.issues.last_mut()
+        {
+            issue.flows = finding
+                .fields
+                .into_iter()
+                .map(|field| IssueFlow {
+                    locations: vec![FlowLocation::in_primary_file(
+                        format!(
+                            "Member '{}' is never reassigned; mark it as `readonly`.",
+                            field.name
+                        ),
+                        sink.index.range(field.span),
+                    )],
+                })
+                .collect();
+        }
     }
 }
 
 /// Private class fields written only at declaration or in the constructor
-/// (`S2933`, TS only). The stack entry is `(name, key span, initialized)`.
+/// (`S2933`, TS only). The stack entry is `(name, declaration span, initialized)`.
+pub(crate) struct ReadonlyFinding {
+    pub(crate) class_span: Span,
+    pub(crate) fields: Vec<ReadonlyField>,
+}
+pub(crate) struct ReadonlyField {
+    pub(crate) name: String,
+    pub(crate) span: Span,
+}
 #[derive(Default)]
 pub(crate) struct ReadonlyFieldCollector<'p> {
     pub(crate) stack: Vec<Vec<(&'p str, Span, bool)>>,
-    pub(crate) findings: Vec<Span>,
+    pub(crate) findings: Vec<ReadonlyFinding>,
     pub(crate) writes: Vec<(&'p str, Span, bool)>,
     pub(crate) constructor_depth: u32,
 }
@@ -34,6 +60,63 @@ pub(crate) struct ReadonlyFieldCollector<'p> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s2933_groups_members_at_class_with_exact_reference_locations() {
+        let source = "export class Single {\n  private value: number;\n  constructor(value: number) { this.value = value; }\n  get() { return this.value; }\n}\nexport class Multiple {\n  private first = 1;\n  private second = 2;\n  get() { return this.first + this.second; }\n}\nexport class Mutable {\n  private value = 1;\n  advance() { this.value++; }\n  get() { return this.value; }\n}\nexport const Anonymous = class {\n  private value = 1;\n  get() { return this.value; }\n};\n";
+        let report = ts(source);
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S2933")
+            .collect();
+        assert_eq!(issues.len(), 3);
+        for (finding, (line, start, end, message, members)) in issues.iter().zip([
+            (
+                1,
+                13,
+                19,
+                "Mark this member as `readonly`.",
+                vec![(2, 15, "value")],
+            ),
+            (
+                6,
+                13,
+                21,
+                "Mark these members as `readonly`.",
+                vec![(7, 15, "first"), (8, 16, "second")],
+            ),
+            (
+                16,
+                25,
+                30,
+                "Mark this member as `readonly`.",
+                vec![(17, 15, "value")],
+            ),
+        ]) {
+            assert_eq!(
+                finding.range,
+                hoonarqube_ir::Range {
+                    start: pos(line, start),
+                    end: pos(line, end)
+                }
+            );
+            assert_eq!(finding.message, message);
+            assert_eq!(finding.flows.len(), members.len());
+            for (flow, (member_line, member_end, name)) in finding.flows.iter().zip(members) {
+                assert_eq!(
+                    flow.locations,
+                    vec![hoonarqube_ir::FlowLocation::in_primary_file(
+                        format!("Member '{name}' is never reassigned; mark it as `readonly`."),
+                        hoonarqube_ir::Range {
+                            start: pos(member_line, 2),
+                            end: pos(member_line, member_end)
+                        },
+                    )]
+                );
+            }
+        }
+    }
 
     #[test]
     fn constructor_only_fields_suggested_readonly_in_typescript() {
