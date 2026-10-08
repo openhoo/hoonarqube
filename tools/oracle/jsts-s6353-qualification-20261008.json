@@ -1,0 +1,35 @@
+{
+  "claim": "observed_identity_differences",
+  "native_total": 96,
+  "reference_total": 96,
+  "matched": 96,
+  "native_only": 0,
+  "reference_only": 0,
+  "files": 125,
+  "complete": true,
+  "binary_sha256": "405b669e6078cfb24ac94c0f98aa87fd8fb74bde4bb832f56b7074132d160fd1",
+  "report_sha256": "d214e6b731136e9a774605807c55559fd4a7b0a9f2cc87c7bd85c829f3954082",
+  "message_differences": [],
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "native_source_commit": "970a2497909d3801c1e0e6c95faebc319432906c",
+  "project": "zod",
+  "project_source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+  "reference": "Preserved SonarQube26.9 capture, JavaScript/TypeScript analyzer13.8(build44569)",
+  "scope": "S6353 primary identities and messages only; compiler-context scan of all125pinnedZodsourcefiles",
+  "baseline": {
+    "matched": 67,
+    "native_only": 0,
+    "reference_only": 29
+  },
+  "checks": {
+    "regression": "s6353_reports_concise_quantifier_forms_at_the_quantified_atom",
+    "original_defect": "Executed regression fails with zero findings for a{0,1}; passes after implementation.",
+    "tests": 1372,
+    "clippy_all_targets": "PASS"
+  },
+  "limitations": [
+    "Non-greedy bounded quantifier simplification remains outside this package.",
+    "No secondary-flow or quickfix parity claim."
+  ]
+}
