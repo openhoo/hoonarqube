@@ -11,8 +11,8 @@ use oxc_ast::ast::{
     ForInStatement, ForOfStatement, ForStatement, Function, FunctionBody, FunctionType,
     IfStatement, ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind,
     LabeledStatement, NewExpression, ReturnStatement, Statement, StaticBlock, SwitchCase,
-    TSModuleBlock, ThrowStatement, VariableDeclaration, VariableDeclarationKind, WhileStatement,
-    WithStatement,
+    TSModuleBlock, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationKind,
+    WhileStatement, WithStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -20,8 +20,8 @@ use oxc_ast_visit::walk::{
     walk_expression_statement, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
     walk_function, walk_function_body, walk_if_statement, walk_import_declaration,
     walk_labeled_statement, walk_program, walk_return_statement, walk_statement, walk_static_block,
-    walk_switch_case, walk_throw_statement, walk_ts_module_block, walk_variable_declaration,
-    walk_while_statement, walk_with_statement,
+    walk_switch_case, walk_throw_statement, walk_try_statement, walk_ts_module_block,
+    walk_variable_declaration, walk_while_statement, walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
 use std::collections::HashMap;
@@ -50,6 +50,7 @@ fn check_statement_rules(
         current_statement_is_if: false,
         if_parent_is_if: false,
         empty_catch_body: None,
+        try_body_spans: Vec::new(),
     };
     collector.visit_program(program);
     collector.sink.issues
@@ -93,6 +94,10 @@ struct StatementCollector<'a, 'index> {
     current_statement_is_if: bool,
     if_parent_is_if: bool,
     empty_catch_body: Option<Span>,
+    /// Lexical try-body ranges exempt constructor probes from S1848. Catch
+    /// and finally bodies lie outside these ranges; nested function bodies
+    /// remain covered, matching the captured reference policy.
+    try_body_spans: Vec<Span>,
 }
 
 /// One `import` declaration's `S3863` grouping key plus its report span.
@@ -462,6 +467,12 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
         walk_expression_statement(self, it);
     }
 
+    fn visit_try_statement(&mut self, it: &TryStatement<'a>) {
+        self.try_body_spans.push(it.block.span());
+        walk_try_statement(self, it);
+        self.try_body_spans.pop();
+    }
+
     fn visit_throw_statement(&mut self, it: &ThrowStatement<'a>) {
         if matches!(
             &it.argument,
@@ -815,12 +826,20 @@ impl StatementCollector<'_, '_> {
     /// `S1848` (discarded instantiation) and `S3984` (discarded `Error`).
     fn check_discarded_new(&mut self, new: &NewExpression<'_>, _statement_span: Span) {
         let name = source_slice(self.source, new.callee.span());
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S1848",
-            &format!("Either remove this useless object instantiation of \"{name}\" or use it."),
-            Span::new(new.span.start, new.callee.span().end),
-        );
+        let in_try_body = self
+            .try_body_spans
+            .iter()
+            .any(|body| body.start <= new.span.start && new.span.end <= body.end);
+        if !in_try_body {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S1848",
+                &format!(
+                    "Either remove this useless object instantiation of \"{name}\" or use it."
+                ),
+                Span::new(new.span.start, new.callee.span().end),
+            );
+        }
         if name.ends_with("Error") || name.ends_with("Exception") {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -970,6 +989,66 @@ pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s1848_constructor_try_body_contexts_preserve_unused_allocations() {
+        for source in [
+            "try { new URL(input); } catch { recover(); }",
+            "try { const F = Function; new F(''); } catch { recover(); }",
+            "try { new Allocated(); } catch { recover(); }",
+            "try { if (input) { new Allocated(); } } catch { recover(); }",
+            "try { new Allocated(); } finally { cleanup(); }",
+            "try { const delayed = () => { new Allocated(); }; consume(delayed); } catch { recover(); }",
+            "try { (() => { new Allocated(); })(); } catch { recover(); }",
+            "try { function delayed() { new Allocated(); } consume(delayed); } catch { recover(); }",
+        ] {
+            assert_eq!(
+                count_key(&js_keys(source), "javascript:S1848"),
+                0,
+                "{source}"
+            );
+            assert_eq!(
+                count_key(&ts_keys(source), "typescript:S1848"),
+                0,
+                "{source}"
+            );
+        }
+        for (source, name) in [
+            ("new Allocated();", "Allocated"),
+            ("new URL(input);", "URL"),
+            ("new Function('');", "Function"),
+            ("const F = Function; new F('');", "F"),
+            ("try { work(); } catch { new Allocated(); }", "Allocated"),
+            ("try { work(); } finally { new Allocated(); }", "Allocated"),
+            (
+                "try { new Allocated(); } catch { recover(); } new Allocated();",
+                "Allocated",
+            ),
+        ] {
+            for report in [js(source), ts(source)] {
+                let findings: Vec<_> = report
+                    .issues
+                    .iter()
+                    .filter(|i| i.rule_key.ends_with(":S1848"))
+                    .collect();
+                assert_eq!(findings.len(), 1, "{source}");
+                let start = u32::try_from(source.rfind("new ").unwrap()).unwrap();
+                assert_eq!(findings[0].range.start, pos(1, start));
+                assert_eq!(
+                    findings[0].range.end,
+                    pos(1, start + 4 + u32::try_from(name.len()).unwrap())
+                );
+                assert_eq!(
+                    findings[0].message,
+                    format!(
+                        "Either remove this useless object instantiation of \"{name}\" or use it."
+                    )
+                );
+            }
+        }
+        let error_probe = js("try { new Error('failure'); } catch { recover(); }");
+        assert_eq!(count_key(&report_keys(&error_probe), "javascript:S3984"), 1);
+    }
 
     #[test]
     fn one_statement_per_line_flags_only_second_onwards_including_nesting() {
