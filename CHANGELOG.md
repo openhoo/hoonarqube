@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.2 (2026-10-08)
+
+### Bug Fixes
+
+- qualify constructor probes and component receiver findings (#874) (108877f)
+
 ## 0.11.1 (2026-10-08)
 
 ### Bug Fixes
