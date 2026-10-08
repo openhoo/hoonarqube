@@ -10,9 +10,9 @@ use crate::support::{
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
     ArrowFunctionExpression, AssignmentExpression, BindingPattern, CallExpression, Class,
-    ExportSpecifier, Expression, FormalParameter, Function, FunctionBody, ImportSpecifier,
-    MethodDefinition, MethodDefinitionKind, ObjectProperty, Statement, TSInterfaceDeclaration,
-    TSSignature, VariableDeclarator,
+    ClassElement, ExportSpecifier, Expression, FormalParameter, Function, FunctionBody,
+    ImportSpecifier, MethodDefinition, MethodDefinitionKind, ObjectProperty, Statement,
+    TSInterfaceDeclaration, TSSignature, VariableDeclarator,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -180,13 +180,26 @@ impl<'a> Visit<'a> for BindingCollector<'a, '_> {
     }
 
     fn visit_class(&mut self, it: &Class<'a>) {
-        if it.body.body.is_empty() {
-            self.sink.emit_span(
-                RuleScope::Both,
-                "S2094",
-                "Remove or implement this empty class.",
-                it.span(),
-            );
+        if it.heritage.is_none() {
+            let message = if it.body.body.is_empty() {
+                Some("Unexpected empty class.")
+            } else if let [ClassElement::MethodDefinition(constructor)] = it.body.body.as_slice()
+                && constructor.kind == MethodDefinitionKind::Constructor
+                && !constructor
+                    .value
+                    .params
+                    .items
+                    .iter()
+                    .any(FormalParameter::has_modifier)
+            {
+                Some("Unexpected class with only a constructor.")
+            } else {
+                None
+            };
+            if let Some(message) = message {
+                let span = it.id.as_ref().map_or(it.span(), GetSpan::span);
+                self.sink.emit_span(RuleScope::Both, "S2094", message, span);
+            }
         }
         walk_class(self, it);
     }
@@ -639,6 +652,63 @@ export { Model };
         let typescript = ts_keys("let normalName = 4;\n");
         assert_eq!(count_key(&typescript, "typescript:S1527"), 0);
         assert_eq!(count_key(&typescript, "typescript:S2137"), 0);
+    }
+
+    #[test]
+    fn s2094_reports_abstract_class_with_only_empty_constructor() {
+        let report = ts("abstract class Empty {\n  constructor(...values: any[]) {}\n}\n");
+        let target: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S2094"))
+            .collect();
+        assert_eq!(target.len(), 1);
+        assert_eq!(target[0].range.start, pos(1, 15));
+        assert_eq!(target[0].range.end, pos(1, 20));
+        assert_eq!(
+            target[0].message,
+            "Unexpected class with only a constructor."
+        );
+        for source in [
+            "class Empty { constructor() { work(); } }",
+            "class Empty { constructor() { /* marker */ } }",
+        ] {
+            let report = ts(source);
+            let target: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2094"))
+                .collect();
+            assert_eq!(target.len(), 1);
+            assert_eq!(
+                target[0].message,
+                "Unexpected class with only a constructor."
+            );
+        }
+        for source in ["class Empty { /* marker */ }", "class Empty {}"] {
+            let report = ts(source);
+            let target: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S2094"))
+                .collect();
+            assert_eq!(target.len(), 1);
+            assert_eq!(target[0].message, "Unexpected empty class.");
+        }
+        for source in [
+            "class Derived extends Base {}",
+            "class Derived extends Base { constructor() { super(); } }",
+            "class Populated { constructor(public value: number) {} }",
+            "class Populated { value = 1; constructor() {} }",
+        ] {
+            assert!(
+                ts(source)
+                    .issues
+                    .iter()
+                    .all(|issue| !issue.rule_key.ends_with(":S2094")),
+                "{source}"
+            );
+        }
     }
 
     #[test]
