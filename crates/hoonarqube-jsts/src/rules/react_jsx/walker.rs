@@ -59,13 +59,14 @@ use oxc_ast::ast::WhileStatement;
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_assignment_expression, walk_block_statement,
-    walk_call_expression, walk_catch_clause, walk_class, walk_declaration, walk_do_while_statement,
-    walk_export_default_declaration_kind, walk_expression, walk_expression_statement,
-    walk_for_in_statement, walk_for_of_statement, walk_for_statement, walk_function,
-    walk_if_statement, walk_import_declaration, walk_jsx_children, walk_jsx_element,
-    walk_jsx_expression_container, walk_jsx_fragment, walk_jsx_text, walk_method_definition,
-    walk_object_expression, walk_property_definition, walk_statement, walk_this_expression,
-    walk_update_expression, walk_variable_declarator, walk_while_statement,
+    walk_call_expression, walk_catch_clause, walk_class, walk_computed_member_expression,
+    walk_declaration, walk_do_while_statement, walk_export_default_declaration_kind,
+    walk_expression, walk_expression_statement, walk_for_in_statement, walk_for_of_statement,
+    walk_for_statement, walk_function, walk_if_statement, walk_import_declaration,
+    walk_jsx_children, walk_jsx_element, walk_jsx_expression_container, walk_jsx_fragment,
+    walk_jsx_text, walk_method_definition, walk_object_expression, walk_property_definition,
+    walk_statement, walk_static_member_expression, walk_update_expression,
+    walk_variable_declarator, walk_while_statement,
 };
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
@@ -417,9 +418,17 @@ impl<'a> Visit<'a> for ReactCollector<'_> {
         self.component_names.pop();
     }
 
-    fn visit_this_expression(&mut self, it: &oxc_ast::ast::ThisExpression) {
-        self.check_s6757_this_expression(it);
-        walk_this_expression(self, it);
+    fn visit_static_member_expression(&mut self, it: &oxc_ast::ast::StaticMemberExpression<'_>) {
+        self.check_s6757_member_expression(&it.object, it.span());
+        walk_static_member_expression(self, it);
+    }
+
+    fn visit_computed_member_expression(
+        &mut self,
+        it: &oxc_ast::ast::ComputedMemberExpression<'_>,
+    ) {
+        self.check_s6757_member_expression(&it.object, it.span());
+        walk_computed_member_expression(self, it);
     }
 
     fn visit_if_statement(&mut self, it: &IfStatement<'_>) {

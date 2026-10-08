@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "scope": "S6757 bare receiver versus member-access diagnostic shape",
+  "reference_version": "26.9.0.129388",
+  "reference_source_commit": "b662aafd8af76f89aa5f3769b2d10b771fba214a",
+  "sha256": {
+    "source": "3cfa9caa82360a664b8697aee8b1c061f99a1a16c1ed75d13b69040ac05b3a91",
+    "issues": "da8b1185d92c5eabec8d74932ef4e9c897078f047d9ade15d03b10b48e35c8d5",
+    "scanner": "abbfd35c14bffe5e35cfddcd9b9ea78d791f1a9ddad7e428e8f4078737e009a5",
+    "manifest": "5b4c62f47de28cea701cebb04db4c6e3418ca8ec4daa0b6195895a507c97741f",
+    "native": "d484bc7f74d008ebf042ded9890bc4fea8eead5f22775537e05bc827b6146d9a",
+    "binary": "8cac79147e1c350c096315d477d04a49fe2f555aff079569d59011aca4a65bdd"
+  },
+  "executed_regression": {
+    "symbol": "s6757_bare_this_values_and_descriptor_receivers_are_clean",
+    "red": "bare this emitted1 instead of0",
+    "green": "PASS",
+    "exact_primary_message_symbol": "s6757_member_primary_and_message_match_reference"
+  },
+  "qualified_changes": [
+    "Bare this argument/receiver values are clean, including the four original Zod descriptor receivers.",
+    "Member accesses use the complete static/computed/optional member primary and exact reference message.",
+    "Object methods within actual component frames remain positive; no method-guard suppression was added."
+  ],
+  "full_control_observations": {
+    "native": 10,
+    "reference": 10,
+    "exact_primary_message_matches": 8,
+    "native_only": [
+      [
+        13,
+        45,
+        13,
+        55,
+        "Stateless functional components should not use `this`"
+      ],
+      [
+        13,
+        70,
+        13,
+        80,
+        "Stateless functional components should not use `this`"
+      ]
+    ],
+    "reference_only": [
+      [
+        4,
+        47,
+        4,
+        57,
+        "Stateless functional components should not use `this`"
+      ],
+      [
+        10,
+        65,
+        10,
+        75,
+        "Stateless functional components should not use `this`"
+      ]
+    ]
+  },
+  "limitations": [
+    "Two native-only null-test component-classification controls and two missing nested callback component frames remain explicit.",
+    "Initial no-React/annotated controls emitted no S6757; reference context differences remain unqualified. Native syntax policy is retained.",
+    "No complete S6757 or React parity claim."
+  ],
+  "zod_delta_from_repaired_package6": {
+    "removed": {
+      "S6757": 4
+    },
+    "added": {},
+    "other_s6757_changes": 0
+  },
+  "checks": {
+    "jsts_tests": 1395,
+    "clippy": "PASS",
+    "oracle_tests": 179,
+    "typescript": "6.0.3"
+  }
+}
