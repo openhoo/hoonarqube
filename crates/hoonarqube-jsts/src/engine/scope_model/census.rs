@@ -154,6 +154,92 @@ impl FunctionCensus {
     }
 }
 
+/// One boolean parameter whose uses are confined to one if/else action.
+pub(crate) struct BooleanSelector {
+    pub(crate) name: String,
+    pub(crate) condition: Span,
+    pub(crate) declaration: Span,
+}
+
+/// Resolve parameter ownership through symbols, including anonymous callbacks
+/// and captured parameters. Other rules continue to use the named-function census.
+pub(crate) fn boolean_selector_parameters(
+    semantic: &oxc_semantic::Semantic<'_>,
+) -> Vec<BooleanSelector> {
+    use oxc_ast::{AstKind, ast::BindingPattern};
+    let nodes = semantic.nodes();
+    let scoping = semantic.scoping();
+    let mut selectors = Vec::new();
+    for node in nodes.iter() {
+        let AstKind::FormalParameter(parameter) = node.kind() else {
+            continue;
+        };
+        let BindingPattern::BindingIdentifier(binding) = &parameter.pattern else {
+            continue;
+        };
+        let annotation = parameter.type_annotation.as_deref();
+        let boolean = annotation.map_or_else(
+            || {
+                parameter.initializer.as_ref().is_some_and(|value| {
+                    matches!(unparenthesized(value), Expression::BooleanLiteral(_))
+                })
+            },
+            |annotation| {
+                matches!(
+                    unparenthesized_type(&annotation.type_annotation),
+                    TSType::TSBooleanKeyword(_)
+                )
+            },
+        );
+        if parameter.optional || !boolean {
+            continue;
+        }
+        let Some(symbol) = binding.symbol_id.get() else {
+            continue;
+        };
+        let references = scoping.get_resolved_reference_ids(symbol);
+        let condition = references.iter().find_map(|reference| {
+            let reference_node = scoping.get_reference(*reference).node_id();
+            let AstKind::IdentifierReference(identifier) = nodes.kind(reference_node) else {
+                return None;
+            };
+            nodes.ancestor_ids(reference_node).find_map(|ancestor| {
+                let AstKind::IfStatement(branch) = nodes.kind(ancestor) else {
+                    return None;
+                };
+                let test = branch.test.span();
+                if branch.alternate.is_none() || !span_contains(test, identifier.span) {
+                    return None;
+                }
+                references
+                    .iter()
+                    .all(|other| {
+                        span_contains(
+                            branch.span,
+                            nodes.kind(scoping.get_reference(*other).node_id()).span(),
+                        )
+                    })
+                    .then_some(identifier.span)
+            })
+        });
+        if let Some(condition) = condition {
+            selectors.push(BooleanSelector {
+                name: binding.name.to_string(),
+                condition,
+                declaration: Span::new(
+                    binding.span.start,
+                    annotation.map_or(binding.span.end, |a| a.span.end),
+                ),
+            });
+        }
+    }
+    selectors
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
+}
+
 /// Parameter names treated as behavior selectors by `S2301` (weak subset).
 const SELECTOR_PARAM_NAMES: [&str; 5] = ["type", "kind", "action", "mode", "command"];
 

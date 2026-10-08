@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "purpose": "Qualify legitimate S2301 corpus addition while retaining issue788 S3972 regression guard",
+  "reference_server": "26.9.0.129388",
+  "fixture": ".oracle/sonar/projects/oracle-regressions/issue-788/control-flow.ts",
+  "fixture_sha256": "9f731d174fa96caa10476b30bf59d182b98ffd7e3a8ef280d31517e73361e377",
+  "captures": [
+    {
+      "name": "s2301-issue788-controls",
+      "source_commit": "550b9f86f325105171f4098f22658bf77e15dd36",
+      "sha256": {
+        "source": "9f731d174fa96caa10476b30bf59d182b98ffd7e3a8ef280d31517e73361e377",
+        "issues": "c3a7067095a4ff8aa6d6340594732d145f4df500a3d812d871575f3374310904",
+        "scanner_execution": "7f4aa3f2a0a271887d340ef8ac14305fd7f6e980392ba118b49cb6f149f14a8b",
+        "manifest": "9c2c9c203850abd6191cb2a8dfc06f8ee805ee903d4ba3bbb2107ea3ac86cffe"
+      },
+      "s2301_count": 1,
+      "s3972_count": 0,
+      "finding": {
+        "rule": "typescript:S2301",
+        "message": "Provide multiple methods instead of using \"value\" to determine which action to take.",
+        "textRange": {
+          "startLine": 2,
+          "endLine": 2,
+          "startOffset": 6,
+          "endOffset": 11
+        }
+      }
+    },
+    {
+      "name": "s2301-issue788-noconfig-controls",
+      "source_commit": "b30e7260a58a966f4a1b38842e0e473696a07d97",
+      "sha256": {
+        "source": "9f731d174fa96caa10476b30bf59d182b98ffd7e3a8ef280d31517e73361e377",
+        "issues": "09cf0cac7b4c05d8b4acedc07071e667e5f6dbc475ceef008982c731054d0361",
+        "scanner_execution": "5a8c33ef658200e9c7447f588d2522e0b2c0e7a6acd503e41fec2a1fa73d7a99",
+        "manifest": "8b050a99f65eaa7fac212c0acf2e25a2d0768cb748b0d6542993310e3acace56"
+      },
+      "s2301_count": 1,
+      "s3972_count": 0,
+      "finding": {
+        "rule": "typescript:S2301",
+        "message": "Provide multiple methods instead of using \"value\" to determine which action to take.",
+        "textRange": {
+          "startLine": 2,
+          "endLine": 2,
+          "startOffset": 6,
+          "endOffset": 11
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Bounded S2301 and S3972 qualification only; other fixture expectations remain native pins.",
+    "Does not establish full SonarQube parity."
+  ],
+  "assertions_preserved": [
+    "complete finding multiset",
+    "zero typescript:S3972"
+  ],
+  "expected_addition": {
+    "rule": "typescript:S2301",
+    "file": "control-flow.ts",
+    "message": "Provide multiple methods instead of using \"value\" to determine which action to take.",
+    "range": {
+      "start": {
+        "line": 2,
+        "column": 6
+      },
+      "end": {
+        "line": 2,
+        "column": 11
+      }
+    }
+  }
+}

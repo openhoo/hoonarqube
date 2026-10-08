@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "rule": "S7743",
+  "scope": "Immediately invoked arrows whose expression body is parenthesized; primary covers the body parentheses.",
+  "native_base": "081cda9510eb31713abfac952565eaa41f8a6a61",
+  "regressions": [
+    "s7743_reports_parenthesized_iife_arrow_with_exact_message_and_span",
+    "s7743_covers_parenthesized_values_async_and_optional_invocations",
+    "s7743_preserves_noninvoked_block_and_nonparenthesized_controls"
+  ],
+  "red": "Detector stub produces zero expected positive findings; clean control passes.",
+  "green": "1388 JS/TS tests pass with TypeScript6.0.3. Exact six fresh reference primaries/messages; four clean controls.",
+  "reference": {
+    "version": "26.9.0.129388",
+    "source_commit": "31e789752bed68763e35172175d5077af2765bb3",
+    "issues_sha256": "154a0d59f6e1b7092f08b13de851e7f0bf9ed143851b4199f4b2c1c7efe60202",
+    "scanner_sha256": "21437d97c3445f94d3b79668bc20fd634175ad8b1aae5197cbc0342a254cbf9d",
+    "comparison": {
+      "claim": "selected_rule_primary_message_and_flow_comparison",
+      "rules": [
+        "typescript:S7743"
+      ],
+      "native_findings": 6,
+      "reference_findings": 6,
+      "matched_findings": 6,
+      "native_only": 0,
+      "reference_only": 0,
+      "native_supporting_locations": 0,
+      "reference_supporting_locations": 0,
+      "matched": true,
+      "flow_order": "unordered_flows_ordered_locations",
+      "differences": []
+    }
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 684,
+    "reference_total": 594,
+    "matched": 584,
+    "native_only": 100,
+    "reference_only": 10
+  },
+  "evidence": {
+    "s7743-red.log": "1816aa32e6e14cd86b8e01921b0a65766e75c3466c9fd6bffe90918655a8afa8",
+    "s7743-green-final.log": "2d01b4a60d2184ce15229e9c590b3fb5e8dbc0bde4c400ac97d047d8e8f871f9",
+    "s7743-controls-comparison.json": "101800de54282f97423843610ec5c5c7f7d567c92f20380bf8141c175e5bdefb",
+    "s7743-controls-native.json": "65450a00b352caf6471b256b0eab850696a2af1af030f1c4918f893add34bb5d"
+  },
+  "limitations": [
+    "No quickfix offered; reference quickfix availability does not prove native application safety.",
+    "Supporting regex/typed/flow boundaries remain unresolved."
+  ]
+}
