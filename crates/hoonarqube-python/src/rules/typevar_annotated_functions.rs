@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::engine::scope::BindingKind;
+use crate::engine::scope::{BindingKind, SymbolTable};
 use crate::support::WebFrameworkFacts;
 use crate::support::function_parameters;
 use crate::support::issue_at;
@@ -9,7 +9,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 
 pub(crate) fn check_typevar_annotated_functions(
     parsed: &Parsed<ModModule>,
@@ -50,33 +50,11 @@ pub(crate) fn check_typevar_annotated_functions(
         let mut uses = Vec::new();
         let mut assignments = Vec::new();
         for annotation in annotations {
-            let Expr::Name(name) = annotation else {
-                continue;
-            };
-            // A function's signature is evaluated in its defining scope, not
-            // the new body scope, even when a parameter shadows this name.
-            let mut scope = Some(site.enclosing_scope);
-            while let Some(current) = scope {
-                let symbols = &table.scopes[current];
-                if let Some(bindings) = symbols.bindings.get(name.id.as_str()) {
-                    let [binding] = bindings.as_slice() else {
-                        break;
-                    };
-                    if binding.kind != BindingKind::Assignment {
-                        break;
-                    }
-                    let Some(Expr::Call(call)) =
-                        file_ctx.assigned_values().get(&binding.range).copied()
-                    else {
-                        break;
-                    };
-                    if facts.expr_fqn(&call.func).as_deref() == Some("typing.TypeVar") {
-                        uses.push(name.range());
-                        assignments.push(call.range());
-                    }
-                    break;
-                }
-                scope = symbols.parent;
+            if let Some(assignment) =
+                typevar_assignment(annotation, site.enclosing_scope, table, file_ctx, &facts)
+            {
+                uses.push(annotation.range());
+                assignments.push(assignment);
             }
         }
         if !uses.is_empty() {
@@ -112,6 +90,39 @@ pub(crate) fn check_typevar_annotated_functions(
         }
     }
     issues
+}
+
+fn typevar_assignment(
+    annotation: &Expr,
+    enclosing_scope: usize,
+    table: &SymbolTable,
+    file_ctx: &FileContext<'_>,
+    facts: &WebFrameworkFacts<'_>,
+) -> Option<TextRange> {
+    let Expr::Name(name) = annotation else {
+        return None;
+    };
+    // A signature is evaluated in its defining scope, not the new body
+    // scope, even when a parameter shadows this name.
+    let mut scope = Some(enclosing_scope);
+    while let Some(current) = scope {
+        let symbols = &table.scopes[current];
+        if let Some(bindings) = symbols.bindings.get(name.id.as_str()) {
+            let [binding] = bindings.as_slice() else {
+                return None;
+            };
+            if binding.kind != BindingKind::Assignment {
+                return None;
+            }
+            let Expr::Call(call) = file_ctx.assigned_values().get(&binding.range).copied()? else {
+                return None;
+            };
+            return (facts.expr_fqn(&call.func).as_deref() == Some("typing.TypeVar"))
+                .then_some(call.range());
+        }
+        scope = symbols.parent;
+    }
+    None
 }
 
 #[cfg(test)]
