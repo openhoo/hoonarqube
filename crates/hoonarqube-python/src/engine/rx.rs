@@ -1717,6 +1717,15 @@ pub(crate) fn rx_branch_covered_by(earlier: &RxSeq, later: &RxSeq) -> bool {
     if rx_seq_equivalent(earlier, later) {
         return true;
     }
+    if let [covering] = earlier.items.as_slice()
+        && let RxAtom::Class(class) = &covering.atom
+        && let Some(quant) = &covering.quant
+        && !class.negated
+        && later.items.iter().all(|item| matches!(&item.atom, RxAtom::Literal(ch) if item.quant.is_none() && class_contains_char(class, *ch)))
+        && u32::try_from(later.items.len()).is_ok_and(|length| quant.min <= length && quant.max.is_none_or(|max| max >= length))
+    {
+        return true;
+    }
     let Some(later_item) = single(later) else {
         return false;
     };
@@ -1763,19 +1772,23 @@ pub(crate) fn is_repetitive(quant: &RxQuant) -> bool {
 /// Whether the body can match the same input in structurally different ways.
 pub(crate) fn rx_body_ambiguous(node: &RxNode) -> bool {
     match node {
-        RxNode::Alternation(_) => true,
+        RxNode::Alternation(branches) => branches.iter().enumerate().any(|(index, branch)| {
+            branches[index + 1..].iter().any(|other| {
+                match (rx_branch_first_set(branch), rx_branch_first_set(other)) {
+                    (Some(left), Some(right)) => rx_sets_intersect(&left, &right),
+                    _ => true,
+                }
+            })
+        }),
         RxNode::Seq(seq) => {
-            if seq
-                .items
-                .iter()
-                .any(|item| item.quant.as_ref().is_some_and(|quant| quant.min == 0))
-            {
-                return true;
-            }
             let repetitive: Vec<&RxItem> = seq
                 .items
                 .iter()
-                .filter(|item| item.quant.as_ref().is_some_and(is_repetitive))
+                .filter(|item| {
+                    item.quant
+                        .as_ref()
+                        .is_some_and(|quant| quant.max != Some(quant.min))
+                })
                 .collect();
             match repetitive.len() {
                 0 => false,

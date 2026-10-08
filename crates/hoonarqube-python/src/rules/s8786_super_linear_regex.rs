@@ -89,7 +89,7 @@ fn has_super_linear_pair(node: &RxNode, match_type: RxMatchType) -> bool {
 /// Preserve facts about every forward branch before paths are expanded.
 /// A successful empty branch makes the continuation unable to fail in
 /// free-end matching, even when a different branch consumes a separator.
-fn collect_continuations(
+pub(crate) fn collect_continuations(
     node: &RxNode,
     outer_anchored: bool,
     outer_nullable: bool,

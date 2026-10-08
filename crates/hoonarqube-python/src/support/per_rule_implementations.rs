@@ -36,7 +36,7 @@ pub(crate) fn run_structural_regex_rules(
         issues.push(issue_at(key, message, span, index, source));
     };
     check_rx_syntax_shapes(parsed, units, site.verbose, &mut push);
-    check_rx_repetition_hazards(parsed, &mut push);
+    check_rx_repetition_hazards(parsed, site.match_type, &mut push);
     check_rx_style_shapes(
         parsed,
         source,
