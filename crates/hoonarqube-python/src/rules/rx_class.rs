@@ -290,59 +290,6 @@ fn class_token(source: &str, start: usize, end: usize) -> Option<(char, usize)> 
     Some((decoded, end))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{RxClass, RxClassItem, check_rx_class};
-    use crate::support::to_u32;
-    use ruff_text_size::{TextRange, TextSize};
-
-    fn s6397_range(source: &str, items: Vec<RxClassItem>) -> Option<TextRange> {
-        let class = RxClass {
-            negated: false,
-            items,
-            member_spans: Vec::new(),
-            span: TextRange::new(TextSize::new(0), TextSize::from(to_u32(source.len()))),
-        };
-        let mut found = None;
-        check_rx_class(&class, source, &mut |key, _, range| {
-            if key == "python:S6397" {
-                found = Some(range);
-            }
-        });
-        found
-    }
-
-    #[test]
-    fn s6397_spans_the_complete_source_encoded_class_interior() {
-        for (source, character) in [
-            ("[b]", 'b'),
-            ("[é]", 'é'),
-            (r"[\t]", '\t'),
-            (r"[\u0061]", 'a'),
-            (r"[\x61]", 'a'),
-            (r"[\N{LATIN SMALL LETTER A}]", 'a'),
-            (r"[\101]", 'A'),
-        ] {
-            let range = s6397_range(source, vec![RxClassItem::Char(character)])
-                .expect("single-character class should be reported");
-            assert_eq!(
-                range,
-                TextRange::new(TextSize::new(1), TextSize::from(to_u32(source.len() - 1)))
-            );
-            assert_eq!(&source[range], &source[1..source.len() - 1]);
-        }
-    }
-
-    #[test]
-    fn s6397_keeps_multi_character_and_metacharacter_classes_clean() {
-        assert!(
-            s6397_range("[ab]", vec![RxClassItem::Char('a'), RxClassItem::Char('b')]).is_none()
-        );
-        assert!(s6397_range("[.]", vec![RxClassItem::Char('.')]).is_none());
-        assert!(s6397_range("[]", vec![RxClassItem::Char('a')]).is_none());
-    }
-}
-
 pub(crate) fn duplicate_class_locations(
     node: &crate::engine::rx::RxNode,
     primary: TextRange,
@@ -393,5 +340,58 @@ fn class_member_set(item: &RxClassItem) -> Option<crate::engine::rx::RxSet> {
             exact: std::collections::BTreeSet::new(),
             ranges: vec![(*low, *high)],
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RxClass, RxClassItem, check_rx_class};
+    use crate::support::to_u32;
+    use ruff_text_size::{TextRange, TextSize};
+
+    fn s6397_range(source: &str, items: Vec<RxClassItem>) -> Option<TextRange> {
+        let class = RxClass {
+            negated: false,
+            items,
+            member_spans: Vec::new(),
+            span: TextRange::new(TextSize::new(0), TextSize::from(to_u32(source.len()))),
+        };
+        let mut found = None;
+        check_rx_class(&class, source, &mut |key, _, range| {
+            if key == "python:S6397" {
+                found = Some(range);
+            }
+        });
+        found
+    }
+
+    #[test]
+    fn s6397_spans_the_complete_source_encoded_class_interior() {
+        for (source, character) in [
+            ("[b]", 'b'),
+            ("[é]", 'é'),
+            (r"[\t]", '\t'),
+            (r"[\u0061]", 'a'),
+            (r"[\x61]", 'a'),
+            (r"[\N{LATIN SMALL LETTER A}]", 'a'),
+            (r"[\101]", 'A'),
+        ] {
+            let range = s6397_range(source, vec![RxClassItem::Char(character)])
+                .expect("single-character class should be reported");
+            assert_eq!(
+                range,
+                TextRange::new(TextSize::new(1), TextSize::from(to_u32(source.len() - 1)))
+            );
+            assert_eq!(&source[range], &source[1..source.len() - 1]);
+        }
+    }
+
+    #[test]
+    fn s6397_keeps_multi_character_and_metacharacter_classes_clean() {
+        assert!(
+            s6397_range("[ab]", vec![RxClassItem::Char('a'), RxClassItem::Char('b')]).is_none()
+        );
+        assert!(s6397_range("[.]", vec![RxClassItem::Char('.')]).is_none());
+        assert!(s6397_range("[]", vec![RxClassItem::Char('a')]).is_none());
     }
 }
