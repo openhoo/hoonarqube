@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "claim": "native_project_quickfix_execution_and_negative_control",
+  "rule_key": "csharpsquid:S125",
+  "action_id": "csharp.s125.remove-commented-out-code",
+  "source_commit": "e8e2d41",
+  "regression_symbol": "quickfix::tests::s125_context_reattachment_preserves_one_equivalent_action",
+  "regression_file": "crates/hoonarqube-csharp/src/quickfix.rs",
+  "before": "duplicate alternative id panic; focused regression 1 failed",
+  "after": {
+    "focused_s125_tests": 8,
+    "adapter_quickfix_tests": 28,
+    "clippy": "all-targets -D warnings passed"
+  },
+  "sdk": {
+    "version": "10.0.111",
+    "rid": "osx-arm64",
+    "archive_sha512_verified": true,
+    "executable_sha256": "2ff302a3c5cecc4a371fd6482d2f5547c57d93eff9fe19919ef729a54f69ce04"
+  },
+  "binary": {
+    "sha256": "356c242964fc798fc6c0e809e75b068f73680ebb6165c5a7d72fe2beefd4bc74",
+    "source_commit": "e8e2d41",
+    "version": "hoonarqube 0.11.0"
+  },
+  "harness_sha256": "c592605d65ea28298fa280586aa45e430ddbb3c14c35e0a193b15bc65e13758d",
+  "manifest_sha256": "7e738aa05a023de7327f698b91c842ae376b043d3ce0be47d62c13dd266c7209",
+  "summary": {
+    "applications": 1,
+    "fail": 0,
+    "native_action_gap": 0,
+    "native_action_refusal": 0,
+    "no_action_declared": 0,
+    "no_action_expected": 0,
+    "pass": 1,
+    "safety_refused": 0,
+    "unavailable": 0
+  },
+  "apply": {
+    "applied": 1,
+    "exit_code": 0,
+    "regressions": 0,
+    "skipped": 0,
+    "unverified": 0,
+    "verified": 1,
+    "written": true
+  },
+  "analysis_reduction": {
+    "after_counts": {
+      "csharpsquid:S2094": 1,
+      "csharpsquid:S3903": 1
+    },
+    "before_counts": {
+      "csharpsquid:S125": 1,
+      "csharpsquid:S2094": 1,
+      "csharpsquid:S3903": 1
+    },
+    "regressions": {},
+    "target_after": 0,
+    "target_before": 1
+  },
+  "projection": {
+    "actual": "class C {\n}\n",
+    "expected": "class C {\n}\n",
+    "expected_concrete": true,
+    "initial_sha256": "061a517e73c8bea88fd8db82d3fb469f5fca2c35c7a20d72430a83c0eb71de48",
+    "matches_declared": true,
+    "projected_sha256": "dd1e6f82c7a70abe4bac700fde9d52e21f04e1e906384090ccf7c34dd7aa2a09"
+  },
+  "negative": {
+    "status": "safety_refusal",
+    "before_source_sha256": "88682f0fcdcc0dd4033b2b96707f06fcda06fa254d5993364ba963b62e00794b",
+    "after_source_sha256": "88682f0fcdcc0dd4033b2b96707f06fcda06fa254d5993364ba963b62e00794b",
+    "selected_action": false
+  },
+  "evidence_base": "hoonarqube-parity-20261007/remaining/qualification",
+  "evidence_files": {
+    "csharp-s125-red.log": "31d0081fc5cd895bf2fc6d65d7f96c24ec826a34fddfbe3ba45152d90e515acb",
+    "csharp-s125-green.log": "37ba5dce8efc594fbde4cf025c43246cb25de1d943f513558daa476f0c025c48",
+    "csharp-quickfix-green.log": "067638dfbfb32d411732c2f1645b708759eeae669c6e1c3b75a4844a2440be69",
+    "csharp-quickfix-clippy.log": "367504cc1198519452c61cee8b2652c435d85b44e3811de450a71c1cb6b449c4",
+    "quickfix-csharp-s125-repaired/result.json": "ec544c06333f513cd5735cdd2660caedf99702b5786d4714803ad2d85f824c6f"
+  },
+  "limitations": [
+    "Native execution receipt; does not substitute for missing frozen upstream provider artifacts in other cases."
+  ]
+}

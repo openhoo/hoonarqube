@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "claim": "native_independent_reanalysis_refusal_with_unchanged_source",
+  "source_commit": "e8e2d41",
+  "rule_key": "csharpsquid:S1186",
+  "action_id": "csharp.s1186.add-not-supported-throw",
+  "status": "safety_refusal_observed",
+  "frozen_harness_status": "fail",
+  "frozen_harness_failures_retained": [
+    "fix-apply: expected exit code 0, got 1",
+    "fix-apply did not report a written file",
+    "fix-apply reported no applied rule fix",
+    "fix-apply did not independently verify the applied action",
+    "fix-apply final bytes differ from the native projection",
+    "final analyze did not reduce the targeted rule finding"
+  ],
+  "sdk_version": "10.0.111",
+  "binary_sha256": "356c242964fc798fc6c0e809e75b068f73680ebb6165c5a7d72fe2beefd4bc74",
+  "before_counts": {
+    "csharpsquid:S1186": 1,
+    "csharpsquid:S3903": 1
+  },
+  "projected_counts": {
+    "csharpsquid:S2325": 1,
+    "csharpsquid:S3903": 1
+  },
+  "projected_regressions": {
+    "csharpsquid:S2325": 1
+  },
+  "projected_analysis_complete": true,
+  "target_removed_in_projection": true,
+  "apply_exit_code": 1,
+  "applied": 0,
+  "written": false,
+  "initial_source_sha256": "efb935f5e0e6e13ffe90701723f221d30796fe1724262359dc2e4b0ee4da3f70",
+  "final_source_sha256": "efb935f5e0e6e13ffe90701723f221d30796fe1724262359dc2e4b0ee4da3f70",
+  "bytes_unchanged": true,
+  "projected_source_sha256": "f681aeba87c3c712481d2cfabc5f785fbec9665cf155896cb546a5564b88563e",
+  "actual_detector_regression_reason": "S1186.cs: 1 of 1 projected rule fix(es) did not pass independent verification (csharpsquid:S1186: csharpsquid:S1186 count 1 -> 0 (verified 1, unverified 0); regressions: csharpsquid:S2325 +1)",
+  "negative_control": {
+    "status": "safety_refusal",
+    "bytes_unchanged": true,
+    "selected_action": false
+  },
+  "evidence_base": "hoonarqube-parity-20261007/remaining/qualification/quickfix-csharp-refusals-current",
+  "application_dir": "applications/csharp/007-csharpsquid_S1186-csharp.s1186.add-not-supported-throw",
+  "evidence_sha256": {
+    "initial-analyze-report.json": "f3a09257fefcecd6075b09914a4c22c0fa59d7dece8880325af5465acc3a914b",
+    "final-analyze-report.json": "f3a09257fefcecd6075b09914a4c22c0fa59d7dece8880325af5465acc3a914b",
+    "projected-independent-report.json": "d3ca8008f2b359684278e4d725def2e62fc559c04b6930fe20ea22b15e9b24d5",
+    "projected-independent-command.json": "a9517720885380cf1762d4bde45693615aa5f0e97eb3bc798d097205d32e5d65",
+    "invocations/fix-apply/parsed.json": "67899efa3df4cae780c415bdfa4ef04f67c6a43ed802a3e917250010a55349f7",
+    "invocations/fix-apply/stderr.bin": "927c2a0b56e6f5ce28203ca700831686b55b7365fe4739fb33fc19030f92cd12"
+  },
+  "limitations": [
+    "Qualifies the observed fail-closed safeguard; it does not claim successful application of the frozen provider remedy.",
+    "Frozen harness result remains failed because its existing contract expects successful application."
+  ]
+}
