@@ -51,12 +51,12 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     for node in semantic.nodes().iter() {
         match node.kind() {
             AstKind::ComputedMemberExpression(member) => {
-                check_computed_member(&mut sink, semantic, node, member);
+                check_computed_member(&mut sink, ctx, semantic, node, member);
             }
             AstKind::CallExpression(call) => {
-                check_char_at(&mut sink, semantic, call);
-                check_slice(&mut sink, semantic, node, call);
-                check_get_last_function(&mut sink, call);
+                check_char_at(&mut sink, ctx, semantic, call);
+                check_slice(&mut sink, ctx, semantic, node, call);
+                check_get_last_function(&mut sink, ctx, call);
             }
             _ => {}
         }
@@ -186,6 +186,37 @@ fn is_left_hand_side(semantic: &Semantic<'_>, node: &AstNode<'_>) -> bool {
 /// literals, `new Array(…)`, `.split(…)` results) or `const` bindings
 /// initialized to one; bare identifiers, member chains, and annotated
 /// parameters stay silent, matching Sonar's silence on unresolved types.
+fn compiler_at_receiver(ctx: &AnalysisContext, expression: &Expression<'_>) -> Option<bool> {
+    let span = expression.span();
+    ctx.semantic_facts.and_then(|file| {
+        file.facts
+            .at_receivers
+            .iter()
+            .find(|fact| fact.span.start == span.start && fact.span.end == span.end)
+            .map(|fact| fact.callable)
+    })
+}
+
+fn has_at_receiver(
+    ctx: &AnalysisContext,
+    semantic: &Semantic<'_>,
+    expression: &Expression<'_>,
+) -> bool {
+    if ctx.semantic_facts.is_some() {
+        compiler_at_receiver(ctx, expression).unwrap_or(false)
+    } else {
+        is_self_evident_at_receiver(semantic, expression)
+    }
+}
+
+fn compiler_rejects_at_receiver(
+    ctx: &AnalysisContext,
+    semantic: &Semantic<'_>,
+    expression: &Expression<'_>,
+) -> bool {
+    ctx.semantic_facts.is_some() && !has_at_receiver(ctx, semantic, expression)
+}
+
 fn is_self_evident_at_receiver(semantic: &Semantic<'_>, expression: &Expression<'_>) -> bool {
     match unwrap_ts(unparenthesized(expression)) {
         Expression::ArrayExpression(_)
@@ -230,6 +261,7 @@ fn const_initializer<'a>(
 
 fn check_computed_member(
     sink: &mut IssueSink<'_>,
+    ctx: &AnalysisContext,
     semantic: &Semantic<'_>,
     node: &AstNode<'_>,
     member: &ComputedMemberExpression<'_>,
@@ -238,7 +270,7 @@ fn check_computed_member(
         return;
     }
     if get_negative_index_length_node(&member.expression, &member.object).is_some()
-        && is_self_evident_at_receiver(semantic, &member.object)
+        && has_at_receiver(ctx, semantic, &member.object)
     {
         sink.emit_span(
             RuleScope::Both,
@@ -249,7 +281,12 @@ fn check_computed_member(
     }
 }
 
-fn check_char_at(sink: &mut IssueSink<'_>, semantic: &Semantic<'_>, call: &CallExpression<'_>) {
+fn check_char_at(
+    sink: &mut IssueSink<'_>,
+    ctx: &AnalysisContext,
+    semantic: &Semantic<'_>,
+    call: &CallExpression<'_>,
+) {
     let Some(member) = method_member(call, "charAt") else {
         return;
     };
@@ -260,7 +297,7 @@ fn check_char_at(sink: &mut IssueSink<'_>, semantic: &Semantic<'_>, call: &CallE
         return;
     };
     if get_negative_index_length_node(index, &member.object).is_none()
-        || !is_self_evident_at_receiver(semantic, &member.object)
+        || !has_at_receiver(ctx, semantic, &member.object)
     {
         return;
     }
@@ -295,6 +332,7 @@ fn is_zero_literal(expression: &Expression<'_>) -> bool {
 
 fn check_slice(
     sink: &mut IssueSink<'_>,
+    ctx: &AnalysisContext,
     semantic: &Semantic<'_>,
     node: &AstNode<'_>,
     call: &CallExpression<'_>,
@@ -302,46 +340,19 @@ fn check_slice(
     let Some(member) = method_member(call, "slice") else {
         return;
     };
+    if compiler_rejects_at_receiver(ctx, semantic, &member.object) {
+        return;
+    }
     if call.optional || call.arguments.is_empty() || call.arguments.len() > 2 {
         return;
     }
     let Some(start_value) = literal_negative_integer(&call.arguments[0]) else {
         return;
     };
-    let call_span = call.span();
-    let parent = semantic.nodes().parent_node(node.id());
-    let mut first_element_get_method: &str = "";
-    let _ = first_element_get_method;
-    match parent.kind() {
-        AstKind::ComputedMemberExpression(access)
-            if access.object.span() == call_span
-                && !access.optional
-                && is_zero_literal(&access.expression) =>
-        {
-            if is_left_hand_side(semantic, parent) {
-                return;
-            }
-            first_element_get_method = "zero-index";
-        }
-        AstKind::StaticMemberExpression(wrapper_member)
-            if wrapper_member.object.span() == call_span =>
-        {
-            let method = wrapper_member.property.name.as_str();
-            if method != "shift" && method != "pop" {
-                return;
-            }
-            let grandparent = semantic.nodes().parent_node(parent.id());
-            match grandparent.kind() {
-                AstKind::CallExpression(wrapper)
-                    if !wrapper.optional
-                        && wrapper.arguments.is_empty()
-                        && wrapper.callee.span() == parent.kind().span() => {}
-                _ => return,
-            }
-            first_element_get_method = if method == "shift" { "shift" } else { "pop" };
-        }
-        _ => return,
-    }
+    let Some(first_element_get_method) = slice_first_element_method(semantic, node, call.span())
+    else {
+        return;
+    };
     let start_index = -start_value;
     if call.arguments.len() == 1 {
         if same_number(start_value, 1.0) {
@@ -361,6 +372,41 @@ fn check_slice(
     emit_slice(sink, member.property.span());
 }
 
+fn slice_first_element_method(
+    semantic: &Semantic<'_>,
+    node: &AstNode<'_>,
+    call_span: Span,
+) -> Option<&'static str> {
+    let parent = semantic.nodes().parent_node(node.id());
+    match parent.kind() {
+        AstKind::ComputedMemberExpression(access)
+            if access.object.span() == call_span
+                && !access.optional
+                && is_zero_literal(&access.expression) =>
+        {
+            (!is_left_hand_side(semantic, parent)).then_some("zero-index")
+        }
+        AstKind::StaticMemberExpression(member) if member.object.span() == call_span => {
+            let method = member.property.name.as_str();
+            if method != "shift" && method != "pop" {
+                return None;
+            }
+            let grandparent = semantic.nodes().parent_node(parent.id());
+            let AstKind::CallExpression(wrapper) = grandparent.kind() else {
+                return None;
+            };
+            if wrapper.optional
+                || !wrapper.arguments.is_empty()
+                || wrapper.callee.span() != parent.kind().span()
+            {
+                return None;
+            }
+            Some(if method == "shift" { "shift" } else { "pop" })
+        }
+        _ => None,
+    }
+}
+
 fn emit_slice(sink: &mut IssueSink<'_>, span: Span) {
     sink.emit_span(
         RuleScope::Both,
@@ -372,7 +418,11 @@ fn emit_slice(sink: &mut IssueSink<'_>, span: Span) {
 
 const LAST_FUNCTIONS: [&str; 3] = ["_.last", "lodash.last", "underscore.last"];
 
-fn check_get_last_function(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) {
+fn check_get_last_function(
+    sink: &mut IssueSink<'_>,
+    ctx: &AnalysisContext,
+    call: &CallExpression<'_>,
+) {
     if call.optional || call.arguments.len() != 1 {
         return;
     }
@@ -389,7 +439,9 @@ fn check_get_last_function(sink: &mut IssueSink<'_>, call: &CallExpression<'_>) 
     let Some(argument) = call.arguments[0].as_expression() else {
         return;
     };
-    if is_arguments_object(argument) {
+    if is_arguments_object(argument)
+        || (ctx.semantic_facts.is_some() && !compiler_at_receiver(ctx, argument).unwrap_or(false))
+    {
         return;
     }
     sink.emit_span(

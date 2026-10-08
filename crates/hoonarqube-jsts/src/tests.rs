@@ -3616,3 +3616,120 @@ fn semantic_s1125_quickfix_flips_chained_equality_instead_of_negating_left() {
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn semantic_stringification_and_at_use_compiler_member_types() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+class Plain { name(flag: boolean): string | Plain { return flag ? 'x' : this; } }
+class Custom { toString() { return 'custom'; } }
+class Holder { values: number[] = []; last() { return this.values[this.values.length - 1]; } }
+function stringify(p: Plain, c: Custom, flag: boolean, unknown: unknown) {
+  return `${p.name(flag)} ${c} ${unknown}`;
+}
+function primitive(value: string) { return `${value}`; }
+function unavailable(value: { length: number; [key: number]: number; at: number }) {
+  return value[value.length - 1];
+}
+";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-coercion-at",
+        &package,
+        &[("src/input.ts", source)],
+    );
+    let analysis = semantic_quickfix_analysis(&context, &root, "src/input.ts", source);
+    let coercions: Vec<_> = analysis
+        .issues
+        .iter()
+        .filter(|i| i.rule_key == "typescript:S6551")
+        .collect();
+    assert_eq!(coercions.len(), 1);
+    assert!(
+        coercions[0]
+            .message
+            .contains("'p.name(flag)' may use Object's default")
+    );
+    assert_eq!(
+        analysis
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S7755")
+            .count(),
+        1
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn semantic_stringification_compiler_controls_cover_union_array_and_constraints() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+class Plain { value = 1; }
+class Useful { toString() { return 'ok'; } }
+class Failure extends Error {}
+class Primitive { [Symbol.toPrimitive]() { return 'ok'; } }
+function sample(plain: Plain, useful: Useful, mixed: Plain | string, array: Plain[], error: Failure, primitive: Primitive) {
+ return `${plain} ${useful} ${mixed} ${array} ${error} ${primitive}`;
+}
+function generic<T>(value: T) { return `${value}`; }
+function constrained<T extends Plain>(value: T) { return `${value}`; }
+function guarded(value: Plain | string) { if (typeof value === 'string') return `${value}`; return ''; }
+function literal(value: string) { return value[value.length - 1]; }
+";
+    let (root, context) = semantic_quickfix_fixture(
+        "semantic-coercion-controls",
+        &package,
+        &[("src/input.ts", source)],
+    );
+    let analysis = semantic_quickfix_analysis(&context, &root, "src/input.ts", source);
+    assert_eq!(
+        analysis
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S6551")
+            .count(),
+        4
+    );
+    assert_eq!(
+        analysis
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "typescript:S7755")
+            .count(),
+        1
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn semantic_at_respects_compiler_library_target_for_literal_receivers() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let root = issue36_temp_dir("semantic-at-oldlib");
+    let source = "const values = [1, 2]; export const last = values[values.length - 1];";
+    write_issue36_file(&root.join("input.ts"), source);
+    write_issue36_file(
+        &root.join("tsconfig.json"),
+        r#"{"compilerOptions":{"strict":true,"target":"ES2020","noEmit":true},"files":["input.ts"]}"#,
+    );
+    let config = TypeScriptProjectConfig::new(root.clone()).with_typescript_package(package);
+    let context = ProjectSemanticContext::load(
+        &config,
+        &ProjectSemanticSources::from_pairs([(root.join("input.ts"), source.to_owned())]),
+    )
+    .unwrap();
+    assert!(context.is_complete(), "{:?}", context.diagnostics());
+    let analysis = semantic_quickfix_analysis(&context, &root, "input.ts", source);
+    assert!(
+        !analysis
+            .issues
+            .iter()
+            .any(|i| i.rule_key == "typescript:S7755")
+    );
+    let _ = fs::remove_dir_all(root);
+}

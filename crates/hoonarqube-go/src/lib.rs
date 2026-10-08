@@ -3164,16 +3164,34 @@ fn check_function(
             source,
         ));
     }
+    check_cognitive_function(node, body, source, options, error_guards, issues);
+}
+
+fn check_cognitive_function(
+    node: Node<'_>,
+    body: Node<'_>,
+    source: &str,
+    options: &AnalyzerOptions,
+    error_guards: &ErrorGuardFacts,
+    issues: &mut Vec<Issue>,
+) {
     // Sonar raises go:S3776 on functions and methods only; a function
     // literal's complexity is owned by its enclosing function.
-    let cognitive = cognitive_complexity(body, source, error_guards);
+    let (cognitive, contributions) = cognitive_complexity(body, source, error_guards);
     if node.kind() != "func_literal" && cognitive > options.maximum_cognitive_complexity {
-        issues.push(node_issue(
+        let mut issue = node_issue(
             "go:S3776",
-            format!("Refactor this method to reduce its Cognitive Complexity from {cognitive} to the {0} allowed.", options.maximum_cognitive_complexity),
+            format!(
+                "Refactor this method to reduce its Cognitive Complexity from {cognitive} to the {0} allowed.",
+                options.maximum_cognitive_complexity
+            ),
             node.child_by_field_name("name").unwrap_or(node),
             source,
-        ));
+        );
+        for contribution in contributions {
+            issue = issue.with_flow(vec![contribution]);
+        }
+        issues.push(issue);
     }
 }
 
@@ -4066,8 +4084,13 @@ fn parameter_count(node: Node<'_>) -> usize {
     count
 }
 
-fn cognitive_complexity(node: Node<'_>, source: &str, error_guards: &ErrorGuardFacts) -> usize {
+fn cognitive_complexity(
+    node: Node<'_>,
+    source: &str,
+    error_guards: &ErrorGuardFacts,
+) -> (usize, Vec<FlowLocation>) {
     let mut total = 0;
+    let mut contributions = Vec::new();
     let mut pending = vec![(node, 0_usize)];
     while let Some((current, nesting)) = pending.pop() {
         if current != node && current.kind() == "func_literal" {
@@ -4076,44 +4099,126 @@ fn cognitive_complexity(node: Node<'_>, source: &str, error_guards: &ErrorGuardF
             push_named_children(&mut pending, current, nesting + 1);
             continue;
         }
-        let error_guard =
-            current.kind() == "if_statement" && error_guards.is_error_guard(current, source);
-        let control = !error_guard
-            && matches!(
-                current.kind(),
-                "if_statement"
-                    | "for_statement"
-                    | "expression_switch_statement"
-                    | "type_switch_statement"
-            );
-        let else_if = current.kind() == "if_statement" && is_else_if(current);
-        total += usize::from(control) * if else_if { 1 } else { nesting + 1 };
-        if current.kind() == "if_statement"
-            && current
-                .child_by_field_name("alternative")
-                .is_some_and(|alternative| alternative.kind() != "if_statement")
-        {
-            total += 1;
-        }
-        if current.kind() == "binary_expression"
-            && is_logical_operator(operator_text(current, source))
-            && logical_parent(current).is_none()
-        {
-            total += logical_sequence_count(current, source);
-        }
-        // SonarGo adds +1 for each jump to a label (labeled break/continue and
-        // goto); unlabeled jumps are free.
-        if matches!(
-            current.kind(),
-            "break_statement" | "continue_statement" | "goto_statement"
-        ) && first_named(current).is_some()
-        {
-            total += 1;
-        }
-        let next = nesting + usize::from(control && !else_if);
+        let next = collect_cognitive_control(
+            current,
+            nesting,
+            source,
+            error_guards,
+            &mut total,
+            &mut contributions,
+        );
+        collect_cognitive_logical(current, source, &mut total, &mut contributions);
+        collect_cognitive_jump(current, source, &mut total, &mut contributions);
         push_named_children(&mut pending, current, next);
     }
-    total
+    (total, contributions)
+}
+
+fn collect_cognitive_control(
+    current: Node<'_>,
+    nesting: usize,
+    source: &str,
+    error_guards: &ErrorGuardFacts,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) -> usize {
+    let error_guard =
+        current.kind() == "if_statement" && error_guards.is_error_guard(current, source);
+    let control = !error_guard
+        && matches!(
+            current.kind(),
+            "if_statement"
+                | "for_statement"
+                | "expression_switch_statement"
+                | "type_switch_statement"
+        );
+    let else_if = current.kind() == "if_statement" && is_else_if(current);
+    if control && !else_if {
+        let keyword = match current.kind() {
+            "if_statement" => "if",
+            "for_statement" => "for",
+            _ => "switch",
+        };
+        if let Some(token) = direct_keyword(current, keyword) {
+            add_cognitive_contribution(token, nesting, source, total, contributions);
+        }
+    }
+    if current.kind() == "if_statement"
+        && current.child_by_field_name("alternative").is_some()
+        && let Some(token) = direct_keyword(current, "else")
+    {
+        add_cognitive_contribution(token, 0, source, total, contributions);
+    }
+    nesting + usize::from(control && !else_if)
+}
+
+fn collect_cognitive_logical(
+    current: Node<'_>,
+    source: &str,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) {
+    if current.kind() == "binary_expression"
+        && is_logical_operator(operator_text(current, source))
+        && logical_parent(current).is_none()
+    {
+        let mut operators = Vec::new();
+        flatten_logical_operators(current, &mut operators);
+        let mut previous = "";
+        for operator in operators {
+            let actual = text(operator, source);
+            if actual != previous {
+                add_cognitive_contribution(operator, 0, source, total, contributions);
+            }
+            previous = actual;
+        }
+    }
+}
+
+fn collect_cognitive_jump(
+    current: Node<'_>,
+    source: &str,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) {
+    // SonarGo charges labeled break/continue. Its Go frontend does not
+    // model goto as a cognitive jump; unlabeled jumps are free too.
+    if matches!(current.kind(), "break_statement" | "continue_statement")
+        && first_named(current).is_some()
+    {
+        let keyword = match current.kind() {
+            "break_statement" => "break",
+            _ => "continue",
+        };
+        if let Some(token) = direct_keyword(current, keyword) {
+            add_cognitive_contribution(token, 0, source, total, contributions);
+        }
+    }
+}
+
+fn direct_keyword<'tree>(node: Node<'tree>, keyword: &str) -> Option<Node<'tree>> {
+    (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == keyword)
+}
+
+fn add_cognitive_contribution(
+    token: Node<'_>,
+    nesting: usize,
+    source: &str,
+    total: &mut usize,
+    contributions: &mut Vec<FlowLocation>,
+) {
+    *total += nesting + 1;
+    let message = if nesting == 0 {
+        "+1".to_owned()
+    } else {
+        format!("+{} (incl {} for nesting)", nesting + 1, nesting)
+    };
+    contributions.push(FlowLocation::in_primary_file(
+        message,
+        node_range(token, source),
+    ));
 }
 
 fn control_depth(node: Node<'_>) -> usize {
@@ -4133,25 +4238,10 @@ fn control_depth(node: Node<'_>) -> usize {
     depth
 }
 
-/// Counts `&&`/`||` operator sequences in a logical expression head, mirroring
+/// Collects `&&`/`||` operator tokens in a logical expression head, mirroring
 /// `SonarGo`'s `flattenOperators`: recursion follows only direct logical
 /// binary operands, so parenthesized or unary operands break the sequence and
 /// are visited as their own heads.
-fn logical_sequence_count(node: Node<'_>, source: &str) -> usize {
-    let mut operators = Vec::new();
-    flatten_logical_operators(node, &mut operators);
-    let mut sequences = 0;
-    let mut previous = "";
-    for operator in operators {
-        let operator = text(operator, source);
-        if operator != previous {
-            sequences += 1;
-            previous = operator;
-        }
-    }
-    sequences
-}
-
 fn flatten_logical_operators<'tree>(node: Node<'tree>, operators: &mut Vec<Node<'tree>>) {
     let Some((left, right)) = binary_operands(node) else {
         return;
@@ -6440,6 +6530,65 @@ mod tests {
                 "package p\nfunc f(problem error, items []*int) { for _, problem := range items { if problem != nil { println(1) } } }\n"
             ),
             3
+        );
+    }
+
+    #[test]
+    fn s3776_supporting_locations_cover_control_and_operator_contributions() {
+        let source = "package p\nfunc f(a, b, c bool) {\n if a && b || c {\n  for a { if b { break } }\n } else if c { println(1) } else { println(2) }\n}\n";
+        let report = analyze(
+            PathBuf::from("flow.go"),
+            source,
+            &AnalyzerOptions {
+                maximum_cognitive_complexity: 0,
+                ..AnalyzerOptions::default()
+            },
+        );
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "go:S3776")
+            .unwrap();
+        assert!(issue.message.contains("from 10 to"));
+        let contributions: Vec<_> = issue
+            .flows
+            .iter()
+            .map(|flow| {
+                assert_eq!(flow.locations.len(), 1);
+                let location = &flow.locations[0];
+                assert!(location.path.is_none());
+                (
+                    location.range.start.line,
+                    location.range.start.column,
+                    location.range.end.column,
+                    location.message.as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            contributions,
+            vec![
+                (3, 1, 3, "+1"),
+                (5, 3, 7, "+1"),
+                (3, 6, 8, "+1"),
+                (3, 11, 13, "+1"),
+                (4, 2, 5, "+2 (incl 1 for nesting)"),
+                (4, 10, 12, "+3 (incl 2 for nesting)"),
+                (5, 28, 32, "+1"),
+            ]
+        );
+    }
+    #[test]
+    fn s3776_goto_is_not_a_labeled_break_or_continue() {
+        let source = "package p\nfunc f(a bool) { if a { goto done }; done: println(1) }\n";
+        assert_eq!(guard_score(source), 1);
+        assert_eq!(
+            guard_score("package p\nfunc f(a bool) { outer: for a { if a { break outer } } }\n"),
+            4
+        );
+        assert_eq!(
+            guard_score("package p\nfunc f(a bool) { outer: for a { if a { continue outer } } }\n"),
+            4
         );
     }
 }

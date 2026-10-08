@@ -13,15 +13,21 @@ pub(crate) fn check_generator_into_constructor(
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     for expr in &file_ctx.exprs {
-        if matches!(expr, Expr::Call(call) if matches!(called_name(&call.func), Some("list" | "set")))
-            && let Some(argument) =
-                single_positional_call(expr, "list").or_else(|| single_positional_call(expr, "set"))
-            && matches!(argument, Expr::Generator(_))
+        let Expr::Call(call) = expr else { continue };
+        let Expr::Name(callee) = call.func.as_ref() else {
+            continue;
+        };
+        let name = callee.id.as_str();
+        if !matches!(name, "list" | "set") {
+            continue;
+        }
+        if single_positional_call(expr, name)
+            .is_some_and(|argument| matches!(argument, Expr::Generator(_)))
         {
             issues.push(issue_at(
                 "python:S7494",
-                "Use a comprehension instead of passing a generator expression here.",
-                expr.range(),
+                &format!("Replace {name} constructor call with a {name} comprehension."),
+                call.func.range(),
                 index,
                 source,
             ));

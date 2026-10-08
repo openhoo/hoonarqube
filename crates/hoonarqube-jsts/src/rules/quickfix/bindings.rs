@@ -760,7 +760,7 @@ fn collect_s1444(
         targets,
         out,
         "S1444",
-        property.span,
+        property.key.span(),
         "s1444-add-readonly",
         "Add \"readonly\" keyword",
         &[edit],

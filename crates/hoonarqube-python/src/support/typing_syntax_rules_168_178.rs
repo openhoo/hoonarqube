@@ -2,7 +2,7 @@
 
 use crate::engine::file_context::{AnyImport, FileContext};
 use crate::support::dotted_segments;
-use crate::support::{called_name, for_each_stmt, function_parameters};
+use crate::support::{for_each_stmt, function_parameters};
 use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
@@ -75,19 +75,4 @@ pub(crate) fn pep695_aliases_present(parsed: &Parsed<ModModule>) -> bool {
         }
     });
     present
-}
-
-/// Names bound by `X = TypeVar(...)` assignments anywhere in the tree.
-pub(crate) fn collect_typevar_names(module_body: &[Stmt]) -> Vec<String> {
-    let mut names = Vec::new();
-    for_each_stmt(module_body, &mut |stmt| {
-        if let Stmt::Assign(assign) = stmt
-            && let [Expr::Name(target)] = assign.targets.as_slice()
-            && let Expr::Call(call) = assign.value.as_ref()
-            && called_name(&call.func) == Some("TypeVar")
-        {
-            names.push(target.id.to_string());
-        }
-    });
-    names
 }

@@ -392,7 +392,11 @@ impl<'a> Visit<'a> for TierCCoercionCollector<'_, '_> {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_tier_c_rules(ctx.program, ctx.index, ctx.language)
+    let mut issues = check_tier_c_rules(ctx.program, ctx.index, ctx.language);
+    if ctx.semantic_facts.is_some() {
+        issues.retain(|issue| !issue.rule_key.ends_with(":S6551"));
+    }
+    issues
 }
 
 #[cfg(test)]

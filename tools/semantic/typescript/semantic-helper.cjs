@@ -1594,6 +1594,104 @@ function collectQuickfixes(ts, checker, program, sourceFile, config) {
   return facts;
 }
 
+// Compiler-backed receiver and implicit coercion evidence. Facts are source-bound
+// and deliberately retain negative method evidence so syntax guesses cannot win.
+function collectCoercionFacts(ts, checker, sourceFile) {
+  const at_receivers = [];
+  const stringifications = [];
+  const seenReceivers = new Set();
+  const seenCoercions = new Set();
+  function receiver(node) {
+    const location = span(sourceFile.text, node);
+    const key = `${location.start}:${location.end}`;
+    if (seenReceivers.has(key)) return;
+    seenReceivers.add(key);
+    let type = checker.getTypeAtLocation(node);
+    type = checker.getBaseConstraintOfType(type) || type;
+    const property = checker.getPropertyOfType(type, 'at');
+    const callable = !!property && ((property.flags & ts.SymbolFlags.Method) !== 0
+      || checker.getTypeOfSymbolAtLocation(property, node).getCallSignatures().length > 0);
+    at_receivers.push({ span: location, callable });
+  }
+  function certainty(type, visited = new Set()) {
+    if (visited.has(type)) return 'always';
+    const next = new Set(visited); next.add(type);
+    if (type.flags & ts.TypeFlags.TypeParameter) {
+      const constraint = checker.getBaseConstraintOfType(type);
+      return constraint ? certainty(constraint, next) : 'always';
+    }
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never
+      | ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike
+      | ts.TypeFlags.BooleanLike | ts.TypeFlags.ESSymbolLike | ts.TypeFlags.Null
+      | ts.TypeFlags.Undefined | ts.TypeFlags.Void)) return 'always';
+    if (type.isUnion()) {
+      const parts = type.types.map(t => certainty(t, next));
+      return parts.every(p => p === 'will') ? 'will' : parts.every(p => p === 'always') ? 'always' : 'may';
+    }
+    if (type.isIntersection()) return type.types.some(t => certainty(t, next) === 'always') ? 'always' : 'will';
+    if (checker.isTupleType(type)) {
+      const parts = checker.getTypeArguments(type).map(t => certainty(t, next));
+      return parts.includes('will') ? 'will' : parts.includes('may') ? 'may' : 'always';
+    }
+    if (checker.isArrayType(type)) {
+      const element = checker.getIndexTypeOfType(type, ts.IndexKind.Number);
+      return element ? certainty(element, next) : 'always';
+    }
+    const symbol = type.getSymbol();
+    if (symbol && ['Error', 'RegExp', 'URL', 'URLSearchParams'].includes(symbol.getName())) return 'always';
+    if (type.flags & ts.TypeFlags.Object && type.objectFlags & ts.ObjectFlags.ClassOrInterface) {
+      const bases = checker.getBaseTypes(type) || [];
+      if (bases.some(base => { const name = base.getSymbol()?.getName();
+        return ['Error', 'RegExp', 'URL', 'URLSearchParams'].includes(name); })) return 'always';
+    }
+    // A custom well-known conversion method takes precedence over Object's
+    // default conversion. The compiler's escaped symbol name distinguishes it
+    // from an ordinary property named toPrimitive.
+    if (type.getProperties().some(property => property.getName().startsWith('__@toPrimitive@')
+      && (property.declarations || []).some(declaration => ts.isMethodSignature(declaration)
+        || ts.isMethodDeclaration(declaration)))) return 'always';
+    const conversion = ['toString', 'toLocaleString', 'valueOf'].map(name => checker.getPropertyOfType(type, name)).filter(Boolean);
+    if (!conversion.length) return 'always';
+    return conversion.some(property => (property.declarations || []).some(declaration =>
+      !ts.isInterfaceDeclaration(declaration.parent) || declaration.parent.name.text !== 'Object'
+    )) ? 'always' : 'will';
+  }
+  function coerce(node) {
+    const result = certainty(checker.getTypeAtLocation(node));
+    if (result === 'always') return;
+    const location = span(sourceFile.text, node);
+    const key = `${location.start}:${location.end}`;
+    if (seenCoercions.has(key)) return;
+    seenCoercions.add(key);
+    stringifications.push({ span: location, certainty: result,
+      message: `'${node.getText(sourceFile)}' ${result} use Object's default stringification format ('[object Object]') when stringified.` });
+  }
+  function visit(node) {
+    if (ts.isElementAccessExpression(node) && node.argumentExpression
+      && ts.isBinaryExpression(node.argumentExpression)
+      && node.argumentExpression.operatorToken.kind === ts.SyntaxKind.MinusToken) {
+      receiver(node.expression);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const name = node.expression.name.text;
+      if (name === 'charAt' || name === 'slice') receiver(node.expression.expression);
+      if (name === 'last' && ts.isIdentifier(node.expression.expression)
+        && ['_', 'lodash', 'underscore'].includes(node.expression.expression.text)
+        && node.arguments.length === 1) receiver(node.arguments[0]);
+    }
+    if (ts.isTemplateExpression(node) && !ts.isTaggedTemplateExpression(node.parent)) {
+      for (const item of node.templateSpans) coerce(item.expression);
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      if (checker.getTypeAtLocation(node.left).flags & ts.TypeFlags.StringLike) coerce(node.right);
+      if (checker.getTypeAtLocation(node.right).flags & ts.TypeFlags.StringLike) coerce(node.left);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return { at_receivers, stringifications };
+}
+
 function collectFacts(ts, checker, program, sourceFile, config, host, root, diagnostics) {
   let quickfixes = [];
   try {
@@ -1910,7 +2008,7 @@ function collectFacts(ts, checker, program, sourceFile, config, host, root, diag
     }
   }
 
-  return { deprecated, assertions, nullish, usages, quickfixes };
+  return { deprecated, assertions, nullish, usages, quickfixes, ...collectCoercionFacts(ts, checker, sourceFile) };
 }
 
 function moduleKind(ts, sourceFile) {

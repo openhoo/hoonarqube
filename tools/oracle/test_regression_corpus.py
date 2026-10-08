@@ -87,7 +87,11 @@ def _executable() -> str:
         cwd=REPO,
         check=True,
     )
-    return str(REPO / "target" / "debug" / "hoonarqube")
+    return str(
+        Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target"))
+        / "debug"
+        / "hoonarqube"
+    )
 
 
 def _catalog_keys() -> set[str]:

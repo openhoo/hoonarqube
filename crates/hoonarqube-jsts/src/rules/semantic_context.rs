@@ -37,6 +37,18 @@ pub(crate) fn run(
         issues: Vec::new(),
     };
 
+    for fact in &file.facts.stringifications {
+        if matches!(fact.certainty.as_str(), "will" | "may") {
+            emit_span(
+                &mut sink,
+                RuleScope::Both,
+                "S6551",
+                &fact.message,
+                source,
+                &fact.span,
+            );
+        }
+    }
     emit_deprecated(&mut sink, file, source);
     emit_imports(&mut sink, file, source, language, whitelist);
     if language == JstsLanguage::TypeScript {

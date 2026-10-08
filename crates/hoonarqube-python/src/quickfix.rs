@@ -81,9 +81,9 @@ pub(crate) fn attach_quick_fixes(
             "python:S7486" => s7486(issue, index, source),
             "python:S7488" => s7488(issue, index, source, file_ctx),
             "python:S7491" => s7491(issue, index, source),
-            "python:S7498" => s7498(issue, index, source),
+            "python:S7498" => s7498(issue, index, source, file_ctx),
             "python:S7501" => s7501(issue, index, source),
-            "python:S7504" => s7504(issue, index, source),
+            "python:S7504" => s7504(issue, index, source, file_ctx),
             "python:S7508" => s7508(issue, index, source),
             "python:S7517" => s7517(issue, index, source),
             _ => Vec::new(),
@@ -2226,22 +2226,36 @@ fn s7491(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
     result
 }
 
-fn s7498(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
+fn s7498(
+    issue: &Issue,
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext<'_>,
+) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let text = source[range].trim();
-    let replacement = if text.ends_with("dict()") {
-        "{}"
-    } else if text.ends_with("list()") {
-        "[]"
-    } else if text.ends_with("tuple()") {
-        "()"
-    } else {
+    let Some(call) = file_ctx
+        .calls
+        .iter()
+        .find(|call| call.func.range() == range)
+    else {
         return Vec::new();
+    };
+    if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+        return Vec::new();
+    }
+    let Expr::Name(callee) = call.func.as_ref() else {
+        return Vec::new();
+    };
+    let replacement = match callee.id.as_str() {
+        "dict" => "{}",
+        "list" => "[]",
+        "tuple" => "()",
+        _ => return Vec::new(),
     };
     vec![alt(
         "s7498-replace-with-literal",
         "Replace with literal",
-        vec![text_edit(index, source, range, replacement)],
+        vec![text_edit(index, source, call.range(), replacement)],
     )]
 }
 
@@ -2276,18 +2290,41 @@ fn s7501(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
     result
 }
 
-fn s7504(issue: &Issue, index: &LineIndex, source: &str) -> Vec<Alternative> {
+fn s7504(
+    issue: &Issue,
+    index: &LineIndex,
+    source: &str,
+    file_ctx: &FileContext<'_>,
+) -> Vec<Alternative> {
     let range = issue_range(issue, index, source);
-    let text = source[range].trim();
-    if !text.starts_with("list(") || !text.ends_with(')') {
+    let Some(call) = file_ctx
+        .calls
+        .iter()
+        .find(|call| call.func.range() == range)
+    else {
+        return Vec::new();
+    };
+    if !matches!(call.func.as_ref(), Expr::Name(callee) if callee.id.as_str() == "list")
+        || !call.arguments.keywords.is_empty()
+    {
         return Vec::new();
     }
-    let replacement = text[5..text.len() - 1].trim();
-    let edit = text_edit(index, source, range, replacement);
+    let [argument] = call.arguments.args.as_ref() else {
+        return Vec::new();
+    };
+    if matches!(argument, Expr::Starred(_)) {
+        return Vec::new();
+    }
+    // Parentheses preserve tuple and generator expressions in a for iterable.
+    let argument_text = &source[argument.range()];
+    let replacement = match argument {
+        Expr::Tuple(_) | Expr::Generator(_) => format!("({argument_text})"),
+        _ => argument_text.to_string(),
+    };
     vec![alt(
         "s7504-iterate-directly",
         "Iterate over the iterable directly",
-        vec![edit],
+        vec![text_edit(index, source, call.range(), replacement)],
     )]
 }
 
@@ -2398,6 +2435,36 @@ mod tests {
                 .map(str::to_owned)
         };
         assert_eq!(last_line(&projected.stderr), last_line(&original.stderr));
+    }
+
+    #[test]
+    fn collection_quickfixes_resolve_calls_from_callee_findings() {
+        for (constructor, literal) in [("dict", "{}"), ("list", "[]"), ("tuple", "()")] {
+            let source =
+                format!("value = {constructor}(\n    # empty collection\n)\nprint(value)\n");
+            let result = projected(&source, "python:S7498", "s7498-replace-with-literal")
+                .expect("callee finding must retain a whole-call edit");
+            assert_eq!(result, format!("value = {literal}\nprint(value)\n"));
+            assert_same_runtime(&source, &result);
+        }
+        let source = "values = [1, 2]\nfor value in list(\n    values,\n):\n    print(value)\n";
+        let result = projected(source, "python:S7504", "s7504-iterate-directly")
+            .expect("callee finding must retain the iterable edit");
+        assert_eq!(
+            result,
+            "values = [1, 2]\nfor value in values:\n    print(value)\n"
+        );
+        assert_same_runtime(source, &result);
+        assert_refused(
+            "value = dict(answer=42)\n",
+            "python:S7498",
+            "s7498-replace-with-literal",
+        );
+        assert_refused(
+            "for value in list(*values):\n    print(value)\n",
+            "python:S7504",
+            "s7504-iterate-directly",
+        );
     }
 
     #[test]
