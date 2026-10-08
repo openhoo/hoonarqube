@@ -127,6 +127,56 @@ class SyncReleaseVersionTest(unittest.TestCase):
                 sys.argv = original_argv
             self.assertIn('version = "9.9.9"', workspace.read_text())
 
+    def test_workspace_version_does_not_cross_into_another_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "Cargo.toml"
+            original = (
+                '[workspace.package]\nlicense = "Apache-2.0"\n\n'
+                '  [package]\nversion = "9.9.9"\n'
+            )
+            path.write_text(original, encoding="utf-8")
+            original_root = SYNC.ROOT
+            try:
+                SYNC.ROOT = root
+                with self.assertRaisesRegex(RuntimeError, "workspace.package"):
+                    SYNC.synchronized(path, "1.2.3")
+            finally:
+                SYNC.ROOT = original_root
+            self.assertEqual(path.read_text(), original)
+
+    def test_main_validates_all_targets_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "VERSION").write_text("1.2.3\n", encoding="utf-8")
+            workspace = root / "Cargo.toml"
+            workspace.write_text(
+                '[workspace.package]\nversion = "0.2.0"\n', encoding="utf-8"
+            )
+            (root / "xtask").mkdir()
+            (root / "xtask" / "Cargo.toml").write_text("[dependencies]\n", encoding="utf-8")
+            for name in ("setup", "analyze", "code-quality"):
+                path = root / "actions" / name / "action.yml"
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    'inputs:\n  version:\n    default: "0.2.0"\n', encoding="utf-8"
+                )
+            (root / "actions" / "README.md").write_text(
+                "no version example\n", encoding="utf-8"
+            )
+            originals = {
+                path: path.read_bytes() for path in root.rglob("*") if path.is_file()
+            }
+            original_root, original_argv = SYNC.ROOT, sys.argv
+            try:
+                SYNC.ROOT = root
+                sys.argv = ["sync_release_version.py"]
+                with self.assertRaisesRegex(RuntimeError, "no version example"):
+                    SYNC.main()
+            finally:
+                SYNC.ROOT, sys.argv = original_root, original_argv
+            self.assertEqual({path: path.read_bytes() for path in originals}, originals)
+
     def test_updates_workspace_version_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "Cargo.toml"
