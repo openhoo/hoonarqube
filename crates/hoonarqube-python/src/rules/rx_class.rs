@@ -300,6 +300,7 @@ mod tests {
         let class = RxClass {
             negated: false,
             items,
+            member_spans: Vec::new(),
             span: TextRange::new(TextSize::new(0), TextSize::from(to_u32(source.len()))),
         };
         let mut found = None;
@@ -339,5 +340,58 @@ mod tests {
         );
         assert!(s6397_range("[.]", vec![RxClassItem::Char('.')]).is_none());
         assert!(s6397_range("[]", vec![RxClassItem::Char('a')]).is_none());
+    }
+}
+
+pub(crate) fn duplicate_class_locations(
+    node: &crate::engine::rx::RxNode,
+    primary: TextRange,
+) -> Vec<TextRange> {
+    use crate::engine::rx::{RxAtom, for_each_rx_item};
+    let mut locations = Vec::new();
+    for_each_rx_item(node, &mut |item| {
+        if let RxAtom::Class(class) = &item.atom
+            && class.span.contains_range(primary)
+        {
+            locations.extend(class_duplicate_locations(class, primary));
+        }
+    });
+    locations
+}
+
+fn class_duplicate_locations(class: &RxClass, primary: TextRange) -> Vec<TextRange> {
+    let Some(seed) = class
+        .member_spans
+        .iter()
+        .position(|range| *range == primary)
+    else {
+        return Vec::new();
+    };
+    let Some(first) = class.items.get(seed).and_then(class_member_set) else {
+        return Vec::new();
+    };
+    class
+        .items
+        .iter()
+        .zip(&class.member_spans)
+        .enumerate()
+        .filter_map(|(position, (item, span))| {
+            (position != seed
+                && class_member_set(item)
+                    .is_some_and(|set| crate::engine::rx::rx_sets_intersect(&first, &set)))
+            .then_some(*span)
+        })
+        .collect()
+}
+
+fn class_member_set(item: &RxClassItem) -> Option<crate::engine::rx::RxSet> {
+    use crate::engine::rx::{RxAtom, RxSet, rx_atom_first_set};
+    match item {
+        RxClassItem::Char(ch) => rx_atom_first_set(&RxAtom::Literal(*ch)),
+        RxClassItem::Esc(escape) => rx_atom_first_set(&RxAtom::EscClass(*escape)),
+        RxClassItem::Range(low, high) => Some(RxSet::Members {
+            exact: std::collections::BTreeSet::new(),
+            ranges: vec![(*low, *high)],
+        }),
     }
 }

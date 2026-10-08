@@ -167,11 +167,18 @@ fn rx_item_equivalent(left: &RxItem, right: &RxItem) -> bool {
         }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub(crate) struct RxClass {
     pub(crate) negated: bool,
     pub(crate) items: Vec<RxClassItem>,
+    pub(crate) member_spans: Vec<TextRange>,
     pub(crate) span: TextRange,
+}
+
+impl PartialEq for RxClass {
+    fn eq(&self, other: &Self) -> bool {
+        self.negated == other.negated && self.items == other.items && self.span == other.span
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -945,6 +952,7 @@ impl<'a> RxParser<'a> {
             false
         };
         let mut items = Vec::new();
+        let mut member_spans = Vec::new();
         let mut first = true;
         loop {
             let Some(unit) = self.peek() else {
@@ -955,21 +963,28 @@ impl<'a> RxParser<'a> {
                 break;
             }
             first = false;
-            self.parse_class_item(&mut items)?;
+            self.parse_class_item(&mut items, &mut member_spans)?;
         }
         let end = self.consumed_end(start);
         Ok(RxClass {
             negated,
             items,
+            member_spans,
             span: TextRange::new(start, end),
         })
     }
 
     /// One class member, including `-range-` composition.
-    fn parse_class_item(&mut self, items: &mut Vec<RxClassItem>) -> RxResult<()> {
+    fn parse_class_item(
+        &mut self,
+        items: &mut Vec<RxClassItem>,
+        spans: &mut Vec<TextRange>,
+    ) -> RxResult<()> {
+        let start = self.peek().map_or(TextSize::new(0), |unit| unit.at);
         let element = self.parse_class_element()?;
         let RxClassItem::Char(low) = element else {
             items.push(element);
+            spans.push(TextRange::new(start, self.consumed_end(start)));
             return Ok(());
         };
         let dashes = self.peek().is_some_and(|u| u.ch == '-')
@@ -979,6 +994,7 @@ impl<'a> RxParser<'a> {
             match self.parse_class_element()? {
                 RxClassItem::Char(high) if high >= low => {
                     items.push(RxClassItem::Range(low, high));
+                    spans.push(TextRange::new(start, self.consumed_end(start)));
                 }
                 _ => {
                     return Err(self.err_at(self.peek()));
@@ -986,11 +1002,13 @@ impl<'a> RxParser<'a> {
             }
         } else {
             items.push(RxClassItem::Char(low));
+            spans.push(TextRange::new(start, self.consumed_end(start)));
             if self.peek().is_some_and(|u| u.ch == '-')
                 && self.peek_second().is_some_and(|u| u.ch == ']')
             {
-                self.bump();
+                let dash = self.bump().expect("checked trailing dash");
                 items.push(RxClassItem::Char('-'));
+                spans.push(TextRange::new(dash.at, self.consumed_end(dash.at)));
             }
         }
         Ok(())

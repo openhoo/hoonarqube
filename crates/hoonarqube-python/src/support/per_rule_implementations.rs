@@ -5,6 +5,7 @@ use crate::engine::rx::RegexSite;
 use crate::engine::rx::RxParsed;
 use crate::engine::rx::RxUnit;
 use crate::engine::rx::rx_complexity_contributions;
+use crate::rules::duplicate_class_locations;
 use crate::rules::redundancy_locations;
 use crate::rules::rx_repetition_hazards::check_rx_repetition_hazards;
 use crate::rules::rx_style_shapes::check_rx_style_shapes;
@@ -68,6 +69,10 @@ fn regex_supporting_locations(
     site: &RegexSite,
 ) -> Vec<(String, TextRange)> {
     match key {
+        "python:S5869" => duplicate_class_locations(&parsed.root, primary)
+            .into_iter()
+            .map(|range| ("Additional duplicate".to_owned(), range))
+            .collect(),
         "python:S5855" => redundancy_locations(&parsed.root, primary)
             .into_iter()
             .map(|(message, range)| (message.to_owned(), range))
