@@ -361,3 +361,28 @@ test('changing projects updates scope immediately and branch loading failure off
   assert.match(nodeText(ui.get('branch').children[0]), /retry/);
   assert.equal(ui.get('branch').disabled, true);
 });
+
+
+async function renderedMetrics(metrics, duplication) {
+  const ui = dashboard(); await loadedHistory(ui, [{id: 1}]);
+  ui.requests[3].respond({analysis: {id: 1, complete: true, metrics, duplication}}); await settle();
+  return ui.get('metrics-grid').children.map((card) => card.children.map(nodeText));
+}
+
+test('metric cards show readable common labels and duplication density in percent units', async () => {
+  const cards = await renderedMetrics({code_lines: 0, comment_lines: 12, files: 2, lines: 100},
+    {duplicated_blocks: 3, duplicated_files: 2, duplicated_lines: 10, duplicated_lines_density: 12.3456});
+  assert.deepEqual(cards, [['Code lines', '0'], ['Comment lines', '12'], ['Files', '2'], ['Lines', '100'],
+    ['Duplicated blocks', '3'], ['Duplicated files', '2'], ['Duplicated lines', '10'], ['Duplication density', '12.35%']]);
+});
+
+test('metric formatting preserves zero, missing measurements and unknown metric values', async () => {
+  const cards = await renderedMetrics({future_metric: 7, custom_state: 'unknown', nullable_metric: null, constructor: 4},
+    {duplicated_lines_density: 0, duplicated_blocks: null});
+  assert.deepEqual(cards, [['future_metric', '7'], ['custom_state', 'unknown'], ['nullable_metric', 'Not measured'],
+    ['constructor', '4'], ['Duplication density', '0%'], ['Duplicated blocks', 'Not measured']]);
+  const unavailable = await renderedMetrics({}, {duplicated_lines_density: null});
+  assert.deepEqual(unavailable, [['Duplication density', 'Not measured']]);
+  const nonnumeric = await renderedMetrics({}, {duplicated_lines_density: 'unknown'});
+  assert.deepEqual(nonnumeric, [['Duplication density', 'unknown']]);
+});

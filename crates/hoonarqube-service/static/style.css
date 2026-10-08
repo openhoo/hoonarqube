@@ -177,6 +177,7 @@ main {
 }
 
 .panel {
+  min-width: 0;
   padding: clamp(1rem, 2vw, 1.5rem);
   border-radius: 0.75rem;
 }
@@ -360,6 +361,7 @@ textarea {
 }
 
 .table-wrap {
+  max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: 0.5rem;

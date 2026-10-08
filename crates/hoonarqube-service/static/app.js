@@ -474,6 +474,16 @@
     renderGates(analysis);
   }
 
+  const metricLabels = new Map([
+    ["code_lines", "Code lines"], ["comment_lines", "Comment lines"],
+    ["files", "Files"], ["lines", "Lines"],
+    ["duplication", "Duplication"],
+    ["duplication.duplicated_blocks", "Duplicated blocks"],
+    ["duplication.duplicated_files", "Duplicated files"],
+    ["duplication.duplicated_lines", "Duplicated lines"],
+    ["duplication.duplicated_lines_density", "Duplication density"],
+  ]);
+
   function renderMetrics(analysis) {
     clear(elements.metricsGrid);
     const metrics = analysis && analysis.metrics && typeof analysis.metrics === "object"
@@ -492,7 +502,7 @@
       card.className = "metric-card";
       const metricName = document.createElement("span");
       metricName.className = "metric-name";
-      appendText(metricName, name);
+      appendText(metricName, metricLabels.get(name) || name);
       const metricValue = document.createElement("span");
       metricValue.className = "metric-value";
       const value = raw && typeof raw === "object" && Object.prototype.hasOwnProperty.call(raw, "value") ? raw.value : raw;
@@ -501,7 +511,12 @@
         metricValue.className += " metric-missing";
         appendText(metricValue, "Not measured");
       } else {
-        appendText(metricValue, formatted === null ? value : formatted);
+        if (name === "duplication.duplicated_lines_density" && formatted !== null) {
+          // Native reports store density in percentage units already (0–100).
+          appendText(metricValue, `${new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value)}%`);
+        } else {
+          appendText(metricValue, formatted === null ? value : formatted);
+        }
       }
       card.append(metricName, metricValue);
       elements.metricsGrid.appendChild(card);
