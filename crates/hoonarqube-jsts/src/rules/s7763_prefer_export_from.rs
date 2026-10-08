@@ -16,6 +16,8 @@
 //   export declaration when `B` is otherwise unused;
 // - `import * as ns from "./a";` re-exports report the same way, except
 //   `export default ns`, which has no `export…from` equivalent.
+//   Named namespace defaults (`export { ns as default }`) report S7734
+//   instead; this package does not extend other S7734 import/export forms.
 //
 // The unicorn gate only reports bindings whose every resolved reference
 // is an export position; a binding that is also read locally keeps the
@@ -74,7 +76,11 @@ enum ImportKind {
 enum ExportSite {
     /// `export { A }` / `export { A as B }` — reports the specifier and
     /// names the `exported` text.
-    Specifier { specifier: Span, exported: Span },
+    Specifier {
+        specifier: Span,
+        exported: Span,
+        is_default: bool,
+    },
     /// `export default A` — reports the whole declaration and names
     /// `default`.
     Default(Span),
@@ -112,6 +118,9 @@ fn check_import(
         };
         bound.push(import);
     }
+    for import in &bound {
+        check_namespace_default_aliases(sink, semantic, import);
+    }
     let mut exports = Vec::with_capacity(bound.len());
     for import in &bound {
         let Some(sites) = export_sites(semantic, import) else {
@@ -123,6 +132,34 @@ fn check_import(
     }
     for (import, sites) in &exports {
         emit_exports(sink, ctx, semantic, import, sites);
+    }
+}
+
+/// Namespace bindings exported via the named default syntax are S7734,
+/// even when their local usage prevents a re-export suggestion.
+fn check_namespace_default_aliases(
+    sink: &mut IssueSink<'_>,
+    semantic: &Semantic<'_>,
+    import: &BoundImport,
+) {
+    if import.kind != ImportKind::Namespace {
+        return;
+    }
+    for &reference_id in semantic.scoping().get_resolved_reference_ids(import.symbol) {
+        let reference = semantic.scoping().get_reference(reference_id);
+        if let Some(ExportSite::Specifier {
+            specifier,
+            is_default: true,
+            ..
+        }) = export_site(semantic, reference.node_id())
+        {
+            sink.emit_span(
+                RuleScope::Both,
+                "S7734",
+                "Prefer using the default export over named export.",
+                specifier,
+            );
+        }
     }
 }
 
@@ -209,6 +246,7 @@ fn export_site(semantic: &Semantic<'_>, reference_node: NodeId) -> Option<Export
         AstKind::ExportSpecifier(specifier) => Some(ExportSite::Specifier {
             specifier: specifier.span,
             exported: specifier.exported.span(),
+            is_default: module_export_name_is_default(&specifier.exported),
         }),
         AstKind::ExportDefaultDeclaration(declaration) => {
             Some(ExportSite::Default(declaration.span))
@@ -303,11 +341,15 @@ fn emit_exports(
             ExportSite::Specifier {
                 specifier,
                 exported,
+                is_default,
             } => {
                 // The decorator suppresses reports for names that
                 // resolve to a default import or still have non-export
                 // references.
-                if import.kind == ImportKind::Default || has_local_usage(semantic, import.symbol) {
+                if import.kind == ImportKind::Default
+                    || (import.kind == ImportKind::Namespace && *is_default)
+                    || has_local_usage(semantic, import.symbol)
+                {
                     continue;
                 }
                 emit(sink, *specifier, span_text(ctx.source, *exported));
@@ -340,6 +382,42 @@ fn emit(sink: &mut IssueSink<'_>, span: Span, exported: &str) {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    #[test]
+    fn s7734_distinguishes_namespace_default_aliases_from_reexports() {
+        let source = "import * as namespace from './module.js';\nexport { namespace, namespace as default };\n";
+        for report in [js(source), ts(source)] {
+            let default_alias: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S7734"))
+                .collect();
+            let reexports: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S7763"))
+                .collect();
+            assert_eq!(default_alias.len(), 1);
+            assert_eq!(
+                default_alias[0].message,
+                "Prefer using the default export over named export."
+            );
+            assert_eq!(default_alias[0].range.start, pos(2, 20));
+            assert_eq!(default_alias[0].range.end, pos(2, 40));
+            assert_eq!(reexports.len(), 1);
+            assert_eq!(reexports[0].range.start, pos(2, 9));
+            assert_eq!(reexports[0].range.end, pos(2, 18));
+        }
+        let local_use = ts(
+            "import * as namespace from './module.js';\nuse(namespace);\nexport { namespace as default };\n",
+        );
+        assert_eq!(count_key(&report_keys(&local_use), "typescript:S7734"), 1);
+        assert_eq!(count_key(&report_keys(&local_use), "typescript:S7763"), 0);
+        let dedicated =
+            ts("import * as namespace from './module.js';\nexport default namespace;\n");
+        assert_eq!(count_key(&report_keys(&dedicated), "typescript:S7734"), 0);
+        assert_eq!(count_key(&report_keys(&dedicated), "typescript:S7763"), 0);
+    }
 
     #[test]
     fn s7763_flags_named_reexport() {
