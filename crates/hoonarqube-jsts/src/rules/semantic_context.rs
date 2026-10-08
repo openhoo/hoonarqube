@@ -37,6 +37,24 @@ pub(crate) fn run(
         issues: Vec::new(),
     };
 
+    for fact in &file.facts.promise_usages {
+        let message = match fact.kind.as_str() {
+            "await" => "Unexpected `await` of a non-Promise (non-\"Thenable\") value.",
+            "all" => {
+                "Unexpected iterable of non-Promise (non-\"Thenable\") values passed to promise aggregator."
+            }
+            _ => continue,
+        };
+        emit_span(
+            &mut sink,
+            RuleScope::Both,
+            "S4123",
+            message,
+            source,
+            &fact.span,
+        );
+    }
+
     for fact in &file.facts.stringifications {
         if matches!(fact.certainty.as_str(), "will" | "may") {
             emit_span(

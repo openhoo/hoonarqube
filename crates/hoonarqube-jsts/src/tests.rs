@@ -1622,6 +1622,66 @@ fn deeply_nested_valid_program_does_not_overflow_the_process_stack() {
 }
 
 #[test]
+fn semantic_s4123_requires_nonpromise_types_for_await_and_promise_all() {
+    let Some(package) = pinned_typescript_package_for_tests() else {
+        return;
+    };
+    let source = r"
+async function test(unknown: unknown, anyValue: any, thenable: PromiseLike<number>, maybe: number | Promise<number>, unknownValues: unknown[]) {
+  const values = [1, 2];
+  const pending = [Promise.resolve(1)];
+  await 1;
+  await values;
+  await unknown;
+  await anyValue;
+  await thenable;
+  await maybe;
+  await Promise.resolve(1);
+  await Reflect.apply(async () => 1, null, []);
+  Promise.all(values);
+  Promise.all(pending);
+  Promise.all(unknownValues);
+  Promise.all([]);
+  Promise.all([1, Promise.resolve(1)]);
+}
+function shadowed(Promise: { all(values: number[]): number[] }) {
+  Promise.all([1, 2]);
+}
+";
+    let (root, context) =
+        semantic_quickfix_fixture("semantic-promise-types", &package, &[("case.ts", source)]);
+    let report = semantic_quickfix_analysis(&context, &root, "case.ts", source);
+    let target: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_key == "typescript:S4123")
+        .collect();
+    assert_eq!(target.len(), 4);
+    let subjects: Vec<_> = target
+        .iter()
+        .map(|issue| semantic_issue_source_text(source, issue))
+        .collect();
+    assert_eq!(
+        subjects,
+        [
+            "await 1",
+            "await values",
+            "values",
+            "[1, Promise.resolve(1)]"
+        ]
+    );
+    assert_eq!(
+        target[0].message,
+        "Unexpected `await` of a non-Promise (non-\"Thenable\") value."
+    );
+    assert_eq!(
+        target[2].message,
+        "Unexpected iterable of non-Promise (non-\"Thenable\") values passed to promise aggregator."
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn qualified_static_reduce_and_regex_messages_preserve_primary_findings() {
     let static_report = ts("class Example { static value = 1; }");
     let static_issue = static_report
