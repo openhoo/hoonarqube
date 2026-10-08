@@ -686,8 +686,8 @@ impl StatementCollector<'_, '_> {
             self.sink.emit_span(
                 RuleScope::Both,
                 "S6660",
-                "Collapse this \"else\" block into an \"else if\".",
-                block.span(),
+                "'If' statement should not be the only statement in 'else' block",
+                Span::new(inner.span.start, inner.span.start.saturating_add(2)),
             );
         }
     }
@@ -1191,6 +1191,29 @@ function clean() {
                 "javascript:S108"
             ),
             1
+        );
+    }
+
+    #[test]
+    fn s6660_reports_the_inner_if_keyword() {
+        let report = ts("if (ready) { work(); } else {\n  if (fallback) { recover(); }\n}\n");
+        let issue = report
+            .issues
+            .iter()
+            .find(|issue| issue.rule_key == "typescript:S6660")
+            .unwrap();
+        assert_eq!(
+            (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column
+            ),
+            (2, 2, 2, 4)
+        );
+        assert_eq!(
+            issue.message,
+            "'If' statement should not be the only statement in 'else' block"
         );
     }
 
