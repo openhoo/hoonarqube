@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-08",
+  "base_commit": "38760c3d2da1ff7eb65503d8655a56764d274877",
+  "native_source_commit": "9dad3848585fa5dca0cbd53447236a57c4031891",
+  "native_binary_sha256": "84000c05f94bb0bbebf610b8e779a55db716f7e6e9798206d0990fc15c82aebf",
+  "rules": [
+    "S6551"
+  ],
+  "checks": {
+    "tests": 1386,
+    "typescript_compiler_version": "6.0.3",
+    "clippy_all_targets": "PASS",
+    "helper_syntax_check": "PASS",
+    "regression": "s6551_explicit_string_uses_compiler_argument_type_and_builtin_symbol",
+    "red": "Executed compiler regression found zero explicit String coercion findings instead of two.",
+    "green": "Both definite and possible default stringification produce exact argument ranges and will/may messages. Custom toString, Symbol.toPrimitive, primitive, parameter-shadowed String, narrowed string, unknown and any controls remain clean.",
+    "actual_control_cli": {
+      "before_S6551": 0,
+      "after_S6551": 2,
+      "complete": true,
+      "other_primary_changes": 0,
+      "before_report_sha256": "75250a8d6bc495bb83b8640688f9948b251ca1fbe0431d1c007babfe20198ebf",
+      "after_report_sha256": "6f9198c23bf9453755739cd32cde800a5944fd9d7038de108390d2094ea5e5cc"
+    }
+  },
+  "reference_contract": {
+    "active_rules": 435,
+    "active_rules_sha256": "9e00e46053b7e5e802300679d6307e53fa9d3d2cd43044efbbb78710e7812775",
+    "issues_sha256": "04a4089c1fdd9cd07a8367a7687a82527ab09b3c335abb39f0d491dea7818ba3",
+    "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+    "basis": "Two frozen Zod explicit String(value) arguments have S6551 may/will messages for actual compiler types {}|undefined and {}."
+  },
+  "zod": {
+    "claim": "observed_identity_differences",
+    "native_total": 685,
+    "reference_total": 594,
+    "matched": 585,
+    "native_only": 100,
+    "reference_only": 9,
+    "complete": true,
+    "files": 125,
+    "target_primary_messages_exact": [
+      {
+        "identity": [
+          "typescript:S6551",
+          "packages/zod/src/v4/classic/from-json-schema.ts",
+          228,
+          23,
+          228,
+          28
+        ],
+        "message": "'value' may use Object's default stringification format ('[object Object]') when stringified."
+      },
+      {
+        "identity": [
+          "typescript:S6551",
+          "packages/zod/src/v4/core/compile.ts",
+          1922,
+          77,
+          1922,
+          82
+        ],
+        "message": "'value' will use Object's default stringification format ('[object Object]') when stringified."
+      }
+    ],
+    "removed_identities": [],
+    "added_identities": [
+      {
+        "identity": [
+          "typescript:S6551",
+          "packages/zod/src/v4/classic/from-json-schema.ts",
+          228,
+          23,
+          228,
+          28
+        ],
+        "multiplicity": 1
+      },
+      {
+        "identity": [
+          "typescript:S6551",
+          "packages/zod/src/v4/core/compile.ts",
+          1922,
+          77,
+          1922,
+          82
+        ],
+        "multiplicity": 1
+      }
+    ],
+    "before_matched": 583,
+    "before_native_only": 100,
+    "before_reference_only": 11,
+    "report_sha256": "a76d82a8b2f320ad9e31f23625db4af7e9d4322c288d9b9e17c726b0a3ab7e1a",
+    "baseline_report_sha256": "110b7fb46a58dd161803515f2ec9d273de1a4a45d9d3f0e6f5be8edeb90312bb",
+    "baseline_binary_sha256": "12fc59e614930aa1a44a920547cde61af9805a7da4f942e307a0f3750046ad8b",
+    "full_all_rule_primary_delta": {
+      "removed": 0,
+      "added_S6551": 2,
+      "new_native_only": 0,
+      "other_changes": 0
+    }
+  },
+  "limitations": [
+    "Existing certainty/type policy is reused without modification; only default-library String calls with one nonspread argument enter it.",
+    "No new reference capture or quickfix qualification; frozen Zod source and actual captured reference reused.",
+    "Nine reference-only identities and 100 native-only observations remain in package5 plus this candidate."
+  ]
+}
