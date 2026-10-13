@@ -465,7 +465,10 @@ fn build_prepared_file(
 }
 
 fn uses_token_lines(language: Language) -> bool {
-    matches!(language, Language::JavaScript | Language::TypeScript)
+    matches!(
+        language,
+        Language::Python | Language::JavaScript | Language::TypeScript
+    )
 }
 
 /// CPD compares complete token-bearing rows. Consecutive rows with identical
@@ -510,15 +513,40 @@ fn prepare_token_lines(
     let ids: Vec<_> = retained.iter().map(|row| row.0).collect();
     let prefix_a = build_hash_prefix(&ids, HASH_BASE_A)?;
     let prefix_b = build_hash_prefix(&ids, HASH_BASE_B)?;
+    let endpoints: Vec<_> = retained
+        .iter()
+        .map(|row| source_endpoints(&file, row.1, row.2))
+        .collect();
+    let source_tokens = endpoints
+        .iter()
+        .enumerate()
+        .filter_map(|(index, endpoints)| endpoints.map(|_| index))
+        .collect();
     Ok(PreparedFile {
         path: file.path,
         language: file.language,
         lines: file.lines,
-        starts: retained.iter().map(|row| file.starts[row.1]).collect(),
-        ends: retained.iter().map(|row| file.ends[row.2]).collect(),
-        byte_starts: retained.iter().map(|row| file.byte_starts[row.1]).collect(),
-        byte_ends: retained.iter().map(|row| file.byte_ends[row.2]).collect(),
-        source_tokens: (0..ids.len()).collect(),
+        starts: retained
+            .iter()
+            .zip(&endpoints)
+            .map(|(row, endpoints)| file.starts[endpoints.map_or(row.1, |(first, _)| first)])
+            .collect(),
+        ends: retained
+            .iter()
+            .zip(&endpoints)
+            .map(|(row, endpoints)| file.ends[endpoints.map_or(row.2, |(_, last)| last)])
+            .collect(),
+        byte_starts: retained
+            .iter()
+            .zip(&endpoints)
+            .map(|(row, endpoints)| file.byte_starts[endpoints.map_or(row.1, |(first, _)| first)])
+            .collect(),
+        byte_ends: retained
+            .iter()
+            .zip(&endpoints)
+            .map(|(row, endpoints)| file.byte_ends[endpoints.map_or(row.2, |(_, last)| last)])
+            .collect(),
+        source_tokens,
         unit_starts: retained.iter().map(|row| row.1).collect(),
         unit_ends: retained.iter().map(|row| row.2).collect(),
         ids,
@@ -2229,12 +2257,14 @@ mod tests {
     fn empty_structure_markers_do_not_extend_minimum_physical_span() {
         let symbols = &["enter", "code", "exit"];
         let units = &[("enter", 1, 1), ("code", 2, 10), ("exit", 11, 11)];
-        let mut first = file("a.py", Language::Python, symbols, units, 11);
+        // The flat-token path accepts physical spans across multiline tokens.
+        // Python, JS and TS separately require complete token-bearing rows.
+        let mut first = file("a.go", Language::Go, symbols, units, 11);
         for index in [0, 2] {
             first.facts.tokens[index].end_byte = first.facts.tokens[index].start_byte;
         }
         let mut second = first.clone();
-        second.path = PathBuf::from("b.py");
+        second.path = PathBuf::from("b.go");
         let inputs = [first, second];
         let below = detect_duplications(&inputs, &options(3, 10)).expect("detection");
         assert!(
@@ -2287,11 +2317,11 @@ mod tests {
         );
     }
     #[test]
-    fn keeps_same_line_byte_ranges_and_rejects_duplicate_paths() {
+    fn keeps_flat_token_same_line_byte_ranges_and_rejects_duplicate_paths() {
         let symbols = &["a", "b"];
         let units = &[("a", 1, 1), ("b", 1, 1), ("a", 1, 1), ("b", 1, 1)];
         let result = detect_duplications(
-            &[file("same.py", Language::Python, symbols, units, 1)],
+            &[file("same.go", Language::Go, symbols, units, 1)],
             &options(2, 1),
         )
         .expect("detection");
