@@ -272,6 +272,9 @@ mod native;
 // boolean knob, so the struct legitimately accumulates them.
 #[allow(clippy::struct_excessive_bools)]
 pub struct AnalyzerOptions {
+    /// Explicit source classification; `None` uses conventional test paths.
+    /// Project orchestration sets this for configurable test-source patterns.
+    pub test_scope: Option<bool>,
     pub maximum_line_length: u32,
     pub maximum_lines_of_code: u32,
     pub maximum_function_parameters: u32,
@@ -328,6 +331,7 @@ pub struct AnalyzerOptions {
 impl Default for AnalyzerOptions {
     fn default() -> Self {
         Self {
+            test_scope: None,
             maximum_line_length: 120,
             maximum_lines_of_code: 1000,
             maximum_function_parameters: 13,
@@ -362,10 +366,10 @@ pub fn analyze(
 
 /// Runs the Python analyzer with syntax-backed cross-module facts.
 ///
-/// Test-scope files only run TEST-scope rules; MAIN and ALL rules stay
-/// silent, matching the reference's test-file behavior.
-fn retain_main_scope_issues(issues: &mut Vec<Issue>, path: &Path) {
-    if is_test_scope_file(path) {
+/// Test-scope files retain the existing TEST/ALL rule policy while MAIN
+/// findings stay silent, matching the reference's test-file behavior.
+fn retain_main_scope_issues(issues: &mut Vec<Issue>, test_scope: bool) {
+    if test_scope {
         issues.retain(|issue| !MAIN_SCOPE_RULE_KEYS.contains(&issue.rule_key.as_str()));
     }
 }
@@ -381,6 +385,7 @@ struct BatteryContext<'a> {
     file_ctx: &'a FileContext<'a>,
     path: &'a Path,
     metrics: &'a hoonarqube_ir::FileMetrics,
+    test_scope: bool,
 }
 
 fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
@@ -392,6 +397,7 @@ fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
         file_ctx,
         path,
         metrics,
+        test_scope,
     } = *ctx;
     issues.extend(check_tier_a_battery(
         parsed, index, source, options, file_ctx, path,
@@ -406,7 +412,7 @@ fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
         parsed, index, source, options, metrics,
     ));
     issues.extend(check_tier_b_battery(
-        parsed, index, source, options, file_ctx, path,
+        parsed, index, source, options, file_ctx, path, test_scope,
     ));
     issues.extend(check_regex_battery(parsed, index, source, options));
 }
@@ -421,6 +427,9 @@ pub fn analyze_with_context(
     options: &AnalyzerOptions,
     project: &PythonProjectContext,
 ) -> hoonarqube_ir::FileReport {
+    let test_scope = options
+        .test_scope
+        .unwrap_or_else(|| is_test_scope_file(path.as_path()));
     let parsed = parse(source);
     let index = LineIndex::from_source_text(source);
     let metrics = file_metrics(&parsed, source, &index);
@@ -463,6 +472,7 @@ pub fn analyze_with_context(
             file_ctx: &file_ctx,
             path: path.as_path(),
             metrics: &metrics,
+            test_scope,
         },
         &mut issues,
     );
@@ -482,6 +492,7 @@ pub fn analyze_with_context(
         source,
         path.as_path(),
         &file_ctx,
+        test_scope,
     ));
     issues.extend(check_pytest_contract_battery(
         &parsed,
@@ -502,8 +513,9 @@ pub fn analyze_with_context(
         source,
         options,
         &file_ctx,
+        test_scope,
     ));
-    retain_main_scope_issues(&mut issues, path.as_path());
+    retain_main_scope_issues(&mut issues, test_scope);
     attach_quick_fixes(&parsed, &index, source, &file_ctx, &mut issues);
     sort_issues(&mut issues);
 
