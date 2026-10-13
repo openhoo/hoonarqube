@@ -4605,6 +4605,9 @@ fn relative_issue(
 }
 
 #[cfg(test)]
+mod s126_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
@@ -6006,7 +6009,7 @@ mod tests {
     }
 
     #[test]
-    fn s126_reports_only_the_outermost_missing_else_chain() {
+    fn s126_reports_outer_chain_and_exempts_nested_return_chain() {
         let found = keys(concat!(
             "package p\n",
             "func pick(a, b, c bool) int {\n",
@@ -6033,7 +6036,7 @@ mod tests {
         assert_eq!(
             found.iter().filter(|key| key.as_str() == "go:S126").count(),
             2,
-            "outer chain and standalone chain fire; the nested chain does not: {found:?}"
+            "outer and standalone chains fire; all nested branches end in return: {found:?}"
         );
     }
 
