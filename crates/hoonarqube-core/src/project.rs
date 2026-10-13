@@ -68,15 +68,19 @@ pub fn analyze_project_file(
         };
     }
 
-    // Scope affects both MAIN-rule suppression and Go's test function name
-    // pattern. Pass the classification into analysis before either runs.
+    // Scope affects MAIN-rule suppression and TEST detector eligibility.
+    // Pass explicit classification into analysis while preserving paths.
     let scoped_options;
     let options = if classification == FileClassification::Test
-        && language_for_path(path) == Some(Language::Go)
+        && let Some(language @ (Language::Go | Language::Python)) = language_for_path(path)
     {
         scoped_options = {
             let mut scoped = options.clone();
-            scoped.go.test_scope = Some(true);
+            if language == Language::Go {
+                scoped.go.test_scope = Some(true);
+            } else {
+                scoped.python.test_scope = Some(true);
+            }
             scoped
         };
         &scoped_options
@@ -1013,6 +1017,102 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn explicit_python_test_classification_routes_rules_without_changing_paths_or_metrics() {
+        let source = concat!(
+            "import unittest\n",
+            "import requests\n",
+            "# NOSONAR\n",
+            "class Checks(unittest.TestCase):\n",
+            "    def helper(self):\n",
+            "        return 42\n",
+            "requests.get('https://example.com')\n",
+        );
+        let options = AnalyzerOptions {
+            profile: crate::RuleProfile::Strict,
+            ..AnalyzerOptions::default()
+        };
+        let analyze_scope = |path: &str, classification| {
+            let file =
+                analyze_project_file(Path::new(path), source, &options, classification, false);
+            assert!(file.error.is_none(), "{:?}", file.error);
+            assert!(file.facts.as_ref().unwrap().error.is_none());
+            file.report.unwrap()
+        };
+        let main = analyze_scope("checks.py", FileClassification::Source);
+        let tests = analyze_scope("checks.py", FileClassification::Test);
+        let conventional = analyze_scope("tests/checks.py", FileClassification::Source);
+        let has =
+            |report: &FileReport, key| report.issues.iter().any(|issue| issue.rule_key == key);
+        assert!(has(&main, "python:S1720"), "MAIN control");
+        assert!(!has(&main, "python:S2187"), "TEST-only control");
+        assert!(
+            !has(&tests, "python:S1720"),
+            "explicit TEST suppresses MAIN"
+        );
+        assert!(
+            has(&tests, "python:S2187"),
+            "explicit TEST enables class eligibility"
+        );
+        for report in [&main, &tests, &conventional] {
+            assert!(has(report, "python:NoSonar"), "ALL rule survives");
+            assert!(
+                has(report, "hoonarqube-python:request-without-timeout"),
+                "native rule survives"
+            );
+        }
+        assert_eq!(tests.path, Path::new("checks.py"));
+        assert_eq!(tests.metrics, main.metrics);
+        assert_eq!(tests.issues, conventional.issues);
+    }
+
+    #[test]
+    fn explicit_python_test_classification_activates_s2187_with_clean_collection_controls() {
+        let missing_tests = "import unittest\nclass Checks(unittest.TestCase):\n    def helper(self):\n        return 42\n";
+        let report = analyze_project_file(
+            Path::new("checks.py"),
+            missing_tests,
+            &AnalyzerOptions::default(),
+            FileClassification::Test,
+            false,
+        )
+        .report
+        .unwrap();
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "python:S2187")
+            .collect();
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert_eq!(issues[0].message, "Add some tests to this class.");
+        assert_eq!(issues[0].range.start.line, 2);
+        assert_eq!(issues[0].range.start.column, 6);
+        assert_eq!(issues[0].range.end.line, 2);
+        assert_eq!(issues[0].range.end.column, 12);
+        for source in [
+            "import unittest\nclass Checks(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(42, 42)\n",
+            "def helper():\n    return 42\n",
+        ] {
+            let file = analyze_project_file(
+                Path::new("checks.py"),
+                source,
+                &AnalyzerOptions::default(),
+                FileClassification::Test,
+                false,
+            );
+            assert!(file.error.is_none());
+            assert!(
+                !file
+                    .report
+                    .unwrap()
+                    .issues
+                    .iter()
+                    .any(|issue| issue.rule_key == "python:S2187"),
+                "{source}"
+            );
+        }
+    }
+
     #[test]
     fn explicit_test_classification_suppresses_go_main_scope_rules() {
         let source = "package p\nfunc empty() {}\nfunc Test_value() { println(1) }\nfunc same(x int) bool { return x == x }\n";

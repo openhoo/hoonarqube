@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Expr, Stmt, StmtClassDef, StmtFunctionDef};
 use ruff_source_file::LineIndex;
@@ -10,7 +8,6 @@ use crate::engine::scope::SymbolTable;
 use crate::engine::scope::scope_is_within;
 use crate::engine::scope::{DefFlavor, DefSite};
 use crate::support::is_dunder_name;
-use crate::support::is_test_scope_file;
 use crate::support::issue_at;
 
 // --- python:S1172 — unused function parameters -------------------------------
@@ -23,10 +20,10 @@ pub(crate) fn check_unused_parameters(
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
-    path: &Path,
+    test_scope: bool,
 ) -> Vec<Issue> {
     // Sonar skips every function in `test*`/`conftest*` files outright.
-    if is_test_scope_file(path) {
+    if test_scope {
         return Vec::new();
     }
     let mut issues = Vec::new();
