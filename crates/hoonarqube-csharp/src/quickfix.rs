@@ -449,10 +449,19 @@ pub(crate) fn attach_fixes_from_tree(
     facts: Option<&dyn QuickFixSemanticFacts>,
 ) {
     for issue in &mut report.issues {
-        let Some((start, end)) = issue_offsets(issue, source) else {
+        let Some(key) = canonical_rule_key(&issue.rule_key) else {
             continue;
         };
-        let Some(key) = canonical_rule_key(&issue.rule_key) else {
+        if issue.range.is_file_level() && key == "csharpsquid:S1451" {
+            // Header actions calculate their own concrete insertion range.
+            // A file-level diagnostic does not provide a source edit anchor.
+            issue.alternatives.retain(|alternative| {
+                alternative.id != "csharp.s1451.add-or-update-license-header"
+            });
+            s1451(source, options, issue);
+            continue;
+        }
+        let Some((start, end)) = issue_offsets(issue, source) else {
             continue;
         };
         let dispatch = FixDispatch {
@@ -2261,6 +2270,27 @@ mod tests {
     }
 
     #[test]
+    fn s1451_file_level_header_action_keeps_conflicting_edit_refusal() {
+        let source = "// int removed = 1;\nclass C { int Value => 42; }\n";
+        let options = AnalyzerOptions {
+            header_format: "// Copyright Example\n".to_string(),
+            ..AnalyzerOptions::default()
+        };
+        let report = crate::tests::analyze_options(source, &options);
+        let header = crate::tests::with_key(&report, "csharpsquid:S1451");
+        assert!(header[0].range.is_file_level());
+        let commented_code = crate::tests::with_key(&report, "csharpsquid:S125");
+        let edits = [
+            &header[0].alternatives[0].fix.edits[0],
+            &commented_code[0].alternatives[0].fix.edits[0],
+        ];
+        assert!(matches!(
+            hoonarqube_ir::apply_fixes(source, &edits),
+            Err(hoonarqube_ir::FixApplyError::Overlapping { .. })
+        ));
+    }
+
+    #[test]
     fn file_level_header_action_refuses_unsupported_templates() {
         let source = "class C { }\n";
         for options in [
@@ -2280,6 +2310,15 @@ mod tests {
             attach_fixes(source, &options, &mut report, None);
             assert!(report.issues[0].alternatives.is_empty());
         }
+        let options = AnalyzerOptions {
+            header_format: "// Copyright".to_string(),
+            ..AnalyzerOptions::default()
+        };
+        let source = "#!unterminated interpreter prefix";
+        let mut report = report_with_issue(source, "csharpsquid:S1451", "Header", 0, 0);
+        report.issues[0].range = Range::file_level();
+        attach_fixes(source, &options, &mut report, None);
+        assert!(report.issues[0].alternatives.is_empty());
     }
 
     #[test]
