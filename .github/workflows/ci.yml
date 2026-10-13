@@ -163,7 +163,19 @@ jobs:
           shared-key: ci
           save-if: false
 
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.111
+
+      - name: Install pinned compiler for CLI semantic regressions
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/hoonarqube-typescript"
+          --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+          typescript@6.0.3
+
       - name: Run remaining workspace tests
+        env:
+          HOONARQUBE_TYPESCRIPT_PACKAGE: ${{ runner.temp }}/hoonarqube-typescript/node_modules/typescript
         run: >-
           cargo test --locked --workspace --all-targets --all-features
           --exclude hoonarqube-csharp
