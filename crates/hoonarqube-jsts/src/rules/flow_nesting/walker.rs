@@ -264,7 +264,9 @@ impl<'a> Visit<'a> for ControlFlowNestingCollector<'_, '_> {
     }
 
     fn visit_catch_clause(&mut self, it: &CatchClause<'_>) {
-        self.nested_flow(it.span(), |collector| walk_catch_clause(collector, it));
+        // The enclosing try already supplies the catch body's nesting level.
+        // Catch is not a separate S134 control-flow construct.
+        walk_catch_clause(self, it);
     }
 
     /// `S1143` handling: the `try` header itself nests like other
@@ -522,8 +524,8 @@ function loopJump() {
             ),
             2
         );
-        // Mixed construct kinds nest too: `catch`, `if`, and `while` all
-        // sit deeper than three enclosing constructs.
+        // `try` supplies the catch body's level. The inner `if` and `while`
+        // sit beyond three constructs; `catch` adds no separate level.
         assert_eq!(
             count_key(
                 &js_keys(
@@ -531,8 +533,95 @@ function loopJump() {
                 ),
                 "javascript:S134"
             ),
-            3
+            2
         );
+    }
+
+    #[test]
+    fn s134_catch_keyword_does_not_add_a_control_construct() {
+        let source = "if (outer) {\n\
+                      while (condition) {\n\
+                      try { work(); } catch (error) { recover(error); }\n\
+                      }\n\
+                      }\n";
+        for report in [js(source), ts(source)] {
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key.ends_with(":S134"))
+                    .count(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn s134_catch_body_at_three_levels_matches_clean_reference() {
+        for source in [
+            "if (outer) { try { work(); } catch (error) { if (inner) { recover(error); } } }\n",
+            "if (outer) { try { work(); } catch { if (inner) { recover(); } } }\n",
+        ] {
+            for report in [js(source), ts(source)] {
+                assert_eq!(
+                    report
+                        .issues
+                        .iter()
+                        .filter(|issue| issue.rule_key.ends_with(":S134"))
+                        .count(),
+                    0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn s134_catch_body_preserves_genuine_fourth_level_positive() {
+        let source = "if (outer) {\n  try {\n    work();\n  } catch (error) {\n    if (middle) {\n      if (inner) {\n        recover(error);\n      }\n    }\n  }\n}\n";
+        for report in [js(source), ts(source)] {
+            let findings: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S134"))
+                .collect();
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].range.start, pos(6, 6));
+            assert_eq!(findings[0].range.end, pos(6, 8));
+            assert_eq!(
+                findings[0].message,
+                "Refactor this code to not nest more than 3 if/for/while/switch/try statements."
+            );
+            assert!(findings[0].fix.is_none());
+            assert!(findings[0].alternatives.is_empty());
+            assert!(findings[0].flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn s134_catch_change_preserves_noncatch_cascades_and_family_rules() {
+        let source = "function many(a,b,c,d,e,f,g,h) {\n  if (a) {\n    if (b) {\n      if (c) {\n        if (d) {\n          if (e) { work(); }\n        }\n      }\n    }\n  }\n  try { work(); } finally { return 1; }\n}\n";
+        for report in [js(source), ts(source)] {
+            let findings: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S134"))
+                .collect();
+            assert_eq!(findings.len(), 2);
+            assert_eq!(findings[0].range.start, pos(5, 8));
+            assert_eq!(findings[0].range.end, pos(5, 10));
+            assert_eq!(findings[1].range.start, pos(6, 10));
+            assert_eq!(findings[1].range.end, pos(6, 12));
+            for key in [":S107", ":S1143"] {
+                assert_eq!(
+                    report
+                        .issues
+                        .iter()
+                        .filter(|issue| issue.rule_key.ends_with(key))
+                        .count(),
+                    1
+                );
+            }
+        }
     }
 
     #[test]
