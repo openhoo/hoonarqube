@@ -175,15 +175,14 @@ impl ProjectSemanticContext {
         source: &str,
         options: &AnalyzerOptionsBundle,
     ) -> Result<Option<FileReport>, String> {
-        let language = hoonarqube_core::language_for_path(path);
-        match language {
-            Some(Language::JavaScript | Language::TypeScript) => self.analyze_jsts(
-                path,
-                source,
-                language == Some(Language::JavaScript),
-                options,
-            ),
-            Some(Language::CSharp) => {
+        let Some(language) = hoonarqube_core::language_for_path(path) else {
+            return Ok(None);
+        };
+        let mut report = match language {
+            Language::JavaScript | Language::TypeScript => {
+                self.analyze_jsts(path, source, language == Language::JavaScript, options)
+            }
+            Language::CSharp => {
                 let Some(context) = self.csharp.as_ref() else {
                     return Ok(None);
                 };
@@ -197,7 +196,7 @@ impl ProjectSemanticContext {
                     &options.csharp,
                 )))
             }
-            Some(Language::Python) => {
+            Language::Python => {
                 let Some(context) = self.python.as_ref() else {
                     return Ok(None);
                 };
@@ -219,7 +218,11 @@ impl ProjectSemanticContext {
                 Ok(Some(report))
             }
             _ => Ok(None),
+        }?;
+        if let Some(report) = report.as_mut() {
+            hoonarqube_core::finalize_profile_report(language, source, options.profile, report);
         }
+        Ok(report)
     }
 
     /// Runs the JS/TS arm: the explicit `--typescript-project` context first,
@@ -1004,12 +1007,7 @@ impl FixAnalysisContext {
         path: &Path,
         source: &str,
     ) -> Result<Option<FileReport>, String> {
-        let mut report = context.analyze(path, source, &self.options)?;
-        if let Some(report) = report.as_mut() {
-            // Semantic reports bypass `hoonarqube_core::analyze`, so the
-            // shared profile-membership policy is applied here as well.
-            hoonarqube_core::retain_profile_active_issues(self.options.profile, report);
-        }
+        let report = context.analyze(path, source, &self.options)?;
         if hoonarqube_core::is_razor_path(path)
             && context.razor_source_facts(path, source).is_none()
         {
