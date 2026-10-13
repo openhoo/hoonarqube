@@ -3327,30 +3327,76 @@ fn s117_flags_non_conforming_parameters_and_locals_once() {
     );
 }
 #[test]
-fn s104_flags_files_exceeding_maximum_lines_of_code() {
+fn s104_counts_physical_lines_including_comments_blanks_and_docstrings() {
+    let source =
+        "\"\"\"module docs\nsecond documentation row\n\"\"\"\n\n# a prose comment\nvalue = 1\n";
+    let options = AnalyzerOptions {
+        maximum_lines_of_code: 6,
+        ..AnalyzerOptions::default()
+    };
+    let report = scan_with_options(source, &options);
+    assert_eq!(report.metrics.lines, 7);
+    assert_eq!(report.metrics.code_lines, 1);
+    assert_eq!(report.metrics.comment_lines, 4);
+    let issues = findings(&report, "python:S104");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(
+        issues[0].message,
+        "File \"t.py\" has 7 lines, which is greater than 6 authorized. Split it into smaller files."
+    );
+    assert!(issues[0].range.is_file_level());
+    assert!(issues[0].fix.is_none());
+    assert!(issues[0].alternatives.is_empty());
+}
+
+#[test]
+fn s104_preserves_threshold_and_terminal_newline_boundaries() {
     let options = AnalyzerOptions {
         maximum_lines_of_code: 3,
         ..AnalyzerOptions::default()
     };
+    for source in ["", "value = 1", "value = 1\n\n", "value = 1\r\n\r\n"] {
+        let report = scan_with_options(source, &options);
+        assert!(findings(&report, "python:S104").is_empty(), "{source:?}");
+    }
+    for newline in ["\n", "\r\n"] {
+        // Adding the final newline creates the fourth physical row while
+        // leaving the single code line and the three content rows intact.
+        let boundary = format!("value = 1{newline}{newline}# prose");
+        let at_limit = scan_with_options(&boundary, &options);
+        assert_eq!(at_limit.metrics.lines, 3);
+        assert!(findings(&at_limit, "python:S104").is_empty());
+        let over = scan_with_options(&format!("{boundary}{newline}"), &options);
+        assert_eq!(over.metrics.lines, 4);
+        assert_eq!(over.metrics.code_lines, at_limit.metrics.code_lines);
+        assert_eq!(over.metrics.comment_lines, at_limit.metrics.comment_lines);
+        let issues = findings(&over, "python:S104");
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].range.is_file_level());
+        assert_eq!(
+            issues[0].message,
+            "File \"t.py\" has 4 lines, which is greater than 3 authorized. Split it into smaller files."
+        );
+    }
+}
 
-    // Exactly at the limit: silent.
-    let boundary = scan_with_options("a = 1\nb = 2\nc = 3\n", &options);
-    assert!(
-        boundary
-            .issues
-            .iter()
-            .all(|issue| issue.rule_key != "python:S104")
+#[test]
+fn s104_reports_file_level_identity_and_reference_grouped_counts() {
+    // A low-ncloc module can still exceed the reference's file-size limit.
+    let source = format!("{}value = 1\n", "# prose\n".repeat(1183));
+    let report = scan_at(PathBuf::from("src/requests/models.py"), &source);
+    assert_eq!(report.metrics.lines, 1185);
+    assert_eq!(report.metrics.code_lines, 1);
+    assert_eq!(report.metrics.comment_lines, 1183);
+    let issues = findings(&report, "python:S104");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(
+        issues[0].message,
+        "File \"models.py\" has 1,185 lines, which is greater than 1,000 authorized. Split it into smaller files."
     );
-
-    // One code line over the limit: flagged once, anchored at line 1.
-    let over = scan_with_options("a = 1\nb = 2\nc = 3\n\n# comment only\nd = 4\n", &options);
-    let s104: Vec<_> = over
-        .issues
-        .iter()
-        .filter(|issue| issue.rule_key == "python:S104")
-        .collect();
-    assert_eq!(s104.len(), 1);
-    assert_eq!(s104[0].range.start.line, 1);
+    assert!(issues[0].range.is_file_level());
+    assert!(issues[0].fix.is_none());
+    assert!(issues[0].alternatives.is_empty());
 }
 
 #[test]
