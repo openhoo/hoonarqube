@@ -1,7 +1,7 @@
 use super::{AnalyzerOptions, analyze};
 use std::path::PathBuf;
 
-const NESTED_IN_IF: &str = r#"package p
+const NESTED_IN_IF: &str = r"package p
 func nested(enabled bool, c rune) {
     if enabled {
         count := 0
@@ -17,9 +17,9 @@ func nested(enabled bool, c rune) {
         }
     }
 }
-"#;
+";
 
-const NESTED_IN_BRANCHES: &str = r#"package p
+const NESTED_IN_BRANCHES: &str = r"package p
 func branches(a, b, c bool) {
     if a {
         if b { println(1) } else if c { println(2) }
@@ -27,9 +27,9 @@ func branches(a, b, c bool) {
         if b { println(3) } else if c { println(4) }
     }
 }
-"#;
+";
 
-const NESTED_IN_INCOMPLETE_CHAIN: &str = r#"package p
+const NESTED_IN_INCOMPLETE_CHAIN: &str = r"package p
 func chains(a, b, c bool) {
     if a {
         println(1)
@@ -37,7 +37,7 @@ func chains(a, b, c bool) {
         if c { println(2) } else if a { println(3) }
     }
 }
-"#;
+";
 
 const TERMINATING_BRANCHES: &str = r#"package p
 func returning(a, b bool) int {
@@ -86,7 +86,7 @@ done:
 }
 "#;
 
-const COMPLETE_CHAINS: &str = r#"package p
+const COMPLETE_CHAINS: &str = r"package p
 func complete(a, b, c bool) {
     if a {
         if b { println(1) } else if c { println(2) } else { /* no action */ }
@@ -95,7 +95,7 @@ func complete(a, b, c bool) {
     } else { /* no action */ }
     if c { println(4) }
 }
-"#;
+";
 
 fn findings(path: &str, source: &str) -> Vec<super::Issue> {
     let report = analyze(PathBuf::from(path), source, &AnalyzerOptions::default());
