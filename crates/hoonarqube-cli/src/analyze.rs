@@ -1217,6 +1217,22 @@ fn analyze_project_source(
         };
     }
 
+    // Python semantic analysis uses a module-relative path, so explicit
+    // TEST classification must reach the analyzer before path inference.
+    let scoped_options;
+    let options = if input.classification == FileClassification::Test
+        && hoonarqube_core::language_for_path(&input.path) == Some(Language::Python)
+    {
+        scoped_options = {
+            let mut scoped = options.clone();
+            scoped.python.test_scope = Some(true);
+            scoped
+        };
+        &scoped_options
+    } else {
+        options
+    };
+
     let (result, semantic_failed) = match semantic {
         Some(context) => match context.analyze(&input.path, source, options) {
             Ok(Some(report)) => (
