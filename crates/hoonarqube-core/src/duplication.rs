@@ -1873,6 +1873,99 @@ mod tests {
         assert_eq!(result.metrics.duplicated_blocks, 0);
     }
 
+    fn python_signature_parameters() -> String {
+        let mut parameters = String::new();
+        for index in 0..12 {
+            writeln!(
+                parameters,
+                "    parameter{index}: dict[str, list[int]] | None = None,"
+            )
+            .expect("fixture text");
+        }
+        parameters
+    }
+
+    #[test]
+    fn python_clones_exclude_partial_closing_signature_rows() {
+        let parameters = python_signature_parameters();
+        let source = format!(
+            "def progressbar(\n{parameters}) -> None: ...\n\ndef progressbar(\n{parameters}) -> None:\n    pass\n"
+        );
+        let input = DuplicationFile {
+            path: PathBuf::from("overloads.py"),
+            language: Language::Python,
+            facts: collect_source_facts(Path::new("overloads.py"), &source).expect("Python facts"),
+        };
+        let result =
+            detect_duplications(&[input], &DuplicationOptions::default()).expect("detection");
+        assert_eq!(result.groups.len(), 1);
+        let ranges: Vec<_> = result.groups[0]
+            .occurrences
+            .iter()
+            .map(|occurrence| (occurrence.start_line, occurrence.end_line))
+            .collect();
+        assert_eq!(ranges, [(1, 13), (16, 28)]);
+        assert_eq!(result.metrics.duplicated_lines, 26);
+        for occurrence in &result.groups[0].occurrences {
+            let end = usize::try_from(occurrence.end_byte).expect("byte offset");
+            assert!(source[..end].ends_with("None,"));
+        }
+    }
+
+    #[test]
+    fn python_clones_exclude_partial_opening_signature_rows() {
+        let parameters = python_signature_parameters();
+        let inputs = [("a.py", "first"), ("b.py", "second")].map(|(path, name)| {
+            let source = format!("def {name}(\n{parameters}) -> None:\n    pass\n");
+            DuplicationFile {
+                path: PathBuf::from(path),
+                language: Language::Python,
+                facts: collect_source_facts(Path::new(path), &source).expect("Python facts"),
+            }
+        });
+        let result =
+            detect_duplications(&inputs, &DuplicationOptions::default()).expect("detection");
+        assert_eq!(result.groups.len(), 1);
+        for occurrence in &result.groups[0].occurrences {
+            assert_eq!((occurrence.start_line, occurrence.end_line), (2, 15));
+        }
+    }
+
+    #[test]
+    fn python_partial_rows_do_not_satisfy_a_clone_threshold() {
+        let inputs = [("a.py", "left"), ("b.py", "right")].map(|(path, suffix)| {
+            let source = format!("value = compute(argument); {suffix}()\n");
+            DuplicationFile {
+                path: PathBuf::from(path),
+                language: Language::Python,
+                facts: collect_source_facts(Path::new(path), &source).expect("Python facts"),
+            }
+        });
+        let result = detect_duplications(&inputs, &options(3, 1)).expect("detection");
+        assert!(result.groups.is_empty());
+        assert_eq!(result.metrics.duplicated_lines, 0);
+    }
+
+    #[test]
+    fn python_complete_rows_preserve_positive_clones_and_token_thresholds() {
+        let inputs = ["a.py", "b.py"].map(|path| DuplicationFile {
+            path: PathBuf::from(path),
+            language: Language::Python,
+            facts: collect_source_facts(Path::new(path), "value = compute(argument)\n")
+                .expect("Python facts"),
+        });
+        let token_count = inputs[0].facts.tokens.len();
+        let at_limit = detect_duplications(&inputs, &options(token_count, 1)).expect("detection");
+        assert_eq!(at_limit.groups.len(), 1);
+        assert_eq!(at_limit.metrics.duplicated_lines, 2);
+        assert!(
+            detect_duplications(&inputs, &options(token_count + 1, 1))
+                .expect("detection")
+                .groups
+                .is_empty()
+        );
+    }
+
     #[test]
     fn javascript_cpd_preserves_complete_positive_line_blocks() {
         let mut body = String::new();
