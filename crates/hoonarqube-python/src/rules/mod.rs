@@ -1079,6 +1079,7 @@ pub(crate) fn check_size_metric_battery(
     source: &str,
     options: &AnalyzerOptions,
     metrics: &hoonarqube_ir::FileMetrics,
+    path: &Path,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_function_parameter_counts(
@@ -1087,7 +1088,7 @@ pub(crate) fn check_size_metric_battery(
     issues.extend(check_function_return_counts(parsed, index, source, options));
     issues.extend(check_function_lengths(parsed, index, source, options));
     issues.extend(check_nesting_depths(parsed, index, source, options));
-    issues.extend(check_lines_of_code(metrics, options));
+    issues.extend(check_lines_of_code(path, metrics, options));
     issues
 }
 
