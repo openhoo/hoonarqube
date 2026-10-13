@@ -16,6 +16,9 @@ use tree_sitter::{Node, Parser, Point};
 
 mod sonar_contract;
 
+#[cfg(test)]
+mod complexity_tests;
+
 /// Computes file metrics without running rules or creating source masks.
 ///
 /// # Panics
@@ -1842,16 +1845,20 @@ fn check_function(
     }
     if let Some(body) = node.child_by_field_name("body") {
         let complexity = cognitive_complexity(body, source);
-        if complexity > options.maximum_cognitive_complexity {
-            issues.push(node_issue(
+        if complexity.total > options.maximum_cognitive_complexity {
+            let mut issue = node_issue(
                 "rust:S3776",
                 format!(
-                    "Refactor this function to reduce its Cognitive Complexity from {complexity} to the {} allowed.",
-                    options.maximum_cognitive_complexity
+                    "Refactor this function to reduce its Cognitive Complexity from {} to the {} allowed.",
+                    complexity.total, options.maximum_cognitive_complexity
                 ),
                 node.child_by_field_name("name").unwrap_or(node),
                 source,
-            ));
+            );
+            for increment in complexity.increments {
+                issue = issue.with_flow(vec![increment]);
+            }
+            issues.push(issue);
         }
     }
 }
@@ -6145,20 +6152,40 @@ fn covered_rows(node: Node<'_>) -> std::ops::RangeInclusive<usize> {
     start..=end
 }
 
-/// Scores cognitive complexity per the published Sonar model: +1 per
-/// control-flow structure scaled by its nesting depth, a flat +1 for
-/// `else` and `else if` links, +1 per run of the same logical operator,
-/// and one extra nesting level inside every counted structure.
-fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
-    let mut total = 0;
+struct CognitiveComplexity {
+    total: usize,
+    increments: Vec<FlowLocation>,
+}
+
+/// Scores cognitive complexity while retaining each source-backed increment.
+/// Structures score one plus their nesting depth; else links and logical
+/// operator runs add one, and nested callables add one level of nesting.
+fn cognitive_complexity(node: Node<'_>, source: &str) -> CognitiveComplexity {
+    let mut complexity = CognitiveComplexity {
+        total: 0,
+        increments: Vec::new(),
+    };
     let mut pending = vec![(node, 0_usize, false)];
     while let Some((current, nesting, else_if)) = pending.pop() {
         match current.kind() {
             "if_expression" => {
-                score_if(current, nesting, else_if, &mut pending, &mut total);
+                score_if(
+                    current,
+                    nesting,
+                    else_if,
+                    &mut pending,
+                    &mut complexity,
+                    source,
+                );
             }
             "for_expression" | "while_expression" | "loop_expression" | "match_expression" => {
-                total += nesting + 1;
+                let keyword = current.kind().trim_end_matches("_expression");
+                record_complexity_increment(
+                    &mut complexity,
+                    keyword_token(current, keyword),
+                    nesting,
+                    source,
+                );
                 push_pending(&mut pending, current, nesting + 1, false);
             }
             // Lambdas and nested functions add a nesting level for their
@@ -6168,14 +6195,50 @@ fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
             }
             "binary_expression" => {
                 if logical_sequence_starts(current, source) {
-                    total += 1;
+                    record_complexity_increment(
+                        &mut complexity,
+                        current.child_by_field_name("operator"),
+                        0,
+                        source,
+                    );
                 }
                 push_pending(&mut pending, current, nesting, false);
             }
             _ => push_pending(&mut pending, current, nesting, false),
         }
     }
-    total
+    complexity
+        .increments
+        .sort_by_key(|location| (location.range.start, location.range.end));
+    complexity
+}
+
+fn keyword_token<'tree>(node: Node<'tree>, keyword: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() == keyword)
+}
+
+/// Preserves the score even on a tolerant tree without the expected token;
+/// supporting locations are attached only to actual source-backed tokens.
+fn record_complexity_increment(
+    complexity: &mut CognitiveComplexity,
+    token: Option<Node<'_>>,
+    nesting: usize,
+    source: &str,
+) {
+    complexity.total += nesting + 1;
+    if let Some(token) = token {
+        let message = if nesting == 0 {
+            "+1".to_owned()
+        } else {
+            format!("+{} (incl {nesting} for nesting)", nesting + 1)
+        };
+        complexity.increments.push(FlowLocation::in_primary_file(
+            message,
+            node_range(token, source),
+        ));
+    }
 }
 
 fn push_pending<'tree>(
@@ -6199,9 +6262,17 @@ fn score_if<'tree>(
     nesting: usize,
     else_if: bool,
     pending: &mut Vec<(Node<'tree>, usize, bool)>,
-    total: &mut usize,
+    complexity: &mut CognitiveComplexity,
+    source: &str,
 ) {
-    *total += if else_if { 1 } else { nesting + 1 };
+    let token = if else_if {
+        current
+            .parent()
+            .and_then(|parent| keyword_token(parent, "else"))
+    } else {
+        keyword_token(current, "if")
+    };
+    record_complexity_increment(complexity, token, if else_if { 0 } else { nesting }, source);
     let nested = nesting + 1;
     let alternative = current.child_by_field_name("alternative");
     for index in (0..current.named_child_count()).rev() {
@@ -6213,13 +6284,16 @@ fn score_if<'tree>(
         }
         pending.push((child, nested, false));
     }
-    let Some(branch) = alternative.and_then(|alternative| alternative.named_child(0)) else {
+    let Some(alternative) = alternative else {
+        return;
+    };
+    let Some(branch) = alternative.named_child(0) else {
         return;
     };
     if branch.kind() == "if_expression" {
         pending.push((branch, nesting, true));
     } else {
-        *total += 1;
+        record_complexity_increment(complexity, keyword_token(alternative, "else"), 0, source);
         pending.push((branch, nested, false));
     }
 }
@@ -7842,7 +7916,7 @@ mod tests {
                 body = node.child_by_field_name("body");
             }
         });
-        cognitive_complexity(body.expect("source contains a function"), source)
+        cognitive_complexity(body.expect("source contains a function"), source).total
     }
 
     #[test]
