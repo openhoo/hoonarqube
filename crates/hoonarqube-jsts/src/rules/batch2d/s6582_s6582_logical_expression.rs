@@ -51,7 +51,14 @@ fn and_chain_reports(logical: &LogicalExpression<'_>, source: &str) -> bool {
         let Some((guard, role)) = chain else {
             continue;
         };
-        if *role == ChainRole::Extender {
+        // Evaluating a call again can produce another receiver or side effects.
+        // A call result cannot establish the later result as the same subject.
+        // Calls may still extend an earlier identifier or member guard.
+        if *role == ChainRole::Extender
+            || guard
+                .iter()
+                .any(|segment| matches!(segment, ChainSegment::Call))
+        {
             continue;
         }
         for later in chains.iter().skip(index + 1) {
@@ -366,6 +373,94 @@ impl EsIdiomCollector<'_> {
                 it.span(),
             );
             self.s6582_spans.push(it.span());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::*;
+
+    #[test]
+    fn s6582_repeated_function_call_subject_matches_clean_reference() {
+        let source = "function repeatedCalls(arg) {\n\
+                      return getObject() && arg === getObject().name();\n\
+                      }\n";
+        for report in [js(source), ts(source)] {
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key.ends_with(":S6582"))
+                    .count(),
+                0,
+                "separate call results must not be treated as one guarded receiver"
+            );
+        }
+    }
+
+    #[test]
+    fn s6582_call_subjects_in_truthy_and_nullish_guards_are_clean() {
+        let source = "const property = getObject() && getObject().name;\n\
+                      const method = source.read() && source.read().name;\n\
+                      const differentArguments = lookup(first) && lookup(second).name;\n\
+                      const nullish = getObject() !== null && getObject().name;\n\
+                      const absent = source.read() !== undefined && source.read().name;\n\
+                      const nested = getObject().child && getObject().child.name;\n";
+        for report in [js(source), ts(source)] {
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key.ends_with(":S6582"))
+                    .count(),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn s6582_stable_identifier_and_member_guards_keep_exact_findings() {
+        for (source, end_column) in [
+            ("const result = value && value.name;\n", 34),
+            ("const result = value && value.name();\n", 36),
+            ("const result = value.child && value.child.name;\n", 46),
+        ] {
+            for report in [js(source), ts(source)] {
+                let findings: Vec<_> = report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key.ends_with(":S6582"))
+                    .collect();
+                assert_eq!(findings.len(), 1);
+                assert_eq!(findings[0].range.start, pos(1, 15));
+                assert_eq!(findings[0].range.end, pos(1, end_column));
+                assert_eq!(
+                    findings[0].message,
+                    "Prefer using an optional chain expression instead, as it's more concise and easier to read."
+                );
+                assert!(findings[0].fix.is_none());
+                assert!(findings[0].alternatives.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn s6582_calls_extend_an_earlier_stable_guard_without_duplicate_findings() {
+        let source = "class C {\n\
+                      get width() {\n\
+                      return this.worksheet && this.worksheet.getColumn(1) && this.worksheet.getColumn(1).isCustomWidth;\n\
+                      }\n\
+                      }\n";
+        for report in [js(source), ts(source)] {
+            let findings: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key.ends_with(":S6582"))
+                .collect();
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].range.start, pos(3, 7));
+            assert_eq!(findings[0].range.end, pos(3, 97));
         }
     }
 }
