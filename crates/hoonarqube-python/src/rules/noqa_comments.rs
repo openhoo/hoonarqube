@@ -24,7 +24,7 @@ pub(crate) fn check_noqa_comments(
         if lower.contains("noqa") {
             issues.push(Issue {
                 rule_key: "python:S1309".to_string(),
-                message: "Do not suppress issues with a 'noqa' comment; fix the issue instead."
+                message: "Is 'noqa' used to exclude false-positive or to hide real quality flaw?"
                     .to_string(),
                 range: to_range(comment.range(), index, source),
                 fix: None,
