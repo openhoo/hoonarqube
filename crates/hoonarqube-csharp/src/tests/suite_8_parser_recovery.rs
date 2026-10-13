@@ -266,3 +266,135 @@ fn specifier_keywords_in_collection_expressions_stay_identifiers() {
         1
     );
 }
+
+#[test]
+fn selected_branch_view_preserves_physical_lines_and_utf8_byte_offsets() {
+    for terminator in ["\n", "\r\n"] {
+        for bom in ["", "\u{feff}"] {
+            for final_terminator in ["", terminator] {
+                let source = format!(
+                    "{bom}#define KEEP{terminator}#if MISSING{terminator}excluded α😀 tokens{terminator}#elif KEEP{terminator}class Kept {{ }}{terminator}#else{terminator}also excluded{terminator}#endif{final_terminator}"
+                );
+                let view = crate::preprocessor::selected_branch_view(&source)
+                    .expect("a balanced conditional source must produce a selected view");
+                assert_eq!(view.len(), source.len());
+                for (offset, byte) in source.bytes().enumerate() {
+                    if matches!(byte, b'\r' | b'\n') {
+                        assert_eq!(
+                            view.as_bytes()[offset],
+                            byte,
+                            "line terminator at byte {offset}"
+                        );
+                    }
+                }
+                assert!(view.starts_with(bom));
+                assert!(!view.contains("excluded"));
+                let active_offset = source.find("class Kept").unwrap();
+                assert_eq!(&view[active_offset..active_offset + 14], "class Kept { }");
+                assert_eq!(
+                    view[..active_offset]
+                        .bytes()
+                        .filter(|byte| *byte == b'\n')
+                        .count(),
+                    4
+                );
+            }
+        }
+    }
+}
+
+const SELECTED_BRANCH_COORDINATE_SOURCE: &str = "class Pair {\n#pragma warning disable CS0618\n#pragma warning restore CS0618\n    private readonly int cancel;\n    void Run(int cancel) { Foo(\n#if FEATURE\n        invalid @@@ α😀 excluded;\n#else\n        2\n#endif\n    ); System.Console.Write(cancel); }\n    internal enum TypeMapEntryFlags { None = 0 }\n}\n";
+
+#[test]
+fn selected_branch_recovery_reports_physical_primary_and_supporting_ranges() {
+    for terminator in ["\n", "\r\n"] {
+        for bom in ["", "\u{feff}"] {
+            let source = format!(
+                "{bom}{}",
+                SELECTED_BRANCH_COORDINATE_SOURCE.replace('\n', terminator)
+            );
+            let report = analyze_default(&source);
+            let enums = with_key(&report, "csharpsquid:S2344");
+            assert_eq!(
+                enums.len(),
+                1,
+                "active findings must survive conditional recovery"
+            );
+            assert_eq!(
+                enums[0].range.start,
+                hoonarqube_ir::Pos {
+                    line: 12,
+                    column: 18
+                }
+            );
+            assert_eq!(
+                enums[0].range.end,
+                hoonarqube_ir::Pos {
+                    line: 12,
+                    column: 35
+                }
+            );
+
+            let quality = crate::analyze_github_quality(&source);
+            let shadows: Vec<_> = quality
+                .iter()
+                .filter(|issue| issue.rule_key == "cs/local-shadows-member")
+                .collect();
+            assert_eq!(shadows.len(), 1);
+            assert_eq!(
+                shadows[0].range.start,
+                hoonarqube_ir::Pos {
+                    line: 5,
+                    column: 17
+                }
+            );
+            assert_eq!(
+                shadows[0].range.end,
+                hoonarqube_ir::Pos {
+                    line: 5,
+                    column: 23
+                }
+            );
+            let supporting = &shadows[0].flows[0].locations[0];
+            assert_eq!(supporting.path, None);
+            assert_eq!(supporting.message, "Pair.cancel");
+            assert_eq!(
+                supporting.range.start,
+                hoonarqube_ir::Pos {
+                    line: 4,
+                    column: 25
+                }
+            );
+            assert_eq!(
+                supporting.range.end,
+                hoonarqube_ir::Pos {
+                    line: 4,
+                    column: 31
+                }
+            );
+
+            let clean = source
+                .replace("TypeMapEntryFlags", "TypeMapEntry")
+                .replace("Run(int cancel)", "Run(int value)")
+                .replace("Write(cancel)", "Write(value)");
+            assert!(with_key(&analyze_default(&clean), "csharpsquid:S2344").is_empty());
+            assert!(
+                crate::analyze_github_quality(&clean)
+                    .iter()
+                    .all(|issue| issue.rule_key != "cs/local-shadows-member")
+            );
+        }
+    }
+}
+
+#[test]
+fn selected_branch_view_keeps_nested_inactive_directives_and_defines_inert() {
+    let source = "#define ACTIVE\n#if MISSING\n#define HIDDEN\n#undef ACTIVE\n#if true\nexcluded\n#endif\n#else\n#if ACTIVE && !HIDDEN\nclass Kept { }\n#endif\n#endif\n";
+    let view = crate::preprocessor::selected_branch_view(source).unwrap();
+    assert!(view.contains("class Kept { }"));
+    assert!(!view.contains("excluded"));
+    assert_eq!(view.lines().count(), source.lines().count());
+    assert!(
+        crate::preprocessor::selected_branch_view("\u{feff}#if true\nclass Kept { }\n").is_none()
+    );
+}
