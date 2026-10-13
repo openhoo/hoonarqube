@@ -2209,6 +2209,89 @@ mod tests {
     }
 
     #[test]
+    fn s1451_file_level_header_action_preserves_source_and_reanalyzes_clean() {
+        let source =
+            "#nullable enable\n// Preserve this note\nclass C { public int Value => 42; }\n";
+        let options = AnalyzerOptions {
+            header_format: "// Copyright Example\n".to_string(),
+            ..AnalyzerOptions::default()
+        };
+        let mut report = report_with_issue(source, "csharpsquid:S1451", "Header", 0, 0);
+        report.issues[0].range = Range::file_level();
+
+        attach_fixes(source, &options, &mut report, None);
+        attach_fixes(source, &options, &mut report, None);
+
+        assert_eq!(report.issues[0].alternatives.len(), 1);
+        let action = &report.issues[0].alternatives[0];
+        assert_eq!(action.id, "csharp.s1451.add-or-update-license-header");
+        assert_eq!(action.fix.edits.len(), 1);
+        assert!(!action.fix.edits[0].range.is_file_level());
+        let fixed = hoonarqube_ir::apply_fixes(source, &[&action.fix.edits[0]])
+            .expect("header insertion should apply");
+        assert_eq!(fixed, format!("// Copyright Example\n{source}"));
+        let reanalyzed = crate::tests::analyze_options(&fixed, &options);
+        assert!(crate::tests::with_key(&reanalyzed, "csharpsquid:S1451").is_empty());
+    }
+
+    #[test]
+    fn s1451_file_level_header_action_preserves_bom_and_crlf() {
+        let source = "\u{feff}#nullable enable\r\nclass C { }\r\n";
+        let options = AnalyzerOptions {
+            header_format: "/* Copyright Example */\n".to_string(),
+            ..AnalyzerOptions::default()
+        };
+        let mut report = report_with_issue(source, "csharpsquid:S1451", "Header", 0, 0);
+        report.issues[0].range = Range::file_level();
+        attach_fixes(source, &options, &mut report, None);
+
+        let action = report.issues[0]
+            .alternatives
+            .first()
+            .expect("header action");
+        assert_eq!(action.fix.edits[0].range.start, Pos { line: 1, column: 1 });
+        let fixed = hoonarqube_ir::apply_fixes(source, &[&action.fix.edits[0]])
+            .expect("BOM-safe header insertion should apply");
+        assert_eq!(
+            fixed,
+            "\u{feff}/* Copyright Example */\r\n#nullable enable\r\nclass C { }\r\n"
+        );
+        let reanalyzed = crate::tests::analyze_options(&fixed, &options);
+        assert!(crate::tests::with_key(&reanalyzed, "csharpsquid:S1451").is_empty());
+    }
+
+    #[test]
+    fn file_level_header_action_refuses_unsupported_templates() {
+        let source = "class C { }\n";
+        for options in [
+            AnalyzerOptions::default(),
+            AnalyzerOptions {
+                header_format: "// Copyright".to_string(),
+                header_is_regular_expression: true,
+                ..AnalyzerOptions::default()
+            },
+            AnalyzerOptions {
+                header_format: "using System;".to_string(),
+                ..AnalyzerOptions::default()
+            },
+        ] {
+            let mut report = report_with_issue(source, "csharpsquid:S1451", "Header", 0, 0);
+            report.issues[0].range = Range::file_level();
+            attach_fixes(source, &options, &mut report, None);
+            assert!(report.issues[0].alternatives.is_empty());
+        }
+    }
+
+    #[test]
+    fn file_level_non_header_issue_does_not_gain_an_arbitrary_edit_anchor() {
+        let source = "class C { int M(int value = 1) => value; }\n";
+        let mut report = report_with_issue(source, "csharpsquid:S1006", "Default", 0, 0);
+        report.issues[0].range = Range::file_level();
+        attach_fixes(source, &AnalyzerOptions::default(), &mut report, None);
+        assert!(report.issues[0].alternatives.is_empty());
+    }
+
+    #[test]
     fn s3005_selects_attribute_when_identifier_shares_the_issue_span() {
         let source = "using System;\nclass C { [ThreadStatic] int field; }\n";
         let start = source.find("ThreadStatic").expect("attribute name");
