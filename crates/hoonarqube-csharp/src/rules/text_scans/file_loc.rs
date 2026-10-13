@@ -19,9 +19,6 @@ pub(crate) fn check(
             "This file has {} lines, which is greater than {} authorized. Split it into smaller files.",
             code_line_count, options.maximum_file_loc_threshold
         ),
-        hoonarqube_ir::Range {
-            start: hoonarqube_ir::Pos { line: 1, column: 0 },
-            end: hoonarqube_ir::Pos { line: 1, column: 0 },
-        },
+        hoonarqube_ir::Range::file_level(),
     )]
 }
