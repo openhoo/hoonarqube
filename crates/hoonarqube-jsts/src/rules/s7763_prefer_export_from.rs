@@ -386,7 +386,10 @@ mod tests {
     #[test]
     fn s7734_distinguishes_namespace_default_aliases_from_reexports() {
         let source = "import * as namespace from './module.js';\nexport { namespace, namespace as default };\n";
-        for report in [js(source), ts(source)] {
+        for (report, key) in [
+            (js(source), "javascript:S7734"),
+            (ts(source), "typescript:S7734"),
+        ] {
             let default_alias: Vec<_> = report
                 .issues
                 .iter()
@@ -398,6 +401,7 @@ mod tests {
                 .filter(|issue| issue.rule_key.ends_with(":S7763"))
                 .collect();
             assert_eq!(default_alias.len(), 1);
+            assert_eq!(default_alias[0].rule_key, key);
             assert_eq!(
                 default_alias[0].message,
                 "Prefer using the default export over named export."
