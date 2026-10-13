@@ -201,6 +201,14 @@ and nested statement streams, comment-only line accounting, and exclusion
 denominators have explicit native semantics. Exact SonarQube metric values,
 block grouping, and all-language lexical equivalence remain unverified.
 
+Python, JavaScript, and TypeScript compare complete token-bearing rows,
+so a shared prefix or suffix within a differing row cannot extend a clone.
+Consecutive identical rows retain their first and last row for matching.
+Token thresholds still count the underlying native token span; zero-width
+structure markers cannot manufacture source endpoints or duplicated lines.
+Python's normalized literals and structural tokens retain their native
+semantics, so this row-boundary behavior does not establish lexical CPD parity.
+
 Clone occurrences use inclusive line ranges and half-open UTF-8 byte offsets.
 Line totals union overlaps; block totals identify distinct byte spans.
 Incomplete analysis has no duplication aggregate, and empty density
