@@ -58,7 +58,12 @@ struct Directive<'a> {
 /// Classifies one line's content (without its terminator) as a recognized
 /// preprocessor directive.  Unrecognized `#`-prefixed lines stay untouched
 /// so malformed input keeps failing closed.
-fn directive_of(content: &str) -> Option<Directive<'_>> {
+fn directive_of(content: &str, first_line: bool) -> Option<Directive<'_>> {
+    let content = if first_line {
+        content.strip_prefix('\u{feff}').unwrap_or(content)
+    } else {
+        content
+    };
     let rest = content.trim_start().strip_prefix('#')?;
     let end = rest
         .find(|character: char| !character.is_ascii_alphabetic())
@@ -96,9 +101,9 @@ fn split_terminator(line: &str) -> (&str, &str) {
 /// `#else`/`#elif`/`#endif`) before any recovery view may be built.
 fn has_balanced_directives(source: &str) -> bool {
     let mut depth = 0usize;
-    for line in source.split_inclusive('\n') {
+    for (line_index, line) in source.split_inclusive('\n').enumerate() {
         let (content, _) = split_terminator(line);
-        match directive_of(content).map(|directive| directive.keyword) {
+        match directive_of(content, line_index == 0).map(|directive| directive.keyword) {
             Some(DirectiveKeyword::If) => depth += 1,
             Some(DirectiveKeyword::Endif) => {
                 if depth == 0 {
@@ -119,16 +124,13 @@ fn blank_directive_lines(source: &str) -> Cow<'_, str> {
     let mut normalized: Option<String> = None;
     let mut segment_start = 0;
     let mut cursor = 0;
-    for line in source.split_inclusive('\n') {
+    for (line_index, line) in source.split_inclusive('\n').enumerate() {
         cursor += line.len();
-        let (content, terminator) = split_terminator(line);
-        if directive_of(content).is_none() {
+        let (content, _) = split_terminator(line);
+        if directive_of(content, line_index == 0).is_none() {
             continue;
         }
-        let output = normalized.get_or_insert_with(|| String::with_capacity(source.len()));
-        output.push_str(&source[segment_start..cursor - line.len()]);
-        output.extend(std::iter::repeat_n(' ', content.len()));
-        output.push_str(terminator);
+        blanked_output(&mut normalized, source, segment_start, cursor, line.len());
         segment_start = cursor;
     }
     match normalized {
@@ -156,11 +158,11 @@ pub(crate) fn selected_branch_view(source: &str) -> Option<String> {
     let mut cursor = 0;
     let mut frames: Vec<BranchFrame> = Vec::new();
     let mut defines: HashSet<String> = HashSet::new();
-    for line in source.split_inclusive('\n') {
+    for (line_index, line) in source.split_inclusive('\n').enumerate() {
         cursor += line.len();
-        let (content, _terminator) = split_terminator(line);
+        let (content, _) = split_terminator(line);
         let included = frames.last().is_none_or(|frame| frame.include);
-        if let Some(directive) = directive_of(content) {
+        if let Some(directive) = directive_of(content, line_index == 0) {
             apply_directive(&mut frames, &mut defines, directive, included)?;
             blanked_output(&mut output, source, segment_start, cursor, line.len());
             segment_start = cursor;
@@ -178,7 +180,9 @@ pub(crate) fn selected_branch_view(source: &str) -> Option<String> {
 }
 
 /// Starts a rebuilt view by copying the untouched bytes before the line and
-/// blanking the line's content, keeping every byte offset stable.
+/// blanking the line's content, keeping every byte offset and physical line
+/// terminator stable. Tree-sitter positions must still index the original
+/// source, including when recovery excludes whole conditional branches.
 fn blanked_output<'a>(
     output: &'a mut Option<String>,
     source: &str,
@@ -187,8 +191,21 @@ fn blanked_output<'a>(
     line_length: usize,
 ) -> &'a mut String {
     let output = output.get_or_insert_with(|| String::with_capacity(source.len()));
-    output.push_str(&source[segment_start..cursor - line_length]);
-    output.extend(std::iter::repeat_n(' ', line_length));
+    let line_start = cursor - line_length;
+    output.push_str(&source[segment_start..line_start]);
+    let (content, terminator) = split_terminator(&source[line_start..cursor]);
+    let content = if line_start == 0 {
+        if let Some(rest) = content.strip_prefix('\u{feff}') {
+            output.push('\u{feff}');
+            rest
+        } else {
+            content
+        }
+    } else {
+        content
+    };
+    output.extend(std::iter::repeat_n(' ', content.len()));
+    output.push_str(terminator);
     output
 }
 
