@@ -1765,10 +1765,10 @@ mod tests {
     /// Captured rule totals for the Community-bootstrapped surfaces.
     const JAVA_RULES: usize = 733;
     const RUBY_RULES: usize = 42;
-    /// Adds-only supplements layered after the base captures: thirty-seven
-    /// javascript, forty-one typescript, and one hundred seven python keys
-    /// from verified community captures.
-    const SUPPLEMENT_RULES: usize = 190;
+    /// Adds-only supplements layered after the base captures: thirty-nine
+    /// javascript, forty-three typescript, one hundred seven python, and
+    /// five C# keys from verified Community captures.
+    const SUPPLEMENT_RULES: usize = 194;
     const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
@@ -1819,8 +1819,8 @@ mod tests {
             1741 + JAVA_RULES + RUBY_RULES + SUPPLEMENT_RULES
         );
         let expected = [
-            ("javascript", 445),
-            ("typescript", 455),
+            ("javascript", 447),
+            ("typescript", 457),
             ("python", 442),
             ("go", 36),
             ("rust", 85),
@@ -1874,6 +1874,41 @@ mod tests {
         assert_eq!(rule.language, "py");
         assert!(catalog.rule("java:NoSuchRule").is_none());
         assert!(catalog.rule("ruby:NoSuchRule").is_none());
+    }
+
+    #[test]
+    fn emitted_s7734_keys_have_capture_backed_metadata() {
+        assert_emitted_jsts_keys_have_capture_backed_metadata("S7734");
+    }
+
+    #[test]
+    fn emitted_s7743_keys_have_capture_backed_metadata() {
+        assert_emitted_jsts_keys_have_capture_backed_metadata("S7743");
+    }
+
+    fn assert_emitted_jsts_keys_have_capture_backed_metadata(rule_id: &str) {
+        let catalog = super::embedded();
+        for (language, language_id) in [("javascript", "js"), ("typescript", "ts")] {
+            let key = format!("{language}:{rule_id}");
+            let rule = catalog
+                .rule(&key)
+                .unwrap_or_else(|| panic!("implemented detector key {key} lacks catalog metadata"));
+            assert_eq!(rule.external_key, key);
+            assert_eq!(rule.repository, language);
+            assert_eq!(rule.language, language_id);
+            assert_eq!(rule.classification, "community-base");
+            assert!(!rule.is_external);
+            assert!(!rule.is_template);
+            let supplement = catalog.snapshot().languages[language]
+                .supplements
+                .get(&rule.provenance_id)
+                .expect("emitted key must carry its verified supplement provenance");
+            assert_eq!(supplement.server_version, "26.9.0.129388");
+            assert_eq!(supplement.instance_mode, "mqr");
+            assert_eq!(supplement.selected_count, 2);
+            assert!(super::native_rule(&key).is_none());
+        }
+        assert!(catalog.rule(&format!("java:{rule_id}")).is_none());
     }
 
     #[test]

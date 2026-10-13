@@ -72,8 +72,8 @@ Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict] [--a
 against the frozen catalog:
 
 | Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
-| JavaScript | 445 | 445 | 0 | 0 | 445 | 100.0% |
-| TypeScript | 455 | 455 | 0 | 0 | 455 | 100.0% |
+| JavaScript | 447 | 447 | 0 | 0 | 447 | 100.0% |
+| TypeScript | 457 | 457 | 0 | 0 | 457 | 100.0% |
 | Python | 442 | 442 | 0 | 0 | 442 | 100.0% |
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
@@ -103,6 +103,12 @@ supplement per capture digest is recorded per language receipt (in the same
 provenance shape as `import-selected`), pre-existing rows stay byte-stable,
 and the closure audit must pass afterwards. Supplemented keys are implemented
 detectors, so they are never listed in `catalog/infra-boundaries.json`.
+
+The October 13, 2026 supplement registers the already emitted S7734 and S7743
+keys for JavaScript and TypeScript. Its verified Community Build
+`26.9.0.129388` capture, selected-row hashes, and adds-only receipts are recorded
+in the snapshot. The catalog now has 2,710 rows; the four added metadata rows
+preserve the earlier catalog and do not establish broader SonarQube parity.
 
 ### Bounded semantic and context contracts
 

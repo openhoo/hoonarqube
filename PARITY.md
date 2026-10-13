@@ -2,11 +2,11 @@
 
 ## Claim boundary
 
-Hoonarqube ships the frozen 2,706-rule catalog:
+Hoonarqube ships the frozen 2,710-rule catalog:
 
 - C#: 468.
-- JavaScript: 445.
-- TypeScript: 455.
+- JavaScript: 447.
+- TypeScript: 457.
 - Python: 442.
 - Go: 36.
 - Rust: 85.
@@ -28,6 +28,20 @@ commercial license. They are never counted as Community passes.
 The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
+
+## Emitted JS/TS catalog keys — 2026-10-13
+
+The adds-only Community supplement for `javascript:S7734`,
+`javascript:S7743`, `typescript:S7734`, and `typescript:S7743` registers four
+already implemented detector keys. Their factual metadata comes from a raw
+MQR-mode Community Build `26.9.0.129388` capture with digest
+`877bdeb48a5593ee73fe8092d4f59b599f85c43767ebf28c94a95b25da7f756b`.
+The verified importer preserves every existing rule row and its original
+provenance. The frozen base remains `2025.4.4.119049`; other live-reference
+metadata and default-parameter differences retain their version boundaries.
+This addition does not implement new detectors or establish broader finding
+parity. Embedded-catalog regressions require all four emitted keys to resolve
+to their recorded Community supplement.
 
 ## Current coverage audit and real-project campaign — 2026-10-07
 
