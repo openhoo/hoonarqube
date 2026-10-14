@@ -146,7 +146,7 @@ fn assert_reference_shapes(format: &str) {
         }
         for (extension, language) in [("js", "javascript"), ("ts", "typescript")] {
             for (name, source, finding) in shapes() {
-                let file = format!("{name}.{extension}");
+                let file = format!("./{name}.{extension}");
                 assert_target(&report, format, &file, &format!("{language}:S104"), finding);
                 assert_eq!(
                     std::fs::read(fixture.0.join(file)).expect("readback"),
