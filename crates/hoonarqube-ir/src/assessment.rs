@@ -1568,6 +1568,29 @@ mod tests {
     }
 
     #[test]
+    fn java_source_lines_recognize_cr_lf_crlf_without_unicode_separators() {
+        for (path, language) in [
+            ("Control.java", None),
+            ("Control.JAVA", None),
+            ("source.txt", Some("JaVa")),
+        ] {
+            let style = line_style_for_path(Path::new(path), language);
+            assert_eq!(source_line_starts(b"x\ry\r\nz\n", style), vec![0, 2, 5, 7]);
+            assert_eq!(line_content_end(b"x\r", 0, 2, style), 1);
+            assert_eq!(
+                line_terminator_width("x\u{2028}y\u{2029}z".as_bytes(), 1, style),
+                None
+            );
+            assert_eq!(
+                source_line_starts("x\u{2028}y\u{2029}z".as_bytes(), style),
+                vec![0]
+            );
+        }
+        let reported_python = line_style_for_path(Path::new("Control.java"), Some("python"));
+        assert_eq!(source_line_starts(b"x\ry", reported_python), vec![0]);
+    }
+
+    #[test]
     fn assessment_accepts_generic_end_of_file_after_lone_cr() {
         let issue = crate::Issue::new(
             "csharpsquid:S113",
