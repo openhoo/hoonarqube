@@ -261,6 +261,21 @@ fn python_s1309_nosec_malformed_source_stays_incomplete() {
         if format == "json" {
             assert_eq!(report["project"]["complete"], false);
             assert_eq!(report["project"]["files"][0]["status"], "failed");
+            assert!(
+                report["files"][0]["issues"]
+                    .as_array()
+                    .expect("incomplete issues")
+                    .iter()
+                    .all(|issue| issue["rule_key"] != "python:S1309")
+            );
+        } else {
+            assert!(
+                report["issues"]
+                    .as_array()
+                    .expect("incomplete Sonar issues")
+                    .iter()
+                    .all(|issue| issue["ruleId"] != "python:S1309")
+            );
         }
     }
 }
