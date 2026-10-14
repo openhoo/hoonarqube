@@ -58,7 +58,7 @@ fn check_tier_b_rules(
     let model = build_tb_model(program);
     check_tb_shadowing(&model, &mut sink);
     check_tb_unused_imports(&model, &mut sink);
-    check_tb_unused_locals(&model, &mut sink);
+    check_tb_unused_locals(&model, program, &mut sink);
     check_tb_unused_parameters(&model, &mut sink);
     check_tb_implicit_globals(&model, &mut sink);
     check_tb_duplicates(&model, &mut sink);

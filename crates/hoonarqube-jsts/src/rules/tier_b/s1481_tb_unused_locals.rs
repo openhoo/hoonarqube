@@ -1,15 +1,25 @@
 // Rule module s1481_tb_unused_locals (generated).
 use crate::engine::scope_model::{TbKind, TbModel};
 use crate::support::{IssueSink, RuleScope};
+use oxc_ast::ast::{ArrowFunctionExpression, Function, Program, StaticBlock};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function, walk_static_block};
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
+use std::collections::HashMap;
 
 /// S1481 (JS only) — local variables/functions/classes without any reference.
-pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
-    for binding in &model.bindings {
-        let unreferenced = binding.reads.is_empty() && binding.writes.is_empty();
+pub(crate) fn check_tb_unused_locals(
+    model: &TbModel<'_>,
+    program: &Program<'_>,
+    sink: &mut IssueSink<'_>,
+) {
+    let referenced = referenced_declarations(model, program);
+    for (id, binding) in model.bindings.iter().enumerate() {
         if binding.kind.is_local_value()
             && !binding.global
             && !binding.function_expression_name
-            && unreferenced
+            && !referenced[id]
         {
             let noun = match binding.kind {
                 TbKind::Function => "function",
@@ -29,6 +39,75 @@ pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'
             );
         }
     }
+}
+
+#[derive(Default)]
+struct BodyBounds(HashMap<(u32, u32), Span>);
+
+impl<'a> Visit<'a> for BodyBounds {
+    fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+        if let Some(body) = &function.body {
+            self.0
+                .insert((function.span.start, function.span.end), body.span);
+        }
+        walk_function(self, function, flags);
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+        self.0
+            .insert((arrow.span.start, arrow.span.end), arrow.body.span());
+        walk_arrow_function_expression(self, arrow);
+    }
+
+    fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
+        self.0
+            .insert((block.span.start, block.span.end), block.span);
+        walk_static_block(self, block);
+    }
+}
+
+#[derive(Default)]
+struct AliasReferences {
+    incompatible: bool,
+    has_var: bool,
+    used_in_body: bool,
+}
+
+fn referenced_declarations(model: &TbModel<'_>, program: &Program<'_>) -> Vec<bool> {
+    let mut referenced: Vec<_> = model
+        .bindings
+        .iter()
+        .map(|binding| !binding.reads.is_empty() || !binding.writes.is_empty())
+        .collect();
+    let mut bodies = BodyBounds::default();
+    bodies.visit_program(program);
+    for scope in &model.scopes {
+        let Some(body) = bodies.0.get(&(scope.span.start, scope.span.end)) else {
+            continue;
+        };
+        let mut groups = HashMap::<&str, AliasReferences>::new();
+        for &id in &scope.bindings {
+            let binding = &model.bindings[id];
+            let group = groups.entry(binding.name).or_default();
+            group.incompatible |=
+                !matches!(binding.kind, TbKind::Var | TbKind::Function | TbKind::Param);
+            group.has_var |= binding.kind == TbKind::Var;
+            group.used_in_body |= binding
+                .reads
+                .iter()
+                .chain(&binding.writes)
+                .any(|span| body.start <= span.start && span.end <= body.end);
+        }
+        // Resolution records uses on the first declaration. Share that evidence
+        // only inside the actual body: default-parameter environments are separate.
+        for &id in &scope.bindings {
+            let group = &groups[model.bindings[id].name];
+            if !group.incompatible && group.has_var && group.used_in_body {
+                referenced[id] = true;
+            }
+        }
+    }
+    referenced
 }
 
 #[cfg(test)]
