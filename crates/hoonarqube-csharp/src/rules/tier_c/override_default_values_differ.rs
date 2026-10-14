@@ -979,23 +979,20 @@ mod tests {
 
     #[test]
     fn s1006_local_scalar_identity_rejects_system_namespace_overload_decoys() {
-        for (prefix, namespace) in [
+        for (prefix, scope_using) in [
+            ("namespace Triage.System { public class Int32 {} }\n", ""),
             (
-                "namespace Triage.System { public class Int32 {} }\n",
-                "Triage",
-            ),
-            (
-                "using System = global::Shadow;\nnamespace Shadow { public class Int32 {} }\n",
-                "Triage",
+                "namespace Shadow { public class Int32 {} }\n",
+                "using System = global::Shadow;\n",
             ),
         ] {
             let decoy = "public virtual int M(System.Int32 x = null) => 1;";
             let matching = "public virtual int M(int x) => x;";
             for methods in [format!("{matching} {decoy}"), format!("{decoy} {matching}")] {
                 let source = format!(
-                    "{prefix}namespace {namespace} {{\npublic class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\n}}\n"
+                    "{prefix}namespace Triage {{\n{scope_using}public class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\n}}\n"
                 );
-                let line = prefix.lines().count() as u32 + 3;
+                let line = (prefix.lines().count() + scope_using.lines().count()) as u32 + 3;
                 assert_removal(&analyze_default(&source), (line, 49, 52));
                 let clean = source.replace("M(int x = 2)", "M(int x)");
                 assert!(with_key(&analyze_default(&clean), KEY).is_empty());

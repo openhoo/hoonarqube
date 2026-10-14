@@ -801,16 +801,19 @@ fn csharp_s1006_local_scalar_identity_compiler_controls_preserve_exact_findings(
 
 #[test]
 fn csharp_s1006_local_scalar_identity_compiler_rejects_shadowed_system_decoys() {
-    for prefix in [
-        "namespace Triage.System { public class Int32 {} }\n",
-        "using System = global::Shadow;\nnamespace Shadow { public class Int32 {} }\n",
+    for (prefix, scope_using) in [
+        ("namespace Triage.System { public class Int32 {} }\n", ""),
+        (
+            "namespace Shadow { public class Int32 {} }\n",
+            "using System = global::Shadow;\n",
+        ),
     ] {
         let matching = "public virtual int M(int x) => x;";
         let decoy = "public virtual int M(System.Int32 x = null) => 1;";
         for methods in [format!("{matching} {decoy}"), format!("{decoy} {matching}")] {
             let fixture = Fixture::new("scalar-system-decoy-compiled");
             let source = format!(
-                "{prefix}namespace Triage {{\npublic class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\npublic static class Program {{ public static void Main() {{ global::System.Console.WriteLine(new D().M(2)); }} }}\n}}\n"
+                "{prefix}namespace Triage {{\n{scope_using}public class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\npublic static class Program {{ public static void Main() {{ global::System.Console.WriteLine(new D().M(2)); }} }}\n}}\n"
             );
             fixture.prepare_project(&source);
             let before = fixture.runtime();
@@ -821,7 +824,11 @@ fn csharp_s1006_local_scalar_identity_compiler_rejects_shadowed_system_decoys() 
                     &fixture.analyze(format, &["Control.cs"]),
                     format,
                     "Control.cs",
-                    (prefix.lines().count() as u32 + 3, 49, 52),
+                    (
+                        (prefix.lines().count() + scope_using.lines().count()) as u32 + 3,
+                        49,
+                        52,
+                    ),
                 );
             }
             assert_eq!(fixture.read("Control.cs"), source.as_bytes());
