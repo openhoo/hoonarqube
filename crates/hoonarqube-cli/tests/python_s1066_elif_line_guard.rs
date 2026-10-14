@@ -302,16 +302,37 @@ fn malformed_source_stays_incomplete_and_s1066_has_no_automatic_write() {
         }
     }
     let positive = "if outer:\n    if inner:\n        work()\n";
-    for mode in ["--diff", "--apply"] {
-        std::fs::write(fixture.0.join("case.py"), positive).expect("source");
-        let output = fixture.run(&["--json", "fix", "case.py", "--rule", "python:S1066", mode]);
-        assert_eq!(output.status.code(), Some(0), "{output:?}");
-        let report: Value = serde_json::from_slice(&output.stdout).expect("fix report");
-        assert_eq!(report["planned"], 0);
-        assert_eq!(report["applied"], 0);
-        assert_eq!(
-            std::fs::read_to_string(fixture.0.join("case.py")).expect("readback"),
-            positive
-        );
+    for profile in ["strict", "sonar-parity"] {
+        for mode in ["--diff", "--apply"] {
+            std::fs::write(fixture.0.join("case.py"), positive).expect("source");
+            let output = fixture.run(&[
+                "--json",
+                "fix",
+                "case.py",
+                "--rule",
+                "python:S1066",
+                "--profile",
+                profile,
+                mode,
+            ]);
+            assert_eq!(output.status.code(), Some(0), "{output:?}");
+            assert!(output.stderr.is_empty(), "{output:?}");
+            let report: Value = serde_json::from_slice(&output.stdout).expect("fix report");
+            if mode == "--diff" {
+                assert_eq!(report["planned"], 0);
+                assert_eq!(report["applicable"], 0);
+            } else {
+                assert_eq!(report["regressions"], 0);
+            }
+            for count in ["applied", "mechanical", "verified", "unverified", "skipped"] {
+                assert_eq!(report[count], 0);
+            }
+            assert_eq!(report["warnings"], json!([]));
+            assert_eq!(report["files"], json!([]));
+            assert_eq!(
+                std::fs::read_to_string(fixture.0.join("case.py")).expect("readback"),
+                positive
+            );
+        }
     }
 }
