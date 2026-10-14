@@ -1157,6 +1157,11 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
     let matched: Vec<_> = sonar_contract::FINDINGS
         .iter()
         .filter_map(|contract| {
+            // S2479 derives complete literal ranges from syntax independently of
+            // the frozen oracle's source text and must not add a second identity.
+            if contract.key == "rust:S2479" {
+                return None;
+            }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
                 return None;
             }
@@ -1331,7 +1336,7 @@ fn check_whole_file(
     root: Node<'_>,
     issues: &mut Vec<Issue>,
 ) {
-    check_invisible_unicode(source, issues);
+    check_invisible_unicode(root, source, issues);
     check_regex_literals(source, code, uncommented, root, issues);
     check_vector_pushes(root, source, issues);
     check_getters(root, source, code, issues);
@@ -2172,21 +2177,31 @@ fn check_large_number(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_invisible_unicode(source: &str, issues: &mut Vec<Issue>) {
-    for (offset, character) in source.char_indices() {
-        if matches!(
-            character,
-            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+fn check_invisible_unicode(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if !matches!(
+            node.kind(),
+            "string_literal" | "raw_string_literal" | "char_literal"
         ) {
-            issues.push(offset_issue(
+            return;
+        }
+        let literal = text(node, source);
+        // Clippy checks Rust string and character literals, excluding byte/C strings.
+        let rust_literal =
+            literal.starts_with('"') || literal.starts_with('\'') || literal.starts_with('r');
+        if rust_literal
+            && literal
+                .chars()
+                .any(|character| matches!(character, '\u{200B}' | '\u{00AD}' | '\u{2060}'))
+        {
+            issues.push(node_issue(
                 "rust:S2479",
-                "Remove this invisible Unicode character.",
+                "Remove this invisible character from this literal.",
+                node,
                 source,
-                offset,
-                offset + character.len_utf8(),
             ));
         }
-    }
+    });
 }
 
 fn check_regex_literals(
@@ -6622,6 +6637,132 @@ regex_fn!(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn s2479_findings(source: &str) -> Vec<Issue> {
+        analyze(
+            PathBuf::from("literals.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        )
+        .issues
+        .into_iter()
+        .filter(|issue| issue.rule_key == "rust:S2479")
+        .collect()
+    }
+
+    #[test]
+    fn s2479_reports_one_whole_literal_for_selected_unicode_characters() {
+        for literal in [
+            "\"a\u{200b}b\u{2060}c\"",
+            "\"a\u{ad}b\"",
+            "r#\"a\u{200b}b\"#",
+            "'\u{200b}'",
+        ] {
+            let source = format!("fn value() {{ let _value = {literal}; }}\n");
+            let findings = s2479_findings(&source);
+            assert_eq!(findings.len(), 1, "{literal:?}: {findings:?}");
+            assert_eq!(
+                findings[0].range.start,
+                Pos {
+                    line: 1,
+                    column: 26
+                }
+            );
+            assert_eq!(
+                findings[0].range.end,
+                Pos {
+                    line: 1,
+                    column: 26 + u32::try_from(literal.chars().count()).unwrap()
+                }
+            );
+            assert_eq!(
+                findings[0].message,
+                "Remove this invisible character from this literal."
+            );
+            assert!(findings[0].fix.is_none());
+            assert!(findings[0].alternatives.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2479_ignores_comments_c_strings_joiners_and_explicit_escapes() {
+        let source = concat!(
+            "// Comment \u{200b}\u{2060}\u{ad}\n",
+            "/* Block \u{200b} */\n",
+            "fn clean() { let _joiners = \"\u{200c}\u{200d}\u{feff}\"; ",
+            "let _escaped = \"a\\u{200b}b\"; let _c = c\"a\u{200b}b\"; }\n",
+        );
+        assert!(s2479_findings(source).is_empty());
+    }
+
+    #[test]
+    fn s2479_literal_identity_is_independent_of_layout_and_oracle_anchor_text() {
+        let original = "fn hidden() { let value = \"a\u{200b}b\"; drop(value); }\n";
+        let formatted =
+            "fn renamed()\n{\n    let value\n        = \"a\u{200b}b\";\n    drop(value);\n}\n";
+        for (source, expected) in [
+            (
+                original,
+                Range {
+                    start: Pos {
+                        line: 1,
+                        column: 26,
+                    },
+                    end: Pos {
+                        line: 1,
+                        column: 31,
+                    },
+                },
+            ),
+            (
+                formatted,
+                Range {
+                    start: Pos {
+                        line: 4,
+                        column: 10,
+                    },
+                    end: Pos {
+                        line: 4,
+                        column: 15,
+                    },
+                },
+            ),
+        ] {
+            let findings = s2479_findings(source);
+            assert_eq!(findings.len(), 1, "{findings:?}");
+            assert_eq!(findings[0].range, expected);
+        }
+    }
+
+    #[test]
+    fn s2479_preserves_separate_repeated_literals_and_multiline_spans() {
+        let source = "fn repeated() {\n    let _first = \"a\u{200b}\u{2060}b\";\n    let _second = r#\"a\n\u{ad}b\"#;\n}\n";
+        let findings = s2479_findings(source);
+        assert_eq!(findings.len(), 2, "{findings:?}");
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos {
+                    line: 2,
+                    column: 17
+                },
+                end: Pos {
+                    line: 2,
+                    column: 23
+                }
+            }
+        );
+        assert_eq!(
+            findings[1].range,
+            Range {
+                start: Pos {
+                    line: 3,
+                    column: 18
+                },
+                end: Pos { line: 4, column: 4 }
+            }
+        );
+    }
 
     #[test]
     fn array_macro_index_tracks_each_binding_until_its_next_shadow() {
