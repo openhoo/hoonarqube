@@ -243,3 +243,46 @@ fn collect_exception_names(expr: &Expr, names: &mut Vec<String>) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod recovered_empty_suite_tests {
+    use super::flag_duplicate_branches;
+    use crate::support::parse;
+    use crate::test_support::issue;
+    use ruff_source_file::LineIndex;
+
+    #[test]
+    fn duplicate_branches_skip_empty_first_middle_and_last_suites() {
+        let source = "first()\nsecond()\nfirst()\nsecond()\n";
+        let parsed = parse(source);
+        let body = &parsed.syntax().body;
+        let first = &body[..2];
+        let second = &body[2..];
+        let index = LineIndex::from_source_text(source);
+        for branches in [
+            vec![&[][..], first, second],
+            vec![first, &[][..], second],
+            vec![first, second, &[][..]],
+        ] {
+            let mut issues = Vec::new();
+            flag_duplicate_branches(&branches, "python:S1871", &mut issues, &index, source);
+            assert_eq!(
+                issues,
+                vec![issue(
+                    "python:S1871",
+                    "Either merge this branch with the identical one on line \"1\" or change one of the implementations.",
+                    (3, 0),
+                    (4, 8)
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_branches_do_not_compare_empty_only_suites() {
+        let index = LineIndex::from_source_text("");
+        let mut issues = Vec::new();
+        flag_duplicate_branches(&[&[], &[]], "python:S1871", &mut issues, &index, "");
+        assert!(issues.is_empty());
+    }
+}

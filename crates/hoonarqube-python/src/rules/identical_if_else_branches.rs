@@ -48,4 +48,24 @@ mod tests {
         let clean = "if a:\n    run()\nelse:\n    walk()\n";
         assert!(findings(&scan(clean), "python:S3923").is_empty());
     }
+
+    #[test]
+    fn s3923_skips_each_recovered_empty_if_else_body() {
+        use super::check_identical_if_else_branches;
+        use crate::engine::file_context::FileContext;
+        use crate::support::parse;
+        use ruff_source_file::LineIndex;
+
+        for source in [
+            "if condition:\nelse:\n",
+            "if condition:\nelse:\n    execute()\n",
+            "if condition:\n    execute()\nelse:\n",
+        ] {
+            let parsed = parse(source);
+            assert!(!parsed.errors().is_empty());
+            let context = FileContext::build(&parsed, source);
+            let index = LineIndex::from_source_text(source);
+            assert!(check_identical_if_else_branches(&index, source, &context).is_empty());
+        }
+    }
 }
