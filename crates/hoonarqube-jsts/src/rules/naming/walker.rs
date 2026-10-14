@@ -4,7 +4,7 @@ use crate::context::{AnalysisContext, RuleOptions};
 use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
     IssueSink, LineIndex, RuleScope, binding_identifier_name, callee_name, constructor_name,
-    member_rooted_at, property_key_name, static_property_name, unparenthesized,
+    member_rooted_at, property_key_name, source_slice, static_property_name, unparenthesized,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
@@ -32,6 +32,7 @@ use std::collections::{HashMap, HashSet};
 
 fn check_naming_rules(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
     rules: &RuleOptions,
@@ -47,6 +48,7 @@ fn check_naming_rules(
     };
     names.visit_program(program);
     let mut magic = MagicNumberCollector {
+        source,
         sink: IssueSink {
             index,
             language,
@@ -55,6 +57,7 @@ fn check_naming_rules(
         exempt: HashSet::new(),
         type_depth: 0,
         negation_depth: 0,
+        message_sign: None,
     };
     magic.visit_program(program);
     let mut strings = StringStyleCollector {
@@ -296,16 +299,20 @@ impl<'a> StringStyleCollector<'a, '_> {
 /// contextual exemptions (assignments, property values, defaults, enum
 /// members, class fields, bitwise operands, `parseInt` radixes, JSX) apply
 /// only to the literal a context directly holds.
-struct MagicNumberCollector<'index> {
+struct MagicNumberCollector<'src, 'index> {
+    source: &'src str,
     sink: IssueSink<'index>,
     /// Literal spans whose direct context the reference rule exempts.
     exempt: HashSet<(u32, u32)>,
     /// Inside a TypeScript literal type (`type A = 5`).
     type_depth: u32,
     negation_depth: u32,
+    /// Only an immediate numeric unary operand contributes its lexical sign
+    /// to the reference message; enclosing expressions do not.
+    message_sign: Option<(Span, &'static str)>,
 }
 
-impl<'a> Visit<'a> for MagicNumberCollector<'_> {
+impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         // Any declarator initializer is an authorized context; numbers nested
         // inside a call there stay checked.
@@ -403,9 +410,20 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
 
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         let negated = matches!(it.operator, UnaryOperator::UnaryNegation);
+        let previous_sign = self.message_sign;
+        self.message_sign = match (it.operator, unparenthesized(&it.argument)) {
+            (UnaryOperator::UnaryNegation, Expression::NumericLiteral(literal)) => {
+                Some((literal.span, "-"))
+            }
+            (UnaryOperator::UnaryPlus, Expression::NumericLiteral(literal)) => {
+                Some((literal.span, "+"))
+            }
+            _ => None,
+        };
         self.negation_depth += u32::from(negated);
         walk_unary_expression(self, it);
         self.negation_depth -= u32::from(negated);
+        self.message_sign = previous_sign;
     }
 
     fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
@@ -420,12 +438,14 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
         if is_authorized_number(value) {
             return;
         }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S109",
-            "This numeric literal should be replaced by a named constant.",
-            it.span,
-        );
+        let raw = source_slice(self.source, it.span);
+        let sign = self
+            .message_sign
+            .filter(|(span, _)| *span == it.span)
+            .map_or("", |(_, sign)| sign);
+        let message = format!("No magic number: {sign}{raw}.");
+        self.sink
+            .emit_span(RuleScope::Both, "S109", &message, it.span);
     }
 }
 
@@ -742,7 +762,7 @@ fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_naming_rules(ctx.program, ctx.index, ctx.language, ctx.rules)
+    check_naming_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.rules)
 }
 
 #[cfg(test)]
@@ -858,6 +878,109 @@ mod tests {
         assert_eq!(count_key(&strict, "javascript:S117"), 2);
     }
 
+    fn check_s109_raw_messages(language: crate::JstsLanguage) {
+        // Pinned SonarJS 13.8 inherits `No magic number: {{raw}}.` and
+        // preserves lexical spelling, including the immediate unary sign.
+        // The existing native numeric-only ranges are a separate residual.
+        let cases = [
+            ("g(3);\n", "No magic number: 3.", 2, 3),
+            ("g(45);\n", "No magic number: 45.", 2, 4),
+            ("g(0x3e);\n", "No magic number: 0x3e.", 2, 6),
+            ("g(0x26);\n", "No magic number: 0x26.", 2, 6),
+            ("g(0o777);\n", "No magic number: 0o777.", 2, 7),
+            ("g(0x1F984);\n", "No magic number: 0x1F984.", 2, 9),
+            (
+                "g(3.4028234663852886e38);\n",
+                "No magic number: 3.4028234663852886e38.",
+                2,
+                23,
+            ),
+            ("g(45.00);\n", "No magic number: 45.00.", 2, 7),
+            ("g(4_500);\n", "No magic number: 4_500.", 2, 7),
+            ("g(4.5e1);\n", "No magic number: 4.5e1.", 2, 7),
+            ("g(-3);\n", "No magic number: -3.", 3, 4),
+            ("g(+3);\n", "No magic number: +3.", 3, 4),
+            ("g(-(3));\n", "No magic number: -3.", 4, 5),
+            ("g(+(3));\n", "No magic number: +3.", 4, 5),
+            ("g(- /* gap */3);\n", "No magic number: -3.", 13, 14),
+            ("g(-(-3));\n", "No magic number: -3.", 5, 6),
+            ("g(-(g(3)));\n", "No magic number: 3.", 6, 7),
+        ];
+        let key = format!("{}:S109", language.prefix());
+        for (source, message, start, end) in cases {
+            let report = match language {
+                crate::JstsLanguage::JavaScript => js(source),
+                crate::JstsLanguage::TypeScript => ts(source),
+            };
+            let found: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == key)
+                .cloned()
+                .collect();
+            assert_eq!(found, vec![issue(&key, message, (1, start), (1, end))]);
+        }
+        let report = match language {
+            crate::JstsLanguage::JavaScript => js("g(-(3 + 5));\n"),
+            crate::JstsLanguage::TypeScript => ts("g(-(3 + 5));\n"),
+        };
+        let found: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == key)
+            .cloned()
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                issue(&key, "No magic number: 3.", (1, 4), (1, 5)),
+                issue(&key, "No magic number: 5.", (1, 8), (1, 9)),
+            ]
+        );
+    }
+
+    #[test]
+    fn s109_javascript_raw_messages_match_sonarjs() {
+        check_s109_raw_messages(crate::JstsLanguage::JavaScript);
+    }
+
+    #[test]
+    fn s109_typescript_raw_messages_match_sonarjs() {
+        check_s109_raw_messages(crate::JstsLanguage::TypeScript);
+    }
+
+    #[test]
+    fn s109_message_controls_preserve_authorized_numbers_and_contexts() {
+        let source = "g(0, 1, -1, 24, 60, 2, 16, 100, 0.5, 0.1);\n\
+                      const RETRIES = 3; let retries = 5;\n\
+                      obj.count = 45; const conf = { width: 45, 45: 'x' };\n\
+                      class Box { pad = 45; } function k(a = 45) {}\n\
+                      const { extra = 45 } = box; const radix = parseInt(text, 8);\n\
+                      const masked = flag | 45; JSON.stringify(obj, null, 45);\n\
+                      g(45n);\n";
+        for report in [
+            js(source),
+            ts(source),
+            jsx("const view = <Box pad={45}>{g(45)}</Box>;\n"),
+        ] {
+            assert_eq!(
+                report
+                    .issues
+                    .iter()
+                    .filter(|issue| issue.rule_key.ends_with(":S109"))
+                    .count(),
+                0
+            );
+        }
+        assert_eq!(
+            count_key(
+                &ts_keys("enum Level { Base = 45 }\ntype Retry = 45;\n"),
+                "typescript:S109"
+            ),
+            0
+        );
+    }
+
     #[test]
     fn magic_numbers_flagged_only_outside_allowed_contexts() {
         // Assignments, defaults, whitelisted values, and powers of two or ten
@@ -874,7 +997,7 @@ mod tests {
             .iter()
             .filter(|found| found.rule_key == "javascript:S109")
             .collect();
-        let message = "This numeric literal should be replaced by a named constant.";
+        let message = "No magic number: 45.";
         assert_eq!(
             magic,
             vec![
