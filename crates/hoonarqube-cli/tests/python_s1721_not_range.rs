@@ -186,7 +186,12 @@ fn selected_not_fix_diff_apply_and_reanalysis_preserve_runtime_types_and_effects
         ]);
         assert_eq!(result.status.code(), Some(0), "{result:?}");
         let report: Value = serde_json::from_slice(&result.stdout).expect("fix JSON");
-        assert_eq!(report["mechanical"], 2);
+        assert_eq!(report["mechanical"], 0);
+        assert_eq!(report["planned"], 2);
+        assert_eq!(report["applicable"], 2);
+        assert_eq!(report["applied"], if mode == "--apply" { 2 } else { 0 });
+        assert_eq!(report["verified"], if mode == "--apply" { 2 } else { 0 });
+        assert_eq!(report["unverified"], 0);
         assert_eq!(report["warnings"], json!([]));
         assert_eq!(
             std::fs::read_to_string(fixture.0.join("case.py")).expect("readback"),
