@@ -276,7 +276,7 @@ fn selected_line_guard_preserves_eligibility_flows_and_other_guards() {
 #[test]
 fn malformed_source_stays_incomplete_and_s1066_has_no_automatic_write() {
     let fixture = Fixture::new();
-    let malformed = "if (\n";
+    let malformed = "value =\n";
     std::fs::write(fixture.0.join("broken.py"), malformed).expect("source");
     for profile in ["strict", "sonar-parity"] {
         for format in ["json", "sonar"] {
