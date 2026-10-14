@@ -7700,7 +7700,8 @@ mod tests {
             "Replace this `match` expression with an `if-else` expression."
         );
         assert!(findings[0].flows.is_empty());
-        assert!(findings[0].action.is_none());
+        assert!(findings[0].fix.is_none());
+        assert!(findings[0].alternatives.is_empty());
     }
 
     #[test]
