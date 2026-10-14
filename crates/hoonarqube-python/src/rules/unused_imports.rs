@@ -36,7 +36,7 @@ pub(crate) fn check_unused_imports(
         return Vec::new();
     }
     let import_modules = import_module_names(file_ctx);
-    let alias_ranges = from_import_alias_ranges(file_ctx);
+    let from_ranges = from_import_name_ranges(file_ctx);
     let comments: Vec<&str> = comment_tokens(parsed)
         .map(|token| &source[token.range()])
         .collect();
@@ -71,11 +71,19 @@ pub(crate) fn check_unused_imports(
                 .any(|comment| comment.contains(name.as_str()))
             || facts.string_texts.iter().any(|text| text == name);
         if !used {
-            for range in import_ranges {
+            let selected_from = import_ranges
+                .iter()
+                .copied()
+                .rev()
+                .find(|range| from_ranges.contains_key(range));
+            for range in import_ranges
+                .into_iter()
+                .filter(|range| !from_ranges.contains_key(range) || Some(*range) == selected_from)
+            {
                 issues.push(issue_at(
                     "python:S1128",
                     "Remove this unused import.",
-                    alias_ranges.get(&range).copied().unwrap_or(range),
+                    from_ranges.get(&range).copied().unwrap_or(range),
                     index,
                     source,
                 ));
@@ -85,10 +93,10 @@ pub(crate) fn check_unused_imports(
     issues
 }
 
-/// The reference reports the bound alias Name of a `from` import. Keep the
-/// entire definition range for usage exclusions and module exemptions above;
-/// this map only selects the diagnostic's display location.
-fn from_import_alias_ranges(
+/// The reference keeps the last `from` import for each bound name and reports
+/// that Name. Match full definitions against root bindings above, retaining
+/// every definition for usage exclusions and module exemptions.
+fn from_import_name_ranges(
     file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> HashMap<TextRange, TextRange> {
     let mut ranges = HashMap::new();
@@ -97,9 +105,11 @@ fn from_import_alias_ranges(
             continue;
         };
         for alias in &import.names {
-            if let Some(name) = &alias.asname {
-                ranges.insert(alias.range(), name.range());
-            }
+            let name = alias
+                .asname
+                .as_ref()
+                .map_or_else(|| alias.name.range(), Ranged::range);
+            ranges.insert(alias.range(), name);
         }
     }
     ranges
