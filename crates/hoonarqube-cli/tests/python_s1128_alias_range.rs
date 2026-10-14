@@ -169,12 +169,12 @@ fn non_alias_imports_and_used_aliases_preserve_complete_issues_and_scope() {
 }
 
 #[test]
-fn requests_compat_preserves_all_23_import_findings_with_one_alias_range() {
+fn requests_compat_selects_last_same_name_import_with_22_findings() {
     let fixture = Fixture::new();
     // Exact Requests611c6162 compat.py bytes from the real reference scan.
-    // Preserve conditional JSONDecodeError and all other existing detections.
+    // Keep the last JSONDecodeError candidate and every other complete issue.
+    // This selection repair explicitly revises the preceding range-only 23 contract.
     let spans = [
-        (76, 27, 42),
         (78, 21, 36),
         (82, 28, 36),
         (82, 38, 45),
@@ -212,6 +212,213 @@ fn requests_compat_preserves_all_23_import_findings_with_one_alias_range() {
             );
         }
     }
+}
+
+struct SelectionCase {
+    name: &'static str,
+    path: &'static str,
+    source: &'static str,
+    spans: &'static [(u32, u32, u32)],
+    changes: bool,
+}
+
+// Static contract qualified by the installed reference candidate Map and the
+// exact Requests witness; direct imports and existing guards remain native.
+const SELECTION_CASES: &[SelectionCase] = &[
+    SelectionCase {
+        name: "sequential-same-name",
+        path: "case.py",
+        source: "from alpha import item\nfrom beta import item\n",
+        spans: &[(2, 17, 21)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "conditional-same-name",
+        path: "case.py",
+        source: "if available:\n    from alpha import item\nelse:\n    from beta import item\n",
+        spans: &[(4, 21, 25)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "different-imports-same-alias",
+        path: "case.py",
+        source: "from alpha import first as shared\nfrom beta import second as shared\n",
+        spans: &[(2, 27, 33)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "distinct-bound-aliases",
+        path: "case.py",
+        source: "from alpha import item as first\nfrom beta import item as second\n",
+        spans: &[(1, 26, 31), (2, 25, 31)],
+        changes: false,
+    },
+    SelectionCase {
+        name: "same-statement-duplicate",
+        path: "case.py",
+        source: "from alpha import item, item\n",
+        spans: &[(1, 24, 28)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "self-alias-duplicate",
+        path: "case.py",
+        source: "from os import sep as sep\nfrom os import sep as sep\n",
+        spans: &[(2, 22, 25)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "plain-module",
+        path: "case.py",
+        source: "import socket  # noqa: F401\n",
+        spans: &[(1, 7, 13)],
+        changes: false,
+    },
+    SelectionCase {
+        name: "plain-module-duplicates",
+        path: "case.py",
+        source: "import socket\nimport socket\n",
+        spans: &[(1, 7, 13), (2, 7, 13)],
+        changes: false,
+    },
+    SelectionCase {
+        name: "mixed-direct-then-from",
+        path: "case.py",
+        source: "import item\nfrom alpha import item\nfrom beta import item\n",
+        spans: &[(1, 7, 11), (3, 17, 21)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "mixed-from-then-direct",
+        path: "case.py",
+        source: "from alpha import item\nfrom beta import item\nimport item\n",
+        spans: &[(2, 17, 21), (3, 7, 11)],
+        changes: true,
+    },
+    SelectionCase {
+        name: "used-name",
+        path: "case.py",
+        source: "from alpha import item\nfrom beta import item\nprint(item)\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "literal-name",
+        path: "case.py",
+        source: "from alpha import item\nfrom beta import item\n__all__ = [\"item\"]\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "comment-name",
+        path: "case.py",
+        source: "from alpha import item\nfrom beta import item\n# item remains exported\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "facade",
+        path: "__init__.py",
+        source: "from alpha import item\nfrom beta import item\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "test-scope",
+        path: "test_subject.py",
+        source: "from alpha import item\nfrom beta import item\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "dynamic-names",
+        path: "case.py",
+        source: "from alpha import item\nfrom beta import item\nprint(globals())\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "allowed-unaliased",
+        path: "case.py",
+        source: "from __future__ import annotations\nfrom typing import Any\nfrom typing_extensions import Literal\nfrom sklearn.experimental import enable_iterative_imputer\n",
+        spans: &[(4, 33, 57)],
+        changes: false,
+    },
+    SelectionCase {
+        name: "allowed-group-veto",
+        path: "case.py",
+        source: "from alpha import Any\nfrom typing import Any\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "allowed-alias-existing-overfires",
+        path: "case.py",
+        source: "from typing import Any as TypeAny\nfrom typing_extensions import Literal as LiteralType\nfrom sklearn.experimental import enable_iterative_imputer as iterative\n",
+        spans: &[(1, 26, 33), (2, 41, 52), (3, 61, 70)],
+        changes: false,
+    },
+    SelectionCase {
+        name: "nested-local-imports",
+        path: "case.py",
+        source: "def one():\n    from alpha import item\ndef two():\n    from beta import item\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "unrelated-nested-token-veto",
+        path: "case.py",
+        source: "from alpha import item\ndef local():\n    from beta import item\n",
+        spans: &[],
+        changes: false,
+    },
+    SelectionCase {
+        name: "alias-range-inherited",
+        path: "case.py",
+        source: "from http import cookiejar as cookielib\n",
+        spans: &[(1, 30, 39)],
+        changes: false,
+    },
+    SelectionCase {
+        name: "direct-alias-range-inherited",
+        path: "case.py",
+        source: "import pathlib as paths\n",
+        spans: &[(1, 7, 23)],
+        changes: false,
+    },
+];
+
+fn assert_selection_contract(changes: bool) {
+    let fixture = Fixture::new();
+    for case in SELECTION_CASES
+        .iter()
+        .filter(|case| case.changes == changes)
+    {
+        for profile in ["strict", "sonar-parity"] {
+            for format in ["json", "sonar"] {
+                let report = fixture.analyze_path(case.path, case.source, profile, format);
+                assert_eq!(
+                    targets(&report, format),
+                    case.spans
+                        .iter()
+                        .map(|&(line, start, end)| expected(format, case.path, line, start, end))
+                        .collect::<Vec<_>>(),
+                    "{}/{profile}/{format}",
+                    case.name
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn same_name_from_imports_select_last_candidate_in_native_and_generic() {
+    assert_selection_contract(true);
+}
+
+#[test]
+fn same_name_selection_preserves_direct_imports_usage_exemptions_and_scope() {
+    assert_selection_contract(false);
 }
 
 const REQUESTS_COMPAT: &str = r#""""
