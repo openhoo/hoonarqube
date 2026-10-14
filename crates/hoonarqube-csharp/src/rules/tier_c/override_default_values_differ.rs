@@ -767,7 +767,7 @@ mod tests {
                 Some(
                     "Remove the default parameter value to match the signature of overridden method.",
                 ),
-                Some((4, 49, 58)),
+                Some((4, 48, 57)),
             ),
         ] {
             assert_local_generic_difference(source, message, span);
@@ -792,12 +792,12 @@ mod tests {
                 Some(
                     "Remove the default parameter value to match the signature of overridden method.",
                 ),
-                Some((4, 55, 64)),
+                Some((4, 54, 63)),
             ),
             (
                 "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; }\npublic class D : B<int> { public override int M(int x = 2) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
                 Some("Use the default parameter value defined in the overridden method."),
-                Some((4, 57, 58)),
+                Some((4, 56, 57)),
             ),
         ] {
             assert_local_generic_difference(source, message, span);
@@ -810,30 +810,55 @@ mod tests {
             (
                 "using System;\nnamespace Triage;\npublic class B { public virtual T[] M<T>(T[] x = null) => x; }\npublic class D : B { public override U[] M<U>(U[] x) => x; }\n",
                 Some("Add the default parameter value defined in the overridden method."),
-                Some((4, 51, 52)),
+                Some((4, 50, 51)),
             ),
             (
                 "using System;\nnamespace Triage;\npublic class B { public virtual System.Collections.Generic.List<T> M<T>(System.Collections.Generic.List<T> x = null) => x; }\npublic class D : B { public override System.Collections.Generic.List<U> M<U>(System.Collections.Generic.List<U> x) => x; }\n",
                 Some("Add the default parameter value defined in the overridden method."),
-                Some((4, 113, 114)),
+                Some((4, 112, 113)),
             ),
             (
                 "using System;\nnamespace Triage;\npublic class B<T> { public virtual T[] M(T[] x = null) => x; }\npublic class D : B<int> { public override int[] M(int[] x) => x; }\n",
                 Some("Add the default parameter value defined in the overridden method."),
-                Some((4, 57, 58)),
+                Some((4, 56, 57)),
             ),
             (
                 "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; public virtual int M(string x) => x.Length; }\npublic class D : B<int> { public override int M(int x) => x; }\n",
                 Some("Add the default parameter value defined in the overridden method."),
-                Some((4, 53, 54)),
+                Some((4, 52, 53)),
             ),
             (
                 "using System;\nnamespace Triage;\npublic class B<T> { public virtual U M<U>(T x, U y = default) => y; }\npublic class D<T> : B<int> { public override V M<V>(int x, V y) => y; }\n",
                 Some("Add the default parameter value defined in the overridden method."),
-                Some((4, 62, 63)),
+                Some((4, 61, 62)),
             ),
         ] {
             assert_local_generic_difference(source, message, span);
         }
+    }
+    #[test]
+    fn s1006_local_generic_scope_preserves_method_shadowing_and_concrete_qualified_names() {
+        let source = "using System;\n#pragma warning disable CS0693\nnamespace Concrete { public sealed class T {} }\nnamespace Triage {\npublic class B<T> { public virtual U Combined<U>(T x, U y = default) => y; public virtual T Shadow<T>(T x = default) => x; public virtual Concrete.T Qualified<U>(Concrete.T x = null, U y = default) => x; }\npublic class D<U> : B<U> { public override V Combined<V>(U x, V y) => y; public override V Shadow<V>(V x) => x; public override Concrete.T Qualified<V>(Concrete.T x, V y = default) => x; }\npublic static class Program { public static void Main() { D<int> d = new(); Console.WriteLine($\"{d.Combined<int>(1, 1)}:{d.Shadow<int>(1)}:{(d.Qualified<int>(new Concrete.T(), 1) is not null ? 1 : 0)}\"); } }\n}\n";
+        let report = analyze_default(source);
+        let issues = with_key(&report, KEY);
+        assert_eq!(issues.len(), 3, "{issues:?}");
+        for (issue, column) in issues.iter().zip([64, 103, 163]) {
+            assert_eq!(
+                issue.message,
+                "Add the default parameter value defined in the overridden method."
+            );
+            assert_eq!(issue.range.start.line, 6);
+            assert_eq!(issue.range.end.line, 6);
+            assert_eq!(issue.range.start.column, column);
+            assert_eq!(issue.range.end.column, column + 1);
+        }
+        let matching = source
+            .replace("V y) =>", "V y = default) =>")
+            .replace("V x) =>", "V x = default) =>")
+            .replace(
+                "Concrete.T x, V y = default",
+                "Concrete.T x = null, V y = default",
+            );
+        assert!(with_key(&analyze_default(&matching), KEY).is_empty());
     }
 }

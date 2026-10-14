@@ -599,17 +599,17 @@ fn csharp_s1006_local_generic_identity_preserves_scalar_default_differences() {
         (
             "using System;\nnamespace Triage;\npublic class B { public virtual T M<T>(T x) => x; }\npublic class D : B { public override U M<U>(U x = default) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M<int>(1)); } }\n",
             Some("Remove the default parameter value to match the signature of overridden method."),
-            Some((4, 49, 58)),
+            Some((4, 48, 57)),
         ),
         (
             "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x) => x; }\npublic class D : B<int> { public override int M(int x = default) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
             Some("Remove the default parameter value to match the signature of overridden method."),
-            Some((4, 55, 64)),
+            Some((4, 54, 63)),
         ),
         (
             "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; }\npublic class D : B<int> { public override int M(int x = 2) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
             Some("Use the default parameter value defined in the overridden method."),
-            Some((4, 57, 58)),
+            Some((4, 56, 57)),
         ),
     ] {
         assert_local_generic_cli_difference(source, message, span);
@@ -622,27 +622,27 @@ fn csharp_s1006_local_generic_identity_preserves_composite_signatures_and_decoys
         (
             "using System;\nnamespace Triage;\npublic class B { public virtual T[] M<T>(T[] x = null) => x; }\npublic class D : B { public override U[] M<U>(U[] x) => x; }\n",
             Some("Add the default parameter value defined in the overridden method."),
-            Some((4, 51, 52)),
+            Some((4, 50, 51)),
         ),
         (
             "using System;\nnamespace Triage;\npublic class B { public virtual System.Collections.Generic.List<T> M<T>(System.Collections.Generic.List<T> x = null) => x; }\npublic class D : B { public override System.Collections.Generic.List<U> M<U>(System.Collections.Generic.List<U> x) => x; }\n",
             Some("Add the default parameter value defined in the overridden method."),
-            Some((4, 113, 114)),
+            Some((4, 112, 113)),
         ),
         (
             "using System;\nnamespace Triage;\npublic class B<T> { public virtual T[] M(T[] x = null) => x; }\npublic class D : B<int> { public override int[] M(int[] x) => x; }\n",
             Some("Add the default parameter value defined in the overridden method."),
-            Some((4, 57, 58)),
+            Some((4, 56, 57)),
         ),
         (
             "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; public virtual int M(string x) => x.Length; }\npublic class D : B<int> { public override int M(int x) => x; }\n",
             Some("Add the default parameter value defined in the overridden method."),
-            Some((4, 53, 54)),
+            Some((4, 52, 53)),
         ),
         (
             "using System;\nnamespace Triage;\npublic class B<T> { public virtual U M<U>(T x, U y = default) => y; }\npublic class D<T> : B<int> { public override V M<V>(int x, V y) => y; }\n",
             Some("Add the default parameter value defined in the overridden method."),
-            Some((4, 62, 63)),
+            Some((4, 61, 62)),
         ),
     ] {
         assert_local_generic_cli_difference(source, message, span);
@@ -682,4 +682,35 @@ fn csharp_s1006_local_generic_identity_controls_compile_and_preserve_runtime() {
     assert_eq!(before.status.code(), after.status.code());
     assert_eq!(before.stdout, after.stdout);
     assert_eq!(before.stderr, after.stderr);
+}
+
+#[test]
+fn csharp_s1006_local_generic_scope_controls_compile_and_preserve_exact_findings() {
+    let fixture = Fixture::new("generic-scope-compiled");
+    let source = "using System;\n#pragma warning disable CS0693\nnamespace Concrete { public sealed class T {} }\nnamespace Triage {\npublic class B<T> { public virtual U Combined<U>(T x, U y = default) => y; public virtual T Shadow<T>(T x = default) => x; public virtual Concrete.T Qualified<U>(Concrete.T x = null, U y = default) => x; }\npublic class D<U> : B<U> { public override V Combined<V>(U x, V y) => y; public override V Shadow<V>(V x) => x; public override Concrete.T Qualified<V>(Concrete.T x, V y = default) => x; }\npublic static class Program { public static void Main() { D<int> d = new(); Console.WriteLine($\"{d.Combined<int>(1, 1)}:{d.Shadow<int>(1)}:{(d.Qualified<int>(new Concrete.T(), 1) is not null ? 1 : 0)}\"); } }\n}\n";
+    fixture.prepare_project(source);
+    let before = fixture.runtime();
+    assert_eq!(before.stdout, b"1:1:1\n");
+    assert!(before.stderr.is_empty());
+    let report = fixture.analyze("json", &["Control.cs"]);
+    let issues = targets(&report, "json");
+    let expected = [64, 103, 163].map(|column| json!({"rule_key":KEY,"message":"Add the default parameter value defined in the overridden method.","range":{"start":{"line":6,"column":column},"end":{"line":6,"column":column+1}}}));
+    assert_eq!(issues, expected.iter().collect::<Vec<_>>());
+    assert_eq!(targets(&fixture.semantic_report(), "json").len(), 3);
+    assert_eq!(fixture.read("Control.cs"), source.as_bytes());
+    let matching = source
+        .replace("V y) =>", "V y = default) =>")
+        .replace("V x) =>", "V x = default) =>")
+        .replace(
+            "Concrete.T x, V y = default",
+            "Concrete.T x = null, V y = default",
+        );
+    fixture.write("Control.cs", &matching);
+    assert!(targets(&fixture.analyze("json", &["Control.cs"]), "json").is_empty());
+    assert!(targets(&fixture.semantic_report(), "json").is_empty());
+    let after = fixture.runtime();
+    assert_eq!(before.status.code(), after.status.code());
+    assert_eq!(before.stdout, after.stdout);
+    assert_eq!(before.stderr, after.stderr);
+    assert_eq!(fixture.read("Control.cs"), matching.as_bytes());
 }
