@@ -238,13 +238,35 @@ fn report_clause(
     if !removal_preserves_semantics(role, ctx.parsed, ctx.source, pair) {
         return;
     }
+    // SonarPython's NOT visitor unwraps exactly one parenthesized tree and
+    // reports its child. Keep inner pairs, but exclude surrounding trivia;
+    // the Ruff expression range alone would unwrap every grouping layer.
+    let primary_range = if role == ClauseRole::Not {
+        let interior = TextRange::new(
+            pair.start() + TextSize::of('('),
+            pair.end() - TextSize::of(')'),
+        );
+        let mut significant = ctx
+            .tokens
+            .in_range(interior)
+            .iter()
+            .filter(|token| !token.kind().is_trivia());
+        significant.next().map_or(pair, |first| {
+            TextRange::new(
+                first.start(),
+                significant.next_back().unwrap_or(first).end(),
+            )
+        })
+    } else {
+        pair
+    };
     let mut issue = Issue {
         rule_key: "python:S1721".to_string(),
         message: format!(
             "Remove the parentheses after this \"{}\" keyword.",
             role.keyword()
         ),
-        range: to_range(pair, ctx.index, ctx.source),
+        range: to_range(primary_range, ctx.index, ctx.source),
         fix: None,
         alternatives: Vec::new(),
         flows: Vec::new(),
