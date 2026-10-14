@@ -190,7 +190,7 @@ fn rust_s920_cli_preserves_distinct_whole_ranges_and_source_anchor_multiplicity(
     assert_issues(source, &[[2, 4, 5, 5], [6, 4, 9, 5]]);
     assert_issues(
         "fn f(値: bool) { let _ = \"🦉\"; match 値 { true => (), false => () }; }\r\n",
-        &[[1, 29, 1, 63]],
+        &[[1, 29, 1, 64]],
     );
 }
 
