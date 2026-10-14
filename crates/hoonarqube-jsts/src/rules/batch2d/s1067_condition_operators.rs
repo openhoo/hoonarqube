@@ -18,7 +18,7 @@ impl DuplicationCollector<'_> {
                 RuleScope::Both,
                 "S1067",
                 &format!(
-                    "This condition uses {operators} boolean operators; simplify it to at most {MAX_CONDITION_OPERATORS}."
+                    "Reduce the number of conditional operators ({operators}) used in the expression (maximum allowed {MAX_CONDITION_OPERATORS})."
                 ),
                 span,
             );
