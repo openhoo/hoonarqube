@@ -128,10 +128,9 @@ fn positive_case(
 }
 
 fn check_language(extension: &str, language: &str) {
-    let fixture = Fixture::new(extension);
-    std::fs::create_dir(fixture.0.join("src")).expect("source directory");
     // Message authority: installed SonarJS 13.8 core no-magic-numbers emitter.
-    // Numeric-only native primary ranges are deliberately retained.
+    // Direct minus ranges have retained scan authority; other unary shapes
+    // preserve existing native ranges rather than claiming full range parity.
     let cases = [
         positive_case("decimal", "g(45);\n", "No magic number: 45.", 2, 4),
         positive_case("hex", "g(0x3e);\n", "No magic number: 0x3e.", 2, 6),
@@ -158,9 +157,19 @@ fn check_language(extension: &str, language: &str) {
             7,
         ),
         positive_case("separator", "g(4_500);\n", "No magic number: 4_500.", 2, 7),
-        positive_case("negative", "g(-3);\n", "No magic number: -3.", 3, 4),
+        positive_case("negative", "g(-3);\n", "No magic number: -3.", 2, 4),
         positive_case("plus", "g(+3);\n", "No magic number: +3.", 3, 4),
         positive_case("parenthesized", "g(-(3));\n", "No magic number: -3.", 4, 5),
+        // Immediate inner-node authority only; no retained nested-shape scan.
+        positive_case("nested-minus", "g(-(-3));\n", "No magic number: -3.", 4, 6),
+        positive_case("spaced-minus", "g(- 3);\n", "No magic number: -3.", 4, 5),
+        positive_case(
+            "commented-minus",
+            "g(-/*gap*/3);\n",
+            "No magic number: -3.",
+            10,
+            11,
+        ),
         positive_case(
             "unary-ancestor",
             "g(-(g(3)));\n",
@@ -172,6 +181,12 @@ fn check_language(extension: &str, language: &str) {
         ("ignored-values", "g(0, 1, -1, 24, 60, 2, 16, 100);\n", None),
         ("bigint", "g(45n);\n", None),
     ];
+    check_cases(extension, language, cases);
+}
+
+fn check_cases<const N: usize>(extension: &str, language: &str, cases: [Case; N]) {
+    let fixture = Fixture::new(extension);
+    std::fs::create_dir(fixture.0.join("src")).expect("source directory");
     for (label, source, _) in &cases {
         std::fs::write(fixture.0.join(format!("src/{label}.{extension}")), source)
             .expect("fixture source");
@@ -179,9 +194,9 @@ fn check_language(extension: &str, language: &str) {
     let native = fixture.analyze("src", "json");
     let generic = fixture.analyze("src", "sonar");
     assert_eq!(native["project"]["complete"], true);
-    assert_eq!(native["files"].as_array().expect("native files").len(), 14);
+    assert_eq!(native["files"].as_array().expect("native files").len(), N);
     let inventory = native["project"]["files"].as_array().expect("inventory");
-    assert_eq!(inventory.len(), 14);
+    assert_eq!(inventory.len(), N);
     assert!(inventory.iter().all(|entry| entry["status"] == "complete"));
     for (label, source, expected) in cases {
         let file = format!("src/{label}.{extension}");
@@ -197,6 +212,75 @@ fn check_language(extension: &str, language: &str) {
             source.as_bytes()
         );
     }
+}
+
+fn check_direct_minus_ranges(extension: &str, language: &str) {
+    // Source-spelling/range authority: retained SonarJS 13.8 gap-probe and
+    // Zod findings, reduced to one-line operands without changing their shape.
+    let cases = [
+        positive_case(
+            "deep-slice",
+            "const deepSlice = list.slice(-2);\n",
+            "No magic number: -2.",
+            29,
+            31,
+        ),
+        positive_case(
+            "far-end",
+            "const farEnd = list.slice(-2)[0];\n",
+            "No magic number: -2.",
+            26,
+            28,
+        ),
+        positive_case(
+            "negative-int",
+            "g(-2147483648);\n",
+            "No magic number: -2147483648.",
+            2,
+            13,
+        ),
+        positive_case(
+            "negative-exponent",
+            "g(-3.4028234663852886e38);\n",
+            "No magic number: -3.4028234663852886e38.",
+            2,
+            24,
+        ),
+        positive_case(
+            "unsigned-int",
+            "g(2147483647);\n",
+            "No magic number: 2147483647.",
+            2,
+            12,
+        ),
+        positive_case(
+            "unsigned-exponent",
+            "g(3.4028234663852886e38);\n",
+            "No magic number: 3.4028234663852886e38.",
+            2,
+            23,
+        ),
+        positive_case(
+            "comparison",
+            "if (retries > 3) {}\n",
+            "No magic number: 3.",
+            14,
+            15,
+        ),
+        ("bare-slice", "const bareSlice = list.slice(-1);\n", None),
+        ("not-first", "const notFirst = list.slice(-1)[1];\n", None),
+    ];
+    check_cases(extension, language, cases);
+}
+
+#[test]
+fn s109_cli_javascript_direct_minus_reference_ranges() {
+    check_direct_minus_ranges("js", "javascript");
+}
+
+#[test]
+fn s109_cli_typescript_direct_minus_reference_ranges() {
+    check_direct_minus_ranges("ts", "typescript");
 }
 
 #[test]
@@ -230,7 +314,7 @@ fn s109_cli_invalid_source_remains_incomplete_without_writing() {
 #[test]
 fn s109_cli_unavailable_fix_refuses_and_preserves_all_diagnostics() {
     let fixture = Fixture::new("refusal");
-    let source = b"g(45);\n";
+    let source = b"g(-3);\n";
     for (extension, language) in [("js", "javascript"), ("ts", "typescript")] {
         let file = format!("case.{extension}");
         let path = fixture.0.join(&file);
