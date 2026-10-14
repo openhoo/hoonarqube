@@ -96,7 +96,11 @@ fn analyze_report(
     };
     let mut issues = issues;
     hoonarqube_ir::sort_issues(&mut issues);
-    issues.dedup();
+    // Separate comment trivia on the same physical line retain separate tag
+    // findings even though the reference gives them identical full-line spans.
+    issues.dedup_by(|left, right| {
+        left == right && !matches!(left.rule_key.as_str(), "java:S1134" | "java:S1135")
+    });
     FileReport {
         path,
         language: "java".to_owned(),
