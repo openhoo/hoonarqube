@@ -36,6 +36,8 @@ impl TbKind {
 pub(crate) struct TbBinding<'a> {
     pub(crate) name: &'a str,
     pub(crate) kind: TbKind,
+    /// Internal name of a function expression; S1481 exempts this binding.
+    pub(crate) function_expression_name: bool,
     /// Whether S1172 may report this parameter. Ambient/overload signatures
     /// have no body evidence and must not produce unused-parameter findings.
     pub(crate) s1172_eligible: bool,

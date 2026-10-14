@@ -6,7 +6,11 @@ use crate::support::{IssueSink, RuleScope};
 pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
     for binding in &model.bindings {
         let unreferenced = binding.reads.is_empty() && binding.writes.is_empty();
-        if binding.kind.is_local_value() && !binding.global && unreferenced {
+        if binding.kind.is_local_value()
+            && !binding.global
+            && !binding.function_expression_name
+            && unreferenced
+        {
             let noun = match binding.kind {
                 TbKind::Function => "function",
                 TbKind::Class => "class",
