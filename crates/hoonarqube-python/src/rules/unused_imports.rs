@@ -228,4 +228,54 @@ mod tests {
             vec![unused(1, 26, 33)]
         );
     }
+
+    #[test]
+    fn from_import_selection_keeps_last_candidate_for_each_bound_name() {
+        for (source, expected) in [
+            (
+                "from alpha import item\nfrom beta import item\n",
+                vec![unused(2, 17, 21)],
+            ),
+            (
+                "if available:\n    from alpha import item\nelse:\n    from beta import item\n",
+                vec![unused(4, 21, 25)],
+            ),
+            (
+                "from alpha import first as shared\nfrom beta import second as shared\n",
+                vec![unused(2, 27, 33)],
+            ),
+            (
+                "from alpha import item as first\nfrom beta import item as second\n",
+                vec![unused(1, 26, 31), unused(2, 25, 31)],
+            ),
+            ("from alpha import item, item\n", vec![unused(1, 24, 28)]),
+            (
+                "from os import sep as sep\nfrom os import sep as sep\n",
+                vec![unused(2, 22, 25)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn same_name_from_selection_preserves_each_direct_import() {
+        for (source, expected) in [
+            ("import socket  # noqa: F401\n", vec![unused(1, 7, 13)]),
+            (
+                "import socket\nimport socket\n",
+                vec![unused(1, 7, 13), unused(2, 7, 13)],
+            ),
+            (
+                "import item\nfrom alpha import item\nfrom beta import item\n",
+                vec![unused(1, 7, 11), unused(3, 17, 21)],
+            ),
+            (
+                "from alpha import item\nfrom beta import item\nimport item\n",
+                vec![unused(2, 17, 21), unused(3, 7, 11)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
+    }
 }
