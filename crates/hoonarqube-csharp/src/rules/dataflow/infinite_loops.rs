@@ -65,7 +65,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             invocation_receiver(*call).is_none_or(|receiver| {
                 receiver.kind() == "identifier" && node_text(receiver, source) == "this"
             })
-        });
+        })
+        .filter(|call| !has_incompatible_fixed_arity(method, *call));
         // A base case anywhere else in the body terminates the recursion
         // (`if (n <= 1) return 1; return Fact(n - 1);`): every escape
         // site must live inside the trailing call itself.
@@ -85,6 +86,71 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+/// A same-name call with a provably incompatible positional argument count
+/// delegates to another overload. Unsupported signatures and call shapes
+/// cannot establish that proof, so they retain the existing recursion check.
+fn has_incompatible_fixed_arity(method: Node<'_>, call: Node<'_>) -> bool {
+    if method.has_error() || call.has_error() {
+        return false;
+    }
+    let Some((minimum, maximum)) = fixed_parameter_arity(method) else {
+        return false;
+    };
+    positional_argument_count(call).is_some_and(|count| count < minimum || count > maximum)
+}
+
+fn fixed_parameter_arity(method: Node<'_>) -> Option<(usize, usize)> {
+    let parameters = method.child_by_field_name("parameters")?;
+    let (mut minimum, mut maximum) = (0, 0);
+    let mut cursor = parameters.walk();
+    for child in parameters.children(&mut cursor) {
+        match child.kind() {
+            "(" | ")" | "," => {}
+            "parameter" => {
+                let optional = fixed_parameter_is_optional(child)?;
+                maximum += 1;
+                minimum += usize::from(!optional);
+            }
+            _ => return None,
+        }
+    }
+    Some((minimum, maximum))
+}
+
+fn fixed_parameter_is_optional(parameter: Node<'_>) -> Option<bool> {
+    parameter.child_by_field_name("type")?;
+    parameter.child_by_field_name("name")?;
+    let mut cursor = parameter.walk();
+    let optional = parameter
+        .children(&mut cursor)
+        .any(|child| child.kind() == "=");
+    // Only a type, name, and optional `= expression` are understood. Attributes
+    // can alter omission semantics; modifiers and comments also refuse proof.
+    let (children, named_children) = if optional { (4, 3) } else { (2, 2) };
+    (parameter.child_count() == children && parameter.named_child_count() == named_children)
+        .then_some(optional)
+}
+
+fn positional_argument_count(call: Node<'_>) -> Option<usize> {
+    let arguments = call.child_by_field_name("arguments")?;
+    let mut count = 0;
+    let mut cursor = arguments.walk();
+    for child in arguments.children(&mut cursor) {
+        match child.kind() {
+            "(" | ")" | "," => {}
+            "argument"
+                if child.child_by_field_name("name").is_none()
+                    && child.child_count() == 1
+                    && child.named_child_count() == 1 =>
+            {
+                count += 1;
+            }
+            _ => return None,
+        }
+    }
+    Some(count)
 }
 
 /// Whether the loop condition is provably true at entry (literal `true`
