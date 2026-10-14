@@ -520,11 +520,79 @@ mod tests {
     }
 
     #[test]
-    fn s1006_missing_default_on_either_side_is_uncovered() {
+    fn s1006_added_override_default_flags_the_complete_default_clause() {
         let report = analyze_default(
             "class B {\n    public virtual void M(int x) {\n    }\n}\nclass D : B {\n    public override void M(int x = 2) {\n    }\n}\n",
         );
-        assert!(with_key(&report, KEY).is_empty());
+        assert_removal(&report, (6, 33, 36));
+    }
+
+    fn assert_removal(report: &hoonarqube_ir::FileReport, expected: (u32, u32, u32)) {
+        let found = with_key(report, KEY);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].message,
+            "Remove the default parameter value to match the signature of overridden method."
+        );
+        let range = &found[0].range;
+        assert_eq!(
+            (range.start.line, range.start.column, range.end.column),
+            expected
+        );
+        assert_eq!(range.start.line, range.end.line);
+        assert!(found[0].fix.is_none());
+        assert!(found[0].alternatives.is_empty());
+        assert!(found[0].flows.is_empty());
+    }
+
+    #[test]
+    fn s1006_added_default_preserves_comment_unicode_and_crlf_coordinates() {
+        let source = "namespace Triage; // π\r\nclass B { public virtual int M(int x) => x; }\r\nclass D : B { /* π */ public override int M(int x = /* note */ 2) => x; }\r\n";
+        assert_removal(&analyze_default(source), (3, 50, 64));
+    }
+
+    #[test]
+    fn s1006_added_defaults_keep_the_first_parameter_difference() {
+        for source in [
+            "namespace Triage;\nclass B { public virtual int M(int a, int b = 1) => a + b; }\nclass D : B { public override int M(int a = 2, int b = 3) => a + b; }\n",
+            "namespace Triage;\nclass B { public virtual int M(int a, int b) => a + b; }\nclass D : B { public override int M(int a = 2, int b = 3) => a + b; }\n",
+        ] {
+            assert_removal(&analyze_default(source), (3, 42, 45));
+        }
+    }
+
+    #[test]
+    fn s1006_indexed_added_defaults_keep_exact_signature_and_first_difference() {
+        for (base, derived) in [
+            (
+                "namespace Triage;\npublic class B { public virtual int M(int x) => x; }\n",
+                "namespace Triage;\npublic class D : B { public override int M(int x = 2) => x; }\n",
+            ),
+            (
+                "namespace Triage;\npublic class B { public virtual int M(int a, int b = 1) => a + b; }\n",
+                "namespace Triage;\npublic class D : B { public override int M(int a = 2, int b = 3) => a + b; }\n",
+            ),
+        ] {
+            let snapshots = [
+                crate::semantic::SourceSnapshot::new(std::path::PathBuf::from("Base.cs"), base),
+                crate::semantic::SourceSnapshot::new(
+                    std::path::PathBuf::from("Derived.cs"),
+                    derived,
+                ),
+            ];
+            let options = crate::AnalyzerOptions {
+                project_type_index: Some(std::sync::Arc::new(crate::ProjectTypeIndex::build(
+                    &snapshots,
+                ))),
+                ..crate::AnalyzerOptions::default()
+            };
+            assert_removal(
+                &crate::tests::analyze_options(derived, &options),
+                (2, 49, 52),
+            );
+            let mismatch = "namespace Triage;\npublic class D : B { public override int M(string x = \"x\") => x.Length; }\n";
+            assert!(with_key(&crate::tests::analyze_options(mismatch, &options), KEY).is_empty());
+        }
     }
 
     #[test]
@@ -533,5 +601,239 @@ mod tests {
             "class B {\n    public virtual void M(int x = 1) {\n    }\n}\nclass D : B {\n    public new void M(int x = 2) {\n    }\n}\n",
         );
         assert!(with_key(&report, KEY).is_empty());
+    }
+
+    fn overload_source(base_methods: &str, method: &str) -> String {
+        format!("namespace Triage;\nclass B {{ {base_methods} }}\nclass D : B {{ {method} }}\n")
+    }
+
+    #[test]
+    fn s1006_local_overloads_keep_matching_defaults_clean_in_both_orders() {
+        for methods in [
+            "public virtual int M(int x = 1) => x; public virtual int M(string x) => x.Length;",
+            "public virtual int M(string x) => x.Length; public virtual int M(int x = 1) => x;",
+            "public virtual int M(int x = 1) => x; public virtual int M(string x = \"hi\") => x.Length;",
+        ] {
+            let source = overload_source(methods, "public override int M(int x = 1) => x;");
+            assert!(with_key(&analyze_default(&source), KEY).is_empty());
+        }
+    }
+
+    #[test]
+    fn s1006_local_overloads_select_added_changed_and_dropped_defaults() {
+        let unrelated = "public virtual int M(string x) => x.Length;";
+        for methods in [
+            format!("public virtual int M(int x) => x; {unrelated}"),
+            format!("{unrelated} public virtual int M(int x) => x;"),
+            "public virtual int M(int x) => x; public virtual int M(string x = \"x\") => x.Length;"
+                .to_string(),
+            "public virtual int M(string x = \"x\") => x.Length; public virtual int M(int x) => x;"
+                .to_string(),
+        ] {
+            let source = overload_source(&methods, "public override int M(int x = 2) => x;");
+            assert_removal(&analyze_default(&source), (3, 42, 45));
+        }
+        let methods = format!("public virtual int M(int x = 1) => x; {unrelated}");
+        for (method, message, start, end) in [
+            (
+                "public override int M(int x = 2) => x;",
+                "Use the default parameter value defined in the overridden method.",
+                44,
+                45,
+            ),
+            (
+                "public override int M(int x) => x;",
+                "Add the default parameter value defined in the overridden method.",
+                40,
+                41,
+            ),
+        ] {
+            let source = overload_source(&methods, method);
+            let report = analyze_default(&source);
+            let issues = with_key(&report, KEY);
+            assert_eq!(issues.len(), 1, "{issues:?}");
+            assert_eq!(issues[0].message, message);
+            assert_eq!(issues[0].range.start.line, 3);
+            assert_eq!(issues[0].range.end.line, 3);
+            assert_eq!(issues[0].range.start.column, start);
+            assert_eq!(issues[0].range.end.column, end);
+        }
+    }
+
+    #[test]
+    fn s1006_local_overloads_reject_ref_kind_and_parameter_count_decoys() {
+        for decoy in [
+            "public virtual int M(ref int x) => x;",
+            "public virtual int M(int x, int y) => x + y;",
+        ] {
+            for methods in [
+                format!("public virtual int M(int x = 1) => x; {decoy}"),
+                format!("{decoy} public virtual int M(int x = 1) => x;"),
+            ] {
+                let source = overload_source(&methods, "public override int M(int x = 1) => x;");
+                assert!(with_key(&analyze_default(&source), KEY).is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn s1006_local_overloads_match_method_generic_arity_in_both_orders() {
+        for (matching, decoy, method) in [
+            (
+                "public virtual int M(int x = 1) => x;",
+                "public virtual int M<T>(int x) => x;",
+                "public override int M(int x = 1) => x;",
+            ),
+            (
+                "public virtual int M<T>(int x = 1) => x;",
+                "public virtual int M(int x) => x;",
+                "public override int M<T>(int x = 1) => x;",
+            ),
+            (
+                "public virtual int M<T>(int x = 1) => x;",
+                "public virtual int M<T, U>(int x) => x;",
+                "public override int M<T>(int x = 1) => x;",
+            ),
+        ] {
+            for methods in [format!("{matching} {decoy}"), format!("{decoy} {matching}")] {
+                assert!(
+                    with_key(&analyze_default(&overload_source(&methods, method)), KEY).is_empty()
+                );
+            }
+        }
+        for (matching, decoy, method, span) in [
+            (
+                "public virtual int M(int x) => x;",
+                "public virtual int M<T>(int x = 1) => x;",
+                "public override int M(int x = 2) => x;",
+                (3, 42, 45),
+            ),
+            (
+                "public virtual int M<T>(int x) => x;",
+                "public virtual int M(int x = 1) => x;",
+                "public override int M<T>(int x = 2) => x;",
+                (3, 45, 48),
+            ),
+            (
+                "public virtual int M<T>(int x) => x;",
+                "public virtual int M<T, U>(int x = 2) => x;",
+                "public override int M<T>(int x = 1) => x;",
+                (3, 45, 48),
+            ),
+        ] {
+            for methods in [format!("{matching} {decoy}"), format!("{decoy} {matching}")] {
+                assert_removal(&analyze_default(&overload_source(&methods, method)), span);
+            }
+        }
+    }
+
+    fn assert_local_generic_difference(
+        source: &str,
+        message: Option<&str>,
+        span: Option<(u32, u32, u32)>,
+    ) {
+        let report = analyze_default(source);
+        let issues = with_key(&report, KEY);
+        if let Some(message) = message {
+            let (line, start, end) = span.expect("known generic finding span");
+            assert_eq!(issues.len(), 1, "{issues:?}");
+            assert_eq!(issues[0].message, message);
+            assert_eq!(issues[0].range.start.line, line);
+            assert_eq!(issues[0].range.end.line, line);
+            assert_eq!(issues[0].range.start.column, start);
+            assert_eq!(issues[0].range.end.column, end);
+            assert!(issues[0].fix.is_none());
+            assert!(issues[0].alternatives.is_empty());
+        } else {
+            assert!(issues.is_empty(), "{issues:?}");
+        }
+    }
+
+    #[test]
+    fn s1006_local_renamed_method_type_parameters_preserve_default_differences() {
+        for (source, message, span) in [
+            (
+                "using System;\nnamespace Triage;\npublic class B { public virtual T M<T>(T x = default) => x; }\npublic class D : B { public override U M<U>(U x) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M<int>(1)); } }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 46, 47)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B { public virtual T M<T>(T x = default) => x; }\npublic class D : B { public override U M<U>(U x = default) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M<int>(1)); } }\n",
+                None,
+                None,
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B { public virtual T M<T>(T x) => x; }\npublic class D : B { public override U M<U>(U x = default) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M<int>(1)); } }\n",
+                Some(
+                    "Remove the default parameter value to match the signature of overridden method.",
+                ),
+                Some((4, 49, 58)),
+            ),
+        ] {
+            assert_local_generic_difference(source, message, span);
+        }
+    }
+
+    #[test]
+    fn s1006_local_constructed_base_types_preserve_default_differences() {
+        for (source, message, span) in [
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; }\npublic class D : B<int> { public override int M(int x) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 52, 53)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; }\npublic class D : B<int> { public override int M(int x = default) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
+                None,
+                None,
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x) => x; }\npublic class D : B<int> { public override int M(int x = default) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
+                Some(
+                    "Remove the default parameter value to match the signature of overridden method.",
+                ),
+                Some((4, 55, 64)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; }\npublic class D : B<int> { public override int M(int x = 2) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n",
+                Some("Use the default parameter value defined in the overridden method."),
+                Some((4, 57, 58)),
+            ),
+        ] {
+            assert_local_generic_difference(source, message, span);
+        }
+    }
+
+    #[test]
+    fn s1006_local_generic_identity_covers_arrays_qualified_arguments_and_overloads() {
+        for (source, message, span) in [
+            (
+                "using System;\nnamespace Triage;\npublic class B { public virtual T[] M<T>(T[] x = null) => x; }\npublic class D : B { public override U[] M<U>(U[] x) => x; }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 51, 52)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B { public virtual System.Collections.Generic.List<T> M<T>(System.Collections.Generic.List<T> x = null) => x; }\npublic class D : B { public override System.Collections.Generic.List<U> M<U>(System.Collections.Generic.List<U> x) => x; }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 113, 114)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual T[] M(T[] x = null) => x; }\npublic class D : B<int> { public override int[] M(int[] x) => x; }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 57, 58)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual T M(T x = default) => x; public virtual int M(string x) => x.Length; }\npublic class D : B<int> { public override int M(int x) => x; }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 53, 54)),
+            ),
+            (
+                "using System;\nnamespace Triage;\npublic class B<T> { public virtual U M<U>(T x, U y = default) => y; }\npublic class D<T> : B<int> { public override V M<V>(int x, V y) => y; }\n",
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 62, 63)),
+            ),
+        ] {
+            assert_local_generic_difference(source, message, span);
+        }
     }
 }
