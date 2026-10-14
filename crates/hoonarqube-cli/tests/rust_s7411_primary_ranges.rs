@@ -48,20 +48,22 @@ impl Drop for Fixture {
 }
 
 fn selected<'a>(document: &'a Value, format: &str) -> Vec<&'a Value> {
-    let (all, key) = if format == "json" {
-        (
-            document["files"][0]["issues"]
-                .as_array()
-                .expect("native issues"),
-            "rule_key",
-        )
+    if format == "json" {
+        document["files"]
+            .as_array()
+            .expect("native files")
+            .iter()
+            .flat_map(|file| file["issues"].as_array().expect("native issues"))
+            .filter(|issue| issue["rule_key"] == KEY)
+            .collect()
     } else {
-        (
-            document["issues"].as_array().expect("generic issues"),
-            "ruleId",
-        )
-    };
-    all.iter().filter(|issue| issue[key] == KEY).collect()
+        document["issues"]
+            .as_array()
+            .expect("generic issues")
+            .iter()
+            .filter(|issue| issue["ruleId"] == KEY)
+            .collect()
+    }
 }
 
 fn assert_ranges(document: &Value, format: &str) {
