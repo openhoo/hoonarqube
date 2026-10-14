@@ -15,9 +15,6 @@ pub mod engine;
 mod rules;
 pub mod support;
 
-#[cfg(test)]
-mod comment_tag_tests;
-
 pub use context::*;
 pub use engine::analyze_facts;
 
@@ -106,6 +103,8 @@ pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport 
 
 #[cfg(test)]
 mod tests {
+    mod comment_tags;
+
     use super::*;
     use std::path::PathBuf;
 
