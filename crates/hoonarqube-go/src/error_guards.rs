@@ -8,6 +8,10 @@ use crate::{
     GoImports, ancestors, named_children, scope_binds_name, text, unwrap_parenthesized, walk,
 };
 
+#[cfg(test)]
+#[path = "s3776_file_local_tests.rs"]
+mod tests;
+
 #[derive(Clone, Default)]
 struct TypeFact {
     error: bool,
