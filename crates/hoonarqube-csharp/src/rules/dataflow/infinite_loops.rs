@@ -489,4 +489,173 @@ mod tests {
             assert!(with_key(&report, KEY).is_empty(), "{source:?}");
         }
     }
+
+    const EXTENSION_ARITY_REFERENCE: &str = r"public static class ExtensionControls
+{
+    public static int OptionalForward(this int value, int a = 0, int b = 0,
+        int c = 0, int d = 0, int e = 0, int f = 0)
+    {
+        return OptionalForward(value, a, b, c, d, e, f, 0);
+    }
+
+    public static int OptionalForward(int value, int a, int b, int c,
+        int d, int e, int f, int g)
+    {
+        return value + a + b + c + d + e + f + g;
+    }
+
+    public static int ArityForward(this int value, int repeat)
+    {
+        return ArityForward(value, repeat, 0, 0);
+    }
+
+    public static int ArityForward(int value, int repeat, int a, int b)
+    {
+        return value + repeat + a + b;
+    }
+
+    public static int TrueSelf(this int value)
+    {
+        return TrueSelf(value);
+    }
+
+    public static int OptionalSelf(this int value, int repeat = 0)
+    {
+        return OptionalSelf(value);
+    }
+
+    public static int ExplicitOptionalSelf(this int value, int repeat = 0)
+    {
+        return ExplicitOptionalSelf(value, repeat);
+    }
+
+    public static int SameTypeSelf(this int value)
+    {
+        return SameTypeSelf(value + 1);
+    }
+
+    public static int Finite(this int value, int count)
+    {
+        if (count <= 0) return value;
+        return Finite(value, count - 1);
+    }
+}
+";
+
+    #[test]
+    fn s2190_extension_arity_matches_compiled_reference() {
+        let report = analyze_default(EXTENSION_ARITY_REFERENCE);
+        let issues = with_key(&report, KEY);
+        assert_eq!(issues.len(), 4, "{issues:?}");
+        for (issue, (line, end)) in issues.iter().zip([(25, 30), (30, 34), (35, 42), (40, 34)]) {
+            assert_eq!(
+                (
+                    issue.range.start.line,
+                    issue.range.start.column,
+                    issue.range.end.line,
+                    issue.range.end.column
+                ),
+                (line, 22, line, end)
+            );
+            assert_eq!(
+                issue.message,
+                "Add a way to break out of this method's recursion."
+            );
+            assert!(issue.fix.is_none());
+            assert!(issue.alternatives.is_empty());
+            assert!(issue.flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2190_extension_arity_removes_two_humanizer_forwarders() {
+        let report = analyze_default(
+            r#"using System;
+using System.Globalization;
+public static class HumanizerShapes
+{
+    public static string Humanize(this TimeSpan timeSpan, int precision = 1, CultureInfo culture = null, TimeUnit maxUnit = TimeUnit.Week, TimeUnit minUnit = TimeUnit.Millisecond, string collectionSeparator = ", ", bool toWords = false)
+    {
+        return Humanize(timeSpan, precision, false, culture, maxUnit, minUnit, collectionSeparator, toWords);
+    }
+    public static string Humanize(this TimeSpan timeSpan, int precision, bool countEmptyUnits, CultureInfo culture = null, TimeUnit maxUnit = TimeUnit.Week, TimeUnit minUnit = TimeUnit.Millisecond, string collectionSeparator = ", ", bool toWords = false) { return string.Empty; }
+    public static string ToQuantity(this string input, double quantity)
+    {
+        return ToQuantity(input, quantity, null, null);
+    }
+    public static string ToQuantity(this string input, double quantity, string format = null, IFormatProvider formatProvider = null) { return input; }
+}
+"#,
+        );
+        let issues = with_key(&report, KEY);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    #[test]
+    fn s2190_extension_arity_preserves_recursion_and_unsupported_shapes() {
+        for source in [
+            "static class C { static int Loop(this int value) { return Loop(value); } }",
+            "static class C { static int Loop(this int value, int repeat = 0) { return Loop(value); } }",
+            "static class C { static int Loop(this int value, int repeat = 0) { return Loop(value, repeat); } }",
+            "static class C { static int Loop(this int value) { return Loop((int)value); } }",
+            "static class C { static double Loop(this double value) { return Loop((int)value); } }",
+            "static class C { static int Loop(this ref int value) { return Loop(value, 0); } }",
+            "static class C { static int Loop(this in int value) { return Loop(value, 0); } }",
+            "static class C { static int Loop(this scoped ref int value) { return Loop(value, 0); } }",
+            "static class C { static int Loop([A] this int value) { return Loop(value, 0); } }",
+            "static class C { static int Loop(this /* receiver */ int value) { return Loop(value, 0); } }",
+            "static class C { static int Loop(this int /* parameter */ value) { return Loop(value, 0); } }",
+            "static class C { static int Loop(this int value, [A] int repeat = 0) { return Loop(value, 0, 0); } }",
+            "static class C { static int Loop(this int value, params int[] rest) { return Loop(value, 0, 0); } }",
+            "static class C { static int Loop(this int value) { return Loop(value: value, repeat: 0); } }",
+            "static class C { static int Loop(this int value) { return Loop(ref value, 0); } }",
+            "static class C { static int Loop(this int value) { return Loop(out value, 0); } }",
+            "static class C { static int Loop(this int value) { return Loop(/* argument */ value, 0); } }",
+            "static class C { static int Loop(int value, this int other) { return Loop(value, other, 0); } }",
+            "static class C { static int Loop(this int value = 0) { return Loop(value, 0); } }",
+            "static class C { static int Loop(this System.Collections.Generic.List</* type */ int> value) { return Loop(value, 0); } }",
+        ] {
+            let report = analyze_default(source);
+            let issues = with_key(&report, KEY);
+            assert_eq!(issues.len(), 1, "{source:?}: {issues:?}");
+            assert_eq!(
+                issues[0].message,
+                "Add a way to break out of this method's recursion."
+            );
+            assert!(issues[0].fix.is_none());
+            assert!(issues[0].alternatives.is_empty());
+            assert!(issues[0].flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2190_extension_arity_keeps_loop_ownership_base_cases_and_coordinates() {
+        let source = "static class C { /* 😀 */ static int Vélo(this int value) { return Vélo(value); } }\r\n";
+        let report = analyze_default(source);
+        let issues = with_key(&report, KEY);
+        assert_eq!(issues.len(), 1);
+        let start = u32::try_from(source[..source.find("Vélo").unwrap()].chars().count()).unwrap();
+        assert_eq!(
+            (
+                issues[0].range.start.line,
+                issues[0].range.start.column,
+                issues[0].range.end.line,
+                issues[0].range.end.column
+            ),
+            (1, start, 1, start + 4)
+        );
+        let report = analyze_default(
+            "static class C { static int Guarded(this int value) { if (value <= 0) return 0; return Guarded(value - 1); } static void Spin() { while (true) { void Local() { return; } Local(); } } }",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+        for source in [
+            "static class C { static int Broken(",
+            "static class C { static int Broken(this int value) { return Broken(,); } }",
+        ] {
+            assert!(
+                with_key(&analyze_default(source), KEY).is_empty(),
+                "{source:?}"
+            );
+        }
+    }
 }
