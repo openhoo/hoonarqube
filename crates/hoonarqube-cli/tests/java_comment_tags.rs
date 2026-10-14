@@ -155,6 +155,8 @@ fn java_comment_tags_cli_preserves_incomplete_analysis_and_source_bytes() {
     for source in [
         b"class Broken { void broken( // TODO FIXME\n".as_slice(),
         b"\xff// TODO FIXME\n".as_slice(),
+        include_bytes!("../../hoonarqube-java/tests/fixtures/comment_tags/EscapedTrivia.java")
+            .as_slice(),
     ] {
         fixture.write(source);
         let output = fixture.run(&[
