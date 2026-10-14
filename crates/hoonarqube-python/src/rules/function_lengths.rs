@@ -4,11 +4,12 @@ use crate::support::issue_at;
 use crate::support::to_u32;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
+use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-/// python:S138 — function line span against `maximumFunctionLength`.
+/// python:S138 — body code-token lines against `maximumFunctionLength`.
 pub(crate) fn check_function_lengths(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
@@ -19,7 +20,7 @@ pub(crate) fn check_function_lengths(
     for_each_function_def(
         parsed.syntax().body.as_slice(),
         false,
-        &mut |function, _| {
+        &mut |function, is_method| {
             // The reference counts distinct lines holding code tokens inside
             // the body (comments and blank lines carry no tokens) and
             // subtracts the lines spanned by the docstring.
@@ -35,7 +36,13 @@ pub(crate) fn check_function_lengths(
             );
             let mut code_lines = std::collections::HashSet::new();
             for token in parsed.tokens() {
-                if token.kind().is_trivia() || !body_range.contains_range(token.range()) {
+                if token.kind().is_trivia()
+                    || matches!(
+                        token.kind(),
+                        TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent
+                    )
+                    || !body_range.contains_range(token.range())
+                {
                     continue;
                 }
                 let first = index.line_column(token.range().start(), source).line.get();
@@ -56,11 +63,12 @@ pub(crate) fn check_function_lengths(
             let lines = to_u32(code_lines.len());
             let maximum = options.maximum_function_length;
             if lines > maximum {
+                let kind = if is_method { "method" } else { "function" };
                 issues.push(issue_at(
                     "python:S138",
                     &format!(
-                        "This function \"{}\" has {lines} lines of code, which is greater than \
-                         the {maximum} authorized. Split it into smaller functions.",
+                        "This {kind} \"{}\" has {lines} lines of code, which is greater than \
+                         the {maximum} authorized. Split it into smaller {kind}s.",
                         function.name
                     ),
                     function.name.range(),
