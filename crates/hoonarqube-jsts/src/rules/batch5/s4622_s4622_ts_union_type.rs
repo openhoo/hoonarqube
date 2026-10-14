@@ -45,8 +45,8 @@ impl TsTypeCollector<'_, '_> {
             && !self.s4622_exempt_union_spans.contains(&it.span)
         {
             let message = format!(
-                "Reduce this union type; it currently has {} members.",
-                it.types.len()
+                "Refactor this union type to have less than {} elements.",
+                MAX_UNION_TYPE_MEMBERS
             );
             self.sink
                 .emit_span(RuleScope::TsOnly, "S4622", &message, it.span());
