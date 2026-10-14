@@ -25,3 +25,51 @@ impl DuplicationCollector<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{issue, js, ts};
+
+    fn assert_reference_messages(key: &str, analyze: fn(&str) -> hoonarqube_ir::FileReport) {
+        // The four-operator case and its range are retained real SonarJS
+        // controls. The second message also occurs in the retained OSS run.
+        for (source, expected) in [
+            (
+                "while (a && !b && c || d || e) {\n  g();\n}\n",
+                issue(
+                    key,
+                    "Reduce the number of conditional operators (4) used in the expression (maximum allowed 3).",
+                    (1, 7),
+                    (1, 29),
+                ),
+            ),
+            (
+                "const value = a && b && c && d && e && f && g && h && i && j && k && l;\n",
+                issue(
+                    key,
+                    "Reduce the number of conditional operators (11) used in the expression (maximum allowed 3).",
+                    (1, 14),
+                    (1, 70),
+                ),
+            ),
+        ] {
+            let report = analyze(source);
+            let findings: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|finding| finding.rule_key == key)
+                .collect();
+            assert_eq!(findings, vec![&expected]);
+        }
+    }
+
+    #[test]
+    fn s1067_javascript_messages_and_ranges_match_sonarjs() {
+        assert_reference_messages("javascript:S1067", js);
+    }
+
+    #[test]
+    fn s1067_typescript_messages_and_ranges_match_sonarjs() {
+        assert_reference_messages("typescript:S1067", ts);
+    }
+}
