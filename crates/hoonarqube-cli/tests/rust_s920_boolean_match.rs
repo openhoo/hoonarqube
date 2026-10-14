@@ -80,15 +80,22 @@ impl Drop for Fixture {
 }
 
 fn selected(report: &Value, format: &str) -> Vec<Value> {
-    let issues = if format == "json" {
-        &report["files"][0]["issues"]
+    let issues: Vec<&Value> = if format == "json" {
+        report["files"]
+            .as_array()
+            .expect("file array")
+            .iter()
+            .flat_map(|file| file["issues"].as_array().expect("issue array"))
+            .collect()
     } else {
-        &report["issues"]
+        report["issues"]
+            .as_array()
+            .expect("issue array")
+            .iter()
+            .collect()
     };
     issues
-        .as_array()
-        .expect("issue array")
-        .iter()
+        .into_iter()
         .filter(|issue| {
             issue[if format == "json" {
                 "rule_key"
