@@ -191,18 +191,12 @@ fn csharp_s2190_numeric_cli_has_exact_typed_positives_and_clean_forwarders() {
         "strict",
     ] {
         for format in ["json", "sonar"] {
-            let report = document(
-                &fixture.run(&[
-                    "analyze",
-                    "--profile",
-                    profile,
-                    "--format",
-                    format,
-                    "--",
-                    "Controls.cs",
-                ]),
-                0,
-            );
+            let mut argv = vec!["analyze", "--format", format];
+            if profile != "default" {
+                argv.extend(["--profile", profile]);
+            }
+            argv.extend(["--", "Controls.cs"]);
+            let report = document(&fixture.run(&argv), 0);
             let findings = targets(&report, format);
             assert_eq!(findings.len(), names.len());
             for (issue, name) in findings.into_iter().zip(names) {
