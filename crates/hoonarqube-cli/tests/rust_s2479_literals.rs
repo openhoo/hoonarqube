@@ -100,8 +100,8 @@ fn rust_s2479_json_and_generic_match_real_reference_literal_identities() {
         (
             "fn hidden() { let value = \"a\u{200b}b\"; drop(value); }\n",
             1,
-            25,
-            30,
+            26,
+            31,
         ),
     ];
     for profile in ["strict", "sonar-parity"] {
