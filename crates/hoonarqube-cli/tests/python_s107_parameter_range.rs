@@ -180,31 +180,32 @@ fn python_s107_generic_rule_definition_is_preserved() {
 #[test]
 fn python_s107_malformed_input_preserves_refusal_and_diagnostics() {
     let fixture = Fixture::new();
-    for profile in PROFILES {
-        for format in ["json", "sonar"] {
-            let report = fixture.analyze(
-                "def broken(\n    *,\n    value=\n",
-                Some(profile),
-                format,
-                2,
-            );
-            let (issues, key) = if format == "json" {
-                (&report["files"][0]["issues"], "rule_key")
-            } else {
-                (&report["issues"], "ruleId")
-            };
-            assert!(
-                issues
-                    .as_array()
-                    .expect("diagnostics")
-                    .iter()
-                    .any(|i| i[key] == "python:ParsingError")
-            );
-            if format == "json" {
+    for (source, diagnostic) in [
+        ("def broken(\n    *,\n    value=\n", false),
+        ("def f(:\n    pass\n", true),
+    ] {
+        for profile in PROFILES {
+            for format in ["json", "sonar"] {
+                let report = fixture.analyze(source, Some(profile), format, 2);
+                let (issues, key) = if format == "json" {
+                    (&report["files"][0]["issues"], "rule_key")
+                } else {
+                    (&report["issues"], "ruleId")
+                };
                 assert_eq!(
-                    report["project"]["files"][0]["reason"],
-                    "syntax tree contains recovered or missing nodes"
+                    issues
+                        .as_array()
+                        .expect("recovered issues")
+                        .iter()
+                        .any(|i| i[key] == "python:ParsingError"),
+                    diagnostic
                 );
+                if format == "json" {
+                    assert_eq!(
+                        report["project"]["files"][0]["reason"],
+                        "syntax tree contains recovered or missing nodes"
+                    );
+                }
             }
         }
     }
