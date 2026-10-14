@@ -4,7 +4,7 @@ use crate::context::{AnalysisContext, RuleOptions};
 use crate::engine::pattern_parser::{RegexNode, parse_regex, regex_search_parsed};
 use crate::support::{
     IssueSink, LineIndex, RuleScope, binding_identifier_name, callee_name, constructor_name,
-    member_rooted_at, property_key_name, static_property_name, unparenthesized,
+    member_rooted_at, property_key_name, source_slice, static_property_name, unparenthesized,
 };
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{
@@ -32,6 +32,7 @@ use std::collections::{HashMap, HashSet};
 
 fn check_naming_rules(
     program: &oxc_ast::ast::Program<'_>,
+    source: &str,
     index: &LineIndex,
     language: JstsLanguage,
     rules: &RuleOptions,
@@ -47,6 +48,7 @@ fn check_naming_rules(
     };
     names.visit_program(program);
     let mut magic = MagicNumberCollector {
+        source,
         sink: IssueSink {
             index,
             language,
@@ -55,6 +57,7 @@ fn check_naming_rules(
         exempt: HashSet::new(),
         type_depth: 0,
         negation_depth: 0,
+        message_sign: None,
     };
     magic.visit_program(program);
     let mut strings = StringStyleCollector {
@@ -296,16 +299,20 @@ impl<'a> StringStyleCollector<'a, '_> {
 /// contextual exemptions (assignments, property values, defaults, enum
 /// members, class fields, bitwise operands, `parseInt` radixes, JSX) apply
 /// only to the literal a context directly holds.
-struct MagicNumberCollector<'index> {
+struct MagicNumberCollector<'src, 'index> {
+    source: &'src str,
     sink: IssueSink<'index>,
     /// Literal spans whose direct context the reference rule exempts.
     exempt: HashSet<(u32, u32)>,
     /// Inside a TypeScript literal type (`type A = 5`).
     type_depth: u32,
     negation_depth: u32,
+    /// Only an immediate numeric unary operand contributes its lexical sign
+    /// to the reference message; enclosing expressions do not.
+    message_sign: Option<(Span, &'static str)>,
 }
 
-impl<'a> Visit<'a> for MagicNumberCollector<'_> {
+impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         // Any declarator initializer is an authorized context; numbers nested
         // inside a call there stay checked.
@@ -403,9 +410,20 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
 
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         let negated = matches!(it.operator, UnaryOperator::UnaryNegation);
+        let previous_sign = self.message_sign;
+        self.message_sign = match (it.operator, unparenthesized(&it.argument)) {
+            (UnaryOperator::UnaryNegation, Expression::NumericLiteral(literal)) => {
+                Some((literal.span, "-"))
+            }
+            (UnaryOperator::UnaryPlus, Expression::NumericLiteral(literal)) => {
+                Some((literal.span, "+"))
+            }
+            _ => None,
+        };
         self.negation_depth += u32::from(negated);
         walk_unary_expression(self, it);
         self.negation_depth -= u32::from(negated);
+        self.message_sign = previous_sign;
     }
 
     fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
@@ -420,12 +438,14 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_> {
         if is_authorized_number(value) {
             return;
         }
-        self.sink.emit_span(
-            RuleScope::Both,
-            "S109",
-            "This numeric literal should be replaced by a named constant.",
-            it.span,
-        );
+        let raw = source_slice(self.source, it.span);
+        let sign = self
+            .message_sign
+            .filter(|(span, _)| *span == it.span)
+            .map_or("", |(_, sign)| sign);
+        let message = format!("No magic number: {sign}{raw}.");
+        self.sink
+            .emit_span(RuleScope::Both, "S109", &message, it.span);
     }
 }
 
@@ -742,7 +762,7 @@ fn escapes_delimiter(raw: &str, delimiter: char) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_naming_rules(ctx.program, ctx.index, ctx.language, ctx.rules)
+    check_naming_rules(ctx.program, ctx.source, ctx.index, ctx.language, ctx.rules)
 }
 
 #[cfg(test)]
