@@ -1157,9 +1157,9 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
     let matched: Vec<_> = sonar_contract::FINDINGS
         .iter()
         .filter_map(|contract| {
-            // S2479 derives complete literal ranges from syntax independently of
-            // the frozen oracle's source text and must not add a second identity.
-            if contract.key == "rust:S2479" {
+            // These rules derive complete syntax ranges independently of frozen
+            // source anchors and must not add a second calibrated identity.
+            if matches!(contract.key, "rust:S2479" | "rust:S920") {
                 return None;
             }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
@@ -2112,34 +2112,212 @@ fn check_no_effect(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
 }
 
 fn check_boolean_match(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
-    if let Some(value) = node
-        .child_by_field_name("value")
-        .or_else(|| node.named_child(0))
-    {
-        let condition = text(value, source).trim();
-        let boolean_parameter = value.kind() == "identifier"
-            && enclosing_function(node).is_some_and(|function| {
-                function
-                    .child_by_field_name("parameters")
-                    .is_some_and(|parameters| parameter_is_bool(parameters, condition, source))
-            });
-        let boolean_expression = match value.kind() {
-            "boolean_literal" => true,
-            "unary_expression" => text(value, source).trim_start().starts_with('!'),
-            "binary_expression" => value
-                .child_by_field_name("operator")
-                .is_some_and(|operator| matches!(text(operator, source), "==" | "!=")),
-            _ => false,
+    let Some(body) = node.child_by_field_name("body") else {
+        return;
+    };
+    let mut cursor = body.walk();
+    let arms: Vec<_> = body
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "match_arm")
+        .collect();
+    if arms.len() != 2 {
+        return;
+    }
+    let mut boolean_pattern = false;
+    for arm in arms {
+        let Some(pattern) = arm.child_by_field_name("pattern").and_then(|pattern| {
+            (0..pattern.child_count())
+                .filter_map(|index| pattern.child(index))
+                .find(|child| !matches!(child.kind(), "line_comment" | "block_comment"))
+        }) else {
+            return;
         };
-        if boolean_expression || boolean_parameter {
-            issues.push(node_issue(
-                "rust:S920",
-                "Replace this match on a Boolean value with an if expression.",
-                value,
-                source,
-            ));
+        let Some(proves_boolean) = s920_pattern_shape(pattern) else {
+            return;
+        };
+        boolean_pattern |= proves_boolean;
+    }
+    let Some(value) = node.child_by_field_name("value") else {
+        return;
+    };
+    if boolean_pattern || s920_boolean_expression(value, source, 0) {
+        issues.push(node_issue(
+            "rust:S920",
+            "Replace this match on a Boolean value with an if expression.",
+            node,
+            source,
+        ));
+    }
+}
+
+// Unqualified identifier patterns may bind a variable or name a constant. The
+// source-only pass cannot distinguish those, so it only admits Boolean literal
+// and wildcard patterns, including their alternatives. Guards are separate.
+fn s920_pattern_shape(pattern: Node<'_>) -> Option<bool> {
+    let mut pending = vec![pattern];
+    let mut boolean = false;
+    while let Some(pattern) = pending.pop() {
+        match pattern.kind() {
+            "boolean_literal" => boolean = true,
+            "_" | "line_comment" | "block_comment" => {}
+            "or_pattern" => {
+                let mut cursor = pattern.walk();
+                pending.extend(pattern.named_children(&mut cursor));
+            }
+            _ => return None,
         }
     }
+    Some(boolean)
+}
+
+fn s920_boolean_expression(value: Node<'_>, source: &str, depth: usize) -> bool {
+    if depth >= 32 {
+        return false;
+    }
+    let value = unwrap_parenthesized(value);
+    match value.kind() {
+        "boolean_literal" => true,
+        "binary_expression" => value
+            .child_by_field_name("operator")
+            .is_some_and(|operator| {
+                matches!(
+                    text(operator, source),
+                    "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||"
+                )
+            }),
+        "unary_expression" if text(value, source).trim_start().starts_with('!') => value
+            .named_child(0)
+            .is_some_and(|operand| s920_boolean_expression(operand, source, depth + 1)),
+        "identifier" => s920_identifier_is_bool(value, source, depth + 1),
+        _ => false,
+    }
+}
+
+fn s920_identifier_is_bool(value: Node<'_>, source: &str, depth: usize) -> bool {
+    let Some(function) = enclosing_function(value) else {
+        return false;
+    };
+    let name = text(value, source);
+    if ancestors_until(value, function).any(|ancestor| {
+        ancestor.kind() == "closure_expression"
+            || s920_context_binds_name(ancestor, value, name, source)
+    }) {
+        return false;
+    }
+    let mut scope = enclosing_block(value);
+    while let Some(block) = scope {
+        if enclosing_function(block) != Some(function)
+            || s920_has_prior_assignment(block, value, name, function, source)
+        {
+            return false;
+        }
+        if let Some(proof) = s920_block_boolean_proof(block, value, name, source, depth) {
+            return proof;
+        }
+        if function.child_by_field_name("body") == Some(block) {
+            break;
+        }
+        scope = block.parent().and_then(enclosing_block);
+    }
+    function
+        .child_by_field_name("parameters")
+        .is_some_and(|parameters| parameter_is_bool(parameters, name, source))
+}
+
+fn s920_block_boolean_proof(
+    block: Node<'_>,
+    value: Node<'_>,
+    name: &str,
+    source: &str,
+    depth: usize,
+) -> Option<bool> {
+    let mut cursor = block.walk();
+    let mut declaration = None;
+    for child in block.named_children(&mut cursor) {
+        if child.kind() == "let_declaration"
+            && child.end_byte() <= value.start_byte()
+            && child
+                .child_by_field_name("pattern")
+                .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+        {
+            declaration = Some(child);
+        } else if child.kind() != "let_declaration"
+            && (child
+                .child_by_field_name("name")
+                .is_some_and(|item| text(item, source) == name)
+                || child.kind() == "use_declaration"
+                    && use_declaration_shadows_name(child, name, source))
+        {
+            return Some(false);
+        }
+    }
+    declaration.map(|declaration| s920_declaration_is_bool(declaration, name, source, depth))
+}
+
+fn s920_declaration_is_bool(declaration: Node<'_>, name: &str, source: &str, depth: usize) -> bool {
+    if !declaration
+        .child_by_field_name("pattern")
+        .is_some_and(|pattern| pattern.kind() == "identifier" && text(pattern, source) == name)
+    {
+        return false;
+    }
+    if let Some(kind) = declaration.child_by_field_name("type") {
+        return text(kind, source) == "bool";
+    }
+    declaration
+        .child_by_field_name("value")
+        .is_some_and(|initializer| s920_boolean_expression(initializer, source, depth))
+}
+
+fn s920_context_binds_name(context: Node<'_>, value: Node<'_>, name: &str, source: &str) -> bool {
+    if matches!(context.kind(), "match_arm" | "for_expression") {
+        return context
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| pattern_binds_name(pattern, name, source));
+    }
+    if matches!(context.kind(), "if_expression" | "while_expression")
+        && let Some(condition) = context.child_by_field_name("condition")
+        && value.start_byte() >= condition.end_byte()
+    {
+        let mut bound = false;
+        walk(condition, &mut |candidate| {
+            if candidate.kind() == "let_condition"
+                && candidate
+                    .child_by_field_name("pattern")
+                    .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+            {
+                bound = true;
+            }
+        });
+        return bound;
+    }
+    false
+}
+
+fn s920_has_prior_assignment(
+    block: Node<'_>,
+    value: Node<'_>,
+    name: &str,
+    function: Node<'_>,
+    source: &str,
+) -> bool {
+    let mut assigned = false;
+    walk_valid(block, &mut |candidate| {
+        if matches!(
+            candidate.kind(),
+            "assignment_expression" | "compound_assignment_expr"
+        ) && candidate.end_byte() <= value.start_byte()
+            && enclosing_function(candidate) == Some(function)
+            && !ancestors_until(candidate, block)
+                .any(|ancestor| ancestor.kind() == "closure_expression")
+            && candidate
+                .child_by_field_name("left")
+                .is_some_and(|left| left.kind() == "identifier" && text(left, source) == name)
+        {
+            assigned = true;
+        }
+    });
+    assigned
 }
 
 fn enclosing_function(mut node: Node<'_>) -> Option<Node<'_>> {
@@ -7673,6 +7851,72 @@ mod tests {
 
         let missing = keys("fn values() { let _ = [1, 2\n -3, 4]; }\n");
         assert!(missing.contains(&"rust:S3723".to_string()), "{missing:?}");
+    }
+
+    #[test]
+    fn s920_whole_expression_range_does_not_duplicate_the_frozen_anchor() {
+        let report = analyze(
+            PathBuf::from("boolean.rs"),
+            "fn choose(value: bool) {\n    match value {\n        true => (),\n        false => (),\n    };\n}\n",
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S920")
+            .collect();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos { line: 2, column: 4 },
+                end: Pos { line: 5, column: 5 },
+            }
+        );
+        assert_eq!(
+            findings[0].message,
+            "Replace this `match` expression with an `if-else` expression."
+        );
+        assert!(findings[0].flows.is_empty());
+        assert!(findings[0].fix.is_none());
+        assert!(findings[0].alternatives.is_empty());
+    }
+
+    #[test]
+    fn s920_two_arms_and_no_binding_are_required() {
+        for source in [
+            "fn f(flag: bool) { match flag { _ => () } }\n",
+            "fn f(flag: bool) { match flag { true => (), other => drop(other) } }\n",
+            "fn f(flag: bool, gate: bool) { match flag { true if gate => (), false => (), _ => () } }\n",
+            "fn f(flag: bool) { match flag { bound @ true => drop(bound), _ => () } }\n",
+            "fn f(value: u8) { match !value { 0 => (), _ => () } }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S920"), "{source}");
+        }
+        assert!(has_rule(
+            "fn f(flag: bool, gate: bool) { match flag { true if gate => (), _ => () } }\n",
+            "rust:S920"
+        ));
+    }
+
+    #[test]
+    fn s920_local_boolean_proof_respects_type_and_shadow_boundaries() {
+        for source in [
+            "fn f(gate: bool) { let flag = true; match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool) { let flag: bool = unknown(); match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, x: u8) { match x < 2 { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, x: bool) { match x && gate { _ if gate => (), _ => () }; }\n",
+        ] {
+            assert!(has_rule(source, "rust:S920"), "{source}");
+        }
+        for source in [
+            "fn f(flag: bool, gate: bool) { let flag = 1u8; match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(flag: bool, gate: bool) { let flag = unknown(); match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, value: u8) { match !value { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool) { match !unknown() { _ if gate => (), _ => () }; }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S920"), "{source}");
+        }
     }
 
     #[test]
