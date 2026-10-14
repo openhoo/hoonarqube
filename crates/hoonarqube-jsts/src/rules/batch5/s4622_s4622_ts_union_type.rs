@@ -45,8 +45,7 @@ impl TsTypeCollector<'_, '_> {
             && !self.s4622_exempt_union_spans.contains(&it.span)
         {
             let message = format!(
-                "Reduce this union type; it currently has {} members.",
-                it.types.len()
+                "Refactor this union type to have less than {MAX_UNION_TYPE_MEMBERS} elements."
             );
             self.sink
                 .emit_span(RuleScope::TsOnly, "S4622", &message, it.span());
@@ -81,6 +80,84 @@ fn is_utility_type_reference(reference: &TSTypeReference<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+    use hoonarqube_ir::{Fix, FixAlternative, Range, TextEdit};
+
+    #[test]
+    fn messages_use_threshold_for_every_reported_union() {
+        let source = concat!(
+            "export function four(p: A | B | C | D): void {}\n",
+            "export function five(p: A | B | C | D | E): void {}\n",
+            "export function six(p: A | B | C | D | E | F): void {}\n",
+            "export function forty(p: T01 | T02 | T03 | T04 | T05 | T06 | T07 | T08 | T09 | T10 | T11 | T12 | T13 | T14 | T15 | T16 | T17 | T18 | T19 | T20 | T21 | T22 | T23 | T24 | T25 | T26 | T27 | T28 | T29 | T30 | T31 | T32 | T33 | T34 | T35 | T36 | T37 | T38 | T39 | T40): void {}\n",
+        );
+        let actual: Vec<_> = ts(source)
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "typescript:S4622")
+            .collect();
+        let expected =
+            [(1, 24, 37), (2, 24, 41), (3, 23, 44), (4, 25, 262)].map(|(line, start, end)| {
+                issue(
+                    "typescript:S4622",
+                    "Refactor this union type to have less than 3 elements.",
+                    (line, start),
+                    (line, end),
+                )
+            });
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn message_change_preserves_detection_boundaries_and_other_issues() {
+        let source = concat!(
+            "export function compact(p: A | B | C): void {}\n",
+            "export type Direct = A | B | C | D;\n",
+            "export type Utility = Partial<A | B | C | D>;\n",
+            "export type Nested = (A | B | C | D)[];\n",
+            "export function duplicate(p: A | A): void {}\n",
+        );
+        let mut duplicate = issue(
+            "typescript:S4621",
+            "Remove this duplicated type or replace with another one.",
+            (5, 33),
+            (5, 34),
+        );
+        duplicate.alternatives.push(FixAlternative {
+            id: "s4621-remove-duplicate-type".into(),
+            fix: Fix::new(
+                "Remove duplicate types",
+                vec![TextEdit {
+                    range: Range {
+                        start: pos(5, 30),
+                        end: pos(5, 34),
+                    },
+                    replacement: String::new(),
+                }],
+            ),
+        });
+        let actual: Vec<_> = ts(source)
+            .issues
+            .into_iter()
+            .filter(|issue| {
+                matches!(
+                    issue.rule_key.as_str(),
+                    "typescript:S4621" | "typescript:S4622"
+                )
+            })
+            .collect();
+        assert_eq!(
+            actual,
+            [
+                issue(
+                    "typescript:S4622",
+                    "Refactor this union type to have less than 3 elements.",
+                    (4, 22),
+                    (4, 35),
+                ),
+                duplicate,
+            ]
+        );
+    }
 
     #[test]
     fn oversized_unions_in_non_alias_positions_are_flagged() {
