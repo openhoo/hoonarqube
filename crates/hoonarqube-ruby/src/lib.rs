@@ -15,6 +15,9 @@ pub mod engine;
 mod rules;
 pub mod support;
 
+#[cfg(test)]
+mod comment_tag_tests;
+
 pub use context::*;
 pub use engine::analyze_facts;
 
