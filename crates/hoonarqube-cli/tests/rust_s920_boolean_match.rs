@@ -132,6 +132,10 @@ fn expected(format: &str, span: [u32; 4]) -> Value {
 }
 
 fn assert_issues(source: &str, spans: &[[u32; 4]]) {
+    assert_issues_with_sonar_spans(source, spans, spans);
+}
+
+fn assert_issues_with_sonar_spans(source: &str, spans: &[[u32; 4]], sonar_spans: &[[u32; 4]]) {
     for profile in ["strict", "sonar-parity"] {
         for format in ["json", "sonar"] {
             let fixture = Fixture::new();
@@ -142,7 +146,15 @@ fn assert_issues(source: &str, spans: &[[u32; 4]]) {
                 assert_eq!(report["project"]["complete"], true);
                 assert_eq!(report["project"]["files"][0]["status"], "complete");
             }
-            let expected: Vec<_> = spans.iter().map(|span| expected(format, *span)).collect();
+            let coordinates = if format == "sonar" {
+                sonar_spans
+            } else {
+                spans
+            };
+            let expected: Vec<_> = coordinates
+                .iter()
+                .map(|span| expected(format, *span))
+                .collect();
             assert_eq!(
                 selected(&report, format),
                 expected,
@@ -195,9 +207,11 @@ fn rust_s920_cli_preserves_distinct_whole_ranges_and_source_anchor_multiplicity(
         "}\n",
     );
     assert_issues(source, &[[2, 4, 5, 5], [6, 4, 9, 5]]);
-    assert_issues(
+    // Native columns count code points; generic Sonar export counts UTF-16.
+    assert_issues_with_sonar_spans(
         "fn f(値: bool) { let _ = \"🦉\"; match 値 { true => (), false => () }; }\r\n",
         &[[1, 29, 1, 64]],
+        &[[1, 30, 1, 65]],
     );
 }
 
