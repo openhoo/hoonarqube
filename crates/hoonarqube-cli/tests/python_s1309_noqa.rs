@@ -60,70 +60,13 @@ impl Fixture {
                 "{name}/{format} must preserve input"
             );
             let report: Value = serde_json::from_slice(&output.stdout).expect("report JSON");
-            let findings: Vec<Value> = if format == "json" {
-                assert_eq!(report["project"]["complete"], complete);
-                assert_eq!(
-                    report["project"]["files"][0]["status"],
-                    if complete { "complete" } else { "failed" }
-                );
-                assert_eq!(report["files"][0]["path"], filename);
-                report["files"][0]["issues"]
-                    .as_array()
-                    .expect("native issues")
-                    .iter()
-                    .filter(|issue| {
-                        matches!(
-                            issue["rule_key"].as_str(),
-                            Some("python:S1309" | "python:NoSonar" | "python:S7632")
-                        )
-                    })
-                    .map(|issue| {
-                        json!({
-                            "rule": issue["rule_key"],
-                            "message": issue["message"],
-                            "startLine": issue["range"]["start"]["line"],
-                            "startColumn": issue["range"]["start"]["column"],
-                            "endLine": issue["range"]["end"]["line"],
-                            "endColumn": issue["range"]["end"]["column"]
-                        })
-                    })
-                    .collect()
-            } else {
-                let expected_s1309 = expected.iter().any(|(rule, _, _)| *rule == "python:S1309");
-                assert_eq!(
-                    report["rules"]
-                        .as_array()
-                        .expect("Generic rule definitions")
-                        .iter()
-                        .filter(|rule| rule["id"] == "python:S1309")
-                        .count(),
-                    usize::from(expected_s1309),
-                    "{name}: definition follows the presence of S1309"
-                );
-                report["issues"]
-                    .as_array()
-                    .expect("Generic issues")
-                    .iter()
-                    .filter(|issue| {
-                        matches!(
-                            issue["ruleId"].as_str(),
-                            Some("python:S1309" | "python:NoSonar" | "python:S7632")
-                        )
-                    })
-                    .map(|issue| {
-                        let location = &issue["primaryLocation"];
-                        assert_eq!(location["filePath"], filename);
-                        json!({
-                            "rule": issue["ruleId"],
-                            "message": location["message"],
-                            "startLine": location["textRange"]["startLine"],
-                            "startColumn": location["textRange"]["startColumn"],
-                            "endLine": location["textRange"]["endLine"],
-                            "endColumn": location["textRange"]["endColumn"]
-                        })
-                    })
-                    .collect()
-            };
+            let findings = suppression_findings(
+                &report,
+                &filename,
+                format,
+                complete,
+                expected.iter().any(|(rule, _, _)| *rule == "python:S1309"),
+            );
             let expected: Vec<Value> = expected
                 .iter()
                 .map(|(rule, message, end)| {
@@ -142,6 +85,78 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn suppression_findings(
+    report: &Value,
+    filename: &str,
+    format: &str,
+    complete: bool,
+    expected_s1309: bool,
+) -> Vec<Value> {
+    if format == "json" {
+        assert_eq!(report["project"]["complete"], complete);
+        assert_eq!(
+            report["project"]["files"][0]["status"],
+            if complete { "complete" } else { "failed" }
+        );
+        assert_eq!(report["files"][0]["path"], filename);
+        report["files"][0]["issues"]
+            .as_array()
+            .expect("native issues")
+            .iter()
+            .filter(|issue| {
+                matches!(
+                    issue["rule_key"].as_str(),
+                    Some("python:S1309" | "python:NoSonar" | "python:S7632")
+                )
+            })
+            .map(|issue| {
+                json!({
+                    "rule": issue["rule_key"],
+                    "message": issue["message"],
+                    "startLine": issue["range"]["start"]["line"],
+                    "startColumn": issue["range"]["start"]["column"],
+                    "endLine": issue["range"]["end"]["line"],
+                    "endColumn": issue["range"]["end"]["column"]
+                })
+            })
+            .collect()
+    } else {
+        assert_eq!(
+            report["rules"]
+                .as_array()
+                .expect("Generic rule definitions")
+                .iter()
+                .filter(|rule| rule["id"] == "python:S1309")
+                .count(),
+            usize::from(expected_s1309),
+            "definition follows the presence of S1309"
+        );
+        report["issues"]
+            .as_array()
+            .expect("Generic issues")
+            .iter()
+            .filter(|issue| {
+                matches!(
+                    issue["ruleId"].as_str(),
+                    Some("python:S1309" | "python:NoSonar" | "python:S7632")
+                )
+            })
+            .map(|issue| {
+                let location = &issue["primaryLocation"];
+                assert_eq!(location["filePath"], filename);
+                json!({
+                    "rule": issue["ruleId"],
+                    "message": location["message"],
+                    "startLine": location["textRange"]["startLine"],
+                    "startColumn": location["textRange"]["startColumn"],
+                    "endLine": location["textRange"]["endLine"],
+                    "endColumn": location["textRange"]["endColumn"]
+                })
+            })
+            .collect()
     }
 }
 
