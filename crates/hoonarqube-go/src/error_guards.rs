@@ -16,6 +16,7 @@ mod tests;
 struct TypeFact {
     error: bool,
     returns: Vec<bool>,
+    receiver: Option<String>,
 }
 
 struct Binding {
@@ -26,8 +27,10 @@ struct Binding {
 pub(crate) struct ErrorGuardFacts {
     bindings: HashMap<usize, HashMap<String, Vec<Binding>>>,
     functions: HashMap<String, Vec<bool>>,
+    methods: HashMap<(String, String), Vec<bool>>,
     aliases: HashMap<String, TypeFact>,
     regexp_alias: Option<String>,
+    url_alias: Option<String>,
     error_type_shadowed: bool,
 }
 
@@ -36,8 +39,10 @@ impl ErrorGuardFacts {
         let mut facts = Self {
             bindings: HashMap::new(),
             functions: HashMap::new(),
+            methods: HashMap::new(),
             aliases: HashMap::new(),
             regexp_alias: imports.alias("regexp").map(str::to_owned),
+            url_alias: imports.alias("net/url").map(str::to_owned),
             error_type_shadowed: false,
         };
         let mut declarations = Vec::new();
@@ -70,6 +75,20 @@ impl ErrorGuardFacts {
                     .and_modify(Vec::clear)
                     .or_insert(result);
             }
+            if node.kind() == "method_declaration"
+                && let Some(name) = node.child_by_field_name("name")
+                && let Some(receiver) = node
+                    .child_by_field_name("receiver")
+                    .and_then(crate::first_named)
+                    .and_then(|parameter| parameter.child_by_field_name("type"))
+                    .and_then(|kind| Self::receiver_name(kind, source))
+            {
+                facts
+                    .methods
+                    .entry((receiver.to_owned(), text(name, source).to_owned()))
+                    .and_modify(Vec::clear)
+                    .or_insert_with(|| Self::function_type(node, source).returns);
+            }
             if matches!(
                 node.kind(),
                 "parameter_declaration" | "var_spec" | "short_var_declaration"
@@ -80,6 +99,9 @@ impl ErrorGuardFacts {
         facts
             .aliases
             .retain(|name, _| !shadowed_aliases.contains(name));
+        facts
+            .methods
+            .retain(|(receiver, _), _| !shadowed_aliases.contains(receiver));
         declarations.sort_by_key(Node::start_byte);
         for declaration in declarations {
             facts.collect_binding(declaration, source);
@@ -167,6 +189,7 @@ impl ErrorGuardFacts {
         TypeFact {
             error: false,
             returns,
+            receiver: None,
         }
     }
 
@@ -176,14 +199,28 @@ impl ErrorGuardFacts {
         } else if text(kind, source) == "error" {
             TypeFact {
                 error: true,
-                returns: Vec::new(),
+                ..TypeFact::default()
             }
         } else {
             self.aliases
                 .get(text(kind, source))
                 .cloned()
-                .unwrap_or_default()
+                .unwrap_or_else(|| TypeFact {
+                    receiver: Self::receiver_name(kind, source)
+                        .filter(|name| self.methods.keys().any(|(receiver, _)| receiver == name))
+                        .map(str::to_owned),
+                    ..TypeFact::default()
+                })
         }
+    }
+
+    fn receiver_name<'source>(kind: Node<'_>, source: &'source str) -> Option<&'source str> {
+        let kind = if kind.kind() == "pointer_type" {
+            crate::first_named(kind)?
+        } else {
+            kind
+        };
+        (kind.kind() == "type_identifier").then(|| text(kind, source))
     }
 
     fn collect_binding(&mut self, node: Node<'_>, source: &str) {
@@ -268,6 +305,15 @@ impl ErrorGuardFacts {
                 .cloned()
                 .unwrap_or_default();
         }
+        if node.kind() == "type_assertion_expression"
+            && index == 0
+            && let Some(kind) = node.child_by_field_name("type")
+        {
+            return TypeFact {
+                receiver: self.declared_type(kind, source).receiver,
+                ..TypeFact::default()
+            };
+        }
         let Some(function) = node
             .child_by_field_name("function")
             .map(unwrap_parenthesized)
@@ -288,17 +334,40 @@ impl ErrorGuardFacts {
                 .and_then(|returns| returns.get(index))
                 .copied()
                 .unwrap_or(false)
-        } else if let Some((receiver, method)) = crate::selector_parts(function, source) {
-            index == 1
-                && method == "Compile"
-                && self.regexp_alias.as_deref() == Some(receiver)
-                && !crate::identifier_is_locally_bound(function, receiver, source)
+        } else if function.kind() == "selector_expression" {
+            self.selector_returns_error(function, index, source)
         } else {
             false
         };
         TypeFact {
             error,
-            returns: Vec::new(),
+            ..TypeFact::default()
         }
+    }
+
+    fn selector_returns_error(&self, function: Node<'_>, index: usize, source: &str) -> bool {
+        let Some((receiver, method)) = crate::selector_parts(function, source) else {
+            return false;
+        };
+        if index == 1
+            && ((method == "Compile" && self.regexp_alias.as_deref() == Some(receiver))
+                || (method == "QueryUnescape" && self.url_alias.as_deref() == Some(receiver)))
+            && !crate::identifier_is_locally_bound(function, receiver, source)
+        {
+            return true;
+        }
+        let Some(operand) = function
+            .child_by_field_name("operand")
+            .map(unwrap_parenthesized)
+            .filter(|operand| operand.kind() == "identifier")
+        else {
+            return false;
+        };
+        self.lookup(operand, text(operand, source), source)
+            .and_then(|fact| fact.receiver.as_ref())
+            .and_then(|receiver| self.methods.get(&(receiver.clone(), method.to_owned())))
+            .and_then(|returns| returns.get(index))
+            .copied()
+            .unwrap_or(false)
     }
 }
