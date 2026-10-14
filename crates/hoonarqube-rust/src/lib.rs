@@ -7676,6 +7676,71 @@ mod tests {
     }
 
     #[test]
+    fn s920_whole_expression_range_does_not_duplicate_the_frozen_anchor() {
+        let report = analyze(
+            PathBuf::from("boolean.rs"),
+            "fn choose(value: bool) {\n    match value {\n        true => (),\n        false => (),\n    };\n}\n",
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S920")
+            .collect();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos { line: 2, column: 4 },
+                end: Pos { line: 5, column: 5 },
+            }
+        );
+        assert_eq!(
+            findings[0].message,
+            "Replace this `match` expression with an `if-else` expression."
+        );
+        assert!(findings[0].flows.is_empty());
+        assert!(findings[0].action.is_none());
+    }
+
+    #[test]
+    fn s920_two_arms_and_no_binding_are_required() {
+        for source in [
+            "fn f(flag: bool) { match flag { _ => () } }\n",
+            "fn f(flag: bool) { match flag { true => (), other => drop(other) } }\n",
+            "fn f(flag: bool, gate: bool) { match flag { true if gate => (), false => (), _ => () } }\n",
+            "fn f(flag: bool) { match flag { bound @ true => drop(bound), _ => () } }\n",
+            "fn f(value: u8) { match !value { 0 => (), _ => () } }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S920"), "{source}");
+        }
+        assert!(has_rule(
+            "fn f(flag: bool, gate: bool) { match flag { true if gate => (), _ => () } }\n",
+            "rust:S920"
+        ));
+    }
+
+    #[test]
+    fn s920_local_boolean_proof_respects_type_and_shadow_boundaries() {
+        for source in [
+            "fn f(gate: bool) { let flag = true; match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool) { let flag: bool = unknown(); match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, x: u8) { match x < 2 { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, x: bool) { match x && gate { _ if gate => (), _ => () }; }\n",
+        ] {
+            assert!(has_rule(source, "rust:S920"), "{source}");
+        }
+        for source in [
+            "fn f(flag: bool, gate: bool) { let flag = 1u8; match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(flag: bool, gate: bool) { let flag = unknown(); match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, value: u8) { match !value { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool) { match !unknown() { _ if gate => (), _ => () }; }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S920"), "{source}");
+        }
+    }
+
+    #[test]
     fn boolean_match_parameters_are_resolved_within_their_function() {
         let unrelated = keys(concat!(
             "fn accepts(flag: bool) { let _ = flag; }\n",
