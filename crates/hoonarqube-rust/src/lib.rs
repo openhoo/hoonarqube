@@ -2211,22 +2211,8 @@ fn s920_identifier_is_bool(value: Node<'_>, source: &str, depth: usize) -> bool 
         {
             return false;
         }
-        let mut cursor = block.walk();
-        let mut declaration = None;
-        for child in block.named_children(&mut cursor) {
-            if child.kind() == "let_declaration"
-                && child.end_byte() <= value.start_byte()
-                && child
-                    .child_by_field_name("pattern")
-                    .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
-            {
-                declaration = Some(child);
-            } else if s920_local_item_shadows_name(child, name, source) {
-                return false;
-            }
-        }
-        if let Some(declaration) = declaration {
-            return s920_declaration_is_bool(declaration, name, source, depth);
+        if let Some(proof) = s920_block_boolean_proof(block, value, name, source, depth) {
+            return proof;
         }
         if function.child_by_field_name("body") == Some(block) {
             break;
@@ -2236,6 +2222,36 @@ fn s920_identifier_is_bool(value: Node<'_>, source: &str, depth: usize) -> bool 
     function
         .child_by_field_name("parameters")
         .is_some_and(|parameters| parameter_is_bool(parameters, name, source))
+}
+
+fn s920_block_boolean_proof(
+    block: Node<'_>,
+    value: Node<'_>,
+    name: &str,
+    source: &str,
+    depth: usize,
+) -> Option<bool> {
+    let mut cursor = block.walk();
+    let mut declaration = None;
+    for child in block.named_children(&mut cursor) {
+        if child.kind() == "let_declaration"
+            && child.end_byte() <= value.start_byte()
+            && child
+                .child_by_field_name("pattern")
+                .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+        {
+            declaration = Some(child);
+        } else if child.kind() != "let_declaration"
+            && (child
+                .child_by_field_name("name")
+                .is_some_and(|item| text(item, source) == name)
+                || child.kind() == "use_declaration"
+                    && use_declaration_shadows_name(child, name, source))
+        {
+            return Some(false);
+        }
+    }
+    declaration.map(|declaration| s920_declaration_is_bool(declaration, name, source, depth))
 }
 
 fn s920_declaration_is_bool(declaration: Node<'_>, name: &str, source: &str, depth: usize) -> bool {
@@ -2251,14 +2267,6 @@ fn s920_declaration_is_bool(declaration: Node<'_>, name: &str, source: &str, dep
     declaration
         .child_by_field_name("value")
         .is_some_and(|initializer| s920_boolean_expression(initializer, source, depth))
-}
-
-fn s920_local_item_shadows_name(item: Node<'_>, name: &str, source: &str) -> bool {
-    item.kind() != "let_declaration"
-        && (item
-            .child_by_field_name("name")
-            .is_some_and(|item_name| text(item_name, source) == name)
-            || item.kind() == "use_declaration" && use_declaration_shadows_name(item, name, source))
 }
 
 fn s920_context_binds_name(context: Node<'_>, value: Node<'_>, name: &str, source: &str) -> bool {
