@@ -1161,3 +1161,7 @@ class A {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "tests/comment_tags.rs"]
+mod comment_tag_tests;
