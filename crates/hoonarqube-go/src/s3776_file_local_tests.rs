@@ -17,7 +17,10 @@ fn report(source: &str) -> FileReport {
 
 fn complexity_issues(report: &FileReport) -> Vec<&Issue> {
     assert!(
-        !report.issues.iter().any(|issue| issue.rule_key == "go:S2260"),
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "go:S2260"),
         "valid syntax required: {:?}",
         report.issues
     );
@@ -193,6 +196,16 @@ fn s3776_file_local_malformed_source_keeps_the_parsing_finding() {
     let report = report(
         "package p\nimport \"net/url\"\nfunc check() { _, err := url.QueryUnescape(\"x\"); if err != nil {\n",
     );
-    assert!(report.issues.iter().any(|issue| issue.rule_key == "go:S2260"));
-    assert!(!report.issues.iter().any(|issue| issue.rule_key == "go:S3776"));
+    assert!(
+        report
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "go:S2260")
+    );
+    assert!(
+        !report
+            .issues
+            .iter()
+            .any(|issue| issue.rule_key == "go:S3776")
+    );
 }
