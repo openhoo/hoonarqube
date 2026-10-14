@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn noqa_requires_valid_lowercase_directive_in_complete_source() {
-        for comment in ["# NOQA", "# noqax", "# mention noqa"] {
+        for comment in ["# NOQA", "# noqax", "# mention noqa", "# NOQA isort:skip"] {
             let report = analyze(
                 PathBuf::from("t.py"),
                 &format!("value = 1 {comment}\n"),
