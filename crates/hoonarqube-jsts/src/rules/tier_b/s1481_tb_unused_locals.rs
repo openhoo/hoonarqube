@@ -175,7 +175,11 @@ mod tests {
             "function f() { function value() {} var value; return value; } f();",
             "const api = function recurse(value) { var recurse; return value ? recurse(value - 1) : 0; }; api(1);",
         ] {
-            assert_eq!(unused_issues(source), [], "{source}");
+            assert_eq!(
+                unused_issues(source),
+                Vec::<hoonarqube_ir::Issue>::new(),
+                "{source}"
+            );
         }
     }
 

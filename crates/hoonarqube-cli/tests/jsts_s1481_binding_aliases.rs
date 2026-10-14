@@ -96,7 +96,11 @@ fn assert_clean(source: &str) {
     for profile in ["default", "sonar-parity", "strict"] {
         for format in ["json", "sonar"] {
             let report = fixture.analyze(FILE, format, profile, 0);
-            assert_eq!(target_issues(&report, format), [], "{source}: {report}");
+            assert_eq!(
+                target_issues(&report, format),
+                Vec::<Value>::new(),
+                "{source}: {report}"
+            );
             if format == "sonar" {
                 assert!(
                     report["rules"]
@@ -308,7 +312,7 @@ fn aliases_preserve_ordinary_values_class_lead_and_typescript_silence() {
     fixture.write("case.ts", typed.as_bytes());
     for format in ["json", "sonar"] {
         let report = fixture.analyze("case.ts", format, "sonar-parity", 0);
-        assert_eq!(target_issues(&report, format), []);
+        assert_eq!(target_issues(&report, format), Vec::<Value>::new());
     }
     fixture.assert_source("case.ts", typed.as_bytes());
 }
@@ -321,7 +325,7 @@ fn aliases_keep_malformed_and_invalid_utf8_incomplete() {
         for format in ["json", "sonar"] {
             let report = fixture.analyze(FILE, format, "sonar-parity", 2);
             assert_eq!(report["parity"]["completeness"], "incomplete");
-            assert_eq!(target_issues(&report, format), []);
+            assert_eq!(target_issues(&report, format), Vec::<Value>::new());
         }
         fixture.assert_source(FILE, bytes);
     }
