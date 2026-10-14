@@ -85,6 +85,7 @@ pub(crate) fn check_function_lengths(
 mod s138_code_line_count_tests {
     use super::*;
     use crate::test_support::{issue, scan_with_options};
+    use std::fmt::Write as _;
 
     fn findings(source: &str, maximum: u32) -> Vec<Issue> {
         let options = AnalyzerOptions {
@@ -113,7 +114,7 @@ mod s138_code_line_count_tests {
     fn function_with_lines(count: u32) -> String {
         let mut source = String::from("def work():\n");
         for number in 0..count {
-            source.push_str(&format!("    consume({number})\n\n    # comment\n"));
+            writeln!(source, "    consume({number})\n\n    # comment").expect("write source");
         }
         source
     }

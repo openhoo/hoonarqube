@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
@@ -116,9 +117,9 @@ fn expected(format: &str, target: &Expected) -> Value {
 fn body(count: u32, indent: &str, padding: bool) -> String {
     let mut source = String::new();
     for number in 0..count {
-        source.push_str(&format!("{indent}consume({number})\n"));
+        writeln!(source, "{indent}consume({number})").expect("write source");
         if padding {
-            source.push_str(&format!("\n{indent}# comment after logical newline\n"));
+            writeln!(source, "\n{indent}# comment after logical newline").expect("write source");
         }
     }
     source
