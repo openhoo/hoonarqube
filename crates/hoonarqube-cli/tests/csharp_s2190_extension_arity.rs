@@ -219,7 +219,6 @@ fn csharp_s2190_extension_cli_preserves_recursion_and_refusal_boundaries() {
         "static class C { static int Loop(this int /* parameter */ value) { return Loop(value, 0); } }",
         "static class C { static int Loop(this int value, [A] int repeat = 0) { return Loop(value, 0, 0); } }",
         "static class C { static int Loop(this int value, params int[] rest) { return Loop(value, 0, 0); } }",
-        "static class C { static int Loop(this int value) { return Loop(value: value, repeat: 0); } }",
         "static class C { static int Loop(this int value) { return Loop(ref value, 0); } }",
         "static class C { static int Loop(this int value) { return Loop(out value, 0); } }",
         "static class C { static int Loop(this int value) { return Loop(/* argument */ value, 0); } }",
@@ -377,4 +376,27 @@ fn csharp_s2190_extension_cli_unavailable_fix_keeps_whole_report_and_source() {
         assert_eq!(after.stderr, before.stderr);
         assert_eq!(fixture.read(), REFERENCE_CONTROLS.as_bytes());
     }
+}
+
+#[test]
+fn csharp_s2190_extension_cli_named_arity_migrates_prior_boundary() {
+    let fixture = Fixture::new("named-migration");
+    let source = "static class C { static int Loop(this int value) { return Loop(value: value, repeat: 0); } }";
+    fixture.write(source.as_bytes());
+    for format in ["json", "sonar"] {
+        let report = document(
+            &fixture.run(&[
+                "analyze",
+                "--profile",
+                "sonar-parity",
+                "--format",
+                format,
+                "--",
+                "ExtensionControls.cs",
+            ]),
+            0,
+        );
+        assert!(targets(&report, format).is_empty(), "{source:?}: {report}");
+    }
+    assert_eq!(fixture.read(), source.as_bytes());
 }

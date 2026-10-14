@@ -388,7 +388,6 @@ mod tests {
             "class C { int Loop(params int[] values) { return Loop(1, 2); } }",
             "class C { int Loop(int n) { return Loop(n: n); } }",
             "class C { int Loop(ref int n) { return Loop(ref n); } }",
-            "class C { int Forward(int n) { return Forward(extra: 0, n: n); } int Forward(int n, int extra) { return n + extra; } }",
             "class C { int Forward(ref int n) { return Forward(ref n, 0); } int Forward(ref int n, int extra) { return n + extra; } }",
             "class C { int Forward(int n) { return Forward((long)n); } int Forward(long n) { return (int)n; } }",
             "class C { int Loop([System.Runtime.InteropServices.Optional] int n) { return Loop(); } }",
@@ -628,7 +627,6 @@ public static class HumanizerShapes
             "static class C { static int Loop(this int /* parameter */ value) { return Loop(value, 0); } }",
             "static class C { static int Loop(this int value, [A] int repeat = 0) { return Loop(value, 0, 0); } }",
             "static class C { static int Loop(this int value, params int[] rest) { return Loop(value, 0, 0); } }",
-            "static class C { static int Loop(this int value) { return Loop(value: value, repeat: 0); } }",
             "static class C { static int Loop(this int value) { return Loop(ref value, 0); } }",
             "static class C { static int Loop(this int value) { return Loop(out value, 0); } }",
             "static class C { static int Loop(this int value) { return Loop(/* argument */ value, 0); } }",
@@ -677,6 +675,173 @@ public static class HumanizerShapes
                 with_key(&analyze_default(source), KEY).is_empty(),
                 "{source:?}"
             );
+        }
+    }
+
+    #[test]
+    fn s2190_named_arity_migrates_prior_overload_boundary() {
+        let source = r"class C { int Forward(int n) { return Forward(extra: 0, n: n); } int Forward(int n, int extra) { return n + extra; } }";
+        let report = analyze_default(source);
+        assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+    }
+
+    #[test]
+    fn s2190_named_arity_migrates_prior_extension_boundary() {
+        let source = r"static class C { static int Loop(this int value) { return Loop(value: value, repeat: 0); } }";
+        let report = analyze_default(source);
+        assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+    }
+
+    const NAMED_ARITY_REFERENCE: &str = r"public static class NamedControls
+{
+    public static int TooMany(int value)
+    {
+        return TooMany(value, repeat: 0);
+    }
+
+    public static int TooMany(int value, int repeat)
+    {
+        return value + repeat;
+    }
+
+    public static int OptionalTooMany(int value, int repeat = 0)
+    {
+        return OptionalTooMany(value, repeat, extra: 0);
+    }
+
+    public static int OptionalTooMany(int value, int repeat, int extra)
+    {
+        return value + repeat + extra;
+    }
+
+    public static int NamedFirst(int value)
+    {
+        return NamedFirst(value: value, 0);
+    }
+
+    public static int NamedFirst(int value, int repeat)
+    {
+        return value + repeat;
+    }
+
+    public static int TooFew(int value, int repeat)
+    {
+        return TooFew(value: value);
+    }
+
+    public static int TooFew(int value)
+    {
+        return value;
+    }
+
+    public static int TrueSelf(int value)
+    {
+        return TrueSelf(value: value);
+    }
+
+    public static int OptionalSelf(int value, int repeat = 0)
+    {
+        return OptionalSelf(value: value);
+    }
+
+    public static int ReorderedSelf(int value, int repeat)
+    {
+        return ReorderedSelf(repeat: repeat, value: value);
+    }
+
+    public static int MixedSelf(int value, int repeat)
+    {
+        return MixedSelf(value, repeat: repeat);
+    }
+
+    public static int Finite(int value)
+    {
+        if (value <= 0) return 0;
+        return Finite(value: value - 1);
+    }
+}
+";
+
+    #[test]
+    fn s2190_named_arity_matches_compiled_reference() {
+        let report = analyze_default(NAMED_ARITY_REFERENCE);
+        let issues = with_key(&report, KEY);
+        assert_eq!(issues.len(), 4, "{issues:?}");
+        for (issue, (line, end)) in issues.iter().zip([(43, 30), (48, 34), (53, 35), (58, 31)]) {
+            assert_eq!(
+                (
+                    issue.range.start.line,
+                    issue.range.start.column,
+                    issue.range.end.line,
+                    issue.range.end.column
+                ),
+                (line, 22, line, end)
+            );
+            assert_eq!(
+                issue.message,
+                "Add a way to break out of this method's recursion."
+            );
+            assert!(issue.fix.is_none());
+            assert!(issue.alternatives.is_empty());
+            assert!(issue.flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2190_named_arity_removes_only_incompatible_ordinary_value_calls() {
+        for source in [
+            r"class C { string ToString(string format, System.IFormatProvider provider) { return ToString(format, provider, toSymbol: true); } string ToString(string format, System.IFormatProvider provider, bool toSymbol) { return format; } }",
+            r"class C { int Forward(int value) { return Forward(value: value, 0); } int Forward(int value, int repeat) { return value + repeat; } }",
+            r"class C { int Forward(int value, int repeat) { return Forward(value: value); } int Forward(int value) { return value; } }",
+            r"class C { int Forward(int value, int repeat = 0) { return Forward(value, repeat, extra: 0); } int Forward(int value, int repeat, int extra) { return value + repeat + extra; } }",
+            r"class C { int Forward(int value) { return Forward(value: (true ? (value, 1).Item1 : 0), repeat: 0); } int Forward(int value, int repeat) { return value + repeat; } }",
+            r"class C { int Forward(int value) { return Forward(value: (first: value, second: 0).first, repeat: 0); } int Forward(int value, int repeat) { return value + repeat; } }",
+            r"class C { int Forward(int value) { return Forward(_value2: value, _extra3: 0); } }",
+        ] {
+            let report = analyze_default(source);
+            assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn s2190_named_arity_preserves_recursion_and_unrecognized_arguments() {
+        for source in [
+            r"class C { int Loop(int value) { return Loop(value: value); } }",
+            r"class C { int Loop(int value = 0) { return Loop(value: value); } }",
+            r"class C { int Loop(int value, int repeat = 0) { return Loop(value: value); } }",
+            r"class C { int Loop(int value, int repeat) { return Loop(repeat: repeat, value: value); } }",
+            r"class C { int Loop(int value, int repeat) { return Loop(value, repeat: repeat); } }",
+            r"class C { int Loop(int value) { return Loop(other: value); } }",
+            r"class C { int Loop(int value) { return Loop(value: (double)value); } }",
+            r"class C { int Loop(int value) { return Loop(value: value, value: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: value, @value: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: value, v\u0061lue: 0); } }",
+            r"class C { int Loop(int value) { return Loop(välue: value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: ref value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: out value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: in value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(ref value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(out int other, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: out int other, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value /* name */: value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: /* expression */ value, repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: (value /* nested */), repeat: 0); } }",
+            r"class C { int Loop(int value) { return Loop(value: value, /* list */ repeat: 0); } }",
+            r"class C { int Loop([A] int value) { return Loop(value: value, repeat: 0); } }",
+            r"class C { int Loop(params int[] values) { return Loop(values: values, extra: 0); } }",
+            r"class C { int Loop(ref int value) { return Loop(value: value, repeat: 0); } }",
+            r"static class C { static int Loop(this ref int value) { return Loop(value: value, repeat: 0); } }",
+        ] {
+            let report = analyze_default(source);
+            let issues = with_key(&report, KEY);
+            assert_eq!(issues.len(), 1, "{source:?}: {issues:?}");
+            assert_eq!(
+                issues[0].message,
+                "Add a way to break out of this method's recursion."
+            );
+            assert!(issues[0].fix.is_none());
+            assert!(issues[0].alternatives.is_empty());
+            assert!(issues[0].flows.is_empty());
         }
     }
 }
