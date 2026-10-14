@@ -4,7 +4,12 @@ use std::path::PathBuf;
 
 // Source files and expectations come from the independently compiled 23-file
 // SonarQube 26.9 / Java 8.41 reference, including duplicate same-line trivia.
-const CASES: &[(&str, &str, &[(&str, u32, u32)])] = &[
+type CommentCase = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, u32, u32)],
+);
+const CASES: &[CommentCase] = &[
     (
         "AsciiCase.java",
         include_str!("../../tests/fixtures/comment_tags/AsciiCase.java"),
