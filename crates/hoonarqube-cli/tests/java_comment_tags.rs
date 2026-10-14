@@ -213,3 +213,49 @@ fn java_comment_tags_cli_preserves_trivia_multiplicity_in_every_active_profile()
         source.as_bytes()
     );
 }
+
+#[test]
+fn java_comment_tags_cli_exports_lone_cr_reference_lines() {
+    let fixture = Fixture::new("lone-cr");
+    let source = include_bytes!("../../hoonarqube-java/tests/fixtures/comment_tags/CrOnly.java");
+    fixture.write(source);
+    for format in ["json", "sonar"] {
+        let output = fixture.run(&["analyze", "--format", format, "--", "Control.java"]);
+        assert!(output.status.success(), "{format}: {output:?}");
+        let report = serde_json::from_slice(&output.stdout).expect("report");
+        let mut actual: Vec<_> = targets(&report, format)
+            .into_iter()
+            .map(|issue| {
+                if format == "json" {
+                    (
+                        issue["rule_key"].as_str().unwrap().to_owned(),
+                        issue["range"]["start"]["line"].as_u64().unwrap(),
+                        issue["range"]["end"]["column"].as_u64().unwrap(),
+                    )
+                } else {
+                    (
+                        issue["ruleId"].as_str().unwrap().to_owned(),
+                        issue["primaryLocation"]["textRange"]["startLine"]
+                            .as_u64()
+                            .unwrap(),
+                        issue["primaryLocation"]["textRange"]["endColumn"]
+                            .as_u64()
+                            .unwrap(),
+                    )
+                }
+            })
+            .collect();
+        actual.sort();
+        assert_eq!(
+            actual,
+            vec![
+                ("java:S1134".to_owned(), 2, 8),
+                ("java:S1135".to_owned(), 1, 7)
+            ]
+        );
+    }
+    assert_eq!(
+        std::fs::read(fixture.0.join("Control.java")).unwrap(),
+        source
+    );
+}
