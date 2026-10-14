@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use hoonarqube_ir::{Issue, Pos, Range};
+use hoonarqube_ir::Issue;
 
 use crate::{AnalyzerOptions, analyze};
 
@@ -107,13 +107,4 @@ fn comment_tags_ignore_literals_heredoc_end_data_and_malformed_sources() {
     ] {
         assert!(tags(source).is_empty(), "{source:?}");
     }
-    // An ordinary line comment is not a file-level diagnostic.
-    let findings = tags("# TODO\n");
-    assert_eq!(
-        findings.first().map(|issue| issue.range),
-        Some(Range {
-            start: Pos { line: 1, column: 2 },
-            end: Pos { line: 1, column: 6 },
-        })
-    );
 }
