@@ -30,6 +30,49 @@ impl Drop for Fixture {
     }
 }
 
+fn assert_header_report(output: &Output, format: &str, file: &str, key: &str, expected: usize) {
+    assert!(output.status.success(), "{output:?}");
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("analysis JSON");
+    let findings: Vec<_> = if format == "json" {
+        assert_eq!(report["project"]["complete"], true);
+        report["files"]
+            .as_array()
+            .expect("files")
+            .iter()
+            .flat_map(|file| file["issues"].as_array().expect("issues"))
+            .filter(|issue| issue["rule_key"] == key)
+            .collect()
+    } else {
+        report["issues"]
+            .as_array()
+            .expect("generic issues")
+            .iter()
+            .filter(|issue| issue["ruleId"] == key)
+            .collect()
+    };
+    assert_eq!(findings.len(), expected);
+    if let Some(issue) = findings.first() {
+        if format == "json" {
+            assert_eq!(
+                issue["range"],
+                serde_json::json!({
+                    "start": {"line": 0, "column": 0},
+                    "end": {"line": 0, "column": 0},
+                })
+            );
+            assert_eq!(issue["message"], "Add or update the header of this file.");
+            assert!(issue.get("fix").is_none());
+            assert!(issue.get("alternatives").is_none());
+            assert!(issue.get("flows").is_none());
+        } else {
+            let primary = &issue["primaryLocation"];
+            assert_eq!(primary["message"], "Add or update the header of this file.");
+            assert_eq!(primary["filePath"], file);
+            assert!(primary.get("textRange").is_none());
+        }
+    }
+}
+
 #[test]
 fn s1451_cli_json_and_generic_report_file_level_identity_and_clean_controls() {
     let fixture = Fixture::new("identity");
@@ -48,47 +91,7 @@ fn s1451_cli_json_and_generic_report_file_level_identity_and_clean_controls() {
                     "--format",
                     format,
                 ]);
-                assert!(output.status.success(), "{output:?}");
-                let report: serde_json::Value =
-                    serde_json::from_slice(&output.stdout).expect("analysis JSON");
-                let findings: Vec<_> = if format == "json" {
-                    assert_eq!(report["project"]["complete"], true);
-                    report["files"]
-                        .as_array()
-                        .expect("files")
-                        .iter()
-                        .flat_map(|file| file["issues"].as_array().expect("issues"))
-                        .filter(|issue| issue["rule_key"] == key)
-                        .collect()
-                } else {
-                    report["issues"]
-                        .as_array()
-                        .expect("generic issues")
-                        .iter()
-                        .filter(|issue| issue["ruleId"] == key)
-                        .collect()
-                };
-                assert_eq!(findings.len(), expected);
-                if let Some(issue) = findings.first() {
-                    if format == "json" {
-                        assert_eq!(
-                            issue["range"],
-                            serde_json::json!({
-                                "start": {"line": 0, "column": 0},
-                                "end": {"line": 0, "column": 0},
-                            })
-                        );
-                        assert_eq!(issue["message"], "Add or update the header of this file.");
-                        assert!(issue.get("fix").is_none());
-                        assert!(issue.get("alternatives").is_none());
-                        assert!(issue.get("flows").is_none());
-                    } else {
-                        let primary = &issue["primaryLocation"];
-                        assert_eq!(primary["message"], "Add or update the header of this file.");
-                        assert_eq!(primary["filePath"], file);
-                        assert!(primary.get("textRange").is_none());
-                    }
-                }
+                assert_header_report(&output, format, &file, &key, expected);
                 assert_eq!(
                     std::fs::read(&path).expect("source readback"),
                     source.as_bytes()
