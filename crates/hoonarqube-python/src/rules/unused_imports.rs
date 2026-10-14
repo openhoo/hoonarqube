@@ -36,7 +36,6 @@ pub(crate) fn check_unused_imports(
         return Vec::new();
     }
     let import_modules = import_module_names(file_ctx);
-    let alias_ranges = from_import_alias_ranges(file_ctx);
     let comments: Vec<&str> = comment_tokens(parsed)
         .map(|token| &source[token.range()])
         .collect();
@@ -75,7 +74,7 @@ pub(crate) fn check_unused_imports(
                 issues.push(issue_at(
                     "python:S1128",
                     "Remove this unused import.",
-                    alias_ranges.get(&range).copied().unwrap_or(range),
+                    range,
                     index,
                     source,
                 ));
@@ -83,26 +82,6 @@ pub(crate) fn check_unused_imports(
         }
     }
     issues
-}
-
-/// The reference reports the bound alias Name of a `from` import. Keep the
-/// entire definition range for usage exclusions and module exemptions above;
-/// this map only selects the diagnostic's display location.
-fn from_import_alias_ranges(
-    file_ctx: &crate::engine::file_context::FileContext<'_>,
-) -> HashMap<TextRange, TextRange> {
-    let mut ranges = HashMap::new();
-    for stmt in &file_ctx.stmts {
-        let Stmt::ImportFrom(import) = stmt else {
-            continue;
-        };
-        for alias in &import.names {
-            if let Some(name) = &alias.asname {
-                ranges.insert(alias.range(), name.range());
-            }
-        }
-    }
-    ranges
 }
 
 /// `__future__`, `typing`, `typing_extensions`, and `sklearn.experimental.*`
@@ -147,7 +126,6 @@ fn import_module_names(
     }
     modules
 }
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

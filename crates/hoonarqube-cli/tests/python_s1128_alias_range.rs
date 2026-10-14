@@ -214,7 +214,7 @@ fn requests_compat_preserves_all_23_import_findings_with_one_alias_range() {
     }
 }
 
-const REQUESTS_COMPAT: &str = r###""""
+const REQUESTS_COMPAT: &str = r#""""
 requests.compat
 ~~~~~~~~~~~~~~~
 
@@ -329,4 +329,4 @@ bytes = bytes
 basestring = (str, bytes)
 numeric_types = (int, float)
 integer_types = (int,)
-"###;
+"#;
