@@ -66,6 +66,25 @@ fn parameter_list_range(
         .iter_source_order()
         .last()
         .expect("nonempty parameters");
+    // Ruff omits the bare keyword-only separator from formal parameters;
+    // the reference parameter-list node includes it as its first child.
+    let start = if parameters.posonlyargs.is_empty()
+        && parameters.args.is_empty()
+        && parameters.vararg.is_none()
+        && !parameters.kwonlyargs.is_empty()
+    {
+        parsed
+            .tokens()
+            .iter()
+            .find(|token| {
+                token.kind() == ruff_python_ast::token::TokenKind::Star
+                    && token.start() >= parameters.start()
+                    && token.end() <= first.start()
+            })
+            .map_or(first.start(), Ranged::start)
+    } else {
+        first.start()
+    };
     // The reference parameter-list node retains a trailing comma, while
     // ignoring trivia between it and the closing parenthesis.
     let end = parsed
@@ -77,7 +96,7 @@ fn parameter_list_range(
                 && token.end() < parameters.end()
         })
         .map_or(last.end(), Ranged::end);
-    ruff_text_size::TextRange::new(first.start(), end)
+    ruff_text_size::TextRange::new(start, end)
 }
 
 #[cfg(test)]
