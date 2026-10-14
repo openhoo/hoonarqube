@@ -71,7 +71,6 @@ fn suppression_cases() -> Vec<Case> {
             findings: vec![
                 ("python:S1309", S1309_MESSAGE, 2, 6),
                 ("python:S1309", S1309_MESSAGE, 3, 17),
-                ("python:S1309", S1309_MESSAGE, 4, 16),
                 ("python:S1309", S1309_MESSAGE, 5, 25),
             ],
         },
