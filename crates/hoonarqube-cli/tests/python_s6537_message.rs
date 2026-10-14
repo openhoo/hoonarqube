@@ -106,8 +106,7 @@ fn expected_issue(format: &str, start: u32, end: u32) -> Value {
     }
 }
 
-#[test]
-fn python_s6537_raw_and_string_messages_preserve_full_issue_values() {
+fn assert_octal_messages(format: &str) {
     let fixture = Fixture::new();
     for (source, ranges) in [
         (POSITIVE, vec![(14, 18)]),
@@ -119,16 +118,24 @@ fn python_s6537_raw_and_string_messages_preserve_full_issue_values() {
         ("import re\n\nre.compile(r'a\\0b')\n", vec![(14, 16)]),
     ] {
         for profile in PROFILES {
-            for format in ["json", "sonar"] {
-                let report = fixture.analyze(source, profile, format, 0);
-                let expected: Vec<Value> = ranges
-                    .iter()
-                    .map(|&(start, end)| expected_issue(format, start, end))
-                    .collect();
-                assert_eq!(targets(&report, format), expected, "{profile:?}/{format}");
-            }
+            let report = fixture.analyze(source, profile, format, 0);
+            let expected: Vec<Value> = ranges
+                .iter()
+                .map(|&(start, end)| expected_issue(format, start, end))
+                .collect();
+            assert_eq!(targets(&report, format), expected, "{profile:?}/{format}");
         }
     }
+}
+
+#[test]
+fn python_s6537_native_messages_preserve_full_issue_values() {
+    assert_octal_messages("json");
+}
+
+#[test]
+fn python_s6537_generic_messages_preserve_full_issue_values() {
+    assert_octal_messages("sonar");
 }
 
 #[test]
