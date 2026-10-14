@@ -37,6 +37,14 @@ impl Fixture {
             "{output:?}"
         );
         assert_eq!(output.stderr.is_empty(), valid, "{output:?}");
+        if !valid {
+            let reason = if source == "if (\n" {
+                "syntax tree contains recovered or missing nodes"
+            } else {
+                "Python source contains parser errors"
+            };
+            assert!(String::from_utf8_lossy(&output.stderr).contains(reason));
+        }
         let report: Value = serde_json::from_slice(&output.stdout).expect("structured report");
         if !valid && profile == "sonar-parity" {
             assert_eq!(report["parity"]["completeness"], "incomplete");
@@ -98,7 +106,11 @@ fn assert_recovered_empty_suites(format: &str) {
     for source in EMPTY_SUITES {
         for profile in ["strict", "sonar-parity"] {
             let report = fixture.analyze(source, profile, format, false);
-            assert!(!findings(&report, format, "python:ParsingError").is_empty());
+            assert_eq!(
+                findings(&report, format, "python:ParsingError").is_empty(),
+                *source == "if (\n",
+                "{source}/{profile}/{format}"
+            );
             for rule in ["python:S1871", "python:S3923"] {
                 assert!(
                     findings(&report, format, rule).is_empty(),
@@ -115,7 +127,7 @@ fn native_recovered_empty_suites_report_incomplete_without_panicking() {
 }
 
 #[test]
-fn generic_recovered_empty_suites_report_parse_errors_without_panicking() {
+fn generic_recovered_empty_suites_report_incomplete_without_panicking() {
     assert_recovered_empty_suites("sonar");
 }
 
