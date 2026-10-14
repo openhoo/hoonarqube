@@ -2029,12 +2029,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
         ));
     }
     if branches.len() > 1 && has_duplicate(&branches) {
-        issues.push(node_issue(
-            "rust:S7411",
-            "Extract the code shared by all branches.",
-            node,
-            source,
-        ));
+        issues.push(shared_branch_issue(node, source));
     }
 }
 
@@ -3932,15 +3927,80 @@ fn check_shared_branch_prefix(root: Node<'_>, source: &str, issues: &mut Vec<Iss
                     && !branch_suffix_uses_local_binding(a, b, source)
             });
         if same_prefix || same_suffix {
-            issues.push(node_issue(
-                "rust:S7411",
-                "Extract the code shared by all branches.",
-                node,
-                source,
-            ));
+            issues.push(shared_branch_issue(node, source));
         }
     });
 }
+
+fn shared_branch_issue(node: Node<'_>, source: &str) -> Issue {
+    let (start, end) =
+        shared_branch_primary_range(node, source).unwrap_or((node.start_byte(), node.end_byte()));
+    offset_issue(
+        "rust:S7411",
+        "Extract the code shared by all branches.",
+        source,
+        start,
+        end,
+    )
+}
+
+/// Project an existing two-block finding onto the shared statements. Chains
+/// keep their current range until their complete branch relation is qualified.
+fn shared_branch_primary_range(node: Node<'_>, source: &str) -> Option<(usize, usize)> {
+    if node
+        .parent()
+        .is_some_and(|parent| parent.kind() == "else_clause")
+    {
+        return None;
+    }
+    let first = node.child_by_field_name("consequence")?;
+    let alternative = node.child_by_field_name("alternative")?;
+    let last = if alternative.kind() == "else_clause" {
+        alternative.named_child(0)?
+    } else {
+        alternative
+    };
+    if first.kind() != "block" || last.kind() != "block" {
+        return None;
+    }
+    let first_statements = branch_statements(first);
+    let last_statements = branch_statements(last);
+    let shared_prefix = first_statements
+        .iter()
+        .zip(&last_statements)
+        .take_while(|(a, b)| normalized_node(**a, source) == normalized_node(**b, source))
+        .count();
+    if shared_prefix > 0 {
+        return Some((
+            node.start_byte(),
+            first_statements[shared_prefix - 1].end_byte(),
+        ));
+    }
+    let shared_suffix = first_statements
+        .iter()
+        .rev()
+        .zip(last_statements.iter().rev())
+        .take_while(|(a, b)| normalized_node(**a, source) == normalized_node(**b, source))
+        .count();
+    if shared_suffix == 0 {
+        return None;
+    }
+    let mut start = last_statements[last_statements.len() - shared_suffix].start_byte();
+    // Clippy includes four immediately preceding spaces in a suffix span.
+    if start >= 4 && source.get(start - 4..start) == Some("    ") {
+        start -= 4;
+    }
+    Some((start, last.end_byte()))
+}
+
+fn branch_statements(branch: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = branch.walk();
+    branch
+        .named_children(&mut cursor)
+        .filter(|statement| !matches!(statement.kind(), "line_comment" | "block_comment"))
+        .collect()
+}
+
 fn branch_suffix_uses_local_binding(a: Node<'_>, b: Node<'_>, source: &str) -> bool {
     let mut names = HashSet::new();
     for statement in [a, b] {
