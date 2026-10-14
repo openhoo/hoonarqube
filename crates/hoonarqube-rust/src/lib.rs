@@ -8142,14 +8142,48 @@ mod tests {
     }
 
     #[test]
-    fn returned_local_rule_uses_direct_tail_and_avoids_redundant_cast_overlap() {
-        let clean = keys(concat!(
+    fn returned_local_rule_uses_direct_tail_and_keeps_redundant_cast_overlap() {
+        let overlap = concat!(
             "fn length(value: &str) -> usize {\n",
             "    let length = value.len() as usize;\n",
             "    length\n",
             "}\n",
-        ));
-        assert!(clean.iter().all(|key| key != "rust:S1488"), "{clean:?}");
+        );
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            overlap,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            report.issues,
+            vec![
+                Issue::new(
+                    "rust:S1488",
+                    "Remove the `let` statement and return the expression directly.",
+                    Range {
+                        start: Pos { line: 2, column: 4 },
+                        end: Pos {
+                            line: 2,
+                            column: 38
+                        },
+                    },
+                ),
+                Issue::new(
+                    "rust:S4325",
+                    "Remove this unnecessary cast.",
+                    Range {
+                        start: Pos {
+                            line: 2,
+                            column: 17
+                        },
+                        end: Pos {
+                            line: 2,
+                            column: 37
+                        },
+                    },
+                ),
+            ],
+        );
 
         let source = concat!(
             "fn duration(value: u32) -> u32 {\n",
@@ -8162,13 +8196,97 @@ mod tests {
             source,
             &AnalyzerOptions::default(),
         );
-        let issue = report
-            .issues
-            .iter()
-            .find(|issue| issue.rule_key == "rust:S1488")
-            .expect("direct returned local");
-        assert_eq!(issue.range.start.line, 2);
-        assert_eq!(issue.range.end.line, 2);
+        assert_eq!(
+            report.issues,
+            vec![Issue::new(
+                "rust:S1488",
+                "Remove the `let` statement and return the expression directly.",
+                Range {
+                    start: Pos { line: 2, column: 4 },
+                    end: Pos {
+                        line: 2,
+                        column: 32
+                    },
+                },
+            )],
+        );
+    }
+
+    #[test]
+    fn returned_local_overlap_keeps_substantive_direct_and_non_tail_controls() {
+        for (source, returned_count, cast_count) in [
+            (
+                "fn direct(value: &str) -> usize { value.len() as usize }\n",
+                0,
+                1,
+            ),
+            ("fn direct(value: &str) -> usize { value.len() }\n", 0, 0),
+            (
+                "fn ordinary(value: &str) -> usize { let length = value.len(); length }\n",
+                1,
+                0,
+            ),
+            (
+                "fn used(value: &str) -> usize {\n    let length = value.len() as usize;\n    consume(length);\n    length\n}\nfn consume(_: usize) {}\n",
+                0,
+                1,
+            ),
+            (
+                "fn adjusted(value: &str) -> usize {\n    let length = value.len() as usize;\n    length + 1\n}\n",
+                0,
+                1,
+            ),
+            (
+                "fn capacity(value: std::fs::Metadata) -> usize { value.len() as usize }\n",
+                0,
+                0,
+            ),
+        ] {
+            let found = keys(source);
+            assert_eq!(
+                found
+                    .iter()
+                    .filter(|key| key.as_str() == "rust:S1488")
+                    .count(),
+                returned_count,
+                "{source}: {found:?}",
+            );
+            assert_eq!(
+                found
+                    .iter()
+                    .filter(|key| key.as_str() == "rust:S4325")
+                    .count(),
+                cast_count,
+                "{source}: {found:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn returned_local_overlap_preserves_masked_decoys_and_invalid_blocks() {
+        let source = concat!(
+            "// fn example(v: &str) -> usize { let length = v.len() as usize; length }\n",
+            "fn decoy() -> usize {\n",
+            "    let text = \"let length = value.len() as usize; length\";\n",
+            "    text.len()\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert!(
+            found
+                .iter()
+                .all(|key| !matches!(key.as_str(), "rust:S1488" | "rust:S4325")),
+            "{found:?}",
+        );
+        let malformed = keys("fn broken(");
+        assert!(
+            malformed.iter().any(|key| key == "rust:S2260"),
+            "{malformed:?}"
+        );
+        assert!(
+            malformed.iter().all(|key| key != "rust:S1488"),
+            "{malformed:?}"
+        );
     }
 
     #[test]
