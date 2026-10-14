@@ -3,7 +3,7 @@ use std::process::{Command, Output};
 
 const KEY: &str = "csharpsquid:S2190";
 const MESSAGE: &str = "Add a way to break out of this method's recursion.";
-const REFERENCE_CONTROLS: &str = r#"using System;
+const REFERENCE_CONTROLS: &str = r"using System;
 public static class NumericControls
 {
     public static TimeSpan Extension(this byte value)
@@ -109,7 +109,7 @@ public static class NumericControls
     }
     private static void Tick() { }
 }
-"#;
+";
 
 struct Fixture(PathBuf);
 

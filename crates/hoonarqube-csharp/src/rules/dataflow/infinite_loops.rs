@@ -66,8 +66,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 receiver.kind() == "identifier" && node_text(receiver, source) == "this"
             })
         })
-        .filter(|call| !has_incompatible_fixed_arity(method, *call))
-        .filter(|call| !has_incompatible_double_argument(method, *call, source));
+        .filter(|call| !has_incompatible_fixed_arity(method, *call));
         // A base case anywhere else in the body terminates the recursion
         // (`if (n <= 1) return 1; return Fact(n - 1);`): every escape
         // site must live inside the trailing call itself.
@@ -152,70 +151,6 @@ fn positional_argument_count(call: Node<'_>) -> Option<usize> {
         }
     }
     Some(count)
-}
-
-/// An explicit `double` argument cannot implicitly convert to an integral
-/// value parameter. For this exact shape, a same-name call cannot target the
-/// containing method, including when its parameter is an extension receiver.
-fn has_incompatible_double_argument(method: Node<'_>, call: Node<'_>, source: &str) -> bool {
-    if method.has_error() || call.has_error() {
-        return false;
-    }
-    let Some(parameters) = method.child_by_field_name("parameters") else {
-        return false;
-    };
-    let Some(parameter) = single_parenthesized_child(parameters, "parameter") else {
-        return false;
-    };
-    let Some(parameter_type) = parameter.child_by_field_name("type") else {
-        return false;
-    };
-    if parameter_type.kind() != "predefined_type"
-        || !matches!(
-            node_text(parameter_type, source),
-            "byte" | "sbyte" | "short" | "ushort" | "int" | "uint" | "long" | "ulong"
-        )
-        || parameter.child_by_field_name("name").is_none()
-    {
-        return false;
-    }
-    // Defaults, attributes, comments, and every modifier except a lone `this`
-    // are outside this proof. In particular, do not infer ref/params binding.
-    match (parameter.child_count(), parameter.named_child_count()) {
-        (2, 2) => {}
-        (3, 3)
-            if parameter.child(0).is_some_and(|modifier| {
-                modifier.kind() == "modifier" && node_text(modifier, source) == "this"
-            }) => {}
-        _ => return false,
-    }
-    let Some(arguments) = call.child_by_field_name("arguments") else {
-        return false;
-    };
-    let Some(argument) = single_parenthesized_child(arguments, "argument") else {
-        return false;
-    };
-    if argument.child_count() != 1
-        || argument.named_child_count() != 1
-        || argument.child_by_field_name("name").is_some()
-    {
-        return false;
-    }
-    first_named_child(argument).is_some_and(|cast| {
-        cast.kind() == "cast_expression"
-            && cast.child_count() == 4
-            && cast.named_child_count() == 2
-            && cast.child_by_field_name("type").is_some_and(|target| {
-                target.kind() == "predefined_type" && node_text(target, source) == "double"
-            })
-    })
-}
-
-fn single_parenthesized_child<'a>(list: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    (list.child_count() == 3 && list.named_child_count() == 1)
-        .then(|| list.named_child(0))
-        .flatten()
-        .filter(|child| child.kind() == kind)
 }
 
 /// Whether the loop condition is provably true at entry (literal `true`
