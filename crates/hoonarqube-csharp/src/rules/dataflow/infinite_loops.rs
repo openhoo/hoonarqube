@@ -89,7 +89,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     issues
 }
 
-/// A same-name call with a provably incompatible positional argument count
+/// A same-name call with a provably incompatible ordinary value count
 /// delegates to another overload. Unsupported signatures and call shapes
 /// cannot establish that proof, so they retain the existing recursion check.
 fn has_incompatible_fixed_arity(method: Node<'_>, call: Node<'_>, source: &str) -> bool {
@@ -99,7 +99,9 @@ fn has_incompatible_fixed_arity(method: Node<'_>, call: Node<'_>, source: &str) 
     let Some((minimum, maximum)) = fixed_parameter_arity(method, source) else {
         return false;
     };
-    positional_argument_count(call).is_some_and(|count| count < minimum || count > maximum)
+    positional_argument_count(call)
+        .or_else(|| named_value_argument_count(call, source))
+        .is_some_and(|count| count < minimum || count > maximum)
 }
 
 fn fixed_parameter_arity(method: Node<'_>, source: &str) -> Option<(usize, usize)> {
@@ -173,6 +175,63 @@ fn positional_argument_count(call: Node<'_>) -> Option<usize> {
         }
     }
     Some(count)
+}
+
+fn named_value_argument_count(call: Node<'_>, source: &str) -> Option<usize> {
+    let arguments = call.child_by_field_name("arguments")?;
+    if arguments.has_error()
+        || !collect_kinds(
+            arguments,
+            &["comment", "declaration_expression", "ref", "out", "in"],
+        )
+        .is_empty()
+    {
+        return None;
+    }
+    let mut labels = Vec::new();
+    let mut count = 0;
+    let mut cursor = arguments.walk();
+    for child in arguments.children(&mut cursor) {
+        match child.kind() {
+            "(" | ")" | "," => {}
+            "argument" => {
+                if child.child_by_field_name("name").is_some() {
+                    let label = ordinary_named_value_label(child, source)?;
+                    if labels.contains(&label) {
+                        return None;
+                    }
+                    labels.push(label);
+                } else if child.child_count() != 1 || child.named_child_count() != 1 {
+                    return None;
+                }
+                count += 1;
+            }
+            _ => return None,
+        }
+    }
+    (!labels.is_empty()).then_some(count)
+}
+
+fn ordinary_named_value_label<'a>(argument: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let name = argument.child_by_field_name("name")?;
+    if argument.child_count() != 3
+        || argument.named_child_count() != 2
+        || argument.child(0) != Some(name)
+        || name.kind() != "identifier"
+        || name.child_count() != 0
+        || argument.child(1)?.kind() != ":"
+        || !argument.child(2)?.is_named()
+    {
+        return None;
+    }
+    // Only bare ASCII spellings establish distinct labels. Verbatim names,
+    // Unicode escapes and non-ASCII identifiers can alias other spellings.
+    let label = node_text(name, source);
+    let mut bytes = label.bytes();
+    let first = bytes.next()?;
+    (matches!(first, b'A'..=b'Z' | b'a'..=b'z' | b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'))
+    .then_some(label)
 }
 
 /// An explicit `double` argument cannot implicitly convert to an integral
