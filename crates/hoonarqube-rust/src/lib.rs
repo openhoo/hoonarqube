@@ -6813,6 +6813,9 @@ regex_fn!(
 );
 
 #[cfg(test)]
+mod s7411_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
