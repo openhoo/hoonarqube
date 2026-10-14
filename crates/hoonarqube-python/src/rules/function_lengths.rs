@@ -72,3 +72,101 @@ pub(crate) fn check_function_lengths(
     );
     issues
 }
+
+#[cfg(test)]
+mod s138_code_line_count_tests {
+    use super::*;
+    use crate::test_support::{issue, scan_with_options};
+
+    fn findings(source: &str, maximum: u32) -> Vec<Issue> {
+        let options = AnalyzerOptions {
+            maximum_function_length: maximum,
+            ..AnalyzerOptions::default()
+        };
+        scan_with_options(source, &options)
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "python:S138")
+            .collect()
+    }
+
+    fn expected(name: &str, kind: &str, lines: u32, maximum: u32, line: u32, col: u32) -> Issue {
+        issue(
+            "python:S138",
+            &format!(
+                "This {kind} \"{name}\" has {lines} lines of code, which is greater than \
+                 the {maximum} authorized. Split it into smaller {kind}s."
+            ),
+            (line, col),
+            (line, col + u32::try_from(name.len()).expect("name length")),
+        )
+    }
+
+    fn function_with_lines(count: u32) -> String {
+        let mut source = String::from("def work():\n");
+        for number in 0..count {
+            source.push_str(&format!("    consume({number})\n\n    # comment\n"));
+        }
+        source
+    }
+
+    #[test]
+    fn logical_newline_endpoints_do_not_count_blank_or_comment_lines() {
+        let source = "def work():\n    first()\n\n    # comment after a logical newline\n    second()\n    # another comment\n    third()\n";
+        assert_eq!(
+            findings(source, 2),
+            vec![expected("work", "function", 3, 2, 1, 4)]
+        );
+        assert!(findings(source, 3).is_empty());
+    }
+
+    #[test]
+    fn default_budget_accepts_100_code_lines_and_reports_exactly_101() {
+        assert!(findings(&function_with_lines(100), 100).is_empty());
+        assert_eq!(
+            findings(&function_with_lines(101), 100),
+            vec![expected("work", "function", 101, 100, 1, 4)]
+        );
+    }
+
+    #[test]
+    fn only_the_own_docstring_is_subtracted_from_code_lines() {
+        let source = "def work():\n    \"\"\"Documentation.\n\n    # documentation text\n    \"\"\"\n    first()\n\n    # ordinary comment\n    second()\n";
+        assert!(findings(source, 2).is_empty());
+        assert_eq!(
+            findings(source, 1),
+            vec![expected("work", "function", 2, 1, 1, 4)]
+        );
+    }
+
+    #[test]
+    fn multiline_non_docstring_literals_keep_their_physical_token_lines() {
+        let source = "def work():\n    value = \"\"\"first\n\n# literal text\nlast\"\"\"\n    return value\n";
+        assert_eq!(
+            findings(source, 4),
+            vec![expected("work", "function", 5, 4, 1, 4)]
+        );
+        assert!(findings(source, 5).is_empty());
+    }
+
+    #[test]
+    fn class_body_definitions_use_method_wording() {
+        let source = "class Worker:\n    def work(self):\n        first()\n\n        # comment\n        second()\n        third()\n";
+        assert_eq!(
+            findings(source, 2),
+            vec![expected("work", "method", 3, 2, 2, 8)]
+        );
+    }
+
+    #[test]
+    fn functions_nested_inside_methods_keep_function_wording() {
+        let source = "class Worker:\n    def outer(self):\n        def inner():\n            first()\n            second()\n            third()\n        return inner\n";
+        assert_eq!(
+            findings(source, 2),
+            vec![
+                expected("outer", "method", 5, 2, 2, 8),
+                expected("inner", "function", 3, 2, 3, 12),
+            ]
+        );
+    }
+}
