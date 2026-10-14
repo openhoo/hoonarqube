@@ -22,7 +22,7 @@ pub(crate) fn check_any_type_hints(
         if matches!(annotation, Expr::Name(name) if name.id.as_str() == "Any") {
             issues.push(issue_at(
                 "python:S6542",
-                "Do not use Any as a type hint.",
+                "Use a more specific type than `Any` for this type hint.",
                 annotation.range(),
                 index,
                 source,
