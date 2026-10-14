@@ -58,6 +58,7 @@ fn check_naming_rules(
         type_depth: 0,
         negation_depth: 0,
         message_sign: None,
+        direct_negative_span: None,
     };
     magic.visit_program(program);
     let mut strings = StringStyleCollector {
@@ -310,6 +311,9 @@ struct MagicNumberCollector<'src, 'index> {
     /// Only an immediate numeric unary operand contributes its lexical sign
     /// to the reference message; enclosing expressions do not.
     message_sign: Option<(Span, &'static str)>,
+    /// Literal and report spans for the qualified contiguous `-number` shape.
+    /// Exemption keys continue to use the numeric literal's own span.
+    direct_negative_span: Option<(Span, Span)>,
 }
 
 impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
@@ -411,6 +415,7 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         let negated = matches!(it.operator, UnaryOperator::UnaryNegation);
         let previous_sign = self.message_sign;
+        let previous_negative_span = self.direct_negative_span;
         self.message_sign = match (it.operator, unparenthesized(&it.argument)) {
             (UnaryOperator::UnaryNegation, Expression::NumericLiteral(literal)) => {
                 Some((literal.span, "-"))
@@ -420,10 +425,20 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
             }
             _ => None,
         };
+        self.direct_negative_span = if negated
+            && let Expression::NumericLiteral(literal) = &it.argument
+            && it.span.start.checked_add(1) == Some(literal.span.start)
+            && it.span.end == literal.span.end
+        {
+            Some((literal.span, it.span))
+        } else {
+            None
+        };
         self.negation_depth += u32::from(negated);
         walk_unary_expression(self, it);
         self.negation_depth -= u32::from(negated);
         self.message_sign = previous_sign;
+        self.direct_negative_span = previous_negative_span;
     }
 
     fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
@@ -444,8 +459,12 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
             .filter(|(span, _)| *span == it.span)
             .map_or("", |(_, sign)| sign);
         let message = format!("No magic number: {sign}{raw}.");
+        let report_span = self
+            .direct_negative_span
+            .filter(|(literal, _)| *literal == it.span)
+            .map_or(it.span, |(_, span)| span);
         self.sink
-            .emit_span(RuleScope::Both, "S109", &message, it.span);
+            .emit_span(RuleScope::Both, "S109", &message, report_span);
     }
 }
 
@@ -881,7 +900,8 @@ mod tests {
     fn check_s109_raw_messages(language: crate::JstsLanguage) {
         // Pinned SonarJS 13.8 inherits `No magic number: {{raw}}.` and
         // preserves lexical spelling, including the immediate unary sign.
-        // The existing native numeric-only ranges are a separate residual.
+        // Direct contiguous minus ranges have retained scanner authority.
+        // Other unary shapes below preserve existing native ranges only.
         let cases = [
             ("g(3);\n", "No magic number: 3.", 2, 3),
             ("g(45);\n", "No magic number: 45.", 2, 4),
@@ -898,12 +918,14 @@ mod tests {
             ("g(45.00);\n", "No magic number: 45.00.", 2, 7),
             ("g(4_500);\n", "No magic number: 4_500.", 2, 7),
             ("g(4.5e1);\n", "No magic number: 4.5e1.", 2, 7),
-            ("g(-3);\n", "No magic number: -3.", 3, 4),
+            ("g(-3);\n", "No magic number: -3.", 2, 4),
             ("g(+3);\n", "No magic number: +3.", 3, 4),
             ("g(-(3));\n", "No magic number: -3.", 4, 5),
             ("g(+(3));\n", "No magic number: +3.", 4, 5),
             ("g(- /* gap */3);\n", "No magic number: -3.", 13, 14),
-            ("g(-(-3));\n", "No magic number: -3.", 5, 6),
+            // The inner direct minus follows the installed emitter's node
+            // selection; nested expression parity has no retained scan.
+            ("g(-(-3));\n", "No magic number: -3.", 4, 6),
             ("g(-(g(3)));\n", "No magic number: 3.", 6, 7),
         ];
         let key = format!("{}:S109", language.prefix());
@@ -947,6 +969,76 @@ mod tests {
     #[test]
     fn s109_typescript_raw_messages_match_sonarjs() {
         check_s109_raw_messages(crate::JstsLanguage::TypeScript);
+    }
+
+    fn check_s109_direct_minus_reference_ranges(language: crate::JstsLanguage) {
+        // Reduced from retained SonarJS 13.8 gap-probe and Zod findings.
+        // Expected endpoints include only the immediate contiguous minus.
+        let cases = [
+            (
+                "const deepSlice = list.slice(-2);\n",
+                "No magic number: -2.",
+                29,
+                31,
+            ),
+            (
+                "const farEnd = list.slice(-2)[0];\n",
+                "No magic number: -2.",
+                26,
+                28,
+            ),
+            ("g(-2147483648);\n", "No magic number: -2147483648.", 2, 13),
+            (
+                "g(-3.4028234663852886e38);\n",
+                "No magic number: -3.4028234663852886e38.",
+                2,
+                24,
+            ),
+            ("g(2147483647);\n", "No magic number: 2147483647.", 2, 12),
+            (
+                "g(3.4028234663852886e38);\n",
+                "No magic number: 3.4028234663852886e38.",
+                2,
+                23,
+            ),
+        ];
+        let key = format!("{}:S109", language.prefix());
+        for (source, message, start, end) in cases {
+            let report = match language {
+                crate::JstsLanguage::JavaScript => js(source),
+                crate::JstsLanguage::TypeScript => ts(source),
+            };
+            let found: Vec<_> = report
+                .issues
+                .into_iter()
+                .filter(|issue| issue.rule_key == key)
+                .collect();
+            assert_eq!(found, vec![issue(&key, message, (1, start), (1, end))]);
+        }
+        let clean = "const bareSlice = list.slice(-1);\n\
+                     const notFirst = list.slice(-1)[1];\n";
+        let report = match language {
+            crate::JstsLanguage::JavaScript => js(clean),
+            crate::JstsLanguage::TypeScript => ts(clean),
+        };
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == key)
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn s109_javascript_direct_minus_reference_ranges() {
+        check_s109_direct_minus_reference_ranges(crate::JstsLanguage::JavaScript);
+    }
+
+    #[test]
+    fn s109_typescript_direct_minus_reference_ranges() {
+        check_s109_direct_minus_reference_ranges(crate::JstsLanguage::TypeScript);
     }
 
     #[test]
