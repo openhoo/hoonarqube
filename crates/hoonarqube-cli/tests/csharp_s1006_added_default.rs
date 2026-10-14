@@ -714,3 +714,127 @@ fn csharp_s1006_local_generic_scope_controls_compile_and_preserve_exact_findings
     assert_eq!(before.stderr, after.stderr);
     assert_eq!(fixture.read("Control.cs"), matching.as_bytes());
 }
+
+#[test]
+fn csharp_s1006_local_scalar_identity_preserves_exact_bcl_and_alias_findings() {
+    for (using, base_type) in [
+        ("using System;", "System.Int32"),
+        ("using I = global::System.Int32;", "I"),
+        ("using S = global::System;", "S.Int32"),
+        ("using S = global::System;", "S::Int32"),
+        ("using System;", "global::System.Int32"),
+    ] {
+        let source = format!(
+            "{using}\nnamespace Triage;\npublic class B {{ public virtual int M({base_type} x = 1) => x; }}\npublic class D : B {{ public override int M(int x) => x; }}\n"
+        );
+        assert_local_generic_cli_difference(
+            &source,
+            Some("Add the default parameter value defined in the overridden method."),
+            Some((4, 47, 48)),
+        );
+        assert_local_generic_cli_difference(
+            &source.replace("M(int x)", "M(int x = 2)"),
+            Some("Use the default parameter value defined in the overridden method."),
+            Some((4, 51, 52)),
+        );
+        assert_local_generic_cli_difference(
+            &source.replace("M(int x)", "M(int x = 1)"),
+            None,
+            None,
+        );
+    }
+}
+
+#[test]
+fn csharp_s1006_local_scalar_identity_compiler_controls_preserve_exact_findings() {
+    let fixture = Fixture::new("scalar-identity-compiled");
+    let source = "using I = global::System.Int32;\nusing S = global::System;\nnamespace Triage;\npublic class B { public virtual int Qualified(System.Int32 x = 1) => x; public virtual int Alias(I x = 1) => x; public virtual int Namespace(S::Int32 x = 1) => x; public virtual int Changed(I x = 1) => x; }\npublic class D : B { public override int Qualified(int x) => x; public override int Alias(int x) => x; public override int Namespace(int x) => x; public override int Changed(int x = 2) => x; }\npublic static class Program { public static void Main() { D d = new(); global::System.Console.WriteLine($\"{d.Qualified(1)}:{d.Alias(1)}:{d.Namespace(1)}:{d.Changed(1)}\"); } }\n";
+    fixture.prepare_project(source);
+    let before = fixture.runtime();
+    assert_eq!(before.stdout, b"1:1:1:1\n");
+    assert!(before.stderr.is_empty());
+    let expected = [
+        (
+            55,
+            56,
+            "Add the default parameter value defined in the overridden method.",
+        ),
+        (
+            94,
+            95,
+            "Add the default parameter value defined in the overridden method.",
+        ),
+        (
+            137,
+            138,
+            "Add the default parameter value defined in the overridden method.",
+        ),
+        (
+            182,
+            183,
+            "Use the default parameter value defined in the overridden method.",
+        ),
+    ];
+    for format in ["json", "sonar"] {
+        let report = fixture.analyze(format, &["Control.cs"]);
+        let found = targets(&report, format);
+        let exact = expected.map(|(start,end,message)| if format == "json" {json!({"rule_key":KEY,"message":message,"range":{"start":{"line":5,"column":start},"end":{"line":5,"column":end}}})} else {json!({"ruleId":KEY,"primaryLocation":{"filePath":"Control.cs","message":message,"textRange":{"startLine":5,"startColumn":start,"endLine":5,"endColumn":end}}})});
+        assert_eq!(found, exact.iter().collect::<Vec<_>>());
+        assert_eq!(report, fixture.analyze(format, &["Control.cs"]));
+    }
+    assert_eq!(fixture.read("Control.cs"), source.as_bytes());
+    let matching = source
+        .replace("Qualified(int x)", "Qualified(int x = 1)")
+        .replace("Alias(int x)", "Alias(int x = 1)")
+        .replace("Namespace(int x)", "Namespace(int x = 1)")
+        .replace("Changed(int x = 2)", "Changed(int x = 1)");
+    fixture.write("Control.cs", &matching);
+    for format in ["json", "sonar"] {
+        assert!(targets(&fixture.analyze(format, &["Control.cs"]), format).is_empty());
+    }
+    let after = fixture.runtime();
+    assert_eq!(before.status.code(), after.status.code());
+    assert_eq!(before.stdout, after.stdout);
+    assert_eq!(before.stderr, after.stderr);
+    assert_eq!(fixture.read("Control.cs"), matching.as_bytes());
+}
+
+#[test]
+fn csharp_s1006_local_scalar_identity_compiler_rejects_shadowed_system_decoys() {
+    for prefix in [
+        "namespace Triage.System { public class Int32 {} }\n",
+        "using System = global::Shadow;\nnamespace Shadow { public class Int32 {} }\n",
+    ] {
+        let matching = "public virtual int M(int x) => x;";
+        let decoy = "public virtual int M(System.Int32 x = null) => 1;";
+        for methods in [format!("{matching} {decoy}"), format!("{decoy} {matching}")] {
+            let fixture = Fixture::new("scalar-system-decoy-compiled");
+            let source = format!(
+                "{prefix}namespace Triage {{\npublic class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\npublic static class Program {{ public static void Main() {{ global::System.Console.WriteLine(new D().M(2)); }} }}\n}}\n"
+            );
+            fixture.prepare_project(&source);
+            let before = fixture.runtime();
+            assert_eq!(before.stdout, b"2\n");
+            assert!(before.stderr.is_empty());
+            for format in ["json", "sonar"] {
+                removal(
+                    &fixture.analyze(format, &["Control.cs"]),
+                    format,
+                    "Control.cs",
+                    (prefix.lines().count() as u32 + 3, 49, 52),
+                );
+            }
+            assert_eq!(fixture.read("Control.cs"), source.as_bytes());
+            let clean = source.replace("M(int x = 2)", "M(int x)");
+            fixture.write("Control.cs", &clean);
+            for format in ["json", "sonar"] {
+                assert!(targets(&fixture.analyze(format, &["Control.cs"]), format).is_empty());
+            }
+            let after = fixture.runtime();
+            assert_eq!(before.status.code(), after.status.code());
+            assert_eq!(before.stdout, after.stdout);
+            assert_eq!(before.stderr, after.stderr);
+            assert_eq!(fixture.read("Control.cs"), clean.as_bytes());
+        }
+    }
+}

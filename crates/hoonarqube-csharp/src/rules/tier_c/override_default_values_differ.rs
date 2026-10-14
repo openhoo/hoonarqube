@@ -861,4 +861,145 @@ mod tests {
             );
         assert!(with_key(&analyze_default(&matching), KEY).is_empty());
     }
+
+    #[test]
+    fn s1006_local_scalar_identity_preserves_bcl_keyword_add_and_use_findings() {
+        for (keyword, framework) in [
+            ("bool", "Boolean"),
+            ("byte", "Byte"),
+            ("char", "Char"),
+            ("decimal", "Decimal"),
+            ("double", "Double"),
+            ("float", "Single"),
+            ("int", "Int32"),
+            ("long", "Int64"),
+            ("object", "Object"),
+            ("sbyte", "SByte"),
+            ("short", "Int16"),
+            ("string", "String"),
+            ("uint", "UInt32"),
+            ("ulong", "UInt64"),
+            ("ushort", "UInt16"),
+            ("nint", "IntPtr"),
+            ("nuint", "UIntPtr"),
+        ] {
+            let source = format!(
+                "using System;\nnamespace Triage;\npublic class B {{ public virtual int M(System.{framework} x = default) => 1; }}\npublic class D : B {{ public override int M({keyword} x) => 1; }}\n"
+            );
+            let column = 44 + keyword.len() as u32;
+            assert_local_generic_difference(
+                &source,
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, column, column + 1)),
+            );
+        }
+        let source = "using System;\nnamespace Triage;\npublic class B { public virtual int M(System.Int32 x = 1) => x; }\npublic class D : B { public override int M(int x) => x; }\npublic static class Program { public static void Main() { Console.WriteLine(new D().M(1)); } }\n";
+        assert_local_generic_difference(
+            source,
+            Some("Add the default parameter value defined in the overridden method."),
+            Some((4, 47, 48)),
+        );
+        let changed = source.replace("M(int x)", "M(int x = 2)");
+        assert_local_generic_difference(
+            &changed,
+            Some("Use the default parameter value defined in the overridden method."),
+            Some((4, 51, 52)),
+        );
+        let matching = source.replace("M(int x)", "M(int x = 1)");
+        assert_local_generic_difference(&matching, None, None);
+    }
+
+    #[test]
+    fn s1006_local_scalar_identity_preserves_type_and_namespace_aliases() {
+        for (using, base_type) in [
+            ("using I = global::System.Int32;", "I"),
+            ("using S = global::System;", "S.Int32"),
+            ("using S = global::System;", "S::Int32"),
+            ("", "global::System.Int32"),
+        ] {
+            let source = format!(
+                "{using}\nnamespace Triage;\npublic class B {{ public virtual int M({base_type} x = 1) => x; }}\npublic class D : B {{ public override int M(int x) => x; }}\n"
+            );
+            assert_local_generic_difference(
+                &source,
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, 47, 48)),
+            );
+            assert_local_generic_difference(
+                &source.replace("M(int x)", "M(int x = 2)"),
+                Some("Use the default parameter value defined in the overridden method."),
+                Some((4, 51, 52)),
+            );
+            assert_local_generic_difference(
+                &source.replace("M(int x)", "M(int x = 1)"),
+                None,
+                None,
+            );
+        }
+        let source = "using I = global::System.Int64;\nnamespace Triage {\nusing I = global::System.Int32;\npublic class B<T> { public virtual T M(T x = default) => x; }\npublic class D : B<I> { public override int M(int x) => x; }\n}\n";
+        assert_local_generic_difference(
+            source,
+            Some("Add the default parameter value defined in the overridden method."),
+            Some((5, 50, 51)),
+        );
+        let source = "namespace BaseScope { using I = global::System.Int32; public class B { public virtual int M(I x = 1) => x; } }\nnamespace DerivedScope { using I = global::System.Int64; public class D : BaseScope.B { public override int M(int x) => x; } }\n";
+        assert_local_generic_difference(
+            source,
+            Some("Add the default parameter value defined in the overridden method."),
+            Some((2, 114, 115)),
+        );
+    }
+
+    #[test]
+    fn s1006_local_scalar_identity_normalizes_only_type_positions_in_composites() {
+        for (base_type, derived_type, default) in [
+            ("global::System.Int32[]", "int[]", "null"),
+            (
+                "System.Collections.Generic.List<global::System.Int32>",
+                "System.Collections.Generic.List<int>",
+                "null",
+            ),
+            (
+                "(global::System.Int32 Left, int Right)",
+                "(int Left, int Right)",
+                "default",
+            ),
+        ] {
+            let source = format!(
+                "using System;\nnamespace Triage;\npublic class B {{ public virtual int M({base_type} x = {default}) => 1; }}\npublic class D : B {{ public override int M({derived_type} x) => 1; }}\n"
+            );
+            let column = 44 + derived_type.len() as u32;
+            assert_local_generic_difference(
+                &source,
+                Some("Add the default parameter value defined in the overridden method."),
+                Some((4, column, column + 1)),
+            );
+        }
+    }
+
+    #[test]
+    fn s1006_local_scalar_identity_rejects_system_namespace_overload_decoys() {
+        for (prefix, namespace) in [
+            (
+                "namespace Triage.System { public class Int32 {} }\n",
+                "Triage",
+            ),
+            (
+                "using System = global::Shadow;\nnamespace Shadow { public class Int32 {} }\n",
+                "Triage",
+            ),
+        ] {
+            let decoy = "public virtual int M(System.Int32 x = null) => 1;";
+            let matching = "public virtual int M(int x) => x;";
+            for methods in [format!("{matching} {decoy}"), format!("{decoy} {matching}")] {
+                let source = format!(
+                    "{prefix}namespace {namespace} {{\npublic class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\n}}\n"
+                );
+                let line = prefix.lines().count() as u32 + 3;
+                assert_removal(&analyze_default(&source), (line, 49, 52));
+                let clean = source.replace("M(int x = 2)", "M(int x)");
+                assert!(with_key(&analyze_default(&clean), KEY).is_empty());
+            }
+        }
+    }
 }
