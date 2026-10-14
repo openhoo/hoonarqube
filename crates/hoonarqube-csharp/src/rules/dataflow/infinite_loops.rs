@@ -213,4 +213,60 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 2);
     }
+
+    #[test]
+    fn s2190_distinct_fixed_arity_forwarders_do_not_recurse() {
+        for source in [
+            "class C { int Forward(int n) { return Forward(n, 0); } int Forward(int n, int extra) { return n + extra; } }",
+            "class C { int Forward(int n, int extra) { return Forward(n); } int Forward(int n) { return n; } }",
+            "class C { string Humanize(int unit = 0) { return Humanize(null, unit); } string Humanize(string format, int unit = 0, object culture = null) { return format; } }",
+            "class C { int Forward(int n) { return Forward(n, (0, 1).Item1); } int Forward(int n, int extra) { return n + extra; } }",
+        ] {
+            let report = analyze_default(source);
+            assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn s2190_arity_proof_preserves_optional_params_named_and_ref_boundaries() {
+        for source in [
+            "class C { int Loop(int n) { return Loop(n + 1); } }",
+            "class C { int Loop(int n = 0) { return Loop(); } }",
+            "class C { int Loop(int n, int extra = 0) { return Loop(n); } }",
+            "class C { int Loop(params int[] values) { return Loop(1, 2); } }",
+            "class C { int Loop(int n) { return Loop(n: n); } }",
+            "class C { int Loop(ref int n) { return Loop(ref n); } }",
+            "class C { int Forward(int n) { return Forward(extra: 0, n: n); } int Forward(int n, int extra) { return n + extra; } }",
+            "class C { int Forward(ref int n) { return Forward(ref n, 0); } int Forward(ref int n, int extra) { return n + extra; } }",
+            "class C { int Forward(int n) { return Forward((long)n); } int Forward(long n) { return (int)n; } }",
+            "class C { int Loop([System.Runtime.InteropServices.Optional] int n) { return Loop(); } }",
+        ] {
+            let report = analyze_default(source);
+            let findings = with_key(&report, KEY);
+            assert_eq!(findings.len(), 1, "{source:?}");
+            assert_eq!(
+                findings[0].message,
+                "Add a way to break out of this method's recursion."
+            );
+            assert!(findings[0].fix.is_none());
+            assert!(findings[0].alternatives.is_empty());
+            assert!(findings[0].flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2190_distinct_arity_keeps_loop_ownership_base_cases_and_incomplete_sources() {
+        let report = analyze_default(
+            "class C { void Spin() { while (true) { void Local() { return; } Local(); } } int Fact(int n) { if (n <= 1) { return 1; } return Fact(n - 1); } }",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+        for source in [
+            "class C { void Spin(bool done) { while (true) { if (done) { break; } } } }",
+            "class C { int Fact(int n) { if (n <= 1) { return 1; } return Fact(n - 1); } }",
+            "class C { int Broken(",
+        ] {
+            let report = analyze_default(source);
+            assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+        }
+    }
 }
