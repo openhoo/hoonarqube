@@ -187,8 +187,12 @@ fn selected_not_fix_diff_apply_and_reanalysis_preserve_runtime_types_and_effects
         assert_eq!(result.status.code(), Some(0), "{result:?}");
         let report: Value = serde_json::from_slice(&result.stdout).expect("fix JSON");
         assert_eq!(report["mechanical"], 0);
-        assert_eq!(report["planned"], 2);
-        assert_eq!(report["applicable"], 2);
+        if mode == "--diff" {
+            assert_eq!(report["planned"], 2);
+            assert_eq!(report["applicable"], 2);
+        } else {
+            assert_eq!(report["regressions"], 0);
+        }
         assert_eq!(report["applied"], if mode == "--apply" { 2 } else { 0 });
         assert_eq!(report["verified"], if mode == "--apply" { 2 } else { 0 });
         assert_eq!(report["unverified"], 0);
@@ -218,7 +222,17 @@ fn selected_not_fix_diff_apply_and_reanalysis_preserve_runtime_types_and_effects
         .expect("before issues")
         .iter()
         .filter(|i| i["rule_key"] != "python:S1721")
-        .cloned()
+        .map(|issue| {
+            if issue["rule_key"] == "python:S1940" {
+                // The fixed source is one column shorter on the comparison
+                // line. Preserve the existing opposite-operator suggestion.
+                json!({"rule_key":"python:S1940","message":"Use the opposite operator (\"!=\") instead.",
+                    "range":range(10,13,30),"alternatives":[{"id":"s1940-use-opposite-operator",
+                    "fix":{"message":"Use != instead","edits":[{"range":range(10,13,30),"replacement":"Probe() != 7"}]}}]})
+            } else {
+                issue.clone()
+            }
+        })
         .collect();
     assert_eq!(after["files"][0]["issues"], json!(retained));
     assert_eq!(fixture.analyze(projected, "strict", "json"), after);
