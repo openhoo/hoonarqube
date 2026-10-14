@@ -69,7 +69,60 @@ pub(crate) fn check_rx_syntax_shapes(
 #[cfg(test)]
 mod tests {
 
-    use crate::test_support::regex_finds;
+    use crate::test_support::{findings, issue, regex_finds, scan};
+
+    const OCTAL_MESSAGE: &str = "Consider replacing this octal escape sequence with a Unicode or hexadecimal sequence instead.";
+
+    #[test]
+    fn s6537_raw_octal_uses_reference_message_and_full_range() {
+        // These exact source bytes and this range were independently scanned
+        // with Sonar Python 5.31.0.36502.
+        let report = scan("import re\n\nre.compile(r'a\\101b')\n");
+        assert_eq!(
+            findings(&report, "python:S6537"),
+            vec![&issue("python:S6537", OCTAL_MESSAGE, (3, 14), (3, 18))]
+        );
+    }
+
+    #[test]
+    fn s6537_string_octal_preserves_existing_native_range() {
+        // String-level coordinates are captured native behavior, not a claim
+        // of independent reference range parity.
+        let report = scan("import re\n\nre.compile('a\\101b')\n");
+        assert_eq!(
+            findings(&report, "python:S6537"),
+            vec![&issue("python:S6537", OCTAL_MESSAGE, (3, 13), (3, 14))]
+        );
+    }
+
+    #[test]
+    fn s6537_multiple_and_null_octals_preserve_native_selection() {
+        let report = scan("import re\n\nre.compile(r'a\\101b\\033c')\n");
+        let expected = [
+            issue("python:S6537", OCTAL_MESSAGE, (3, 14), (3, 18)),
+            issue("python:S6537", OCTAL_MESSAGE, (3, 19), (3, 23)),
+        ];
+        assert_eq!(
+            findings(&report, "python:S6537"),
+            expected.iter().collect::<Vec<_>>()
+        );
+        let null_octal = scan("import re\n\nre.compile(r'a\\0b')\n");
+        assert_eq!(
+            findings(&null_octal, "python:S6537"),
+            vec![&issue("python:S6537", OCTAL_MESSAGE, (3, 14), (3, 16))]
+        );
+    }
+
+    #[test]
+    fn s6537_hex_unicode_and_valid_backreference_stay_clean() {
+        for source in [
+            "import re\n\nre.compile(r'a\\x41b')\n",
+            "import re\n\nre.compile(r'a\\u0041b')\n",
+            "import re\n\nre.compile(r'(a)\\1')\n",
+        ] {
+            assert!(findings(&scan(source), "python:S6537").is_empty());
+        }
+    }
 
     #[test]
     fn s6001_flags_back_references_to_unmatched_groups() {
