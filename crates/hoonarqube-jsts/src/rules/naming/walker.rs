@@ -58,6 +58,7 @@ fn check_naming_rules(
         type_depth: 0,
         negation_depth: 0,
         message_sign: None,
+        direct_negative_span: None,
     };
     magic.visit_program(program);
     let mut strings = StringStyleCollector {
@@ -310,6 +311,9 @@ struct MagicNumberCollector<'src, 'index> {
     /// Only an immediate numeric unary operand contributes its lexical sign
     /// to the reference message; enclosing expressions do not.
     message_sign: Option<(Span, &'static str)>,
+    /// Literal and report spans for the qualified contiguous `-number` shape.
+    /// Exemption keys continue to use the numeric literal's own span.
+    direct_negative_span: Option<(Span, Span)>,
 }
 
 impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
@@ -411,6 +415,7 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
     fn visit_unary_expression(&mut self, it: &UnaryExpression<'a>) {
         let negated = matches!(it.operator, UnaryOperator::UnaryNegation);
         let previous_sign = self.message_sign;
+        let previous_negative_span = self.direct_negative_span;
         self.message_sign = match (it.operator, unparenthesized(&it.argument)) {
             (UnaryOperator::UnaryNegation, Expression::NumericLiteral(literal)) => {
                 Some((literal.span, "-"))
@@ -420,10 +425,20 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
             }
             _ => None,
         };
+        self.direct_negative_span = if negated
+            && let Expression::NumericLiteral(literal) = &it.argument
+            && it.span.start.checked_add(1) == Some(literal.span.start)
+            && it.span.end == literal.span.end
+        {
+            Some((literal.span, it.span))
+        } else {
+            None
+        };
         self.negation_depth += u32::from(negated);
         walk_unary_expression(self, it);
         self.negation_depth -= u32::from(negated);
         self.message_sign = previous_sign;
+        self.direct_negative_span = previous_negative_span;
     }
 
     fn visit_numeric_literal(&mut self, it: &NumericLiteral<'a>) {
@@ -444,8 +459,12 @@ impl<'a> Visit<'a> for MagicNumberCollector<'_, '_> {
             .filter(|(span, _)| *span == it.span)
             .map_or("", |(_, sign)| sign);
         let message = format!("No magic number: {sign}{raw}.");
+        let report_span = self
+            .direct_negative_span
+            .filter(|(literal, _)| *literal == it.span)
+            .map_or(it.span, |(_, span)| span);
         self.sink
-            .emit_span(RuleScope::Both, "S109", &message, it.span);
+            .emit_span(RuleScope::Both, "S109", &message, report_span);
     }
 }
 
