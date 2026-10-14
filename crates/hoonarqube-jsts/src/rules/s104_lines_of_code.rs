@@ -1,7 +1,8 @@
 // Rule module s104_lines_of_code (generated).
 
 use crate::context::AnalysisContext;
-use hoonarqube_ir::{Issue, Pos, Range};
+use hoonarqube_ir::{Issue, Pos, Range, u32_saturating};
+use oxc_span::Span;
 
 // JavaScript's whitespace set includes BOM and excludes U+0085. Keep this
 // rule-local because the installed S104 helper uses ECMAScript trim/\s.
@@ -34,15 +35,14 @@ fn source_line_count(ctx: &AnalysisContext) -> usize {
 
     let first = ctx.index.pos(ctx.program.span.start).line;
     let last = ctx.index.pos(ctx.program.span.end).line;
-    let mut count = 0;
-    for (number, line) in ctx.index.lines() {
+    let code_lines = ctx.index.lines().filter_map(|(number, line)| {
         if number < first || number > last {
-            continue;
+            return None;
         }
         let without_prefix = line.trim_start_matches(is_ecmascript_whitespace);
         let content = without_prefix.trim_end_matches(is_ecmascript_whitespace);
         if content.is_empty() {
-            continue;
+            return None;
         }
         let row = number as usize - 1;
         let content_start = ctx.index.line_starts[row] as usize + line.len() - without_prefix.len();
@@ -50,11 +50,16 @@ fn source_line_count(ctx: &AnalysisContext) -> usize {
         if comments_by_line[row].is_some_and(|comment| {
             comment.start as usize <= content_start && comment.end as usize >= content_end
         }) {
-            continue;
+            return None;
         }
-        count += 1;
-    }
-    count
+        Some(Span::new(
+            u32_saturating(content_start),
+            u32_saturating(content_end),
+        ))
+    });
+    // Each selected span is confined to one physical row. Reuse the existing
+    // coverage counter without feeding it complete statement spans.
+    ctx.index.covered_line_count(code_lines)
 }
 
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
