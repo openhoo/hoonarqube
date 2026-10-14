@@ -251,6 +251,54 @@ mod tests {
     }
 
     #[test]
+    fn default_parameter_references_do_not_mark_body_aliases_used() {
+        for (source, name, line, end) in [
+            (
+                "const api = function self(value = () => self) {\n  var self;\n  return 0;\n};\napi();\n",
+                "self",
+                2,
+                10,
+            ),
+            (
+                "function f(value = () => value) {\n  var value;\n  return 0;\n}\nf();\n",
+                "value",
+                2,
+                11,
+            ),
+            (
+                "function f(input = () => ghost) {\n  var ghost;\n  var ghost;\n  return 0;\n}\nf();\n",
+                "ghost",
+                3,
+                11,
+            ),
+            (
+                "const api = (input = () => ghost) => {\n  var ghost;\n  var ghost;\n  return 0;\n};\napi();\n",
+                "ghost",
+                3,
+                11,
+            ),
+        ] {
+            assert_eq!(
+                unused_issues(source),
+                [issue(
+                    "javascript:S1481",
+                    &format!("Remove the declaration of the unused '{name}' variable."),
+                    (line, 6),
+                    (line, end)
+                )]
+            );
+        }
+        for source in [
+            "const api = function self(value = () => self) { console.log(self); var self; return value; }; api();",
+            "function f(value = () => value) { console.log(value); var value; return 0; } f();",
+            "function f(input = () => ghost) { console.log(ghost); var ghost; var ghost; return input; } f();",
+            "const api = (input = () => ghost) => { console.log(ghost); var ghost; var ghost; return input; }; api();",
+        ] {
+            assert_eq!(unused_issues(source), Vec::<hoonarqube_ir::Issue>::new());
+        }
+    }
+
+    #[test]
     fn var_aliases_do_not_share_references_across_function_or_block_scopes() {
         let source = concat!(
             "function outer() {\n",

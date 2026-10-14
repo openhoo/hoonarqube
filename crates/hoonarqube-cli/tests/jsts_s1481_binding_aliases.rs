@@ -209,6 +209,59 @@ fn invalid_lexical_redeclarations_keep_existing_var_objects() {
 }
 
 #[test]
+fn default_parameter_references_keep_body_alias_findings_and_body_predeclaration_reads() {
+    let fixture = Fixture::new();
+    for (source, name, line, end) in [
+        (
+            "const api = function self(value = () => self) {\n  var self;\n  return 0;\n};\napi();\n",
+            "self",
+            2,
+            10,
+        ),
+        (
+            "function f(value = () => value) {\n  var value;\n  return 0;\n}\nf();\n",
+            "value",
+            2,
+            11,
+        ),
+        (
+            "function f(input = () => ghost) {\n  var ghost;\n  var ghost;\n  return 0;\n}\nf();\n",
+            "ghost",
+            3,
+            11,
+        ),
+        (
+            "const api = (input = () => ghost) => {\n  var ghost;\n  var ghost;\n  return 0;\n};\napi();\n",
+            "ghost",
+            3,
+            11,
+        ),
+    ] {
+        fixture.write(FILE, source.as_bytes());
+        for format in ["json", "sonar"] {
+            let report = fixture.analyze(FILE, format, "strict", 0);
+            assert_eq!(
+                target_issues(&report, format),
+                [expected(
+                    &format!("Remove the declaration of the unused '{name}' variable."),
+                    (line, 6, end),
+                    format
+                )]
+            );
+        }
+        fixture.assert_source(FILE, source.as_bytes());
+    }
+    for source in [
+        "const api = function self(value = () => self) { console.log(self); var self; return value; }; api();\n",
+        "function f(value = () => value) { console.log(value); var value; return 0; } f();\n",
+        "function f(input = () => ghost) { console.log(ghost); var ghost; var ghost; return input; } f();\n",
+        "const api = (input = () => ghost) => { console.log(ghost); var ghost; var ghost; return input; }; api();\n",
+    ] {
+        assert_clean(source);
+    }
+}
+
+#[test]
 fn unused_aliases_keep_distinct_function_block_and_self_name_scopes() {
     let fixture = Fixture::new();
     let distinct = concat!(
