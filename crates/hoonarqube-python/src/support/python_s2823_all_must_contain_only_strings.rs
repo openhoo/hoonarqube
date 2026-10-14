@@ -61,10 +61,13 @@ pub(crate) fn flag_duplicate_branches(
     for (later_index, later) in branches.iter().enumerate() {
         // The reference exempts a duplicate branch only when its own
         // statements fit on one line.
-        if single_line(later) {
+        if later.is_empty() || single_line(later) {
             continue;
         }
         for earlier in &branches[..later_index] {
+            if earlier.is_empty() {
+                continue;
+            }
             if ranges_textually_equal(suite_span(later), suite_span(earlier), source) {
                 let earlier_line = index
                     .line_column(suite_span(earlier).start(), source)

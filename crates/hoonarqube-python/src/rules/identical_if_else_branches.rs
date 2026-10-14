@@ -21,6 +21,8 @@ pub(crate) fn check_identical_if_else_branches(
             continue;
         };
         if clause.test.is_some()
+            || if_stmt.body.is_empty()
+            || clause.body.is_empty()
             || !ranges_textually_equal(suite_span(&if_stmt.body), suite_span(&clause.body), source)
         {
             continue;
