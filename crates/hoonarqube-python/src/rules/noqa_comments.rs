@@ -30,7 +30,7 @@ pub(crate) fn check_noqa_comments(
         // Don't add nosec facts from invalid-source parser recovery. Retain
         // established noqa recovery behavior on those incomplete files.
         let message = if valid_syntax {
-            tracking_message(text, lower.contains("noqa"))
+            tracking_message(text)
         } else {
             lower.contains("noqa").then_some(NOQA_MESSAGE)
         };
@@ -58,7 +58,7 @@ pub(crate) fn check_noqa_comments(
     issues
 }
 
-fn tracking_message(text: &str, existing_noqa: bool) -> Option<&'static str> {
+fn tracking_message(text: &str) -> Option<&'static str> {
     // The reference selects the first valid inline directive, then reports on
     // the whole original comment. Java's default regex whitespace is ASCII.
     for piece in text.split('#') {
@@ -86,9 +86,7 @@ fn tracking_message(text: &str, existing_noqa: bool) -> Option<&'static str> {
             }
         }
     }
-    // Keep existing standalone noqa boundaries; this package adds nosec and
-    // corrects message choice only when a valid inline directive is present.
-    existing_noqa.then_some(NOQA_MESSAGE)
+    None
 }
 
 fn reference_whitespace(ch: char) -> bool {
@@ -220,6 +218,24 @@ mod tests {
     use crate::{AnalyzerOptions, analyze};
 
     #[test]
+    fn noqa_requires_valid_lowercase_directive_in_complete_source() {
+        for comment in ["# NOQA", "# noqax", "# mention noqa", "# NOQA isort:skip"] {
+            let report = analyze(
+                PathBuf::from("t.py"),
+                &format!("value = 1 {comment}\n"),
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "python:S1309"),
+                "ordinary comment must not acquire S1309: {comment}"
+            );
+        }
+    }
+
+    #[test]
     fn noqa_comments_are_tracked_and_validated() {
         let well_formed = ["# noqa", "# noqa: E501", "# noqa: E501,F841"];
         for source in well_formed {
@@ -244,7 +260,6 @@ mod tests {
             "#noqa",
             "# noqa : E501",
             "# noqa: e501",
-            "# NOQA isort:skip",
             "# noqa isort:skip",
         ] {
             let report = analyze(
