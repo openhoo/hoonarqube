@@ -222,13 +222,14 @@ impl FindingIdentity {
 /// Line-boundary contract used to map raw source bytes to 1-based
 /// [`crate::Pos`] lines.
 ///
-/// `Generic` recognizes LF and CRLF only. `Ecmascript` additionally
-/// recognizes the remaining ECMAScript line terminators — lone CR, U+2028
+/// `Generic` recognizes LF and CRLF only. `Java` additionally recognizes
+/// lone CR. `Ecmascript` recognizes lone CR, U+2028
 /// LINE SEPARATOR, and U+2029 PARAGRAPH SEPARATOR — matching the positions
 /// reported for JavaScript and TypeScript sources.
 #[derive(Clone, Copy)]
 pub enum SourceLineStyle {
     Generic,
+    Java,
     Ecmascript,
 }
 
@@ -244,6 +245,9 @@ pub fn line_style_for_path(path: &Path, language: Option<&str>) -> SourceLineSty
         {
             return SourceLineStyle::Ecmascript;
         }
+        if language.eq_ignore_ascii_case("java") {
+            return SourceLineStyle::Java;
+        }
         return SourceLineStyle::Generic;
     }
     let extension = path.extension().and_then(|extension| extension.to_str());
@@ -258,6 +262,8 @@ pub fn line_style_for_path(path: &Path, language: Option<&str>) -> SourceLineSty
             || extension.eq_ignore_ascii_case("cts")
     }) {
         SourceLineStyle::Ecmascript
+    } else if extension.is_some_and(|extension| extension.eq_ignore_ascii_case("java")) {
+        SourceLineStyle::Java
     } else {
         SourceLineStyle::Generic
     }
@@ -1387,7 +1393,14 @@ pub fn line_terminator_width(
     match source.get(offset).copied()? {
         b'\n' => Some(1),
         b'\r' if source.get(offset + 1) == Some(&b'\n') => Some(2),
-        b'\r' if matches!(line_style, SourceLineStyle::Ecmascript) => Some(1),
+        b'\r'
+            if matches!(
+                line_style,
+                SourceLineStyle::Java | SourceLineStyle::Ecmascript
+            ) =>
+        {
+            Some(1)
+        }
         0xe2 if matches!(line_style, SourceLineStyle::Ecmascript)
             && source
                 .get(offset..)
@@ -1423,7 +1436,10 @@ pub fn line_content_end(
         }
     } else if end > start
         && source[end - 1] == b'\r'
-        && matches!(line_style, SourceLineStyle::Ecmascript)
+        && matches!(
+            line_style,
+            SourceLineStyle::Java | SourceLineStyle::Ecmascript
+        )
     {
         end -= 1;
     } else if end >= start + 3
@@ -1565,6 +1581,29 @@ mod tests {
             }
         }
         assert_eq!(line_content_end(b"", 0, 0, SourceLineStyle::Generic), 0);
+    }
+
+    #[test]
+    fn java_source_lines_recognize_cr_lf_crlf_without_unicode_separators() {
+        for (path, language) in [
+            ("Control.java", None),
+            ("Control.JAVA", None),
+            ("source.txt", Some("JaVa")),
+        ] {
+            let style = line_style_for_path(Path::new(path), language);
+            assert_eq!(source_line_starts(b"x\ry\r\nz\n", style), vec![0, 2, 5, 7]);
+            assert_eq!(line_content_end(b"x\r", 0, 2, style), 1);
+            assert_eq!(
+                line_terminator_width("x\u{2028}y\u{2029}z".as_bytes(), 1, style),
+                None
+            );
+            assert_eq!(
+                source_line_starts("x\u{2028}y\u{2029}z".as_bytes(), style),
+                vec![0]
+            );
+        }
+        let reported_python = line_style_for_path(Path::new("Control.java"), Some("python"));
+        assert_eq!(source_line_starts(b"x\ry", reported_python), vec![0]);
     }
 
     #[test]

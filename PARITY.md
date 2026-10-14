@@ -191,8 +191,8 @@ detection: catalog membership does not imply implemented detectors, and the
 implemented detector surface grows incrementally (Ruby currently implements
 `ruby:S1067`, `ruby:S1134`, `ruby:S1135`, `ruby:S1192`, `ruby:S126`,
 `ruby:S134`, and `ruby:S1764`;
-Java implements `java:S1117`, `java:S1854`, `java:S2143`, and
-`java:S2211`).
+Java implements `java:S1117`, `java:S1134`, `java:S1135`, `java:S1854`,
+`java:S2143`, and `java:S2211`).
 
 The native duplication defaults resemble SonarQube's documented thresholds:
 100 normalized syntax tokens across 10 physical lines for non-Java input,
@@ -406,9 +406,20 @@ HTML, or Docker syntax support.
 
 Native metric support, native language syntax support, Sonar server reference
 evidence, and optional IDE actions are separate contracts. Java adds
-measurement support plus its first four cataloged sonar-parity detectors
-(`java:S1117`, `java:S1854`, `java:S2143`, `java:S2211`, probe-verified
-against the live SonarQube 26.8 Community reference). Ruby ships
+measurement support plus six cataloged sonar-parity detectors. The existing
+four (`java:S1117`, `java:S1854`, `java:S2143`, `java:S2211`) were
+probe-verified against the live SonarQube 26.8 Community reference. Java
+comment tags (`java:S1134`, `java:S1135`) are qualified against the 26.9
+Community Java 8.41.0.47177 plugin running on Java 27: first case-insensitive
+occurrence per parsed comment trivia line, BMP letter boundaries matching
+`Character.isLetter(char)`, full physical-line spans, exact messages, and
+separate identical findings for separate trivia. The 23 compiled reference
+controls contain 33 findings; 22 files complete natively, while the escaped
+comment-delimiter control preserves its native incomplete result. The retained
+Commons CLI and Commons CSV inventories qualify 16 additional reference TODO
+findings. Supplementary letters are surrogate boundaries in the reference;
+raw Unicode escapes remain raw in comment matching. No comment-tag action
+is provided. Ruby ships
 measurement support plus seven cataloged sonar-parity detectors. The existing
 five (`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, `ruby:S1764`)
 are oracle-exact on the pinned `rake` scan. Comment tags (`ruby:S1134`,

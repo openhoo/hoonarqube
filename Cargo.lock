@@ -934,6 +934,7 @@ name = "hoonarqube-java"
 version = "0.11.1"
 dependencies = [
  "hoonarqube-ir",
+ "regex",
  "tree-sitter",
  "tree-sitter-java",
 ]
