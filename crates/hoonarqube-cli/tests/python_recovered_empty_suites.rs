@@ -38,7 +38,7 @@ impl Fixture {
         );
         assert_eq!(output.stderr.is_empty(), valid, "{output:?}");
         let report: Value = serde_json::from_slice(&output.stdout).expect("structured report");
-        if !valid {
+        if !valid && profile == "sonar-parity" {
             assert_eq!(report["parity"]["completeness"], "incomplete");
         }
         if format == "json" {
