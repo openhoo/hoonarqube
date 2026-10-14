@@ -2563,12 +2563,9 @@ fn check_returned_locals(root: Node<'_>, source: &str, scan: &str, issues: &mut 
         let Some(pattern) = declaration.child_by_field_name("pattern") else {
             return;
         };
-        let Some(value) = declaration.child_by_field_name("value") else {
+        let Some(_) = declaration.child_by_field_name("value") else {
             return;
         };
-        if length_cast_regex().is_match(text(value, scan)) {
-            return;
-        }
         let returned = returned_expression(*returned);
         if returned.is_some_and(|returned| {
             returned.kind() == "identifier"
@@ -6812,7 +6809,6 @@ regex_fn!(
     repeated_cast_regex,
     r"\([^\n;]+\s+as\s+(?P<first>[ui](?:8|16|32|64|128|size)|f(?:32|64))\)\s+as\s+(?P<second>[ui](?:8|16|32|64|128|size)|f(?:32|64))"
 );
-regex_fn!(length_cast_regex, r"\.len\(\)\s+as\s+usize");
 regex_fn!(
     string_variable_regex,
     r"let\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*String::from\("
