@@ -341,7 +341,7 @@ const SELECTION_CASES: &[SelectionCase] = &[
         name: "allowed-unaliased",
         path: "case.py",
         source: "from __future__ import annotations\nfrom typing import Any\nfrom typing_extensions import Literal\nfrom sklearn.experimental import enable_iterative_imputer\n",
-        spans: &[],
+        spans: &[(4, 33, 57)],
         changes: false,
     },
     SelectionCase {
