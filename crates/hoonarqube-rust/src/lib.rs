@@ -1157,6 +1157,11 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
     let matched: Vec<_> = sonar_contract::FINDINGS
         .iter()
         .filter_map(|contract| {
+            // S2479 derives complete literal ranges from syntax independently of
+            // the frozen oracle's source text and must not add a second identity.
+            if contract.key == "rust:S2479" {
+                return None;
+            }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
                 return None;
             }
@@ -1331,7 +1336,7 @@ fn check_whole_file(
     root: Node<'_>,
     issues: &mut Vec<Issue>,
 ) {
-    check_invisible_unicode(source, issues);
+    check_invisible_unicode(root, source, issues);
     check_regex_literals(source, code, uncommented, root, issues);
     check_vector_pushes(root, source, issues);
     check_getters(root, source, code, issues);
@@ -2172,21 +2177,31 @@ fn check_large_number(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_invisible_unicode(source: &str, issues: &mut Vec<Issue>) {
-    for (offset, character) in source.char_indices() {
-        if matches!(
-            character,
-            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+fn check_invisible_unicode(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if !matches!(
+            node.kind(),
+            "string_literal" | "raw_string_literal" | "char_literal"
         ) {
-            issues.push(offset_issue(
+            return;
+        }
+        let literal = text(node, source);
+        // Clippy checks Rust string and character literals, excluding byte/C strings.
+        let rust_literal =
+            literal.starts_with('"') || literal.starts_with('\'') || literal.starts_with('r');
+        if rust_literal
+            && literal
+                .chars()
+                .any(|character| matches!(character, '\u{200B}' | '\u{00AD}' | '\u{2060}'))
+        {
+            issues.push(node_issue(
                 "rust:S2479",
-                "Remove this invisible Unicode character.",
+                "Remove this invisible character from this literal.",
+                node,
                 source,
-                offset,
-                offset + character.len_utf8(),
             ));
         }
-    }
+    });
 }
 
 fn check_regex_literals(
@@ -6748,7 +6763,6 @@ mod tests {
             }
         );
     }
-
 
     #[test]
     fn array_macro_index_tracks_each_binding_until_its_next_shadow() {
