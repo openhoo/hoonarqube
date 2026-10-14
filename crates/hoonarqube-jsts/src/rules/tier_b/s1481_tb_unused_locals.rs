@@ -1,15 +1,25 @@
 // Rule module s1481_tb_unused_locals (generated).
 use crate::engine::scope_model::{TbKind, TbModel};
 use crate::support::{IssueSink, RuleScope};
+use oxc_ast::ast::{ArrowFunctionExpression, Function, Program, StaticBlock};
+use oxc_ast_visit::Visit;
+use oxc_ast_visit::walk::{walk_arrow_function_expression, walk_function, walk_static_block};
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
+use std::collections::HashMap;
 
 /// S1481 (JS only) — local variables/functions/classes without any reference.
-pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'_>) {
-    for binding in &model.bindings {
-        let unreferenced = binding.reads.is_empty() && binding.writes.is_empty();
+pub(crate) fn check_tb_unused_locals(
+    model: &TbModel<'_>,
+    program: &Program<'_>,
+    sink: &mut IssueSink<'_>,
+) {
+    let referenced = referenced_declarations(model, program);
+    for (id, binding) in model.bindings.iter().enumerate() {
         if binding.kind.is_local_value()
             && !binding.global
             && !binding.function_expression_name
-            && unreferenced
+            && !referenced[id]
         {
             let noun = match binding.kind {
                 TbKind::Function => "function",
@@ -29,6 +39,75 @@ pub(crate) fn check_tb_unused_locals(model: &TbModel<'_>, sink: &mut IssueSink<'
             );
         }
     }
+}
+
+#[derive(Default)]
+struct BodyBounds(HashMap<(u32, u32), Span>);
+
+impl<'a> Visit<'a> for BodyBounds {
+    fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+        if let Some(body) = &function.body {
+            self.0
+                .insert((function.span.start, function.span.end), body.span);
+        }
+        walk_function(self, function, flags);
+    }
+
+    fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
+        self.0
+            .insert((arrow.span.start, arrow.span.end), arrow.body.span());
+        walk_arrow_function_expression(self, arrow);
+    }
+
+    fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
+        self.0
+            .insert((block.span.start, block.span.end), block.span);
+        walk_static_block(self, block);
+    }
+}
+
+#[derive(Default)]
+struct AliasReferences {
+    incompatible: bool,
+    has_var: bool,
+    used_in_body: bool,
+}
+
+fn referenced_declarations(model: &TbModel<'_>, program: &Program<'_>) -> Vec<bool> {
+    let mut referenced: Vec<_> = model
+        .bindings
+        .iter()
+        .map(|binding| !binding.reads.is_empty() || !binding.writes.is_empty())
+        .collect();
+    let mut bodies = BodyBounds::default();
+    bodies.visit_program(program);
+    for scope in &model.scopes {
+        let Some(body) = bodies.0.get(&(scope.span.start, scope.span.end)) else {
+            continue;
+        };
+        let mut groups = HashMap::<&str, AliasReferences>::new();
+        for &id in &scope.bindings {
+            let binding = &model.bindings[id];
+            let group = groups.entry(binding.name).or_default();
+            group.incompatible |=
+                !matches!(binding.kind, TbKind::Var | TbKind::Function | TbKind::Param);
+            group.has_var |= binding.kind == TbKind::Var;
+            group.used_in_body |= binding
+                .reads
+                .iter()
+                .chain(&binding.writes)
+                .any(|span| body.start <= span.start && span.end <= body.end);
+        }
+        // Resolution records uses on the first declaration. Share that evidence
+        // only inside the actual body: default-parameter environments are separate.
+        for &id in &scope.bindings {
+            let group = &groups[model.bindings[id].name];
+            if !group.incompatible && group.has_var && group.used_in_body {
+                referenced[id] = true;
+            }
+        }
+    }
+    referenced
 }
 
 #[cfg(test)]
@@ -122,6 +201,281 @@ mod tests {
         let recursive = "const factorial = function recurse(value) { return value === 0 ? 1 : value * recurse(value - 1); }; factorial(3);";
         assert!(filtered(&js(recursive), "S1481").is_empty());
         let typed = "const api = function typed(value: number): number { return value; }; api(1);";
+        assert!(filtered(&ts(typed), "S1481").is_empty());
+    }
+
+    fn unused_issues(source: &str) -> Vec<hoonarqube_ir::Issue> {
+        js(source)
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "javascript:S1481")
+            .collect()
+    }
+
+    #[test]
+    fn express_range_binding_alias_is_clean() {
+        assert_eq!(
+            unused_issues(
+                "const req = {};\nreq.range = function range(size, options) {\n  var range = this.get('Range');\n  if (!range) return;\n  return parseRange(size, range, options);\n};\n"
+            ),
+            []
+        );
+    }
+
+    #[test]
+    fn express_subdomains_binding_alias_is_clean() {
+        assert_eq!(
+            unused_issues(
+                "const req = {};\ndefineGetter(req, 'subdomains', function subdomains() {\n  var hostname = this.hostname;\n  var offset = this.app.get('subdomain offset');\n  var subdomains = !isIP(hostname)\n    ? hostname.split('.').reverse()\n    : [hostname];\n  return subdomains.slice(offset);\n});\n"
+            ),
+            []
+        );
+    }
+
+    #[test]
+    fn express_colon_index_binding_alias_is_clean() {
+        assert_eq!(
+            unused_issues(
+                "function acceptParams(str) {\n  var length = str.length;\n  var colonIndex = str.indexOf(';');\n  var index = colonIndex === -1 ? length : colonIndex;\n  while (index < length) {\n    var colonIndex = str.indexOf(';', index);\n    var endIndex = colonIndex === -1 ? length : colonIndex;\n    index = endIndex + 1;\n  }\n  return index;\n}\nacceptParams('text');\n"
+            ),
+            []
+        );
+    }
+
+    #[test]
+    fn var_aliases_share_reads_before_declaration_closures_and_writes() {
+        for source in [
+            "function f() { var value = 1; var value = 2; return value; } f();",
+            "function f() { { var value = 1; } { var value = 2; } return value; } f();",
+            "function f() { console.log(value); var value; var value; } f();",
+            "function f() { var value; var value; return () => value; } f()();",
+            "function f() { var value; var value; value = 1; } f();",
+            "function f(value) { var value; return value; } f(1);",
+            "function f() { function value() {} var value; return value; } f();",
+            "const api = function recurse(value) { var recurse; return value ? recurse(value - 1) : 0; }; api(1);",
+        ] {
+            assert_eq!(
+                unused_issues(source),
+                Vec::<hoonarqube_ir::Issue>::new(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn unused_var_aliases_keep_each_declaration_primary() {
+        let source = "function f() {\n  var orphan = 1;\n  var orphan = 2;\n  return 0;\n}\nf();\n";
+        assert_eq!(
+            unused_issues(source),
+            [
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'orphan' variable.",
+                    (2, 6),
+                    (2, 12)
+                ),
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'orphan' variable.",
+                    (3, 6),
+                    (3, 12)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn unused_self_name_and_parameter_var_aliases_remain_findings() {
+        for (source, name, end) in [
+            (
+                "const api = function self() {\n  var self = 1;\n  return 2;\n};\napi();\n",
+                "self",
+                10,
+            ),
+            (
+                "function api(value) {\n  var value;\n  return 2;\n}\napi(1);\n",
+                "value",
+                11,
+            ),
+        ] {
+            assert_eq!(
+                unused_issues(source),
+                [issue(
+                    "javascript:S1481",
+                    &format!("Remove the declaration of the unused '{name}' variable."),
+                    (2, 6),
+                    (2, end)
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_lexical_redeclarations_do_not_borrow_var_references() {
+        for source in [
+            "function f() {\n  let value = 1;\n  var value;\n  return value;\n}\nf();\n",
+            "function f() {\n  const value = 1;\n  var value;\n  return value;\n}\nf();\n",
+            "function f() {\n  class value {}\n  var value;\n  return value;\n}\nf();\n",
+        ] {
+            assert_eq!(
+                unused_issues(source),
+                [issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'value' variable.",
+                    (3, 6),
+                    (3, 11)
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn default_parameter_references_do_not_mark_body_aliases_used() {
+        for (source, name, line, end) in [
+            (
+                "const api = function self(value = () => self) {\n  var self;\n  return 0;\n};\napi();\n",
+                "self",
+                2,
+                10,
+            ),
+            (
+                "function f(value = () => value) {\n  var value;\n  return 0;\n}\nf();\n",
+                "value",
+                2,
+                11,
+            ),
+            (
+                "function f(input = () => ghost) {\n  var ghost;\n  var ghost;\n  return 0;\n}\nf();\n",
+                "ghost",
+                3,
+                11,
+            ),
+            (
+                "const api = (input = () => ghost) => {\n  var ghost;\n  var ghost;\n  return 0;\n};\napi();\n",
+                "ghost",
+                3,
+                11,
+            ),
+        ] {
+            assert_eq!(
+                unused_issues(source),
+                [issue(
+                    "javascript:S1481",
+                    &format!("Remove the declaration of the unused '{name}' variable."),
+                    (line, 6),
+                    (line, end)
+                )]
+            );
+        }
+        for source in [
+            "const api = function self(value = () => self) { console.log(self); var self; return value; }; api();",
+            "function f(value = () => value) { console.log(value); var value; return 0; } f();",
+            "function f(input = () => ghost) { console.log(ghost); var ghost; var ghost; return input; } f();",
+            "const api = (input = () => ghost) => { console.log(ghost); var ghost; var ghost; return input; }; api();",
+        ] {
+            assert_eq!(unused_issues(source), Vec::<hoonarqube_ir::Issue>::new());
+        }
+    }
+
+    #[test]
+    fn var_aliases_do_not_share_references_across_function_or_block_scopes() {
+        let source = concat!(
+            "function outer() {\n",
+            "  var value = 1;\n",
+            "  function inner() {\n",
+            "    var value = 2;\n",
+            "    var value = 3;\n",
+            "    return 0;\n",
+            "  }\n",
+            "  { let value = 4; console.log(value); }\n",
+            "  { let value = 5; }\n",
+            "  inner();\n",
+            "  return value;\n",
+            "}\nouter();\n",
+        );
+        assert_eq!(
+            unused_issues(source),
+            [
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'value' variable.",
+                    (4, 8),
+                    (4, 13)
+                ),
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'value' variable.",
+                    (5, 8),
+                    (5, 13)
+                ),
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'value' variable.",
+                    (9, 8),
+                    (9, 13)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn var_aliases_keep_unicode_crlf_and_non_reference_decoys() {
+        let source = concat!(
+            "function f() {\r\n",
+            "  var café = 1;\r\n",
+            "  var café = 2;\r\n",
+            "  const text = '🦉 café'; // café\r\n",
+            "  const obj = { café: 3 };\r\n",
+            "  return obj.café + text.length;\r\n",
+            "}\r\nf();\r\n",
+        );
+        assert_eq!(
+            unused_issues(source),
+            [
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'café' variable.",
+                    (2, 6),
+                    (2, 10)
+                ),
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'café' variable.",
+                    (3, 6),
+                    (3, 10)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn var_aliases_preserve_ordinary_locals_functions_classes_and_typescript_silence() {
+        let source = "function f() {\n  const orphan = 1;\n  function hidden() {}\n  class Hidden {}\n  return 0;\n}\nf();\n";
+        assert_eq!(
+            unused_issues(source),
+            [
+                issue(
+                    "javascript:S1481",
+                    "Remove the declaration of the unused 'orphan' variable.",
+                    (2, 8),
+                    (2, 14)
+                ),
+                issue(
+                    "javascript:S1481",
+                    "Remove this unused function 'hidden'.",
+                    (3, 11),
+                    (3, 17)
+                ),
+                issue(
+                    "javascript:S1481",
+                    "Remove this unused class 'Hidden'.",
+                    (4, 8),
+                    (4, 14)
+                ),
+            ]
+        );
+        let typed =
+            "function f(value: number): number { var value; var orphan = 1; return value; } f(1);";
         assert!(filtered(&ts(typed), "S1481").is_empty());
     }
 }
