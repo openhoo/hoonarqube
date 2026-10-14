@@ -2,13 +2,55 @@
 
 use crate::JstsLanguage;
 use crate::context::{AnalysisContext, RuleOptions};
-use crate::engine::pattern_parser::regex_prefix_match;
+use crate::engine::pattern_parser::{MAX_GROUP_DEPTH, regex_prefix_match};
 use hoonarqube_ir::Issue;
+use oxc_allocator::Allocator;
+use oxc_regular_expression::{ConstructorParser, Options};
+
+/// Validate only bounded configurations and qualified syntax failures. Oxc's
+/// numeric limits can reject patterns accepted by the embedded Node runtime, and
+/// its diagnostics have no typed syntax/resource distinction. Unknown results
+/// therefore retain the existing matcher behavior.
+fn definitely_invalid_header_regex(pattern: &str) -> bool {
+    const MAX_VALIDATION_BYTES: usize = 4096;
+    // Counting every opening parenthesis, even escaped ones and class members,
+    // conservatively bounds recursive group depth without parsing the pattern.
+    if pattern.len() > MAX_VALIDATION_BYTES
+        || pattern.bytes().filter(|byte| *byte == b'(').count() > MAX_GROUP_DEPTH as usize
+    {
+        return false;
+    }
+    let Ok(quoted_pattern) = serde_json::to_string(pattern) else {
+        return false;
+    };
+    let allocator = Allocator::default();
+    let Err(diagnostic) = ConstructorParser::new(
+        &allocator,
+        &quoted_pattern,
+        Some("\"s\""),
+        Options::default(),
+    )
+    .parse() else {
+        return false;
+    };
+    // Exact categories are qualified against the pinned Node constructor,
+    // including legacy escapes and Annex B quantifiable lookahead assertions.
+    // In particular, "Number is too large" is never proof of invalid syntax.
+    matches!(
+        diagnostic.message.as_ref(),
+        "Invalid regular expression: Invalid braced quantifier"
+            | "Invalid regular expression: Unterminated capturing group"
+            | "Invalid regular expression: Unterminated ignore group"
+            | "Invalid regular expression: Unterminated character class"
+            | "Invalid regular expression: Invalid extended atom escape"
+    )
+}
 
 fn check_file_header(source: &str, language: JstsLanguage, rules: &RuleOptions) -> Vec<Issue> {
     let header_present = if rules.header_is_regular_expression {
-        // An empty `headerFormat` disables the file-header check.
-        if rules.header_format.is_empty() {
+        // SonarJS returns no visitor when RegExp compilation fails. Retain the
+        // established empty-regex behavior and suppress only definite errors.
+        if rules.header_format.is_empty() || definitely_invalid_header_regex(&rules.header_format) {
             return Vec::new();
         }
         regex_prefix_match(&rules.header_format, source)
@@ -49,6 +91,121 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
 #[cfg(test)]
 mod tests {
     use crate::test_support::*;
+
+    fn header_regex_report(
+        language: JstsLanguage,
+        pattern: &str,
+        regular_expression: bool,
+        source: &str,
+        expected: usize,
+    ) -> hoonarqube_ir::FileReport {
+        let path = match language {
+            JstsLanguage::JavaScript => "case.js",
+            JstsLanguage::TypeScript => "case.ts",
+        };
+        let options = AnalyzerOptions {
+            header_format: pattern.to_owned(),
+            header_is_regular_expression: regular_expression,
+            ..AnalyzerOptions::default()
+        };
+        let report = crate::analyze(PathBuf::from(path), source, language, &options);
+        let count = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key.ends_with(":S1451"))
+            .count();
+        assert_eq!(count, expected, "{language:?}: {pattern:?}");
+        report
+    }
+
+    fn without_header(mut report: hoonarqube_ir::FileReport) -> serde_json::Value {
+        report
+            .issues
+            .retain(|issue| !issue.rule_key.ends_with(":S1451"));
+        serde_json::to_value(report).expect("serialize public file report")
+    }
+
+    fn assert_invalid_regex_controls(language: JstsLanguage) {
+        let source = "const value = 1;\n";
+        let baseline = without_header(header_regex_report(language, "", true, source, 0));
+        for pattern in ["*", "(", "[", "\\", "+", "?", "a++", "(?:", "[a", "a\\"] {
+            let report = header_regex_report(language, pattern, true, source, 0);
+            assert_eq!(without_header(report), baseline);
+        }
+    }
+
+    #[test]
+    fn s1451_configured_regex_invalid_syntax_javascript() {
+        assert_invalid_regex_controls(JstsLanguage::JavaScript);
+    }
+
+    #[test]
+    fn s1451_configured_regex_invalid_syntax_typescript() {
+        assert_invalid_regex_controls(JstsLanguage::TypeScript);
+    }
+
+    #[test]
+    fn s1451_configured_regex_keeps_valid_and_unknown_patterns_positive() {
+        let source = "const value = 1;\n";
+        for language in [JstsLanguage::JavaScript, JstsLanguage::TypeScript] {
+            let baseline = without_header(header_regex_report(language, "", true, source, 0));
+            for pattern in [
+                "^// License",
+                "^(?=// License)// License",
+                "(?<=// )License",
+                "a{9007199254740992}",
+                "a{18446744073709551616}",
+                "a{2,1}",
+                "(?q:a)",
+                "[z-a]",
+            ] {
+                let report = header_regex_report(language, pattern, true, source, 1);
+                assert_eq!(without_header(report), baseline);
+                assert_file_level_header(&header_regex_report(language, pattern, true, source, 1));
+            }
+        }
+    }
+
+    #[test]
+    fn s1451_configured_regex_sequencing_preserves_literal_and_matching_controls() {
+        for language in [JstsLanguage::JavaScript, JstsLanguage::TypeScript] {
+            for (pattern, regular_expression, source, expected) in [
+                ("*", true, "const value = 1;\n", 0),
+                ("*", true, "const value = 1;\n", 0),
+                ("^// License", true, "// License\nconst value = 1;\n", 0),
+                ("^// License", true, "const value = 1;\n", 1),
+                ("*", false, "const value = 1;\n", 1),
+                ("", true, "const value = 1;\n", 0),
+                // Valid lookahead matching remains unsupported by the matcher.
+                (
+                    "^(?=// License)// License",
+                    true,
+                    "// License\nconst value = 1;\n",
+                    1,
+                ),
+            ] {
+                header_regex_report(language, pattern, regular_expression, source, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn s1451_configured_regex_validation_guards_retain_existing_behavior() {
+        let oversized = format!("*{}", "a".repeat(4096));
+        let deep = format!("{}*{}", "(".repeat(49), ")".repeat(49));
+        let wide = "(*)".repeat(49);
+        let at_byte_limit = format!("*{}", "a".repeat(4095));
+        let at_group_limit = format!("{}*{}", "(".repeat(48), ")".repeat(48));
+        for language in [JstsLanguage::JavaScript, JstsLanguage::TypeScript] {
+            for pattern in [&oversized, &deep, &wide] {
+                let report = header_regex_report(language, pattern, true, "const value = 1;\n", 1);
+                assert_file_level_header(&report);
+            }
+            for pattern in [&at_byte_limit, &at_group_limit] {
+                header_regex_report(language, pattern, true, "const value = 1;\n", 0);
+            }
+        }
+    }
 
     fn assert_file_level_header(report: &hoonarqube_ir::FileReport) {
         let findings: Vec<_> = report
@@ -138,7 +295,7 @@ mod tests {
     #[test]
     fn s1451_file_level_change_preserves_existing_detection_policies() {
         // These pin native detection policy independently of primary identity.
-        // Configured newline splitting and invalid regex handling are separate repairs.
+        // Configured newline splitting remains separate from regex validation.
         for language in [JstsLanguage::JavaScript, JstsLanguage::TypeScript] {
             for (header, regular_expression, source, expected) in [
                 ("", false, "", 1),
@@ -158,7 +315,7 @@ mod tests {
                     "// License\r// Extra\nconst value = 1;\n",
                     0,
                 ),
-                ("*", true, "const value = 1;\n", 1),
+                ("*", true, "const value = 1;\n", 0),
             ] {
                 let rules = RuleOptions {
                     header_format: header.to_owned(),
