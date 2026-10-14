@@ -4,7 +4,7 @@ use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 // --- python:S6661 — lambda assigned to a variable -----------------------------
 
@@ -20,8 +20,8 @@ pub(crate) fn check_lambda_assignments(
                 if let Expr::Lambda(lambda) = assign.value.as_ref() {
                     issues.push(issue_at(
                         "python:S6661",
-                        "Replace this assigned lambda with a 'def' statement.",
-                        lambda.range(),
+                        "Define function instead of this lambda assignment statement.",
+                        TextRange::new(lambda.start(), lambda.start() + TextSize::new(6)),
                         index,
                         source,
                     ));
@@ -31,8 +31,8 @@ pub(crate) fn check_lambda_assignments(
                 if let Some(Expr::Lambda(lambda)) = annotated.value.as_deref() {
                     issues.push(issue_at(
                         "python:S6661",
-                        "Replace this assigned lambda with a 'def' statement.",
-                        lambda.range(),
+                        "Define function instead of this lambda assignment statement.",
+                        TextRange::new(lambda.start(), lambda.start() + TextSize::new(6)),
                         index,
                         source,
                     ));
