@@ -54,7 +54,7 @@ pub(crate) fn check_rx_syntax_shapes(
     {
         push(
             "python:S6537",
-            "Replace this octal escape with a hexadecimal or Unicode escape.",
+            "Consider replacing this octal escape sequence with a Unicode or hexadecimal sequence instead.",
             span,
         );
     }
