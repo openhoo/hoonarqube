@@ -214,3 +214,21 @@ fn java_comment_tags_keep_first_embedded_occurrence_literals_and_escaped_tags_cl
 fn java_comment_tags_fail_closed_on_malformed_roots() {
     assert!(targets("Broken.java", "class Broken { void broken( // TODO FIXME\n").is_empty());
 }
+
+#[test]
+fn java_comment_tags_exclude_all_unicode17_bmp_letter_boundaries() {
+    // Java 27 Character.isLetter(char) adds these BMP letters over the
+    // regex dependency's Unicode 16 table. Both sides exclude either tag.
+    for character in [
+        '\u{088f}', '\u{0c5c}', '\u{0cdc}', '\u{a7ce}', '\u{a7cf}', '\u{a7d2}', '\u{a7d4}',
+        '\u{a7f1}',
+    ] {
+        let source =
+            format!("// {character}TODO TODO{character} {character}FIXME FIXME{character}\n");
+        assert!(
+            targets("Unicode17.java", &source).is_empty(),
+            "U+{:04X}",
+            character as u32
+        );
+    }
+}

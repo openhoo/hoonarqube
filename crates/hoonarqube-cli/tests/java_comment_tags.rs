@@ -176,3 +176,34 @@ fn java_comment_tags_cli_preserves_incomplete_analysis_and_source_bytes() {
         );
     }
 }
+
+#[test]
+fn java_comment_tags_cli_preserves_trivia_multiplicity_in_every_active_profile() {
+    let fixture = Fixture::new("profiles");
+    let source =
+        include_str!("../../hoonarqube-java/tests/fixtures/comment_tags/MultipleTrivia.java");
+    fixture.write(source.as_bytes());
+    for profile in [
+        None,
+        Some("sonar-parity"),
+        Some("recommended"),
+        Some("extended"),
+        Some("strict"),
+    ] {
+        for format in ["json", "sonar"] {
+            let mut args = vec!["analyze", "--format", format];
+            if let Some(profile) = profile {
+                args.extend(["--profile", profile]);
+            }
+            args.extend(["--", "Control.java"]);
+            let output = fixture.run(&args);
+            assert!(output.status.success(), "{profile:?}: {output:?}");
+            let report = serde_json::from_slice(&output.stdout).expect("report");
+            assert_eq!(targets(&report, format).len(), 3, "{profile:?}/{format}");
+        }
+    }
+    assert_eq!(
+        std::fs::read(fixture.0.join("Control.java")).unwrap(),
+        source.as_bytes()
+    );
+}
