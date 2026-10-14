@@ -220,6 +220,24 @@ mod tests {
     use crate::{AnalyzerOptions, analyze};
 
     #[test]
+    fn noqa_requires_valid_lowercase_directive_in_complete_source() {
+        for comment in ["# NOQA", "# noqax", "# mention noqa"] {
+            let report = analyze(
+                PathBuf::from("t.py"),
+                &format!("value = 1 {comment}\n"),
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "python:S1309"),
+                "ordinary comment must not acquire S1309: {comment}"
+            );
+        }
+    }
+
+    #[test]
     fn noqa_comments_are_tracked_and_validated() {
         let well_formed = ["# noqa", "# noqa: E501", "# noqa: E501,F841"];
         for source in well_formed {
