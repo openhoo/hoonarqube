@@ -131,6 +131,31 @@ fn targets<'a>(report: &'a serde_json::Value, format: &str) -> Vec<&'a serde_jso
     issues.iter().filter(|issue| issue[key] == KEY).collect()
 }
 
+fn assert_compiled_reference_report(report: &serde_json::Value, format: &str) {
+    let issues = targets(report, format);
+    assert_eq!(issues.len(), 4, "{issues:?}");
+    for (issue, (line, end)) in issues.iter().zip([(25, 30), (30, 34), (35, 42), (40, 34)]) {
+        if format == "json" {
+            assert_eq!(issue["message"], MESSAGE);
+            assert_eq!(
+                issue["range"],
+                serde_json::json!({"start":{"line":line,"column":22},"end":{"line":line,"column":end}})
+            );
+            for absent in ["fix", "alternatives", "flows"] {
+                assert!(issue.get(absent).is_none());
+            }
+        } else {
+            assert_eq!(issue["primaryLocation"]["filePath"], "ExtensionControls.cs");
+            assert_eq!(issue["primaryLocation"]["message"], MESSAGE);
+            assert_eq!(
+                issue["primaryLocation"]["textRange"],
+                serde_json::json!({"startLine":line,"startColumn":22,"endLine":line,"endColumn":end})
+            );
+            assert!(issue.get("secondaryLocations").is_none());
+        }
+    }
+}
+
 #[test]
 fn csharp_s2190_extension_cli_matches_compiled_reference_in_all_profiles() {
     let fixture = Fixture::new("typed");
@@ -149,29 +174,7 @@ fn csharp_s2190_extension_cli_matches_compiled_reference_in_all_profiles() {
             }
             argv.extend(["--", "ExtensionControls.cs"]);
             let report = document(&fixture.run(&argv), 0);
-            let issues = targets(&report, format);
-            assert_eq!(issues.len(), 4, "{issues:?}");
-            for (issue, (line, end)) in issues.iter().zip([(25, 30), (30, 34), (35, 42), (40, 34)])
-            {
-                if format == "json" {
-                    assert_eq!(issue["message"], MESSAGE);
-                    assert_eq!(
-                        issue["range"],
-                        serde_json::json!({"start":{"line":line,"column":22},"end":{"line":line,"column":end}})
-                    );
-                    for absent in ["fix", "alternatives", "flows"] {
-                        assert!(issue.get(absent).is_none());
-                    }
-                } else {
-                    assert_eq!(issue["primaryLocation"]["filePath"], "ExtensionControls.cs");
-                    assert_eq!(issue["primaryLocation"]["message"], MESSAGE);
-                    assert_eq!(
-                        issue["primaryLocation"]["textRange"],
-                        serde_json::json!({"startLine":line,"startColumn":22,"endLine":line,"endColumn":end})
-                    );
-                    assert!(issue.get("secondaryLocations").is_none());
-                }
-            }
+            assert_compiled_reference_report(&report, format);
         }
     }
     assert_eq!(fixture.read(), REFERENCE_CONTROLS.as_bytes());

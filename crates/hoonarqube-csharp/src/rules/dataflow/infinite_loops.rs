@@ -66,7 +66,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 receiver.kind() == "identifier" && node_text(receiver, source) == "this"
             })
         })
-        .filter(|call| !has_incompatible_fixed_arity(method, *call, source))
+        .filter(|call| !has_incompatible_fixed_arity(method, *call))
         .filter(|call| !has_incompatible_double_argument(method, *call, source));
         // A base case anywhere else in the body terminates the recursion
         // (`if (n <= 1) return 1; return Fact(n - 1);`): every escape
@@ -92,17 +92,17 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
 /// A same-name call with a provably incompatible positional argument count
 /// delegates to another overload. Unsupported signatures and call shapes
 /// cannot establish that proof, so they retain the existing recursion check.
-fn has_incompatible_fixed_arity(method: Node<'_>, call: Node<'_>, source: &str) -> bool {
+fn has_incompatible_fixed_arity(method: Node<'_>, call: Node<'_>) -> bool {
     if method.has_error() || call.has_error() {
         return false;
     }
-    let Some((minimum, maximum)) = fixed_parameter_arity(method, source) else {
+    let Some((minimum, maximum)) = fixed_parameter_arity(method) else {
         return false;
     };
     positional_argument_count(call).is_some_and(|count| count < minimum || count > maximum)
 }
 
-fn fixed_parameter_arity(method: Node<'_>, source: &str) -> Option<(usize, usize)> {
+fn fixed_parameter_arity(method: Node<'_>) -> Option<(usize, usize)> {
     let parameters = method.child_by_field_name("parameters")?;
     let (mut minimum, mut maximum) = (0, 0);
     let mut cursor = parameters.walk();
@@ -110,7 +110,7 @@ fn fixed_parameter_arity(method: Node<'_>, source: &str) -> Option<(usize, usize
         match child.kind() {
             "(" | ")" | "," => {}
             "parameter" => {
-                let optional = fixed_parameter_is_optional(child, source, maximum == 0)?;
+                let optional = fixed_parameter_is_optional(child)?;
                 maximum += 1;
                 minimum += usize::from(!optional);
             }
@@ -120,30 +120,9 @@ fn fixed_parameter_arity(method: Node<'_>, source: &str) -> Option<(usize, usize
     Some((minimum, maximum))
 }
 
-fn fixed_parameter_is_optional(
-    parameter: Node<'_>,
-    source: &str,
-    first_parameter: bool,
-) -> Option<bool> {
-    let parameter_type = parameter.child_by_field_name("type")?;
-    let name = parameter.child_by_field_name("name")?;
-    // A plain leading extension receiver is one required value parameter.
-    // Ref/scoped modifiers, receiver defaults, attributes, and comments remain
-    // outside this proof, including comments nested inside its type.
-    if first_parameter
-        && parameter.child_count() == 3
-        && parameter.named_child_count() == 3
-        && parameter.child(1) == Some(parameter_type)
-        && parameter.child(2) == Some(name)
-        && parameter.child(0).is_some_and(|modifier| {
-            modifier.kind() == "modifier"
-                && modifier.child_count() == 0
-                && node_text(modifier, source) == "this"
-        })
-        && collect_kinds(parameter, &["comment"]).is_empty()
-    {
-        return Some(false);
-    }
+fn fixed_parameter_is_optional(parameter: Node<'_>) -> Option<bool> {
+    parameter.child_by_field_name("type")?;
+    parameter.child_by_field_name("name")?;
     let mut cursor = parameter.walk();
     let optional = parameter
         .children(&mut cursor)
