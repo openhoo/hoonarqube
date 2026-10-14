@@ -6623,6 +6623,133 @@ regex_fn!(
 mod tests {
     use super::*;
 
+    fn s2479_findings(source: &str) -> Vec<Issue> {
+        analyze(
+            PathBuf::from("literals.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        )
+        .issues
+        .into_iter()
+        .filter(|issue| issue.rule_key == "rust:S2479")
+        .collect()
+    }
+
+    #[test]
+    fn s2479_reports_one_whole_literal_for_selected_unicode_characters() {
+        for literal in [
+            "\"a\u{200b}b\u{2060}c\"",
+            "\"a\u{ad}b\"",
+            "r#\"a\u{200b}b\"#",
+            "'\u{200b}'",
+        ] {
+            let source = format!("fn value() {{ let _value = {literal}; }}\n");
+            let findings = s2479_findings(&source);
+            assert_eq!(findings.len(), 1, "{literal:?}: {findings:?}");
+            assert_eq!(
+                findings[0].range.start,
+                Pos {
+                    line: 1,
+                    column: 26
+                }
+            );
+            assert_eq!(
+                findings[0].range.end,
+                Pos {
+                    line: 1,
+                    column: 26 + u32::try_from(literal.chars().count()).unwrap()
+                }
+            );
+            assert_eq!(
+                findings[0].message,
+                "Remove this invisible character from this literal."
+            );
+            assert!(findings[0].fix.is_none());
+            assert!(findings[0].alternatives.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2479_ignores_comments_c_strings_joiners_and_explicit_escapes() {
+        let source = concat!(
+            "// Comment \u{200b}\u{2060}\u{ad}\n",
+            "/* Block \u{200b} */\n",
+            "fn clean() { let _joiners = \"\u{200c}\u{200d}\u{feff}\"; ",
+            "let _escaped = \"a\\u{200b}b\"; let _c = c\"a\u{200b}b\"; }\n",
+        );
+        assert!(s2479_findings(source).is_empty());
+    }
+
+    #[test]
+    fn s2479_literal_identity_is_independent_of_layout_and_oracle_anchor_text() {
+        let original = "fn hidden() { let value = \"a\u{200b}b\"; drop(value); }\n";
+        let formatted =
+            "fn renamed()\n{\n    let value\n        = \"a\u{200b}b\";\n    drop(value);\n}\n";
+        for (source, expected) in [
+            (
+                original,
+                Range {
+                    start: Pos {
+                        line: 1,
+                        column: 26,
+                    },
+                    end: Pos {
+                        line: 1,
+                        column: 31,
+                    },
+                },
+            ),
+            (
+                formatted,
+                Range {
+                    start: Pos {
+                        line: 4,
+                        column: 10,
+                    },
+                    end: Pos {
+                        line: 4,
+                        column: 15,
+                    },
+                },
+            ),
+        ] {
+            let findings = s2479_findings(source);
+            assert_eq!(findings.len(), 1, "{findings:?}");
+            assert_eq!(findings[0].range, expected);
+        }
+    }
+
+    #[test]
+    fn s2479_preserves_separate_repeated_literals_and_multiline_spans() {
+        let source = "fn repeated() {\n    let _first = \"a\u{200b}\u{2060}b\";\n    let _second = r#\"a\n\u{ad}b\"#;\n}\n";
+        let findings = s2479_findings(source);
+        assert_eq!(findings.len(), 2, "{findings:?}");
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos {
+                    line: 2,
+                    column: 17
+                },
+                end: Pos {
+                    line: 2,
+                    column: 23
+                }
+            }
+        );
+        assert_eq!(
+            findings[1].range,
+            Range {
+                start: Pos {
+                    line: 3,
+                    column: 18
+                },
+                end: Pos { line: 4, column: 4 }
+            }
+        );
+    }
+
+
     #[test]
     fn array_macro_index_tracks_each_binding_until_its_next_shadow() {
         let source = concat!(
