@@ -55,6 +55,36 @@ fn targets<'a>(report: &'a serde_json::Value, format: &str) -> Vec<&'a serde_jso
         .collect()
 }
 
+fn assert_tag_issue(issue: &serde_json::Value, format: &str, native_end: u32, generic_end: u32) {
+    let key = if format == "json" {
+        "rule_key"
+    } else {
+        "ruleId"
+    };
+    let message = if issue[key] == "java:S1134" {
+        "Take the required action to fix the issue indicated by this comment."
+    } else {
+        "Complete the task associated to this TODO comment."
+    };
+    if format == "json" {
+        assert_eq!(issue["message"], message);
+        assert_eq!(
+            issue["range"],
+            serde_json::json!({"start":{"line":1,"column":0},"end":{"line":1,"column":native_end}})
+        );
+        assert!(issue.get("fix").is_none());
+        assert!(issue.get("flows").is_none());
+        assert!(issue.get("alternatives").is_none());
+    } else {
+        assert_eq!(issue["primaryLocation"]["message"], message);
+        assert_eq!(
+            issue["primaryLocation"]["textRange"],
+            serde_json::json!({"startLine":1,"startColumn":0,"endLine":1,"endColumn":generic_end})
+        );
+        assert!(issue.get("secondaryLocations").is_none());
+    }
+}
+
 #[test]
 fn java_comment_tags_cli_matches_reference_codepoints_utf16_and_duplicate_trivia() {
     let fixture = Fixture::new("identity");
@@ -88,33 +118,7 @@ fn java_comment_tags_cli_matches_reference_codepoints_utf16_and_duplicate_trivia
             let findings = targets(&report, format);
             assert_eq!(findings.len(), expected);
             for issue in findings {
-                let key = if format == "json" {
-                    "rule_key"
-                } else {
-                    "ruleId"
-                };
-                let message = if issue[key] == "java:S1134" {
-                    "Take the required action to fix the issue indicated by this comment."
-                } else {
-                    "Complete the task associated to this TODO comment."
-                };
-                if format == "json" {
-                    assert_eq!(issue["message"], message);
-                    assert_eq!(
-                        issue["range"],
-                        serde_json::json!({"start":{"line":1,"column":0},"end":{"line":1,"column":native_end}})
-                    );
-                    assert!(issue.get("fix").is_none());
-                    assert!(issue.get("flows").is_none());
-                    assert!(issue.get("alternatives").is_none());
-                } else {
-                    assert_eq!(issue["primaryLocation"]["message"], message);
-                    assert_eq!(
-                        issue["primaryLocation"]["textRange"],
-                        serde_json::json!({"startLine":1,"startColumn":0,"endLine":1,"endColumn":generic_end})
-                    );
-                    assert!(issue.get("secondaryLocations").is_none());
-                }
+                assert_tag_issue(issue, format, native_end, generic_end);
             }
         }
         assert_eq!(
