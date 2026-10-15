@@ -664,3 +664,61 @@ fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries()
 fn python_s5332_protocol_identification_preserves_live_shadowed_result_owners() {
     check_live_owner_project(SHADOW_OWNER_CASES);
 }
+
+// Exact sources and ranges from the separate live class-owner scan.
+const CLASS_OWNER_CASES: &[Case] = &[
+    Case {
+        name: "class-import-shadow.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nfrom other import Endpoint\nresult = Endpoint().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "class-local-import-shadow.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify():\n    from other import Endpoint\n    return Endpoint().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "class-reassignment.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nEndpoint = unknown\nresult = Endpoint().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "class-parameter-shadow.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(Endpoint):\n    return Endpoint().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "class-lambda-shadow.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "nested-class-parameter.py",
+        source: "class Container:\n    class Endpoint:\n        def startswith(self, value):\n            return value\ndef identify(Container):\n    return Container.Endpoint().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "known-class.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = Endpoint().startswith(\"http://\")\n",
+        ranges: &[(4, 31, 4, 40)],
+        group: 0,
+        incomplete: false,
+    },
+];
+
+#[test]
+fn python_s5332_protocol_identification_preserves_live_shadowed_class_owners() {
+    check_live_owner_project(CLASS_OWNER_CASES);
+}

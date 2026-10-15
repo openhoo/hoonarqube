@@ -1168,4 +1168,70 @@ mod protocol_identification_tests {
         }
         assert!(mismatches.is_empty(), "{mismatches:?}");
     }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_shadowed_class_owners() {
+        // Exact sources and ranges from the separate live class-owner scan.
+        let cases = [
+            (
+                "class-import-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nfrom other import Endpoint\nresult = Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-local-import-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify():\n    from other import Endpoint\n    return Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-reassignment.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nEndpoint = unknown\nresult = Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-parameter-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(Endpoint):\n    return Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-lambda-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+                None,
+            ),
+            (
+                "nested-class-parameter.py",
+                "class Container:\n    class Endpoint:\n        def startswith(self, value):\n            return value\ndef identify(Container):\n    return Container.Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "known-class.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = Endpoint().startswith(\"http://\")\n",
+                Some((4, 31, 4, 40)),
+            ),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
 }
