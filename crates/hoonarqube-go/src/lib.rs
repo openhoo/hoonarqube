@@ -3041,14 +3041,18 @@ fn check_node(
         "statement_list" => check_statements(node, source, issues),
         "parenthesized_expression" => {
             if first_named(node).is_some_and(|child| child.kind() == "parenthesized_expression") {
-                issues.push(keyword_issue(
+                let mut issue = keyword_issue(
                     "go:S1110",
                     "Remove these useless parentheses.",
                     node,
                     1,
                     1,
                     source,
-                ));
+                );
+                if let Some(location) = s1110_closing_location(node, source) {
+                    issue = issue.with_flow(vec![location]);
+                }
+                issues.push(issue);
             }
         }
         "binary_expression" => check_binary(node, source, options, issues),
@@ -4467,6 +4471,17 @@ fn duplicate_branch<'tree>(
         }
     }
     None
+}
+
+fn s1110_closing_location(node: Node<'_>, source: &str) -> Option<FlowLocation> {
+    let inner = first_named(node)?;
+    let closing = (0..inner.child_count())
+        .filter_map(|index| inner.child(index))
+        .find(|token| token.kind() == ")" && !token.is_missing() && !token.has_error())?;
+    Some(FlowLocation::in_primary_file(
+        "",
+        node_range(closing, source),
+    ))
 }
 
 fn first_named(node: Node<'_>) -> Option<Node<'_>> {
