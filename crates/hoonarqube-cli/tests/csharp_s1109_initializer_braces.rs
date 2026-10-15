@@ -4,7 +4,7 @@ use std::process::{Command, Output};
 
 const KEY: &str = "csharpsquid:S1109";
 // Complete controls executed by the pinned installed Sonar analyzer.
-const CONTROL: &str = r#"using System.Collections.Generic;
+const CONTROL: &str = r"using System.Collections.Generic;
 namespace Scope;
 class Cases
 {
@@ -28,7 +28,7 @@ class Cases
     }
     void Inline() { _ = A.Length; }
 }
-"#;
+";
 const NESTED: &str = r"using System;
 namespace Scope;
 class Nested

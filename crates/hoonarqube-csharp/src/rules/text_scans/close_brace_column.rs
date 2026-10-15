@@ -8,13 +8,6 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     walk_all(root, &mut |node| {
         if node.kind() == "}"
-            // Initializers can contain executable blocks; exempt only their own delimiter.
-            && !node.parent().is_some_and(|parent| {
-                matches!(
-                    parent.kind(),
-                    "initializer_expression" | "anonymous_object_creation_expression"
-                )
-            })
             && source[..node.start_byte()]
                 .rsplit('\n')
                 .next()
@@ -41,7 +34,7 @@ mod tests {
 
     // The installed Sonar analyzer exempts all five initializer delimiters,
     // while retaining the ordinary multiline block at 18:22–18:23.
-    const CONTROL: &str = r#"using System.Collections.Generic;
+    const CONTROL: &str = r"using System.Collections.Generic;
 namespace Scope;
 class Cases
 {
@@ -65,7 +58,7 @@ class Cases
     }
     void Inline() { _ = A.Length; }
 }
-"#;
+";
     const NESTED: &str = r"using System;
 namespace Scope;
 class Nested
