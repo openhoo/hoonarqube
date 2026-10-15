@@ -3512,18 +3512,28 @@ fn float_counter_condition<'tree>(
             walk_valid(root, &mut |node| {
                 if condition.is_none()
                     && node.kind() == "while_expression"
-                    && (line_start..line_end).contains(&node.start_byte())
+                    && while_keyword_start(node)
+                        .is_some_and(|offset| (line_start..line_end).contains(&offset))
                 {
                     condition = node
                         .child_by_field_name("condition")
                         .filter(|candidate| float_condition_uses_counter(*candidate, scan, name));
                 }
             });
-            return condition;
+            if let Some(condition) = condition {
+                return Some(condition);
+            }
         }
         line_start = line_end;
     }
     None
+}
+
+fn while_keyword_start(node: Node<'_>) -> Option<usize> {
+    (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == "while")
+        .map(|keyword| keyword.start_byte())
 }
 
 fn float_condition_uses_counter(condition: Node<'_>, scan: &str, name: &str) -> bool {
