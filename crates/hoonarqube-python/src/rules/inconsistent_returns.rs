@@ -72,10 +72,9 @@ fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
     (valued, empty)
 }
 
-/// Whether control provably leaves `stmt` through a `return`/`raise`
-/// without falling through: compound statements terminate only when every
-/// branch terminates, loops may run zero iterations, and plain statements
-/// fall through.
+/// Whether control provably cannot reach the statement following `stmt`.
+/// Compound statements need every branch to terminate; a literal infinite
+/// loop also cannot fall through when no possible break targets that loop.
 fn stmt_always_exits(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Return(_) | Stmt::Raise(_) => true,
@@ -115,8 +114,59 @@ fn stmt_always_exits(stmt: &Stmt) -> bool {
                     .last()
                     .is_some_and(|case| case.guard.is_none() && case.pattern.is_irrefutable())
         }
+        Stmt::While(while_stmt) => {
+            matches!(while_stmt.test.as_ref(), Expr::BooleanLiteral(literal) if literal.value)
+                && !suite_may_break_loop(&while_stmt.body)
+        }
         Stmt::With(with_stmt) => with_stmt.body.last().is_some_and(stmt_always_exits),
         _ => false,
+    }
+}
+
+// This is a conservative syntactic proof, not a reachability analysis. Even
+// an unreachable break prevents the infinite-loop proof. Definitions isolate
+// their control flow, and a nested loop's else suite belongs to the enclosing
+// break scope, unlike that nested loop's body.
+fn suite_may_break_loop(suite: &[Stmt]) -> bool {
+    suite.iter().any(stmt_may_break_loop)
+}
+
+fn stmt_may_break_loop(stmt: &Stmt) -> bool {
+    match stmt {
+        // The caller retains the existing try bailout. Unsupported control
+        // flow must never make the absence-of-break proof more permissive.
+        Stmt::Break(_) | Stmt::Try(_) | Stmt::IpyEscapeCommand(_) => true,
+        Stmt::If(if_stmt) => {
+            suite_may_break_loop(&if_stmt.body)
+                || if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| suite_may_break_loop(&clause.body))
+        }
+        Stmt::For(for_stmt) => suite_may_break_loop(&for_stmt.orelse),
+        Stmt::While(while_stmt) => suite_may_break_loop(&while_stmt.orelse),
+        Stmt::With(with_stmt) => suite_may_break_loop(&with_stmt.body),
+        Stmt::Match(match_stmt) => match_stmt
+            .cases
+            .iter()
+            .any(|case| suite_may_break_loop(&case.body)),
+        Stmt::FunctionDef(_)
+        | Stmt::ClassDef(_)
+        | Stmt::Return(_)
+        | Stmt::Delete(_)
+        | Stmt::TypeAlias(_)
+        | Stmt::Assign(_)
+        | Stmt::AugAssign(_)
+        | Stmt::AnnAssign(_)
+        | Stmt::Raise(_)
+        | Stmt::Assert(_)
+        | Stmt::Import(_)
+        | Stmt::ImportFrom(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Expr(_)
+        | Stmt::Pass(_)
+        | Stmt::Continue(_) => false,
     }
 }
 
@@ -180,5 +230,104 @@ mod tests {
         assert!(!findings(&flagged, "python:S3801").is_empty());
         let generator_itself = scan("def h(flag):\n    yield 1\n    if flag:\n        return 1\n");
         assert!(findings(&generator_itself, "python:S3801").is_empty());
+    }
+
+    #[test]
+    fn s3801_literal_true_callable_tails_do_not_fall_through() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n",
+            "class Engine:\n    def choose(self, flag):\n        while True:\n            if flag:\n                return 1\n",
+            "async def poll(ready):\n    while True:\n        if ready:\n            return 9\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_nested_loop_body_break_does_not_exit_outer_loop() {
+        let source = "def choose(items, ready):\n    while True:\n        for item in items:\n            if item:\n                break\n        if ready:\n            return 1\n";
+        assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+    }
+
+    #[test]
+    fn s3801_nested_function_break_does_not_exit_outer_loop() {
+        let source = "def choose(flag):\n    while True:\n        def helper(items):\n            for item in items:\n                break\n        if flag:\n            return 1\n";
+        assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+    }
+
+    #[test]
+    fn s3801_literal_true_explicit_none_is_valued() {
+        let source = "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        return None\n";
+        assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+    }
+
+    #[test]
+    fn s3801_finite_and_unknown_loops_keep_implicit_return() {
+        for source in [
+            "def choose(flag):\n    while flag:\n        if ready:\n            return 1\n",
+            "def choose(flag):\n    while False:\n        if flag:\n            return 1\n",
+            "def choose(items):\n    for item in items:\n        if item:\n            return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_reachable_outer_breaks_keep_implicit_return() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        break\n",
+            "def choose(stop, ready):\n    while True:\n        if stop:\n            break\n        if ready:\n            return 1\n",
+            "def choose(stop, ready, lock):\n    while True:\n        with lock:\n            if stop:\n                break\n        if ready:\n            return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_nested_loop_else_breaks_exit_enclosing_loop() {
+        for source in [
+            "def choose(items):\n    while True:\n        for item in items:\n            break\n        else:\n            break\n        return 1\n",
+            "def choose(inner):\n    while True:\n        while inner:\n            break\n        else:\n            break\n        return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_literal_true_bare_return_stays_inconsistent() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        return\n",
+            "def choose(flag):\n    if flag:\n        return 1\n    return\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_existing_clean_functions_remain_clean() {
+        for source in [
+            "def spin():\n    while True:\n        pass\n",
+            "def choose(flag):\n    if flag:\n        return 1\n    return 2\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_loop_proof_preserves_exception_generator_and_uncertain_breaks() {
+        for source in [
+            "def choose(flag):\n    while True:\n        try:\n            if flag:\n                return 1\n        except OSError:\n            break\n",
+            "def choose(flag):\n    while True:\n        yield 1\n        if flag:\n            return 1\n",
+        ] {
+            assert!(
+                findings(&scan(source), "python:S3801").is_empty(),
+                "{source}"
+            );
+        }
+        // The bounded proof conservatively retains a syntactic break even
+        // after a return: it does not introduce general reachability analysis.
+        let conservative =
+            scan("def choose():\n    while True:\n        return 1\n        break\n");
+        assert_eq!(findings(&conservative, "python:S3801").len(), 1);
     }
 }
