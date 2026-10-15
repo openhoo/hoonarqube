@@ -6651,3 +6651,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod s1110_supporting_location_tests;
