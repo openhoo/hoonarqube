@@ -1659,7 +1659,9 @@ export { accumulate };
         assert_eq!(count_key(&mergeable, "javascript:S1066"), 1);
     }
 
-    fn assert_s1066_primaries(source: &str, expected: &[((u32, u32), (u32, u32))]) {
+    type IfKeywordPair = ((u32, u32), (u32, u32));
+
+    fn assert_s1066_primaries(source: &str, expected: &[IfKeywordPair]) {
         let mut actual_reports = Vec::new();
         let mut expected_reports = Vec::new();
         for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
