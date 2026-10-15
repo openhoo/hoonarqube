@@ -72,10 +72,9 @@ fn direct_return_kinds(suite: &[Stmt]) -> (usize, usize) {
     (valued, empty)
 }
 
-/// Whether control provably leaves `stmt` through a `return`/`raise`
-/// without falling through: compound statements terminate only when every
-/// branch terminates, loops may run zero iterations, and plain statements
-/// fall through.
+/// Whether control provably cannot reach the statement following `stmt`.
+/// Compound statements need every branch to terminate; a literal infinite
+/// loop also cannot fall through when no possible break targets that loop.
 fn stmt_always_exits(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Return(_) | Stmt::Raise(_) => true,
@@ -115,8 +114,60 @@ fn stmt_always_exits(stmt: &Stmt) -> bool {
                     .last()
                     .is_some_and(|case| case.guard.is_none() && case.pattern.is_irrefutable())
         }
+        Stmt::While(while_stmt) => {
+            matches!(while_stmt.test.as_ref(), Expr::BooleanLiteral(literal) if literal.value)
+                && !suite_may_break_loop(&while_stmt.body)
+        }
         Stmt::With(with_stmt) => with_stmt.body.last().is_some_and(stmt_always_exits),
         _ => false,
+    }
+}
+
+// This is a conservative syntactic proof, not a reachability analysis. Even
+// an unreachable break prevents the infinite-loop proof. Definitions isolate
+// their control flow, and a nested loop's else suite belongs to the enclosing
+// break scope, unlike that nested loop's body.
+fn suite_may_break_loop(suite: &[Stmt]) -> bool {
+    suite.iter().any(stmt_may_break_loop)
+}
+
+fn stmt_may_break_loop(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Break(_) => true,
+        Stmt::If(if_stmt) => {
+            suite_may_break_loop(&if_stmt.body)
+                || if_stmt
+                    .elif_else_clauses
+                    .iter()
+                    .any(|clause| suite_may_break_loop(&clause.body))
+        }
+        Stmt::For(for_stmt) => suite_may_break_loop(&for_stmt.orelse),
+        Stmt::While(while_stmt) => suite_may_break_loop(&while_stmt.orelse),
+        Stmt::With(with_stmt) => suite_may_break_loop(&with_stmt.body),
+        Stmt::Match(match_stmt) => match_stmt
+            .cases
+            .iter()
+            .any(|case| suite_may_break_loop(&case.body)),
+        // The caller retains the existing try bailout. Unsupported control
+        // flow must never make the absence-of-break proof more permissive.
+        Stmt::Try(_) | Stmt::IpyEscapeCommand(_) => true,
+        Stmt::FunctionDef(_)
+        | Stmt::ClassDef(_)
+        | Stmt::Return(_)
+        | Stmt::Delete(_)
+        | Stmt::TypeAlias(_)
+        | Stmt::Assign(_)
+        | Stmt::AugAssign(_)
+        | Stmt::AnnAssign(_)
+        | Stmt::Raise(_)
+        | Stmt::Assert(_)
+        | Stmt::Import(_)
+        | Stmt::ImportFrom(_)
+        | Stmt::Global(_)
+        | Stmt::Nonlocal(_)
+        | Stmt::Expr(_)
+        | Stmt::Pass(_)
+        | Stmt::Continue(_) => false,
     }
 }
 
