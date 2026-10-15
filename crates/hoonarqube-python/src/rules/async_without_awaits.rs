@@ -1,5 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::child_exprs;
+use crate::support::flow_location;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
@@ -7,7 +8,7 @@ use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 pub(crate) fn check_async_without_awaits(
     index: &LineIndex,
@@ -21,16 +22,49 @@ pub(crate) fn check_async_without_awaits(
             && !is_exempt_async_function(function, &file_ctx.classes)
             && !async_features_present(function)
         {
-            issues.push(issue_at(
+            let mut issue = issue_at(
                 "python:S7503",
                 "Use asynchronous features in this function or remove the `async` keyword.",
                 function.name.range(),
                 index,
                 source,
-            ));
+            );
+            if let Some(range) = async_keyword_range(function, source) {
+                issue = issue.with_flow(vec![flow_location(
+                    "This function is async.",
+                    range,
+                    index,
+                    source,
+                )]);
+            }
+            issues.push(issue);
         }
     }
     issues
+}
+
+/// The locked parser starts an undecorated async declaration at its keyword.
+/// Recovered or inconsistent ranges must not invent a supporting location.
+fn async_keyword_range(
+    function: &ruff_python_ast::StmtFunctionDef,
+    source: &str,
+) -> Option<TextRange> {
+    let declaration = function.range();
+    let name = function.name.range();
+    let start = declaration.start();
+    let end = start.checked_add(TextSize::new(5))?;
+    source.get(start.to_usize()..declaration.end().to_usize())?;
+    if end > declaration.end()
+        || name.is_empty()
+        || end > name.start()
+        || name.end() > declaration.end()
+        || source.get(name.start().to_usize()..name.end().to_usize())
+            != Some(function.name.as_str())
+        || source.get(start.to_usize()..end.to_usize()) != Some("async")
+    {
+        return None;
+    }
+    Some(TextRange::new(start, end))
 }
 
 // --- python:S7503 — async function without async features ---------------------------
