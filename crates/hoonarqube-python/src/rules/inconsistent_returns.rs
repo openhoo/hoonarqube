@@ -133,7 +133,9 @@ fn suite_may_break_loop(suite: &[Stmt]) -> bool {
 
 fn stmt_may_break_loop(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Break(_) => true,
+        // The caller retains the existing try bailout. Unsupported control
+        // flow must never make the absence-of-break proof more permissive.
+        Stmt::Break(_) | Stmt::Try(_) | Stmt::IpyEscapeCommand(_) => true,
         Stmt::If(if_stmt) => {
             suite_may_break_loop(&if_stmt.body)
                 || if_stmt
@@ -148,9 +150,6 @@ fn stmt_may_break_loop(stmt: &Stmt) -> bool {
             .cases
             .iter()
             .any(|case| suite_may_break_loop(&case.body)),
-        // The caller retains the existing try bailout. Unsupported control
-        // flow must never make the absence-of-break proof more permissive.
-        Stmt::Try(_) | Stmt::IpyEscapeCommand(_) => true,
         Stmt::FunctionDef(_)
         | Stmt::ClassDef(_)
         | Stmt::Return(_)
