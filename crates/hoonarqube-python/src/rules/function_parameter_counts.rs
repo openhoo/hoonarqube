@@ -199,23 +199,27 @@ impl<'a> ParentSignatures<'a> {
             invalid_bindings: HashSet::new(),
             dynamic,
         };
-        for (index, site) in facts.table.def_sites.iter().enumerate() {
-            if site.flavor == DefFlavor::Class {
-                if let Some(class) = class_nodes.get(&site.name_range) {
-                    facts.classes.insert(site.own_scope, *class);
-                    facts.class_sites.insert(site.own_scope, index);
-                    facts.class_names.insert(site.name_range, site.own_scope);
-                }
-            } else {
-                facts.function_sites.insert(site.name_range, index);
-            }
-        }
+        facts.index_definition_sites(&class_nodes);
         facts.collect_uncertainty(parsed);
         for (&scope, class) in &facts.classes {
             let parents = facts.parents_for_class(class);
             facts.parents.insert(scope, parents);
         }
         facts
+    }
+
+    fn index_definition_sites(&mut self, class_nodes: &HashMap<TextRange, &'a StmtClassDef>) {
+        for (index, site) in self.table.def_sites.iter().enumerate() {
+            if site.flavor == DefFlavor::Class {
+                if let Some(class) = class_nodes.get(&site.name_range) {
+                    self.classes.insert(site.own_scope, *class);
+                    self.class_sites.insert(site.own_scope, index);
+                    self.class_names.insert(site.name_range, site.own_scope);
+                }
+            } else {
+                self.function_sites.insert(site.name_range, index);
+            }
+        }
     }
 
     fn parents_for_class(&self, class: &StmtClassDef) -> Vec<ParameterParent> {
@@ -277,26 +281,33 @@ impl<'a> ParentSignatures<'a> {
             }
             _ => {}
         });
+        self.collect_declared_writes();
+    }
+
+    fn collect_declared_writes(&mut self) {
         for (scope_index, scope) in self.table.scopes.iter().enumerate() {
             for name in scope.bindings.keys() {
                 if scope_index != 0 && scope.declares_global(name) {
                     self.invalid_bindings.insert((0, name.clone()));
                 }
-                if scope.declares_nonlocal(name) {
-                    let mut current = scope.parent;
-                    while let Some(parent) = current {
-                        let enclosing = &self.table.scopes[parent];
-                        if enclosing.kind == ScopeKind::Function
-                            && enclosing.bindings.contains_key(name)
-                        {
-                            self.invalid_bindings.insert((parent, name.clone()));
-                            break;
-                        }
-                        current = enclosing.parent;
-                    }
+                if scope.declares_nonlocal(name)
+                    && let Some(parent) = self.nonlocal_binding(scope.parent, name)
+                {
+                    self.invalid_bindings.insert((parent, name.clone()));
                 }
             }
         }
+    }
+
+    fn nonlocal_binding(&self, mut current: Option<usize>, name: &str) -> Option<usize> {
+        while let Some(parent) = current {
+            let enclosing = &self.table.scopes[parent];
+            if enclosing.kind == ScopeKind::Function && enclosing.bindings.contains_key(name) {
+                return Some(parent);
+            }
+            current = enclosing.parent;
+        }
+        None
     }
 
     fn unique_definition(&self, scope: usize, name: &str) -> Option<TextRange> {
