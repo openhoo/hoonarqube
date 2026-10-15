@@ -1,7 +1,11 @@
 use crate::CsLanguage;
-use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, node_text, range_of};
+use crate::cst::{
+    ancestors_of, canonical_identifier, collect_kinds, integer_literal_natural_type,
+    is_error_tainted, issue, modifiers_of, node_text, parameters_of, range_of,
+};
 use crate::rules::dataflow::unary_operator;
-use crate::rules::expressions::{binary_operands, operator_of};
+use crate::rules::expressions::{binary_operands, enclosing_callable, enclosing_type, operator_of};
+use crate::rules::naming::type_members;
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
@@ -28,10 +32,14 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 .find(|child| matches!(child.kind(), "&" | "|"))
                 .unwrap_or(expression);
             let replacement = if operator.kind() == "&" { "&&" } else { "||" };
+            let advice = operand_advice(right, source);
             issues.push(issue(
                 language,
                 "S2178",
-                format!("Correct this '{}' to '{replacement}'.", operator.kind()),
+                format!(
+                    "Correct this '{}' to '{replacement}'{advice}.",
+                    operator.kind()
+                ),
                 range_of(operator, source),
             ));
         }
@@ -82,6 +90,249 @@ fn condition_encloses(expression: Node<'_>) -> bool {
         }
     }
     false
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Primitive {
+    Int,
+    Bool,
+}
+
+/// Unknown is None: unsupported constant syntax must never imply runtime.
+#[derive(Clone, Copy)]
+struct OperandFact {
+    primitive: Primitive,
+    runtime: bool,
+}
+
+fn operand_advice(expression: Node<'_>, source: &str) -> &'static str {
+    if expression.kind() != "identifier"
+        && operand_fact(expression, source, 0)
+            .is_some_and(|fact| fact.primitive == Primitive::Bool && fact.runtime)
+    {
+        " and extract the right operand to a variable if it should always be evaluated"
+    } else {
+        ""
+    }
+}
+
+fn operand_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<OperandFact> {
+    if depth >= 64 || expression.has_error() || is_error_tainted(expression) {
+        return None;
+    }
+    match expression.kind() {
+        "boolean_literal" if matches!(node_text(expression, source), "true" | "false") => {
+            Some(OperandFact {
+                primitive: Primitive::Bool,
+                runtime: false,
+            })
+        }
+        "integer_literal"
+            if integer_literal_natural_type(node_text(expression, source)) == Some("int") =>
+        {
+            Some(OperandFact {
+                primitive: Primitive::Int,
+                runtime: false,
+            })
+        }
+        "identifier" => runtime_identifier(expression, source),
+        "invocation_expression" => runtime_call(expression, source),
+        "parenthesized_expression" => operand_fact(sole_child(expression)?, source, depth + 1),
+        "prefix_unary_expression" if unary_operator(expression) == Some("!") => {
+            let fact = operand_fact(sole_child(expression)?, source, depth + 1)?;
+            (fact.primitive == Primitive::Bool).then_some(fact)
+        }
+        "binary_expression" => comparison_fact(expression, source, depth + 1),
+        _ => None,
+    }
+}
+
+fn sole_child(expression: Node<'_>) -> Option<Node<'_>> {
+    (expression.named_child_count() == 1)
+        .then(|| expression.named_child(0))
+        .flatten()
+}
+
+fn comparison_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<OperandFact> {
+    let operator = operator_of(expression)?;
+    if !matches!(operator, "==" | "!=" | "<" | "<=" | ">" | ">=") {
+        return None;
+    }
+    let (left, right) = binary_operands(expression)?;
+    let left = operand_fact(left, source, depth)?;
+    let right = operand_fact(right, source, depth)?;
+    if left.primitive != right.primitive
+        || (!matches!(operator, "==" | "!=") && left.primitive != Primitive::Int)
+    {
+        return None;
+    }
+    Some(OperandFact {
+        primitive: Primitive::Bool,
+        runtime: left.runtime || right.runtime,
+    })
+}
+
+fn primitive_type(node: Node<'_>, source: &str) -> Option<Primitive> {
+    if node.kind() != "predefined_type" {
+        return None;
+    }
+    match node_text(node, source) {
+        "int" => Some(Primitive::Int),
+        "bool" => Some(Primitive::Bool),
+        _ => None,
+    }
+}
+
+/// Refuse binding constructs that need a broader C# scope resolver. The nearest
+/// callable is authoritative; never reach through a closure to its method.
+fn witness_owner(expression: Node<'_>) -> Option<Node<'_>> {
+    let owner = enclosing_callable(expression)?;
+    if owner.kind() != "method_declaration" || owner.has_error() || is_error_tainted(owner) {
+        return None;
+    }
+    owner
+        .child_by_field_name("body")
+        .filter(|body| body.kind() == "block")?;
+    owner
+        .child_by_field_name("parameters")
+        .filter(|list| list.kind() == "parameter_list")?;
+    let unsupported = collect_kinds(
+        owner,
+        &[
+            "lambda_expression",
+            "anonymous_method_expression",
+            "local_function_statement",
+            "for_statement",
+            "foreach_statement",
+            "catch_clause",
+            "catch_declaration",
+            "switch_statement",
+            "switch_expression",
+            "using_statement",
+            "fixed_statement",
+            "is_pattern_expression",
+            "declaration_expression",
+            "query_expression",
+            "tuple_pattern",
+        ],
+    );
+    if !unsupported.is_empty()
+        || collect_kinds(owner, &["local_declaration_statement"])
+            .into_iter()
+            .any(has_using_or_await)
+    {
+        return None;
+    }
+    Some(owner)
+}
+
+fn has_using_or_await(statement: Node<'_>) -> bool {
+    let mut cursor = statement.walk();
+    statement
+        .children(&mut cursor)
+        .any(|child| matches!(child.kind(), "using" | "await"))
+}
+
+fn declaration_name<'a>(declaration: Node<'_>, source: &'a str) -> Option<&'a str> {
+    let name = declaration.child_by_field_name("name")?;
+    (name.kind() == "identifier").then(|| canonical_identifier(node_text(name, source)))
+}
+
+/// Count every same-name declaration, even a late/const/sibling local. A
+/// rejected declaration must not expose a different parameter as a fallback.
+fn matching_declarations<'t>(owner: Node<'t>, name: &str, source: &str) -> Vec<Node<'t>> {
+    parameters_of(owner)
+        .into_iter()
+        .chain(
+            collect_kinds(owner, &["variable_declarator"])
+                .into_iter()
+                .filter(|node| {
+                    enclosing_callable(*node).is_some_and(|callable| callable.id() == owner.id())
+                }),
+        )
+        .filter(|declaration| declaration_name(*declaration, source) == Some(name))
+        .collect()
+}
+
+fn runtime_identifier(expression: Node<'_>, source: &str) -> Option<OperandFact> {
+    let owner = witness_owner(expression)?;
+    let name = canonical_identifier(node_text(expression, source));
+    let declarations = matching_declarations(owner, name, source);
+    let [declaration] = declarations.as_slice() else {
+        return None;
+    };
+    let primitive = if declaration.kind() == "parameter" {
+        primitive_type(declaration.child_by_field_name("type")?, source)?
+    } else {
+        local_primitive(*declaration, expression, source)?
+    };
+    Some(OperandFact {
+        primitive,
+        runtime: true,
+    })
+}
+
+fn local_primitive(declarator: Node<'_>, expression: Node<'_>, source: &str) -> Option<Primitive> {
+    let declaration = declarator
+        .parent()
+        .filter(|parent| parent.kind() == "variable_declaration")?;
+    let statement = declaration
+        .parent()
+        .filter(|parent| parent.kind() == "local_declaration_statement")?;
+    let block = statement
+        .parent()
+        .filter(|parent| parent.kind() == "block")?;
+    if statement.end_byte() > expression.start_byte()
+        || modifiers_of(statement, source).contains(&"const")
+        || has_using_or_await(statement)
+        || !ancestors_of(expression).any(|ancestor| ancestor.id() == block.id())
+    {
+        return None;
+    }
+    primitive_type(declaration.child_by_field_name("type")?, source)
+}
+
+fn runtime_call(expression: Node<'_>, source: &str) -> Option<OperandFact> {
+    let function = expression
+        .child_by_field_name("function")
+        .filter(|node| node.kind() == "identifier")?;
+    let arguments = expression
+        .child_by_field_name("arguments")
+        .filter(|node| node.kind() == "argument_list")?;
+    if arguments.named_child_count() != 0 {
+        return None;
+    }
+    let owner = witness_owner(expression)?;
+    let name = canonical_identifier(node_text(function, source));
+    if !matching_declarations(owner, name, source).is_empty() {
+        return None;
+    }
+    let methods: Vec<_> = type_members(enclosing_type(expression)?)
+        .into_iter()
+        .filter(|member| {
+            member.kind() == "method_declaration" && declaration_name(*member, source) == Some(name)
+        })
+        .collect();
+    let [method] = methods.as_slice() else {
+        return None;
+    };
+    zero_argument_bool_method(*method, source).then_some(OperandFact {
+        primitive: Primitive::Bool,
+        runtime: true,
+    })
+}
+
+fn zero_argument_bool_method(method: Node<'_>, source: &str) -> bool {
+    !method.has_error()
+        && !is_error_tainted(method)
+        && method.child_by_field_name("type_parameters").is_none()
+        && method
+            .child_by_field_name("parameters")
+            .is_some_and(|list| list.kind() == "parameter_list" && list.named_child_count() == 0)
+        && method
+            .child_by_field_name("returns")
+            .and_then(|node| primitive_type(node, source))
+            == Some(Primitive::Bool)
 }
 
 #[cfg(test)]
