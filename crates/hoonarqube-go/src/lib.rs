@@ -3154,7 +3154,7 @@ fn check_function(
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let count = parameter_count(parameters);
         if count > options.maximum_function_parameters {
-            let mut issue = node_issue(
+            let issue = node_issue(
                 "go:S107",
                 format!(
                     "This function has {count} parameters, which is greater than the {0} authorized.",
@@ -3163,14 +3163,12 @@ fn check_function(
                 node.child_by_field_name("name").unwrap_or(parameters),
                 source,
             );
-            if let Some(locations) =
-                excess_parameter_locations(parameters, options.maximum_function_parameters, source)
-            {
-                for location in locations {
-                    issue = issue.with_flow(vec![location]);
-                }
-            }
-            issues.push(issue);
+            issues.push(with_excess_parameter_locations(
+                issue,
+                parameters,
+                options.maximum_function_parameters,
+                source,
+            ));
         }
         check_parameter_names(parameters, source, issues);
     }
@@ -4115,6 +4113,20 @@ fn parameter_count(node: Node<'_>) -> usize {
         }
     }
     count
+}
+
+fn with_excess_parameter_locations(
+    mut issue: Issue,
+    parameters: Node<'_>,
+    maximum: usize,
+    source: &str,
+) -> Issue {
+    if let Some(locations) = excess_parameter_locations(parameters, maximum, source) {
+        for location in locations {
+            issue = issue.with_flow(vec![location]);
+        }
+    }
+    issue
 }
 
 fn excess_parameter_locations(
