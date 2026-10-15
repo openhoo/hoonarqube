@@ -2,33 +2,32 @@ use super::support::binary_operator;
 use crate::cst::{collect_kinds, is_error_tainted, issue, range_of, to_u32};
 use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
+use std::collections::HashSet;
 use tree_sitter::Node;
 
 /// csharpsquid:S1067 — one expression chains at most the tolerated number
-/// of logical operators.
+/// of conditional and logical operators.
 pub(crate) fn check(
     root: Node<'_>,
     source: &str,
     language: CsLanguage,
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
-    let mut issues = Vec::new();
+    let (mut expressions, conditional_nodes) = conditional_components(root, source);
     for expression in collect_kinds(root, &["binary_expression"]) {
-        if is_error_tainted(expression)
-            || !matches!(binary_operator(expression, source), "&&" | "||")
+        if conditional_nodes.contains(&expression.id())
+            || is_error_tainted(expression)
+            || !is_legacy_logical_root(expression, source)
         {
             continue;
         }
-        let parent_is_logical_chain = expression.parent().is_some_and(|parent| {
-            parent.kind() == "binary_expression"
-                && matches!(binary_operator(parent, source), "&&" | "||")
-        });
-        if parent_is_logical_chain {
-            continue;
-        }
-        let count = logical_operator_count(expression, source);
-        if count > options.maximum_logical_operators {
-            issues.push(issue(
+        expressions.push((expression, logical_operator_count(expression, source)));
+    }
+    expressions
+        .into_iter()
+        .filter(|(_, count)| *count > options.maximum_logical_operators)
+        .map(|(expression, count)| {
+            issue(
                 language,
                 "S1067",
                 format!(
@@ -36,13 +35,108 @@ pub(crate) fn check(
                     options.maximum_logical_operators
                 ),
                 range_of(expression, source),
-            ));
-        }
-    }
-    issues
+            )
+        })
+        .collect()
 }
 
-/// Logical-operator occurrences within an expression subtree.
+/// Conditional-bearing components use bounded expression children. Keep the
+/// existing pure-logical grouping until its separate discrepancies are resolved.
+fn conditional_components<'t>(
+    root: Node<'t>,
+    source: &str,
+) -> (Vec<(Node<'t>, u32)>, HashSet<usize>) {
+    let mut expressions = Vec::new();
+    let mut included = HashSet::new();
+    for conditional in collect_kinds(root, &["conditional_expression"]) {
+        if included.contains(&conditional.id()) {
+            continue;
+        }
+        let component = conditional_component_root(conditional, source);
+        if is_error_tainted(component) {
+            continue;
+        }
+        let count = conditional_operator_count(component, source, &mut included);
+        expressions.push((component, count));
+    }
+    (expressions, included)
+}
+
+fn conditional_component_root<'t>(mut expression: Node<'t>, source: &str) -> Node<'t> {
+    while let Some(parent) = expression
+        .parent()
+        .filter(|parent| is_component_expression(*parent, source))
+    {
+        expression = parent;
+    }
+    expression
+}
+
+/// Calls, casts, lambdas and other unsupported syntax stop this traversal even
+/// when they contain conditional or logical descendants of their own.
+fn conditional_operator_count(
+    expression: Node<'_>,
+    source: &str,
+    included: &mut HashSet<usize>,
+) -> u32 {
+    let mut count = 0_u32;
+    let mut pending = vec![expression];
+    while let Some(node) = pending.pop() {
+        if !is_component_expression(node, source) {
+            continue;
+        }
+        included.insert(node.id());
+        if node.kind() == "conditional_expression"
+            || (node.kind() == "binary_expression"
+                && matches!(binary_operator(node, source), "&&" | "||"))
+        {
+            count = count.saturating_add(1);
+        }
+        let mut cursor = node.walk();
+        pending.extend(node.named_children(&mut cursor));
+    }
+    count
+}
+
+fn is_component_expression(expression: Node<'_>, source: &str) -> bool {
+    match expression.kind() {
+        "conditional_expression" | "parenthesized_expression" => true,
+        "prefix_unary_expression" => binary_operator(expression, source) == "!",
+        "binary_expression" => matches!(
+            binary_operator(expression, source),
+            "&&" | "||"
+                | "??"
+                | "|"
+                | "^"
+                | "&"
+                | "=="
+                | "!="
+                | "<"
+                | "<="
+                | ">"
+                | ">="
+                | "<<"
+                | ">>"
+                | ">>>"
+                | "+"
+                | "-"
+                | "*"
+                | "/"
+                | "%"
+        ),
+        _ => false,
+    }
+}
+
+fn is_legacy_logical_root(expression: Node<'_>, source: &str) -> bool {
+    matches!(binary_operator(expression, source), "&&" | "||")
+        && !expression.parent().is_some_and(|parent| {
+            parent.kind() == "binary_expression"
+                && matches!(binary_operator(parent, source), "&&" | "||")
+        })
+}
+
+/// Logical-operator occurrences within a legacy pure-logical expression subtree.
 fn logical_operator_count(expression: Node<'_>, source: &str) -> u32 {
     to_u32(
         collect_kinds(expression, &["binary_expression"])
