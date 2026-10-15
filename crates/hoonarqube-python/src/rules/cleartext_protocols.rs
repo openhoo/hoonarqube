@@ -83,10 +83,7 @@ pub(crate) fn check_cleartext_protocols(
                     || host.ends_with(".example.org")
                     || host.ends_with(".example.com")
                     || host.ends_with(".svc.cluster.local")
-                    || host.rsplit_once('.').is_some_and(|(_, tld)| tld == "test")
-                    || host
-                        .rsplit_once('.')
-                        .is_some_and(|(_, tld)| tld.eq_ignore_ascii_case("example"))
+                    || is_reserved_host_tld(host)
                     || host.ends_with(".localhost")
                     || NAMESPACE_AUTHORITIES.contains(&host);
                 // Sonar flags even a bare `http://` literal — the empty host
@@ -538,6 +535,11 @@ fn for_each_value_string_element(stmts: &[Stmt], visit: &mut impl FnMut(&str, Te
             }
         }
     });
+}
+
+fn is_reserved_host_tld(host: &str) -> bool {
+    host.rsplit_once('.')
+        .is_some_and(|(_, tld)| tld == "test" || tld.eq_ignore_ascii_case("example"))
 }
 
 fn protocol_host(authority: &str) -> &str {
