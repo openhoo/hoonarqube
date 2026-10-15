@@ -722,3 +722,54 @@ const CLASS_OWNER_CASES: &[Case] = &[
 fn python_s5332_protocol_identification_preserves_live_shadowed_class_owners() {
     check_live_owner_project(CLASS_OWNER_CASES);
 }
+
+// Exact sources and ranges from the separate live lambda-owner scan.
+const LAMBDA_OWNER_CASES: &[Case] = &[
+    Case {
+        name: "class-lambda-unshadowed.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda : Endpoint().startswith(\"http://\"))()\n",
+        ranges: &[(4, 41, 4, 50)],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "class-lambda-unrelated.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda other: Endpoint().startswith(\"http://\"))(unknown)\n",
+        ranges: &[(4, 46, 4, 55)],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "class-lambda-shadowed.py",
+        source: "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "function-lambda-unshadowed.py",
+        source: "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda : Endpoint().startswith(\"http://\"))()\n",
+        ranges: &[(3, 41, 3, 50)],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "function-lambda-unrelated.py",
+        source: "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda other: Endpoint().startswith(\"http://\"))(unknown)\n",
+        ranges: &[(3, 46, 3, 55)],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "function-lambda-shadowed.py",
+        source: "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+];
+
+#[test]
+fn python_s5332_protocol_identification_preserves_live_lambda_owner_boundaries() {
+    check_live_owner_project(LAMBDA_OWNER_CASES);
+}

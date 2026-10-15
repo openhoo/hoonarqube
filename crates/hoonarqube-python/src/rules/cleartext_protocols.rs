@@ -1245,4 +1245,65 @@ mod protocol_identification_tests {
         }
         assert!(mismatches.is_empty(), "{mismatches:?}");
     }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_lambda_owner_boundaries() {
+        // Exact sources and ranges from the separate live lambda-owner scan.
+        let cases = [
+            (
+                "class-lambda-unshadowed.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda : Endpoint().startswith(\"http://\"))()\n",
+                Some((4, 41, 4, 50)),
+            ),
+            (
+                "class-lambda-unrelated.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda other: Endpoint().startswith(\"http://\"))(unknown)\n",
+                Some((4, 46, 4, 55)),
+            ),
+            (
+                "class-lambda-shadowed.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+                None,
+            ),
+            (
+                "function-lambda-unshadowed.py",
+                "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda : Endpoint().startswith(\"http://\"))()\n",
+                Some((3, 41, 3, 50)),
+            ),
+            (
+                "function-lambda-unrelated.py",
+                "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda other: Endpoint().startswith(\"http://\"))(unknown)\n",
+                Some((3, 46, 3, 55)),
+            ),
+            (
+                "function-lambda-shadowed.py",
+                "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+                None,
+            ),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
 }
