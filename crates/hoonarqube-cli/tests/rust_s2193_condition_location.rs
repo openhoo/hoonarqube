@@ -312,6 +312,18 @@ fn rust_s2193_cli_same_line_loops_match_the_accepted_counter_identifier() {
             "fn main() { let mut counter = 0.0; while counter < 2.0 { counter += 1.0; } while counter < 4.0 { counter += 1.0; } }\n",
             vec![(1, 41, 1, 54)],
         ),
+        (
+            "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n while counter < 2.0 { counter += 1.0; }\n}\n",
+            vec![(4, 7, 4, 20)],
+        ),
+        (
+            "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n while counter < 2.0 { counter += 1.0; }\n}\n",
+            vec![(5, 7, 5, 20)],
+        ),
+        (
+            "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n\n while counter < 2.0 { counter += 1.0; }\n}\n",
+            vec![],
+        ),
     ] {
         fixture.write(source.as_bytes());
         for format in ["json", "sonar"] {

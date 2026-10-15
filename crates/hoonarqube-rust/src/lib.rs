@@ -7045,6 +7045,12 @@ mod s2193_condition_location_tests {
         );
         let reused = "fn main() { let mut counter = 0.0; while counter < 2.0 { counter += 1.0; } while counter < 4.0 { counter += 1.0; } }\n";
         assert_eq!(selected(reused), [expected(1, 41, 1, 54)]);
+        let later_line = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(later_line), [expected(4, 7, 4, 20)]);
+        let last_eligible_line = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(last_eligible_line), [expected(5, 7, 5, 20)]);
+        let outside_window = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert!(selected(outside_window).is_empty());
     }
 
     #[test]
