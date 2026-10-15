@@ -8,6 +8,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
     let mut issues = Vec::new();
     walk_all(root, &mut |node| {
         if node.kind() == "}"
+            // Initializers can contain executable blocks; exempt only their own delimiter.
+            && !node.parent().is_some_and(|parent| {
+                matches!(
+                    parent.kind(),
+                    "initializer_expression" | "anonymous_object_creation_expression"
+                )
+            })
             && source[..node.start_byte()]
                 .rsplit('\n')
                 .next()
