@@ -12,7 +12,9 @@ use hoonarqube_ir::{
 use tree_sitter::{Node, Parser, Point};
 mod error_guards;
 mod github_quality;
+mod project_error_index;
 use error_guards::ErrorGuardFacts;
+pub use project_error_index::{ProjectErrorIndex, ProjectSourceIdentity, ProjectSourceSnapshot};
 
 pub use github_quality::analyze_github_quality;
 
@@ -284,6 +286,30 @@ fn is_test_scope_file(path: &Path) -> bool {
 /// parser cannot return a syntax tree.
 #[must_use]
 pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileReport {
+    analyze_internal(path, source, options, None)
+}
+
+/// Analyzes one file with facts bound to an admitted selected project snapshot.
+///
+/// # Panics
+/// Panics only if the embedded grammar is incompatible or parsing returns no tree.
+#[must_use]
+pub fn analyze_with_project_context(
+    path: PathBuf,
+    source: &str,
+    options: &AnalyzerOptions,
+    target: ProjectSourceIdentity<'_>,
+    context: &ProjectErrorIndex,
+) -> FileReport {
+    analyze_internal(path, source, options, context.facts_for(target, source))
+}
+
+fn analyze_internal(
+    path: PathBuf,
+    source: &str,
+    options: &AnalyzerOptions,
+    project: Option<&project_error_index::PackageErrorFacts>,
+) -> FileReport {
     debug_assert_eq!(RULE_KEYS.len(), 36);
     let (source, tree) = parse_go_source(source).expect("Go parser returned no tree");
     let source = source.as_ref();
@@ -304,10 +330,11 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         };
     }
 
-    let error_guards = ErrorGuardFacts::collect(root, source, &imports);
     let is_test = options
         .test_scope
         .unwrap_or_else(|| is_test_scope_file(path.as_path()));
+    let error_guards =
+        ErrorGuardFacts::collect(root, source, &imports, project.filter(|_| !is_test));
     check_lines(path.as_path(), source, &line_facts, options, &mut issues);
     check_header(source, options, &mut issues);
     check_textual(source, root, &mut issues);

@@ -32,10 +32,17 @@ pub(crate) struct ErrorGuardFacts {
     regexp_alias: Option<String>,
     url_alias: Option<String>,
     error_type_shadowed: bool,
+    project_functions: HashMap<String, Vec<bool>>,
+    project_variables: HashMap<String, Vec<bool>>,
 }
 
 impl ErrorGuardFacts {
-    pub(crate) fn collect(root: Node<'_>, source: &str, imports: &GoImports) -> Self {
+    pub(crate) fn collect(
+        root: Node<'_>,
+        source: &str,
+        imports: &GoImports,
+        project: Option<&crate::project_error_index::PackageErrorFacts>,
+    ) -> Self {
         let mut facts = Self {
             bindings: HashMap::new(),
             functions: HashMap::new(),
@@ -44,7 +51,26 @@ impl ErrorGuardFacts {
             regexp_alias: imports.alias("regexp").map(str::to_owned),
             url_alias: imports.alias("net/url").map(str::to_owned),
             error_type_shadowed: false,
+            project_functions: project.map_or_else(HashMap::new, |p| {
+                p.functions
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            }),
+            project_variables: project.map_or_else(HashMap::new, |p| {
+                p.variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            }),
         };
+        // File imports retain their own scope; aliases are never pooled.
+        facts
+            .project_functions
+            .retain(|name, _| !imports.aliases.values().any(|alias| alias == name));
+        facts
+            .project_variables
+            .retain(|name, _| !imports.aliases.values().any(|alias| alias == name));
         let mut declarations = Vec::new();
         let mut shadowed_aliases = HashSet::new();
         walk(root, &mut |node| {
@@ -272,7 +298,7 @@ impl ErrorGuardFacts {
             .child_by_field_name("type")
             .map(|kind| self.declared_type(kind, source));
         for (index, name) in names.iter().enumerate() {
-            let fact = declared.clone().unwrap_or_else(|| {
+            let mut fact = declared.clone().unwrap_or_else(|| {
                 if values.len() == names.len() {
                     self.expression_type(values[index], 0, source)
                 } else if values.len() == 1 {
@@ -281,6 +307,11 @@ impl ErrorGuardFacts {
                     TypeFact::default()
                 }
             });
+            if scope.kind() == "source_file"
+                && let Some(returns) = self.project_variables.get(text(*name, source))
+            {
+                fact.returns.clone_from(returns);
+            }
             self.bindings
                 .entry(scope.id())
                 .or_default()
@@ -327,7 +358,17 @@ impl ErrorGuardFacts {
                 .map(|fact| &fact.returns)
                 .or_else(|| {
                     (!crate::identifier_is_locally_bound(function, name, source))
-                        .then(|| self.functions.get(name))
+                        .then(|| {
+                            self.functions.get(name).or_else(|| {
+                                (!project_type_is_locally_bound(function, name, source))
+                                    .then(|| {
+                                        self.project_functions
+                                            .get(name)
+                                            .or_else(|| self.project_variables.get(name))
+                                    })
+                                    .flatten()
+                            })
+                        })
                         .flatten()
                 });
             returns
@@ -370,4 +411,38 @@ impl ErrorGuardFacts {
             .copied()
             .unwrap_or(false)
     }
+}
+
+fn project_type_is_locally_bound(call: Node<'_>, name: &str, source: &str) -> bool {
+    ancestors(call)
+        .filter(|scope| {
+            matches!(
+                scope.kind(),
+                "block" | "expression_case" | "type_case" | "default_case"
+            )
+        })
+        .any(|scope| {
+            let statements = named_children(scope)
+                .into_iter()
+                .find(|n| n.kind() == "statement_list")
+                .map_or_else(|| named_children(scope), named_children);
+            statements
+                .into_iter()
+                .take_while(|n| n.start_byte() < call.start_byte())
+                .any(|statement| {
+                    if statement.kind() != "type_declaration"
+                        || statement.end_byte() > call.start_byte()
+                    {
+                        return false;
+                    }
+                    let mut found = false;
+                    walk(statement, &mut |node| {
+                        found |= matches!(node.kind(), "type_spec" | "type_alias")
+                            && node
+                                .child_by_field_name("name")
+                                .is_some_and(|n| text(n, source) == name);
+                    });
+                    found
+                })
+        })
 }
