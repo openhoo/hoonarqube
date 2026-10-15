@@ -6,6 +6,7 @@
 //! None of the batch-1 rules carry catalog parameters, so `AnalyzerOptions`
 //! is threaded through unchanged for later batches.
 
+mod comment_tags;
 mod dead_assignment;
 mod lambda_parameter_types;
 mod legacy_datetime;
@@ -18,7 +19,14 @@ use hoonarqube_ir::Issue;
 use tree_sitter::Tree;
 
 /// Sonar rule keys implemented by this route, in catalog external-key form.
-pub(crate) const RULE_KEYS: &[&str] = &["java:S1117", "java:S1854", "java:S2143", "java:S2211"];
+pub(crate) const RULE_KEYS: &[&str] = &[
+    "java:S1117",
+    "java:S1134",
+    "java:S1135",
+    "java:S1854",
+    "java:S2143",
+    "java:S2211",
+];
 
 /// Runs every cataloged Java detector over one parseable source.
 pub(crate) fn check_sonar_rules(
@@ -34,6 +42,7 @@ pub(crate) fn check_sonar_rules(
     let lines = LineIndex::new(source);
     let semantics = SemanticIndex::build(root, source, &lines);
     let mut issues = Vec::new();
+    issues.extend(comment_tags::check(root, source, &lines));
     issues.extend(local_shadows_field::check(root, source, &lines));
     issues.extend(dead_assignment::check(root, source, &lines, &semantics));
     issues.extend(lambda_parameter_types::check(root, source, &lines));

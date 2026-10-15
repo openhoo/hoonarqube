@@ -4,6 +4,7 @@
 //! (`ruby:...` external key). The route runs only on parseable sources:
 //! recovered trees fail closed, mirroring the other language frontends.
 
+mod comment_tags;
 mod conditional_operators;
 mod duplicate_string_literals;
 mod elsif_needs_else;
@@ -17,6 +18,8 @@ use tree_sitter::Tree;
 /// Sonar rule keys implemented by this route, in catalog external-key form.
 pub(crate) const RULE_KEYS: &[&str] = &[
     "ruby:S1067",
+    "ruby:S1134",
+    "ruby:S1135",
     "ruby:S1192",
     "ruby:S126",
     "ruby:S134",
@@ -29,8 +32,9 @@ pub(crate) fn check_sonar_rules(
     source: &str,
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
-    debug_assert_eq!(RULE_KEYS.len(), 5);
+    debug_assert_eq!(RULE_KEYS.len(), 7);
     let mut issues = Vec::new();
+    issues.extend(comment_tags::check(tree.root_node(), source));
     issues.extend(conditional_operators::check(
         tree.root_node(),
         source,
