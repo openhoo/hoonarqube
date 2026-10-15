@@ -3095,21 +3095,7 @@ fn check_node(
     {
         let depth = control_depth(node);
         if depth == options.maximum_nesting_depth.saturating_add(1) {
-            let mut issue = keyword_issue(
-                "go:S134",
-                format!(
-                    "Refactor this code to not nest more than {} control flow statements.",
-                    options.maximum_nesting_depth
-                ),
-                node,
-                0,
-                if node.kind() == "for_statement" { 3 } else { 2 },
-                source,
-            );
-            for location in s134_ancestor_locations(node, source) {
-                issue = issue.with_flow(vec![location]);
-            }
-            issues.push(issue);
+            issues.push(s134_issue(node, options.maximum_nesting_depth, source));
         }
     }
     if matches!(
@@ -4271,35 +4257,40 @@ fn control_depth(node: Node<'_>) -> usize {
     depth
 }
 
-fn s134_ancestor_locations(node: Node<'_>, source: &str) -> Vec<FlowLocation> {
+fn s134_issue(node: Node<'_>, maximum: usize, source: &str) -> Issue {
+    let mut issue = keyword_issue(
+        "go:S134",
+        format!("Refactor this code to not nest more than {maximum} control flow statements."),
+        node,
+        0,
+        if node.kind() == "for_statement" { 3 } else { 2 },
+        source,
+    );
     // Each flattened else-if chain contributes its first if keyword.
     let mut controls: Vec<_> = ancestors(node)
         .take_while(|ancestor| !is_named_function(*ancestor))
         .filter(|ancestor| is_control(*ancestor) && !is_else_if(*ancestor))
         .collect();
     controls.reverse();
-    controls
-        .into_iter()
-        .enumerate()
-        .map(|(index, ancestor)| {
-            let start = point_pos(ancestor.start_position(), ancestor.start_byte(), source);
-            let length = match ancestor.kind() {
-                "for_statement" => 3,
-                "expression_switch_statement" | "type_switch_statement" => 6,
-                _ => 2,
-            };
-            FlowLocation::in_primary_file(
-                format!("Nesting depth {}", index + 1),
-                Range {
-                    start,
-                    end: Pos {
-                        column: start.column.saturating_add(length),
-                        ..start
-                    },
+    for (index, ancestor) in controls.into_iter().enumerate() {
+        let start = point_pos(ancestor.start_position(), ancestor.start_byte(), source);
+        let length = match ancestor.kind() {
+            "for_statement" => 3,
+            "expression_switch_statement" | "type_switch_statement" => 6,
+            _ => 2,
+        };
+        issue = issue.with_flow(vec![FlowLocation::in_primary_file(
+            format!("Nesting depth {}", index + 1),
+            Range {
+                start,
+                end: Pos {
+                    column: start.column.saturating_add(length),
+                    ..start
                 },
-            )
-        })
-        .collect()
+            },
+        )]);
+    }
+    issue
 }
 
 /// Collects `&&`/`||` operator tokens in a logical expression head, mirroring
