@@ -237,26 +237,42 @@ fn python_s8786_implicit_boundaries_cached_reanalysis_observes_anchor_changes() 
 #[test]
 fn python_s8786_implicit_boundaries_malformed_inputs_remain_incomplete() {
     let fixture = Fixture::new();
-    for source in [
-        "import re\nre.search(r\"^a+Z\", text\n",
-        "import re\ndef broken(:\n    pass\n",
+    for (source, has_parse_error) in [
+        ("import re\nre.search(r\"^a+Z\", text\n", false),
+        ("import re\ndef broken(:\n    pass\n", true),
     ] {
         for profile in ["strict", "sonar-parity"] {
             for format in ["json", "sonar"] {
-                let report = fixture.analyze(source, profile, format, 2).0;
+                let (report, output) = fixture.analyze(source, profile, format, 2);
+                assert_eq!(
+                    String::from_utf8(output.stderr).expect("recovery diagnostics"),
+                    concat!(
+                        "cannot analyze case.py: syntax tree contains recovered or missing nodes\n",
+                        "case.py: syntax tree contains recovered or missing nodes\n",
+                        "duplication analysis skipped because one or more eligible source files failed\n",
+                        "incomplete source facts for case.py: syntax tree contains recovered or missing nodes\n"
+                    )
+                );
                 assert_targets(&report, format, source, &[]);
                 let (issues, key) = if format == "json" {
                     (&report["files"][0]["issues"], "rule_key")
                 } else {
                     (&report["issues"], "ruleId")
                 };
-                assert!(
+                assert_eq!(
                     issues
                         .as_array()
                         .unwrap()
                         .iter()
-                        .any(|issue| issue[key] == "python:ParsingError")
+                        .any(|issue| issue[key] == "python:ParsingError"),
+                    has_parse_error
                 );
+                if format == "json" {
+                    assert_eq!(
+                        report["project"]["files"][0]["reason"],
+                        "syntax tree contains recovered or missing nodes"
+                    );
+                }
             }
         }
     }
