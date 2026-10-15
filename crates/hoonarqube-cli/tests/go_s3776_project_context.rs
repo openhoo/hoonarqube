@@ -1,7 +1,7 @@
 //! CLI regression for selected-snapshot Go error guards.
 //!
 //! Mux sources are from gorilla/mux db9d1d0073d27a0a2d9a8c1bc52aa0af4374d265.
-//! The embedded complete reports preserve the admitted SonarGo 1.43.0.7704
+//! The embedded complete reports preserve the admitted `SonarGo` 1.43.0.7704
 //! evidence and explicit two-function prediction. Conservative refusal controls
 //! below qualify native behavior; they do not claim new Sonar equivalence.
 // The embedded gorilla/mux sources retain their upstream license:
@@ -170,7 +170,8 @@ fn expected_artificial(files: &[(&str, &str)], contextual: bool) -> Value {
                 finding.message.contains("from 17 to"),
                 "independent file-local baseline"
             );
-            finding.message = "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed.".to_owned();
+            "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+                .clone_into(&mut finding.message);
             let guard_line = u32::try_from(
                 source
                     .lines()
@@ -2801,7 +2802,7 @@ func SetURLVars(r *http.Request, val map[string]string) *http.Request {
 const FILE_LOCAL_SOURCES: &[(&str, &str)] = &[
     (
         "src/method_assertion_clean/program.go",
-        r#"package p
+        r"package p
 
 type Router struct{}
 
@@ -2861,11 +2862,11 @@ func check(values []any) {
 		}
 	}
 }
-"#,
+",
     ),
     (
         "src/method_error_clean/program.go",
-        r#"package p
+        r"package p
 
 type Router struct{}
 
@@ -2921,11 +2922,11 @@ func check(r *Router) {
 		println(problem)
 	}
 }
-"#,
+",
     ),
     (
         "src/method_pointer_positive/program.go",
-        r#"package p
+        r"package p
 
 type Router struct{}
 type Other struct{}
@@ -2983,11 +2984,11 @@ func check(r *Other) {
 		println(problem)
 	}
 }
-"#,
+",
     ),
     (
         "src/method_tuple_positive/program.go",
-        r#"package p
+        r"package p
 
 type Router struct{}
 
@@ -3091,11 +3092,11 @@ func check(r *Router) {
 		println(problem)
 	}
 }
-"#,
+",
     ),
     (
         "src/ordinary_error_clean/program.go",
-        r#"package p
+        r"package p
 
 func failure() error { return nil }
 func check() {
@@ -3149,11 +3150,11 @@ func check() {
 		println(problem)
 	}
 }
-"#,
+",
     ),
     (
         "src/selector_positive/program.go",
-        r#"package p
+        r"package p
 
 type Router struct{ err error }
 
@@ -3207,7 +3208,7 @@ func check(r *Router) {
 		println(r.err)
 	}
 }
-"#,
+",
     ),
     (
         "src/url_else_positive/program.go",
