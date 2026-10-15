@@ -226,14 +226,25 @@ fn protocol_function_return_annotation<'a>(
         return None;
     };
     let function = facts.resolve_function(call)?;
-    for scope in facts.enclosing_chain(call.range()) {
+    if protocol_name_has_definition(name, function.range(), facts) {
+        function.returns.as_deref()
+    } else {
+        None
+    }
+}
+
+fn protocol_name_has_definition(
+    name: &ruff_python_ast::ExprName,
+    definition: TextRange,
+    facts: &WebFrameworkFacts<'_>,
+) -> bool {
+    for scope in facts.enclosing_chain(name.range()) {
         if let Some(range) = scope {
-            let owner = facts
-                .functions
-                .iter()
-                .find(|owner| owner.range() == range)?;
+            let Some(owner) = facts.functions.iter().find(|owner| owner.range() == range) else {
+                return false;
+            };
             if protocol_function_parameter(owner, name.id.as_str()).is_some() {
-                return None;
+                return false;
             }
         }
         let mut bindings = facts.stmts.iter().filter(|stmt| {
@@ -245,12 +256,9 @@ fn protocol_function_return_annotation<'a>(
         let Some(binding) = bindings.next() else {
             continue;
         };
-        if bindings.next().is_some() || binding.range() != function.range() {
-            return None;
-        }
-        return function.returns.as_deref();
+        return bindings.next().is_none() && binding.range() == definition;
     }
-    None
+    false
 }
 
 fn protocol_statement_scope(stmt: &Stmt, facts: &WebFrameworkFacts<'_>) -> Option<TextRange> {
@@ -369,12 +377,15 @@ fn protocol_class<'a>(
     expr: &Expr,
     facts: &WebFrameworkFacts<'a>,
 ) -> Option<&'a ruff_python_ast::StmtClassDef> {
-    if let Expr::Name(name) = expr
-        && protocol_parameter(name, facts).is_some()
-    {
-        return None;
-    }
-    facts.resolve_class_def(expr, expr.range())
+    let expr = facts.resolve_local_alias_chain(expr);
+    let class = facts.resolve_class_def(expr, expr.range())?;
+    let proven = match expr {
+        Expr::Name(name) => protocol_name_has_definition(name, class.range(), facts),
+        Expr::Attribute(attribute) => protocol_class(&attribute.value, facts)
+            .is_some_and(|owner| owner.body.iter().any(|stmt| stmt.range() == class.range())),
+        _ => false,
+    };
+    proven.then_some(class)
 }
 
 fn protocol_parameter<'a>(
