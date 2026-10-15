@@ -13,6 +13,8 @@ use tree_sitter::{Node, Parser, Point};
 mod error_guards;
 mod github_quality;
 mod project_error_index;
+#[cfg(test)]
+mod s134_supporting_location_tests;
 use error_guards::ErrorGuardFacts;
 pub use project_error_index::{ProjectErrorIndex, ProjectSourceIdentity, ProjectSourceSnapshot};
 
