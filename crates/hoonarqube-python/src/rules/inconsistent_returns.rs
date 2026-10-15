@@ -195,29 +195,20 @@ mod tests {
 
     #[test]
     fn s3801_nested_loop_body_break_does_not_exit_outer_loop() {
-        for source in [
-            "def choose(items, ready):\n    while True:\n        for item in items:\n            if item:\n                break\n        if ready:\n            return 1\n",
-        ] {
-            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
-        }
+        let source = "def choose(items, ready):\n    while True:\n        for item in items:\n            if item:\n                break\n        if ready:\n            return 1\n";
+        assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
     }
 
     #[test]
     fn s3801_nested_function_break_does_not_exit_outer_loop() {
-        for source in [
-            "def choose(flag):\n    while True:\n        def helper(items):\n            for item in items:\n                break\n        if flag:\n            return 1\n",
-        ] {
-            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
-        }
+        let source = "def choose(flag):\n    while True:\n        def helper(items):\n            for item in items:\n                break\n        if flag:\n            return 1\n";
+        assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
     }
 
     #[test]
     fn s3801_literal_true_explicit_none_is_valued() {
-        for source in [
-            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        return None\n",
-        ] {
-            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
-        }
+        let source = "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        return None\n";
+        assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
     }
 
     #[test]
