@@ -2,8 +2,8 @@
 //!
 //! Original chi sources are pinned to167e1e3bd039d060696b99c8da4e876ae04f42c1.
 //! The ten supplementary sources and expectations were measured independently
-//! with actual `SonarGo` before this implementation. The two switch primary
-//! range differences remain explicit residuals. Native coordinates are scalar.
+//! with actual `SonarGo` before this implementation. Expression and type switch
+//! primaries highlight their full keyword. Native coordinates are scalar.
 /*
 Copyright (c) 2015-present Peter Kieltyka (https://github.com/pkieltyka), Google Inc.
 
@@ -102,24 +102,24 @@ fn s134_for_primary_preserved() {
 }
 
 #[test]
-fn s134_expression_switch_primary_residual_preserved() {
+fn s134_expression_switch_primary_full_keyword() {
     assert_s134(
         BOUNDARY_3,
         4,
         vec![expected(
-            [8, 5, 8, 7],
+            [8, 5, 8, 11],
             &[[4, 1, 4, 3], [5, 2, 5, 4], [6, 3, 6, 5], [7, 4, 7, 6]],
         )],
     );
 }
 
 #[test]
-fn s134_type_switch_primary_residual_preserved() {
+fn s134_type_switch_primary_full_keyword() {
     assert_s134(
         BOUNDARY_4,
         4,
         vec![expected(
-            [8, 5, 8, 7],
+            [8, 5, 8, 11],
             &[[4, 1, 4, 3], [5, 2, 5, 4], [6, 3, 6, 5], [7, 4, 7, 6]],
         )],
     );
