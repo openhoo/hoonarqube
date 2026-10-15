@@ -14,14 +14,19 @@ pub(crate) fn check(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let (mut expressions, conditional_nodes) = conditional_components(root, source);
+    let mut logical_roots = HashSet::new();
     for expression in collect_kinds(root, &["binary_expression"]) {
         if conditional_nodes.contains(&expression.id())
             || is_error_tainted(expression)
-            || !is_legacy_logical_root(expression, source)
+            || !matches!(binary_operator(expression, source), "&&" | "||")
         {
             continue;
         }
-        expressions.push((expression, logical_operator_count(expression, source)));
+        let component = component_root(expression, source);
+        if is_error_tainted(component) || !logical_roots.insert(component.id()) {
+            continue;
+        }
+        expressions.push((component, logical_operator_count(component, source)));
     }
     expressions
         .into_iter()
@@ -40,8 +45,7 @@ pub(crate) fn check(
         .collect()
 }
 
-/// Conditional-bearing components use bounded expression children. Keep the
-/// existing pure-logical grouping until its separate discrepancies are resolved.
+/// Conditional-bearing components use bounded expression children.
 fn conditional_components<'t>(
     root: Node<'t>,
     source: &str,
@@ -52,7 +56,7 @@ fn conditional_components<'t>(
         if included.contains(&conditional.id()) {
             continue;
         }
-        let component = conditional_component_root(conditional, source);
+        let component = component_root(conditional, source);
         if is_error_tainted(component) {
             continue;
         }
@@ -62,7 +66,7 @@ fn conditional_components<'t>(
     (expressions, included)
 }
 
-fn conditional_component_root<'t>(mut expression: Node<'t>, source: &str) -> Node<'t> {
+fn component_root<'t>(mut expression: Node<'t>, source: &str) -> Node<'t> {
     while let Some(parent) = expression
         .parent()
         .filter(|parent| is_component_expression(*parent, source))
@@ -128,15 +132,8 @@ fn is_component_expression(expression: Node<'_>, source: &str) -> bool {
     }
 }
 
-fn is_legacy_logical_root(expression: Node<'_>, source: &str) -> bool {
-    matches!(binary_operator(expression, source), "&&" | "||")
-        && !expression.parent().is_some_and(|parent| {
-            parent.kind() == "binary_expression"
-                && matches!(binary_operator(parent, source), "&&" | "||")
-        })
-}
-
-/// Logical-operator occurrences within a legacy pure-logical expression subtree.
+/// Logical-operator occurrences within a pure-logical component subtree,
+/// including descendants inside unsupported expressions.
 fn logical_operator_count(expression: Node<'_>, source: &str) -> u32 {
     to_u32(
         collect_kinds(expression, &["binary_expression"])
