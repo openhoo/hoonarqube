@@ -145,8 +145,17 @@ fn local_override_base<'t>(
             .is_some_and(|base_name| {
                 node_text(base_name, source) == name
                     && type_parameter_list_of(*candidate).map_or(0, |(_, count)| count) == arity
-                    && local_signature_parameters(*candidate, source, base_bindings)
-                        .is_some_and(|base| same_signature(&parameters, &base))
+                    && local_signature_parameters(*candidate, source, base_bindings).is_some_and(
+                        |base| {
+                            same_signature(&parameters.parameters, &base.parameters)
+                                && local_identity_pair_eligible(
+                                    method,
+                                    *candidate,
+                                    source,
+                                    parameters.uncertain_identity || base.uncertain_identity,
+                                )
+                        },
+                    )
             })
     })
 }
@@ -195,11 +204,16 @@ fn local_base_bindings(
     (names.len() == arguments.len()).then(|| names.into_iter().zip(arguments).collect())
 }
 
+struct LocalSignature {
+    parameters: Vec<crate::project_index::IndexedParameter>,
+    uncertain_identity: bool,
+}
+
 fn local_signature_parameters(
     method: Node<'_>,
     source: &str,
     type_bindings: &std::collections::HashMap<String, String>,
-) -> Option<Vec<crate::project_index::IndexedParameter>> {
+) -> Option<LocalSignature> {
     let mut bindings = type_bindings.clone();
     for (position, name) in local_type_parameter_names(method, source)
         .into_iter()
@@ -212,10 +226,102 @@ fn local_signature_parameters(
     if parameters.len() != types.len() {
         return None;
     }
+    let mut uncertain_identity = false;
     for (parameter, node) in parameters.iter_mut().zip(types) {
-        parameter.type_key = local_type_key(node?, source, &bindings);
+        let node = node?;
+        parameter.type_key = local_type_key(node, source, &bindings);
+        uncertain_identity |= local_uncertain_parameter_type(node, source, &bindings);
     }
-    Some(parameters)
+    Some(LocalSignature {
+        parameters,
+        uncertain_identity,
+    })
+}
+
+/// Legacy Add/Use comparison stays available for unproven type identities;
+/// a new Remove requires a signature whose identity is established locally.
+fn local_identity_pair_eligible(
+    method: Node<'_>,
+    base: Node<'_>,
+    source: &str,
+    uncertain_identity: bool,
+) -> bool {
+    !uncertain_identity
+        || first_default_difference_range(PairKind::Override, method, base, source)
+            .is_none_or(|difference| !matches!(difference.kind, DefaultDifferenceKind::Remove))
+}
+
+fn local_uncertain_parameter_type(
+    node: Node<'_>,
+    source: &str,
+    bindings: &std::collections::HashMap<String, String>,
+) -> bool {
+    collect_kinds(
+        node,
+        &[
+            "nullable_type",
+            "generic_name",
+            "identifier",
+            "qualified_name",
+            "alias_qualified_name",
+        ],
+    )
+    .into_iter()
+    .any(|part| local_uncertain_type_component(part, source, bindings))
+}
+
+fn local_uncertain_type_component(
+    node: Node<'_>,
+    source: &str,
+    bindings: &std::collections::HashMap<String, String>,
+) -> bool {
+    if node.kind() == "generic_name" {
+        return true;
+    }
+    if node.kind() == "nullable_type" {
+        let Some(inner) = node.child_by_field_name("type") else {
+            return true;
+        };
+        let rendered = local_render_type(inner, source, bindings, None, 0);
+        return local_nullable_value_kind(inner, source, &rendered).is_none();
+    }
+    if node.kind() == "identifier" && !local_type_parameter_identifier(node) {
+        return false;
+    }
+    let rendered = local_render_type(node, source, bindings, None, 0);
+    ![
+        "$local-method:",
+        "$local-type:",
+        "$local-bcl:",
+        "$local-named:",
+        "global::",
+    ]
+    .iter()
+    .any(|prefix| rendered.starts_with(prefix))
+}
+
+/// Known local value declarations and BCL scalar identities prove whether
+/// `?` changes the parameter type. Unknown named/generic types stay unknown.
+fn local_nullable_value_kind(inner: Node<'_>, source: &str, rendered: &str) -> Option<bool> {
+    if let Some(scalar) = rendered.strip_prefix("$local-bcl:") {
+        return Some(!matches!(scalar, "Object" | "String"));
+    }
+    if inner.kind() == "tuple_type" {
+        return Some(true);
+    }
+    if inner.kind() == "array_type" {
+        return Some(false);
+    }
+    let path = rendered.strip_prefix("$local-named:")?;
+    let root = crate::cst::ancestors_of(inner).last().unwrap_or(inner);
+    collect_kinds(root, &crate::rules::naming::support::TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .find(|declaration| full_type_identity(*declaration, source).as_deref() == Some(path))
+        .and_then(|declaration| match declaration.kind() {
+            "struct_declaration" | "enum_declaration" => Some(true),
+            "class_declaration" | "interface_declaration" => Some(false),
+            _ => None,
+        })
 }
 
 /// Keep the shared signature grouping, including flattened `params T name`.
@@ -302,6 +408,13 @@ fn local_type_replacement(
     blocked_alias_scope: Option<Node<'_>>,
     depth: usize,
 ) -> Option<String> {
+    if node.kind() == "nullable_type" {
+        let inner = node.child_by_field_name("type")?;
+        let rendered = local_render_type(inner, source, bindings, blocked_alias_scope, depth);
+        if local_nullable_value_kind(inner, source, &rendered) == Some(true) {
+            return Some(format!("$local-nullable<{rendered}>"));
+        }
+    }
     if node.kind() == "predefined_type" {
         return local_bcl_scalar(node_text(node, source))
             .map(|scalar| format!("$local-bcl:{scalar}"));
@@ -336,6 +449,9 @@ fn local_type_replacement(
         && !local_declares_system_scalar(node, source, &path)
     {
         return Some(format!("$local-bcl:{scalar}"));
+    }
+    if (absolute || aliased) && local_declares_type(node, source, &path) {
+        return Some(format!("$local-named:{path}"));
     }
     aliased.then_some(path)
 }
@@ -397,6 +513,11 @@ fn local_named_path(
                 format!("{shadow}.{suffix}")
             };
             return Some((expanded, false, true));
+        }
+        if suffix.is_empty()
+            && let Some(local) = local_visible_type(node, source, first, blocked_alias_scope)
+        {
+            return Some((local, false, true));
         }
         return Some((path, absolute, false));
     };
@@ -460,8 +581,7 @@ fn local_shadowed_system_namespace(node: Node<'_>, source: &str) -> Option<Strin
     for declaration in crate::cst::ancestors_of(node).filter(|ancestor| {
         crate::rules::naming::support::TYPE_DECLARATION_KINDS.contains(&ancestor.kind())
     }) {
-        let candidate = format!("{}.System", full_type_identity(declaration, source)?);
-        if local_declares_type(node, source, &candidate) {
+        if let Some(candidate) = local_nested_type(declaration, source, "System") {
             return Some(candidate);
         }
     }
@@ -476,6 +596,113 @@ fn local_shadowed_system_namespace(node: Node<'_>, source: &str) -> Option<Strin
         if (candidate != "System" && local_declares_namespace(node, source, &candidate))
             || local_declares_type(node, source, &candidate)
         {
+            return Some(candidate);
+        }
+        prefixes.pop()?;
+    }
+}
+
+/// Follow the same first file-local base admitted by the override selector.
+/// The declaration count bounds malformed/cyclic inheritance chains.
+fn local_nested_type<'t>(mut declaration: Node<'t>, source: &'t str, name: &str) -> Option<String> {
+    let root = crate::cst::ancestors_of(declaration)
+        .last()
+        .unwrap_or(declaration);
+    let types = local_type_table(root, source);
+    for _ in 0..=types.len() {
+        let candidate = format!("{}.{name}", full_type_identity(declaration, source)?);
+        if local_declares_type(root, source, &candidate) {
+            return Some(candidate);
+        }
+        let base_name = base_simple_names(declaration, source).first().copied()?;
+        declaration = *types.get(base_name)?;
+    }
+    None
+}
+
+/// Resolve bare names only to actual file-local declarations visible through
+/// enclosing types, namespaces, or one unambiguous namespace import.
+fn local_visible_type(
+    node: Node<'_>,
+    source: &str,
+    name: &str,
+    blocked_scope: Option<Node<'_>>,
+) -> Option<String> {
+    crate::cst::ancestors_of(node)
+        .find_map(|scope| local_scope_visible_type(scope, source, name, blocked_scope))
+}
+
+fn local_scope_visible_type(
+    scope: Node<'_>,
+    source: &str,
+    name: &str,
+    blocked_scope: Option<Node<'_>>,
+) -> Option<String> {
+    if crate::rules::naming::support::TYPE_DECLARATION_KINDS.contains(&scope.kind()) {
+        return local_nested_type(scope, source, name);
+    }
+    if !matches!(scope.kind(), "declaration_list" | "compilation_unit") {
+        return None;
+    }
+    let namespace = crate::cst::containing_namespace(scope, source);
+    let candidate = if namespace.is_empty() {
+        name.to_string()
+    } else {
+        format!("{namespace}.{name}")
+    };
+    if local_declares_type(scope, source, &candidate) {
+        return Some(candidate);
+    }
+    (blocked_scope != Some(scope))
+        .then(|| local_scope_imported_type(scope, source, name))
+        .flatten()
+}
+
+fn local_scope_imported_type(scope: Node<'_>, source: &str, name: &str) -> Option<String> {
+    let mut walk = scope.walk();
+    let candidates = scope
+        .named_children(&mut walk)
+        .filter(|child| child.kind() == "using_directive")
+        .filter_map(|directive| local_namespace_import(directive, source))
+        .map(|namespace| format!("{namespace}.{name}"))
+        .filter(|candidate| local_declares_type(scope, source, candidate))
+        .collect::<std::collections::BTreeSet<_>>();
+    (candidates.len() == 1)
+        .then(|| candidates.into_iter().next())
+        .flatten()
+}
+
+fn local_namespace_import(directive: Node<'_>, source: &str) -> Option<String> {
+    if directive.child_by_field_name("name").is_some() {
+        return None;
+    }
+    let mut walk = directive.walk();
+    if directive
+        .children(&mut walk)
+        .any(|child| child.kind() == "static")
+    {
+        return None;
+    }
+    let mut walk = directive.walk();
+    let target = directive
+        .named_children(&mut walk)
+        .find(|child| child.kind() != "comment")?;
+    let written = crate::cst::normalize_type_key(node_text(target, source)).replace('@', "");
+    if let Some(absolute) = written.strip_prefix("global::") {
+        return Some(absolute.to_string());
+    }
+    let namespace = crate::cst::containing_namespace(directive, source);
+    let mut prefixes = namespace
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    loop {
+        let candidate = if prefixes.is_empty() {
+            written.clone()
+        } else {
+            format!("{}.{written}", prefixes.join("."))
+        };
+        if local_declares_namespace(directive, source, &candidate) {
             return Some(candidate);
         }
         prefixes.pop()?;
