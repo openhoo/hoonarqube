@@ -941,4 +941,76 @@ mod protocol_identification_tests {
             );
         }
     }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_result_owner_boundaries() {
+        // Exact sources and ranges from the supplemental live SonarQube scan.
+        let cases = [
+            (
+                "bytes-strip.py",
+                "result = b\"x\".strip().startswith(\"http://\")\n",
+                Some((1, 33, 1, 42)),
+            ),
+            (
+                "annotated-bytes.py",
+                "def provide() -> bytes:\n    return b\"x\"\nresult = provide().startswith(\"http://\")\n",
+                Some((3, 30, 3, 39)),
+            ),
+            (
+                "bytes-lower.py",
+                "def identify(value: bytes):\n    return value.lower().startswith(\"http://\")\n",
+                Some((2, 36, 2, 45)),
+            ),
+            (
+                "annotated-str.py",
+                "def provide() -> str:\n    return \"x\"\nresult = provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "unknown-call.py",
+                "from unknown import provide\nresult = provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "imported-str-alias.py",
+                "from builtins import str as Text\nresult = Text.startswith(value, \"http://\")\n",
+                None,
+            ),
+            (
+                "annotated-custom.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef provide() -> Endpoint:\n    return Endpoint()\nresult = provide().startswith(\"http://\")\n",
+                Some((6, 30, 6, 39)),
+            ),
+            (
+                "bytes-constructor.py",
+                "result = bytes().startswith(\"http://\")\n",
+                Some((1, 28, 1, 37)),
+            ),
+            ("bare.py", "endpoint = \"http://\"\n", Some((1, 11, 1, 20))),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
 }
