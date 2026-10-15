@@ -1659,6 +1659,8 @@ export { accumulate };
     }
 
     fn assert_s1066_primaries(source: &str, expected: &[(u32, u32)]) {
+        let mut actual_reports = Vec::new();
+        let mut expected_reports = Vec::new();
         for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
             let key = format!("{language}:S1066");
             let findings: Vec<_> = report
@@ -1677,8 +1679,10 @@ export { accumulate };
                     )
                 })
                 .collect();
-            assert_eq!(findings, expected, "{language}: {source}");
+            actual_reports.push((language, findings));
+            expected_reports.push((language, expected));
         }
+        assert_eq!(actual_reports, expected_reports, "{source}");
     }
 
     #[test]

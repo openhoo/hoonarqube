@@ -79,7 +79,7 @@ fn expected(key: &str, file: &str, message: &str, line: u32, column: u32, format
     }
 }
 
-fn assert_report(
+fn report_observations(
     report: &Value,
     file: &str,
     language: &str,
@@ -87,7 +87,7 @@ fn assert_report(
     positions: &[(u32, u32)],
     s6660: &[(u32, u32)],
     utf16_extra: u32,
-) {
+) -> (Value, Value) {
     let key = format!("{language}:S1066");
     let other_key = format!("{language}:S6660");
     let extra = if format == "sonar" { utf16_extra } else { 0 };
@@ -95,7 +95,6 @@ fn assert_report(
         .iter()
         .map(|&(line, column)| expected(&key, file, MESSAGE, line, column + extra, format))
         .collect();
-    assert_eq!(selected(report, format, &key), expected_s1066);
     let expected_s6660: Vec<_> = s6660
         .iter()
         .map(|&(line, column)| {
@@ -109,27 +108,37 @@ fn assert_report(
             )
         })
         .collect();
-    assert_eq!(selected(report, format, &other_key), expected_s6660);
-    if format == "sonar" {
-        let descriptors: Vec<_> = report["rules"]
-            .as_array()
-            .expect("Generic descriptors")
-            .iter()
-            .filter(|rule| rule["id"] == key)
-            .collect();
-        assert_eq!(descriptors.len(), usize::from(!positions.is_empty()));
-    }
+    let descriptor_count = if format == "sonar" {
+        Some(
+            report["rules"]
+                .as_array()
+                .expect("Generic descriptors")
+                .iter()
+                .filter(|rule| rule["id"] == key)
+                .count(),
+        )
+    } else {
+        None
+    };
+    let expected_descriptor_count =
+        (format == "sonar").then_some(usize::from(!positions.is_empty()));
+    (
+        json!({"s1066":selected(report, format, &key),"s6660":selected(report, format, &other_key),"s1066_descriptors":descriptor_count}),
+        json!({"s1066":expected_s1066,"s6660":expected_s6660,"s1066_descriptors":expected_descriptor_count}),
+    )
 }
 
 fn assert_reports(source: &str, positions: &[(u32, u32)], s6660: &[(u32, u32)], utf16_extra: u32) {
     let fixture = Fixture::new();
+    let mut actual_reports = Vec::new();
+    let mut expected_reports = Vec::new();
     for (extension, language) in [("js", "javascript"), ("ts", "typescript")] {
         let file = format!("case.{extension}");
         std::fs::write(fixture.0.join(&file), source).expect("source");
         for profile in ["default", "sonar-parity", "strict"] {
             for format in ["json", "sonar"] {
                 let report = fixture.analyze(&file, format, profile);
-                assert_report(
+                let (actual, expected) = report_observations(
                     &report,
                     &file,
                     language,
@@ -138,6 +147,8 @@ fn assert_reports(source: &str, positions: &[(u32, u32)], s6660: &[(u32, u32)], 
                     s6660,
                     utf16_extra,
                 );
+                actual_reports.push(json!({"language":language,"profile":profile,"format":format,"observation":actual}));
+                expected_reports.push(json!({"language":language,"profile":profile,"format":format,"observation":expected}));
             }
         }
         assert_eq!(
@@ -145,6 +156,7 @@ fn assert_reports(source: &str, positions: &[(u32, u32)], s6660: &[(u32, u32)], 
             source.as_bytes()
         );
     }
+    assert_eq!(actual_reports, expected_reports, "{source}");
 }
 
 #[test]
