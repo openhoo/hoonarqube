@@ -478,9 +478,7 @@ fn local_shadowed_system_namespace(node: Node<'_>, source: &str) -> Option<Strin
         {
             return Some(candidate);
         }
-        if prefixes.pop().is_none() {
-            return None;
-        }
+        prefixes.pop()?;
     }
 }
 
