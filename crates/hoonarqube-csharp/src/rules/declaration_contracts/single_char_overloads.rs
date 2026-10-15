@@ -24,7 +24,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                     let literal = first_named_child(*only);
                     literal.is_some_and(|literal| literal.kind() == "string_literal")
                         && literal.is_some_and(|literal| {
-                            node_text(literal, source).len() == "\"c\"".len()
+                            node_text(literal, source).encode_utf16().count() == 3
                         })
                 }
                 _ => false,
