@@ -1348,7 +1348,7 @@ mod tests {
             let source = format!(
                 "using System;\nnamespace Triage;\npublic class B {{ public virtual int M(System.{framework} x = default) => 1; }}\npublic class D : B {{ public override int M({keyword} x) => 1; }}\n"
             );
-            let column = 44 + keyword.len() as u32;
+            let column = 44 + u32::try_from(keyword.len()).expect("short keyword");
             assert_local_generic_difference(
                 &source,
                 Some("Add the default parameter value defined in the overridden method."),
@@ -1430,7 +1430,7 @@ mod tests {
             let source = format!(
                 "using System;\nnamespace Triage;\npublic class B {{ public virtual int M({base_type} x = {default}) => 1; }}\npublic class D : B {{ public override int M({derived_type} x) => 1; }}\n"
             );
-            let column = 44 + derived_type.len() as u32;
+            let column = 44 + u32::try_from(derived_type.len()).expect("short fixture type");
             assert_local_generic_difference(
                 &source,
                 Some("Add the default parameter value defined in the overridden method."),
@@ -1454,7 +1454,9 @@ mod tests {
                 let source = format!(
                     "{prefix}namespace Triage {{\n{scope_using}public class B {{ {methods} }}\npublic class D : B {{ public override int M(int x = 2) => x; }}\n}}\n"
                 );
-                let line = (prefix.lines().count() + scope_using.lines().count()) as u32 + 3;
+                let line = u32::try_from(prefix.lines().count() + scope_using.lines().count())
+                    .expect("short fixture prefix")
+                    + 3;
                 assert_removal(&analyze_default(&source), (line, 49, 52));
                 let clean = source.replace("M(int x = 2)", "M(int x)");
                 assert!(with_key(&analyze_default(&clean), KEY).is_empty());

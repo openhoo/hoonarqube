@@ -825,7 +825,9 @@ fn csharp_s1006_local_scalar_identity_compiler_rejects_shadowed_system_decoys() 
                     format,
                     "Control.cs",
                     (
-                        (prefix.lines().count() + scope_using.lines().count()) as u32 + 3,
+                        u32::try_from(prefix.lines().count() + scope_using.lines().count())
+                            .expect("short fixture prefix")
+                            + 3,
                         49,
                         52,
                     ),
