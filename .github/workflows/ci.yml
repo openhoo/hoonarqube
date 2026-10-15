@@ -148,6 +148,17 @@ jobs:
           HOONARQUBE_TYPESCRIPT_PACKAGE: ${{ runner.temp }}/hoonarqube-typescript/node_modules/typescript
         run: cargo test --locked -p "$PACKAGE" --all-targets --all-features
 
+      - name: Run Python protocol CLI tests
+        if: matrix.package == 'hoonarqube-python'
+        run: >-
+          cargo test --locked --workspace --all-targets --all-features
+          --exclude hoonarqube-csharp
+          --exclude hoonarqube-java
+          --exclude hoonarqube-jsts
+          --exclude hoonarqube-python
+          --exclude hoonarqube-rust
+          -- python_s5332_protocol_identification
+
   quality-tests-rest:
     name: Tests (remaining workspace)
     needs: commitlint
@@ -171,6 +182,7 @@ jobs:
           --exclude hoonarqube-jsts
           --exclude hoonarqube-python
           --exclude hoonarqube-rust
+          -- --skip python_s5332_protocol_identification
 
   quality-dogfood:
     name: Quality (pinned dogfood)
