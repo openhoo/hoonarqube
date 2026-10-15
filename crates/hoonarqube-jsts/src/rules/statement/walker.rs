@@ -1657,4 +1657,116 @@ export { accumulate };
         let mergeable = js_keys("if (a) {\n  if (b) {\n    f();\n  }\n}\n");
         assert_eq!(count_key(&mergeable, "javascript:S1066"), 1);
     }
+
+    fn assert_s1066_primaries(source: &str, expected: &[(u32, u32)]) {
+        for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
+            let key = format!("{language}:S1066");
+            let findings: Vec<_> = report
+                .issues
+                .into_iter()
+                .filter(|finding| finding.rule_key == key)
+                .collect();
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|&(line, column)| {
+                    issue(
+                        &key,
+                        "Merge this if statement with the nested one.",
+                        (line, column),
+                        (line, column + 2),
+                    )
+                })
+                .collect();
+            assert_eq!(findings, expected, "{language}: {source}");
+        }
+    }
+
+    #[test]
+    fn s1066_outer_else_block_is_not_mergeable() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) { work(); }\n} else {\n  recover();\n}\n",
+            &[],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_else_if_is_not_mergeable() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) { work(); }\n} else if (c) {\n  recover();\n}\n",
+            &[],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_empty_else_is_not_mergeable() {
+        assert_s1066_primaries("if (a) { if (b) { work(); } } else {}\n", &[]);
+    }
+
+    #[test]
+    fn s1066_outer_unbraced_else_is_not_mergeable() {
+        assert_s1066_primaries("if (a) { if (b) { work(); } } else recover();\n", &[]);
+    }
+
+    #[test]
+    fn s1066_mergeable_pair_keeps_exact_issue() {
+        assert_s1066_primaries("if (a) {\n  if (b) {\n    work();\n  }\n}\n", &[(1, 0)]);
+    }
+
+    #[test]
+    fn s1066_outer_else_does_not_hide_mergeable_descendant() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) {\n    if (c) { work(); }\n  }\n} else { recover(); }\n",
+            &[(2, 2)],
+        );
+    }
+
+    #[test]
+    fn s1066_final_else_if_arm_keeps_its_own_mergeable_pair() {
+        assert_s1066_primaries(
+            "if (a) { one(); }\nelse if (b) {\n  if (c) { two(); }\n}\n",
+            &[(2, 5)],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_else_preserves_independent_s6660() {
+        let source = "if (a) {\n  if (b) { one(); }\n} else {\n  if (c) { two(); }\n}\n";
+        assert_s1066_primaries(source, &[]);
+        for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
+            let key = format!("{language}:S6660");
+            let findings: Vec<_> = report
+                .issues
+                .into_iter()
+                .filter(|finding| finding.rule_key == key)
+                .collect();
+            assert_eq!(
+                findings,
+                [issue(
+                    &key,
+                    "'If' statement should not be the only statement in 'else' block",
+                    (4, 2),
+                    (4, 4),
+                )],
+                "{language}"
+            );
+        }
+    }
+
+    #[test]
+    fn s1066_multiple_consequent_statements_stay_clean() {
+        assert_s1066_primaries("if (a) {\n  prepare();\n  if (b) { work(); }\n}\n", &[]);
+    }
+
+    #[test]
+    fn s1066_non_if_consequent_stays_clean() {
+        assert_s1066_primaries("if (a) { work(); }\n", &[]);
+    }
+
+    #[test]
+    fn s1066_mixed_crlf_unicode_keeps_scalar_primary() {
+        assert_s1066_primaries(
+            "/* 🦉 */ if (a) { if (b) { work(); } } else { recover(); }\r\n/* 🦉 */ if (c) { if (d) { keep(); } }\r\n",
+            &[(2, 8)],
+        );
+    }
 }
