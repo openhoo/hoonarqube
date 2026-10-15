@@ -504,18 +504,69 @@ const LIVE_OWNER_CASES: &[Case] = &[
     },
 ];
 
+// Exact sources and ranges from the separate live binding-owner scan.
+const SHADOW_OWNER_CASES: &[Case] = &[
+    Case {
+        name: "parameter-shadow.py",
+        source: "def provide() -> bytes:\n    return b\"x\"\ndef identify(provide):\n    return provide().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "local-shadow.py",
+        source: "def provide() -> bytes:\n    return b\"x\"\ndef identify():\n    provide = unknown\n    return provide().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "reassigned-provider.py",
+        source: "def provide() -> bytes:\n    return b\"x\"\nprovide = unknown\nresult = provide().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "import-shadow.py",
+        source: "def provide() -> bytes:\n    return b\"x\"\ndef identify():\n    from other import provide\n    return provide().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "known-bytes.py",
+        source: "def provide() -> bytes:\n    return b\"x\"\nresult = provide().startswith(\"http://\")\n",
+        ranges: &[(3, 30, 3, 39)],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "bytes-decode.py",
+        source: "result = b\"x\".decode().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "unknown-bytes-method.py",
+        source: "result = b\"x\".unknown().startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+];
+
 fn live_owner_targets(
     report: &Value,
     format: &str,
+    cases: &[Case],
 ) -> std::collections::BTreeMap<String, Vec<Value>> {
     let mut actual: std::collections::BTreeMap<String, Vec<Value>> =
         std::collections::BTreeMap::default();
     if format == "json" {
         assert_eq!(report["project"]["complete"], true);
-        assert_eq!(
-            report["project"]["metrics"]["files"],
-            LIVE_OWNER_CASES.len()
-        );
+        assert_eq!(report["project"]["metrics"]["files"], cases.len());
         for file in report["files"].as_array().expect("files") {
             actual.insert(
                 file["path"].as_str().expect("path").to_owned(),
@@ -529,7 +580,7 @@ fn live_owner_targets(
             );
         }
     } else {
-        for case in LIVE_OWNER_CASES {
+        for case in cases {
             actual.insert(format!("./{}", case.name), vec![]);
         }
         for issue in report["issues"]
@@ -547,8 +598,11 @@ fn live_owner_targets(
     actual
 }
 
-fn expected_live_owner_targets(format: &str) -> std::collections::BTreeMap<String, Vec<Value>> {
-    LIVE_OWNER_CASES.iter().map(|case| {
+fn expected_live_owner_targets(
+    format: &str,
+    cases: &[Case],
+) -> std::collections::BTreeMap<String, Vec<Value>> {
+    cases.iter().map(|case| {
         let path = format!("./{}", case.name);
         let issues = case.ranges.iter().map(|&(line, column, end_line, end_column)| {
             if format == "json" {
@@ -561,10 +615,9 @@ fn expected_live_owner_targets(format: &str) -> std::collections::BTreeMap<Strin
     }).collect()
 }
 
-#[test]
-fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries() {
+fn check_live_owner_project(cases: &[Case]) {
     let fixture = Fixture::new();
-    for case in LIVE_OWNER_CASES {
+    for case in cases {
         std::fs::write(fixture.0.join(case.name), case.source).expect("live source");
     }
     for profile in ["strict", "sonar-parity"] {
@@ -588,11 +641,11 @@ fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries()
             let report: Value = serde_json::from_slice(&output.stdout).expect("report");
             assert_eq!(report.get("parity").is_some(), profile == "sonar-parity");
             assert_eq!(
-                live_owner_targets(&report, format),
-                expected_live_owner_targets(format),
+                live_owner_targets(&report, format, cases),
+                expected_live_owner_targets(format, cases),
                 "{profile}/{format}"
             );
-            for case in LIVE_OWNER_CASES {
+            for case in cases {
                 assert_eq!(
                     std::fs::read(fixture.0.join(case.name)).expect("source readback"),
                     case.source.as_bytes()
@@ -600,4 +653,14 @@ fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries()
             }
         }
     }
+}
+
+#[test]
+fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries() {
+    check_live_owner_project(LIVE_OWNER_CASES);
+}
+
+#[test]
+fn python_s5332_protocol_identification_preserves_live_shadowed_result_owners() {
+    check_live_owner_project(SHADOW_OWNER_CASES);
 }
