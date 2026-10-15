@@ -8,10 +8,10 @@ use ruff_source_file::LineIndex;
 use ruff_text_size::{Ranged, TextSize};
 
 use crate::engine::file_context::FileContext;
+use crate::support::is_pytest_file_name;
 use crate::support::issue_at;
 use crate::support::to_pos;
 use crate::support::{ImportFqns, WebFrameworkFacts};
-use crate::support::{is_pytest_file_name, is_test_scope_file};
 
 const RULE_KEY: &str = "python:S2187";
 const CLASS_MESSAGE: &str = "Add some tests to this class.";
@@ -44,8 +44,9 @@ pub(crate) fn check_s2187_test_cases_contain_tests(
     source: &str,
     path: &Path,
     file_ctx: &FileContext,
+    test_scope: bool,
 ) -> Vec<Issue> {
-    if !is_test_scope_file(path) {
+    if !test_scope {
         return Vec::new();
     }
     let pytest_file = is_pytest_file_name(path);

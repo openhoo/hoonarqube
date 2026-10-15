@@ -287,6 +287,7 @@ fn analyzer_options_digest(
 fn python_options_value(options: &PythonAnalyzerOptions) -> serde_json::Value {
     serde_json::json!([
         "python-v1",
+        options.test_scope,
         options.maximum_line_length,
         options.maximum_lines_of_code,
         options.maximum_function_parameters,
@@ -1004,6 +1005,22 @@ pub(crate) fn assessment_exit_status(report: &AnalysisReport) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn python_scope_changes_assessment_options_provenance() {
+        let mut options = AnalyzerOptionsBundle::default();
+        let semantics = crate::project_features::SemanticOptions::default();
+        let inferred = analyzer_options_digest(&options, &semantics);
+        options.python.test_scope = Some(false);
+        let main = analyzer_options_digest(&options, &semantics);
+        options.python.test_scope = Some(true);
+        let test = analyzer_options_digest(&options, &semantics);
+        assert_ne!(inferred, main, "explicit MAIN differs from path inference");
+        assert_ne!(inferred, test, "explicit TEST differs from path inference");
+        assert_ne!(main, test, "MAIN and TEST have different rule eligibility");
+        options.python.test_scope = None;
+        assert_eq!(inferred, analyzer_options_digest(&options, &semantics));
+    }
 
     #[test]
     fn bounded_reader_rejects_missing_input_without_panicking() {

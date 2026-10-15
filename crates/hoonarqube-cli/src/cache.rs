@@ -915,6 +915,7 @@ fn analyzer_options_fingerprint(options: &AnalyzerOptions) -> String {
 
 fn python_options_value(options: &PythonAnalyzerOptions) -> serde_json::Value {
     serde_json::json!([
+        options.test_scope,
         options.maximum_line_length,
         options.maximum_lines_of_code,
         options.maximum_function_parameters,
@@ -1166,6 +1167,45 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn python_scope_options_invalidate_cached_findings_independently_of_classification() {
+        let path = Path::new("checks.py");
+        let source = "import unittest\nclass Checks(unittest.TestCase):\n    def helper(self):\n        return 42\n";
+        let digest = Cache::source_digest(source.as_bytes());
+        for old_scope in [None, Some(false), Some(true)] {
+            let fixture = Fixture::new();
+            let mut options = AnalyzerOptions::default();
+            options.python.test_scope = old_scope;
+            let mut cache = Cache::new_with_fingerprints(
+                Some(&fixture.0),
+                &options,
+                &CacheFingerprints::default(),
+            )
+            .unwrap();
+            let analyzed =
+                analyze_project_file(path, source, &options, FileClassification::Source, false);
+            cache.store(path, digest, &analyzed);
+            assert!(
+                cache
+                    .load(path, source.len(), digest, FileClassification::Source)
+                    .is_some()
+            );
+            for new_scope in [None, Some(false), Some(true)] {
+                options.python.test_scope = new_scope;
+                // Keep the executable and source snapshot fixed while the
+                // real options fingerprint varies independently of scope.
+                cache.options_fingerprint = analyzer_options_fingerprint(&options);
+                assert_eq!(
+                    cache
+                        .load(path, source.len(), digest, FileClassification::Source)
+                        .is_some(),
+                    old_scope == new_scope,
+                    "scope {old_scope:?} -> {new_scope:?}",
+                );
+            }
         }
     }
 
