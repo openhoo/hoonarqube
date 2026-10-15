@@ -1,6 +1,6 @@
 package com.hoonarqube.oracle;
 
-/** Minimal valid Java fixture; all catalog rows are declared as infra skips. */
+/** Minimal valid Java fixture; remaining unimplemented catalog rows retain infra declarations. */
 public final class InfraBoundary {
     private InfraBoundary() {
     }

@@ -322,7 +322,12 @@ pub fn finalize_profile_report(
         });
         report.issues.extend(native);
         hoonarqube_ir::sort_issues(&mut report.issues);
-        report.issues.dedup();
+        // Java has no native overlay. Its frontend already removes accidental
+        // duplicates while retaining distinct comment trivia whose reference
+        // findings have identical full-line locations.
+        if language != Language::Java {
+            report.issues.dedup();
+        }
     }
     retain_profile_active_issues(profile, report);
     drop_retired_security_hotspots(report);
