@@ -1159,7 +1159,7 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
         .filter_map(|contract| {
             // These rules derive complete syntax ranges independently of frozen
             // source anchors and must not add a second calibrated identity.
-            if matches!(contract.key, "rust:S2479" | "rust:S920") {
+            if matches!(contract.key, "rust:S2479" | "rust:S920" | "rust:S2193") {
                 return None;
             }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
@@ -1353,7 +1353,7 @@ fn check_whole_file(
     check_raw_pointer_functions(root, source, issues);
     check_infinite_iterators(root, source, issues);
     check_mutable_return(source, code, issues);
-    check_float_loop_counter(source, code, issues);
+    check_float_loop_counter(root, source, code, issues);
     check_redundant_casts(root, source, code, issues);
     check_numeric_suffixes(source, code, issues);
     check_unit_sort_closure(source, code, issues);
@@ -3479,27 +3479,49 @@ fn check_mutable_return(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_float_loop_counter(source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_float_loop_counter(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
     for captures in float_counter_regex().captures_iter(scan) {
         let Some(name) = captures.name("name") else {
             continue;
         };
-        let tail = &scan[captures.get(0).expect("whole regex capture").end()..];
-        if tail
-            .lines()
-            .take(4)
-            .any(|line| line.contains("while ") && line.contains(name.as_str()))
-        {
-            let full = captures.get(0).expect("whole regex capture");
-            issues.push(offset_issue(
+        let full = captures.get(0).expect("whole regex capture");
+        if let Some(condition) = float_counter_condition(root, scan, full.end(), name.as_str()) {
+            issues.push(node_issue(
                 "rust:S2193",
                 "Use an integer type for this while-loop counter.",
+                condition,
                 source,
-                full.start(),
-                full.end(),
             ));
         }
     }
+}
+
+fn float_counter_condition<'tree>(
+    root: Node<'tree>,
+    scan: &str,
+    start: usize,
+    name: &str,
+) -> Option<Node<'tree>> {
+    // Preserve the detector's existing four-line eligibility window while
+    // projecting the accepted loop onto its complete syntax condition.
+    let mut line_start = start;
+    for line in scan[start..].split_inclusive('\n').take(4) {
+        let line_end = line_start + line.len();
+        if line.contains("while ") && line.contains(name) {
+            let mut condition = None;
+            walk_valid(root, &mut |node| {
+                if condition.is_none()
+                    && node.kind() == "while_expression"
+                    && (line_start..line_end).contains(&node.start_byte())
+                {
+                    condition = node.child_by_field_name("condition");
+                }
+            });
+            return condition;
+        }
+        line_start = line_end;
+    }
+    None
 }
 
 fn check_redundant_casts(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
