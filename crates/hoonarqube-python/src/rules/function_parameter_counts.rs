@@ -212,35 +212,39 @@ impl<'a> ParentSignatures<'a> {
         }
         facts.collect_uncertainty(parsed);
         for (&scope, class) in &facts.classes {
-            let parents = class
-                .arguments
-                .as_deref()
-                .map_or_else(Vec::new, |arguments| {
-                    arguments
-                        .args
-                        .iter()
-                        .map(|base| {
-                            let Expr::Name(name) = base else {
-                                return ParameterParent::Unresolved;
-                            };
-                            if let Some(parent) = facts.class_for_name(name) {
-                                ParameterParent::Local(
-                                    parent,
-                                    facts.classes[&parent].start() < class.start(),
-                                )
-                            } else if name.id.as_str() == "object"
-                                && !facts.loads.contains_key(&name.range())
-                            {
-                                ParameterParent::Object
-                            } else {
-                                ParameterParent::Unresolved
-                            }
-                        })
-                        .collect()
-                });
+            let parents = facts.parents_for_class(class);
             facts.parents.insert(scope, parents);
         }
         facts
+    }
+
+    fn parents_for_class(&self, class: &StmtClassDef) -> Vec<ParameterParent> {
+        class
+            .arguments
+            .as_deref()
+            .map_or_else(Vec::new, |arguments| {
+                arguments
+                    .args
+                    .iter()
+                    .map(|base| {
+                        let Expr::Name(name) = base else {
+                            return ParameterParent::Unresolved;
+                        };
+                        if let Some(parent) = self.class_for_name(name) {
+                            ParameterParent::Local(
+                                parent,
+                                self.classes[&parent].start() < class.start(),
+                            )
+                        } else if name.id.as_str() == "object"
+                            && !self.loads.contains_key(&name.range())
+                        {
+                            ParameterParent::Object
+                        } else {
+                            ParameterParent::Unresolved
+                        }
+                    })
+                    .collect()
+            })
     }
 
     fn collect_uncertainty(&mut self, parsed: &Parsed<ModModule>) {
