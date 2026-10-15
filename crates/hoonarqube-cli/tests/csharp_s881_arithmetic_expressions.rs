@@ -256,31 +256,41 @@ fn canonical(value: &Value) -> Value {
     }
 }
 
-fn full_document(report: &Value, expected_sha256: &str) {
+fn full_document(report: &Value, expected_sha256: &str) -> Option<String> {
     let bytes =
         serde_json::to_vec(&canonical(report)).expect("canonical object keys, preserved arrays");
     let digest = format!("{:x}", Sha256::digest(bytes));
-    assert_eq!(
-        digest, expected_sha256,
-        "complete document changed: {report}"
-    );
+    (digest != expected_sha256)
+        .then(|| format!("complete document: expected {expected_sha256}, actual {digest}"))
 }
 
 fn check(label: &str, source: &str, rows: &[(u32, u32, u32, bool)], hashes: [&str; 2]) {
     let fixture = Fixture::new(label);
     fixture.write(source.as_bytes());
+    let mut failures = Vec::new();
+    // Check both actual formats before reporting behavioral failure, so a JSON
+    // regression cannot prevent the corresponding Sonar contract from running.
     for (format, hash) in ["json", "sonar"].into_iter().zip(hashes) {
         let output = fixture.analyze(format);
         assert!(output.stderr.is_empty(), "{output:?}");
         let report = document(&output, 0);
         inventory(&report, format);
-        assert_eq!(
-            targets(&report, format),
-            rows.iter().map(|r| expected(format, r)).collect::<Vec<_>>()
-        );
-        full_document(&report, hash);
+        let actual = targets(&report, format);
+        let expected: Vec<_> = rows.iter().map(|r| expected(format, r)).collect();
+        if actual != expected {
+            failures.push(format!(
+                "{format} target mismatch: expected {expected:?}, actual {actual:?}"
+            ));
+        }
+        if let Some(failure) = full_document(&report, hash) {
+            failures.push(format!("{format} {failure}"));
+        }
     }
     assert_eq!(fixture.source(), source.as_bytes());
+    assert!(
+        failures.is_empty(),
+        "regression assertions failed for {label}: {failures:#?}"
+    );
 }
 
 fn unicode_control() -> String {
