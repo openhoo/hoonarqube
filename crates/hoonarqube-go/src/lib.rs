@@ -3429,15 +3429,23 @@ fn check_identical_operands(
     if matches!(operator, "+" | "*" | "<<") {
         return;
     }
-    let left = skip_parentheses(left);
-    let right = skip_parentheses(right);
-    if canonical_code(left, source) == canonical_code(right, source) {
-        issues.push(node_issue(
-            "go:S1764",
-            "Correct one of the identical sub-expressions on both sides of this operator.",
-            right,
-            source,
-        ));
+    // Normalize for equivalence, while the diagnostic retains both complete
+    // source operands, including their outer parentheses.
+    let comparable_left = skip_parentheses(left);
+    let comparable_right = skip_parentheses(right);
+    if canonical_code(comparable_left, source) == canonical_code(comparable_right, source) {
+        issues.push(
+            node_issue(
+                "go:S1764",
+                "Correct one of the identical sub-expressions on both sides of this operator.",
+                right,
+                source,
+            )
+            .with_flow(vec![FlowLocation::in_primary_file(
+                "",
+                node_range(left, source),
+            )]),
+        );
     }
 }
 
@@ -3567,10 +3575,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             source,
         ));
     }
-    if node
-        .parent()
-        .is_some_and(|parent| parent.kind() == "if_statement")
-    {
+    if is_else_if(node) {
         return;
     }
     let chain = collect_if_chain(node, source, issues);
@@ -3669,14 +3674,15 @@ fn report_if_chain_smells(
     source: &str,
     issues: &mut Vec<Issue>,
 ) {
-    // SonarGo reports only the outermost if/else-if chain missing a final
-    // `else`; a chain head nested inside another if-chain's branch is not
-    // separately reported. Else-if members already returned in `check_if`, so
-    // any `if_statement` ancestor means this head sits inside a branch.
-    let nested_in_if_branch = ancestors(node)
-        .take_while(|ancestor| !is_function(*ancestor))
-        .any(|ancestor| ancestor.kind() == "if_statement");
-    if chain.condition_count > 1 && !chain.ends_with_else && !nested_in_if_branch {
+    // Each independent chain is checked, including chains inside another
+    // branch. Only actual else-if members are skipped by `check_if`.
+    // SonarGo exempts a chain when every branch's final direct statement is
+    // a return, break, continue, or an unqualified panic invocation.
+    let all_branches_terminate = chain
+        .branches
+        .iter()
+        .all(|(_, branch)| branch_ends_with_jump_or_panic(*branch, source));
+    if chain.condition_count > 1 && !chain.ends_with_else && !all_branches_terminate {
         let range = nested_else_if_range(chain.last_if, source)
             .unwrap_or_else(|| node_range(chain.last_if, source));
         issues.push(Issue::new(
@@ -3706,6 +3712,33 @@ fn report_if_chain_smells(
             .all(|branch| branch.0 == chain.branches[0].0)
     {
         issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node, source));
+    }
+}
+
+fn branch_ends_with_jump_or_panic(branch: Node<'_>, source: &str) -> bool {
+    let Some(statements) = named_children(branch)
+        .into_iter()
+        .find(|child| child.kind() == "statement_list")
+    else {
+        return false;
+    };
+    let Some(last) = named_children(statements)
+        .into_iter()
+        .rfind(|child| !matches!(child.kind(), "comment" | "empty_statement"))
+    else {
+        return false;
+    };
+    match last.kind() {
+        "return_statement" | "break_statement" | "continue_statement" => true,
+        "expression_statement" => first_named(last).is_some_and(|expression| {
+            expression.kind() == "call_expression"
+                && expression
+                    .child_by_field_name("function")
+                    .is_some_and(|function| {
+                        function.kind() == "identifier" && text(function, source) == "panic"
+                    })
+        }),
+        _ => false,
     }
 }
 
@@ -4771,6 +4804,9 @@ fn relative_issue(
         },
     )
 }
+
+#[cfg(test)]
+mod s126_tests;
 
 #[cfg(test)]
 mod tests {
@@ -6129,6 +6165,147 @@ mod tests {
     }
 
     #[test]
+    fn s1764_matches_parenthesized_reference_primary_and_supporting_locations() {
+        let source = concat!(
+            "// Hoonarqube oracle fixture: go:S1764 bad\n",
+            "package oracle\n",
+            "\n",
+            "func main() {\n",
+            "  v1 := (true && false) && (true && false) // Noncompliant\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("fixture.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S1764")
+            .collect();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[0].message,
+            "Correct one of the identical sub-expressions on both sides of this operator."
+        );
+        assert_eq!(
+            issues[0].range,
+            Range {
+                start: Pos {
+                    line: 5,
+                    column: 27
+                },
+                end: Pos {
+                    line: 5,
+                    column: 42
+                },
+            }
+        );
+        assert_eq!(
+            issues[0].flows,
+            vec![hoonarqube_ir::IssueFlow {
+                locations: vec![FlowLocation::in_primary_file(
+                    "",
+                    Range {
+                        start: Pos { line: 5, column: 8 },
+                        end: Pos {
+                            line: 5,
+                            column: 23
+                        },
+                    }
+                )],
+            }]
+        );
+        assert!(issues[0].fix.is_none());
+        assert!(issues[0].alternatives.is_empty());
+    }
+
+    #[test]
+    fn s1764_retains_outer_operand_ranges_for_nested_and_multiline_parentheses() {
+        for (expression, left_end, right_start, right_end_line, right_end_column) in [
+            ("a == a", 9, 13, 3, 14),
+            ("a == (a)", 9, 13, 3, 16),
+            ("(a) == a", 11, 15, 3, 16),
+            ("((a)) == (((a)))", 13, 17, 3, 24),
+            ("( a ) == (( a ))", 13, 17, 3, 24),
+            ("a == (\n  a)", 9, 13, 4, 4),
+            ("(a) == (\n  ((a)))", 11, 15, 4, 8),
+        ] {
+            let source = format!("package p\nfunc f(a int) bool {{\n return {expression}\n}}\n");
+            let report = analyze(
+                PathBuf::from("fixture.go"),
+                &source,
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "go:S2260"),
+                "comparison control must parse: {expression}"
+            );
+            let issues: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "go:S1764")
+                .collect();
+            assert_eq!(issues.len(), 1, "{expression}");
+            let expected = Issue::new(
+                "go:S1764",
+                "Correct one of the identical sub-expressions on both sides of this operator.",
+                Range {
+                    start: Pos {
+                        line: 3,
+                        column: right_start,
+                    },
+                    end: Pos {
+                        line: right_end_line,
+                        column: right_end_column,
+                    },
+                },
+            )
+            .with_flow(vec![FlowLocation::in_primary_file(
+                "",
+                Range {
+                    start: Pos { line: 3, column: 8 },
+                    end: Pos {
+                        line: 3,
+                        column: left_end,
+                    },
+                },
+            )]);
+            assert_eq!(*issues[0], expected, "{expression}");
+        }
+    }
+
+    #[test]
+    fn s1764_different_parenthesized_operands_remain_clean() {
+        for expression in [
+            "a == (b)",
+            "((a)) != ((b))",
+            "((a + 1)) == (a + 2)",
+            "((a)) + (a)",
+            "(a) * ((a))",
+            "((a)) << ((a))",
+        ] {
+            let source = format!("package p\nfunc f(a, b int) {{\n _ = {expression}\n}}\n");
+            let report = analyze(
+                PathBuf::from("fixture.go"),
+                &source,
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "go:S1764"),
+                "{expression}"
+            );
+        }
+    }
+
+    #[test]
     fn s1764_exempts_idiomatic_operators() {
         let found = keys(concat!(
             "package p\n",
@@ -6174,7 +6351,7 @@ mod tests {
     }
 
     #[test]
-    fn s126_reports_only_the_outermost_missing_else_chain() {
+    fn s126_reports_outer_chain_and_exempts_nested_return_chain() {
         let found = keys(concat!(
             "package p\n",
             "func pick(a, b, c bool) int {\n",
@@ -6201,7 +6378,7 @@ mod tests {
         assert_eq!(
             found.iter().filter(|key| key.as_str() == "go:S126").count(),
             2,
-            "outer chain and standalone chain fire; the nested chain does not: {found:?}"
+            "outer and standalone chains fire; all nested branches end in return: {found:?}"
         );
     }
 
