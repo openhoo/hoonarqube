@@ -847,3 +847,60 @@ fn csharp_s1006_local_scalar_identity_compiler_rejects_shadowed_system_decoys() 
         }
     }
 }
+
+#[test]
+fn csharp_s1006_local_review_inherited_nested_system_preserves_exact_findings_and_runtime() {
+    let source = "namespace Triage { public class B { public class System { public class Int32 {} } public virtual int M(System.Int32 x = null) => 1; } public class D : B { public override int M(System.Int32 x) => 1; } public static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(null)); } } }\n";
+    let matching = source.replace(
+        "public override int M(System.Int32 x)",
+        "public override int M(System.Int32 x = null)",
+    );
+    for (source, message, span) in [
+        (
+            source,
+            Some("Add the default parameter value defined in the overridden method."),
+            Some((1, 190, 191)),
+        ),
+        (matching.as_str(), None, None),
+    ] {
+        let fixture = Fixture::new("review-inherited-system-compiled");
+        fixture.prepare_project(source);
+        let runtime = fixture.runtime();
+        assert_eq!(runtime.stdout, b"1\n");
+        assert!(runtime.stderr.is_empty());
+        assert_local_generic_cli_difference(source, message, span);
+        assert_eq!(fixture.read("Control.cs"), source.as_bytes());
+    }
+}
+
+#[test]
+fn csharp_s1006_local_review_nullable_value_type_decoys_compile_and_stay_clean() {
+    for source in [
+        "namespace Triage {\npublic class B {\n  public virtual int M(int? x) => 0;\n  public virtual int M(int x = 1) => x;\n}\npublic class D : B { public override int M(int x = 1) => x; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(1)); } }\n}\n",
+        "namespace Triage {\npublic class B {\n  public virtual int M(int x = 1) => x;\n  public virtual int M(int? x) => 0;\n}\npublic class D : B { public override int M(int x = 1) => x; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(1)); } }\n}\n",
+    ] {
+        let fixture = Fixture::new("review-nullable_value_type_decoys-compiled");
+        fixture.prepare_project(source);
+        let runtime = fixture.runtime();
+        assert_eq!(runtime.stdout, b"1\n");
+        assert!(runtime.stderr.is_empty());
+        assert_local_generic_cli_difference(source, None, None);
+        assert_eq!(fixture.read("Control.cs"), source.as_bytes());
+    }
+}
+
+#[test]
+fn csharp_s1006_local_review_namespace_import_decoys_compile_and_stay_clean() {
+    for source in [
+        "namespace Left { public class Item {} }\nnamespace Right { public class Item {} }\nnamespace Parent {\nusing Left;\npublic class B {\n  public virtual int M(Item x) => 0;\n  public virtual int M(global::Right.Item x = null) => 1;\n}\n}\nnamespace Child {\nusing Right;\npublic class D : Parent.B { public override int M(Item x = null) => 1; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(new global::Right.Item())); } }\n}\n",
+        "namespace Left { public class Item {} }\nnamespace Right { public class Item {} }\nnamespace Parent {\nusing Left;\npublic class B {\n  public virtual int M(global::Right.Item x = null) => 1;\n  public virtual int M(Item x) => 0;\n}\n}\nnamespace Child {\nusing Right;\npublic class D : Parent.B { public override int M(Item x = null) => 1; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(new global::Right.Item())); } }\n}\n",
+    ] {
+        let fixture = Fixture::new("review-distinct_namespace_import_decoys-compiled");
+        fixture.prepare_project(source);
+        let runtime = fixture.runtime();
+        assert_eq!(runtime.stdout, b"1\n");
+        assert!(runtime.stderr.is_empty());
+        assert_local_generic_cli_difference(source, None, None);
+        assert_eq!(fixture.read("Control.cs"), source.as_bytes());
+    }
+}
