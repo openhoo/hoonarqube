@@ -197,34 +197,38 @@ fn python_s7503_primary_message_matches_reference_in_both_exports() {
     }
 }
 
+fn assert_contract_ranges(report: &Value, name: &str, profile: &str, format: &str) {
+    let ranges = [(1, 18), (21, 22), (26, 23), (29, 22), (64, 30)];
+    let found = targets(report, format);
+    let expected = if name == "contracts" {
+        &ranges[..]
+    } else {
+        &[]
+    };
+    assert_eq!(found.len(), expected.len(), "{name}/{profile}/{format}");
+    for (issue, (line, end)) in found.iter().zip(expected) {
+        let range = if format == "json" {
+            &issue["range"]
+        } else {
+            &issue["primaryLocation"]["textRange"]
+        };
+        let expected_range = if format == "json" {
+            json!({"start": {"line": line, "column": 10}, "end": {"line": line, "column": end}})
+        } else {
+            json!({"startLine": line, "startColumn": 10, "endLine": line, "endColumn": end})
+        };
+        assert_eq!(*range, expected_range);
+    }
+}
+
 #[test]
 fn python_s7503_contract_and_nested_scope_selection_is_preserved() {
     let fixture = Fixture::new();
-    let ranges = [(1, 18), (21, 22), (26, 23), (29, 22), (64, 30)];
     for profile in ["strict", "sonar-parity"] {
         for format in ["json", "sonar"] {
             for name in ["contracts", "test_contracts"] {
                 let capture = fixture.analyze(name, CONTRACTS, profile, format, 0);
-                let found = targets(&capture.report, format);
-                let expected = if name == "contracts" {
-                    &ranges[..]
-                } else {
-                    &[]
-                };
-                assert_eq!(found.len(), expected.len(), "{name}/{profile}/{format}");
-                for (issue, (line, end)) in found.iter().zip(expected) {
-                    let range = if format == "json" {
-                        &issue["range"]
-                    } else {
-                        &issue["primaryLocation"]["textRange"]
-                    };
-                    let expected_range = if format == "json" {
-                        json!({"start": {"line": line, "column": 10}, "end": {"line": line, "column": end}})
-                    } else {
-                        json!({"startLine": line, "startColumn": 10, "endLine": line, "endColumn": end})
-                    };
-                    assert_eq!(*range, expected_range);
-                }
+                assert_contract_ranges(&capture.report, name, profile, format);
             }
         }
     }
