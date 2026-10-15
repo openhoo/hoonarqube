@@ -301,7 +301,7 @@ mod tests {
                     issue.range.end.column
                 ))
                 .collect::<Vec<_>>(),
-            vec![(1, 4, 1, 13), (2, 22, 2, 31), (9, 11, 9, 61)]
+            vec![(1, 4, 1, 13), (9, 11, 9, 61)]
         );
         assert!(
             found
@@ -352,5 +352,319 @@ mod docstring_prose_tests {
                 .message
                 .starts_with("Using HTTP protocol is insecure")
         );
+    }
+}
+
+#[cfg(test)]
+mod protocol_identification_tests {
+    use crate::test_support::{findings, scan};
+
+    // Current installed SonarPython protocol-identification semantics; bare
+    // endpoint values remain unsafe under the original #642 / #705 contract.
+
+    #[test]
+    fn s5332_protocol_identification_patterns_are_not_endpoint_values() {
+        {
+            let source =
+                "def launch(url: str):\n    return url.startswith((\"http://\", \"https://\"))\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "original-click-reduction");
+        }
+        {
+            let source = "result = \"https://safe.invalid\".startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "literal-instance-startswith");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "typed-instance-startswith");
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.startswith((((\"http://\",),)))\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "nested-tuple-parentheses");
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.replace(\"http://\", \"https://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "replace-old-pattern");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.removeprefix(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "remove-prefix-pattern");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.removesuffix(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "remove-suffix-pattern");
+        }
+        {
+            let source = "result = str.startswith(value, \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "unbound-str-pattern");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith(\"http://remote.invalid/path\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "full-endpoint-pattern");
+        }
+        {
+            let source = "def identify(value):\n    return value.startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "unknown-receiver-method");
+        }
+        {
+            let source = "a = \"http://\"\nb = value.startswith((\"http://\", \"https://\", \"/\"))\nc = \"see http://www.rssboard.org/rss-profile for details\"\nns = \"http://www.w3.org/2005/Atom\"\nns2 = \"http://purl.org/dc/elements/1.1/\"\nspace = \" http://remote.invalid\"\nsecure = \"https://remote.invalid/?next=http://remote.invalid\"\nlocal = \"http://localhost/?next=ftp://remote.invalid\"\nendpoint = \"http://remote.invalid/?next=ftp://remote.invalid\"\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 2, "prior-committed-bare-contract");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (1, 4, 1, 13)
+            );
+            assert_eq!(
+                (
+                    found[1].range.start.line,
+                    found[1].range.start.column,
+                    found[1].range.end.line,
+                    found[1].range.end.column
+                ),
+                (9, 11, 9, 61)
+            );
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_preserves_argument_and_owner_boundaries() {
+        {
+            let source = "value = \"http://\"\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "bare-assignment-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (1, 8, 1, 17)
+            );
+        }
+        {
+            let source = "def configure(self):\n    self.mount(\"http://\", object())\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "requests-mount-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 15, 2, 24)
+            );
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith(\"https://\", \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "startswith-later-position");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 40, 2, 49)
+            );
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.startswith(prefix=\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "startswith-keyword-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 35, 2, 44)
+            );
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.replace(\"https://\", \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "replace-new-endpoint");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 37, 2, 46)
+            );
+        }
+        {
+            let source = "def identify(value: str):\n    return value.endswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "endswith-name-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 26, 2, 35)
+            );
+        }
+        {
+            let source = "result = str.startswith(\"http://\", \"https://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "unbound-str-receiver-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (1, 24, 1, 33)
+            );
+        }
+        {
+            let source = "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = Endpoint().startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "known-nonstr-owner-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (4, 31, 4, 40)
+            );
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith([\"http://\"])\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "list-wrapper-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 29, 2, 38)
+            );
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.startswith(make(\"http://\"))\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "nested-call-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 33, 2, 42)
+            );
+        }
+        {
+            let source =
+                "value = b\"https://safe.invalid\"\nresult = value.startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "known-bytes-owner-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 26, 2, 35)
+            );
+        }
+        {
+            let source = "class str:\n    @staticmethod\n    def startswith(receiver, prefix):\n        return prefix\nresult = str.startswith(None, \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "rebound-str-class-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (5, 30, 5, 39)
+            );
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_keeps_existing_clean_controls() {
+        {
+            let source = "secure = \"https://remote.invalid\"\nlocal = \"http://localhost:8000\"\nprose = \"See http://remote.invalid\"\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "clean-secure-safe-prose");
+        }
+        {
+            let source =
+                "def describe():\n    \"\"\"http://remote.invalid\"\"\"\n    return None\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "docstring-clean");
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_unicode_crlf_retains_endpoint_coordinates() {
+        {
+            let source = "marker = \"😀\"; result = \"url\".startswith(\"http://\")\r\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "unicode-crlf-pattern");
+        }
     }
 }
