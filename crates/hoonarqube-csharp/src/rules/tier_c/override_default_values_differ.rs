@@ -1,6 +1,4 @@
-use super::support::{
-    ParameterUnit, local_type_declarations, local_type_table, override_base_pairs, parameter_units,
-};
+use super::support::{ParameterUnit, local_type_declarations, local_type_table, parameter_units};
 use crate::cst::{
     base_simple_names, collect_kinds, is_error_tainted, issue, modifiers_of, node_text,
     range_from_byte_offsets, range_of,
@@ -13,8 +11,8 @@ use crate::{AnalyzerOptions, CsLanguage};
 use hoonarqube_ir::Issue;
 use tree_sitter::Node;
 
-/// csharpsquid:S1006 — overrides changing or dropping a base method's
-/// default value. Compiler-compatible local subset: class overrides and
+/// csharpsquid:S1006 — overrides adding, changing, or dropping a default
+/// parameter value. Compiler-compatible local subset: class overrides and
 /// file-local interface implementations, plus cross-file base classes when
 /// a [`ProjectTypeIndex`] is supplied. Missing defaults and
 /// explicit-interface defaults use the same bound parameter identity as
@@ -32,7 +30,7 @@ pub(crate) fn check(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let mut pairs = override_base_pairs(root, source)
+    let mut pairs = local_override_pairs(root, source)
         .into_iter()
         .map(|(method, base)| (method, base, PairKind::Override))
         .collect::<Vec<_>>();
@@ -62,17 +60,474 @@ pub(crate) fn check(
 /// reference platform emits for that divergence shape.
 struct DefaultDifference {
     range: hoonarqube_ir::Range,
-    added: bool,
+    kind: DefaultDifferenceKind,
+}
+
+enum DefaultDifferenceKind {
+    Add,
+    Use,
+    Remove,
 }
 
 impl DefaultDifference {
     fn message(&self) -> &'static str {
-        if self.added {
-            "Add the default parameter value defined in the overridden method."
-        } else {
-            "Use the default parameter value defined in the overridden method."
+        match self.kind {
+            DefaultDifferenceKind::Add => {
+                "Add the default parameter value defined in the overridden method."
+            }
+            DefaultDifferenceKind::Use => {
+                "Use the default parameter value defined in the overridden method."
+            }
+            DefaultDifferenceKind::Remove => {
+                "Remove the default parameter value to match the signature of overridden method."
+            }
         }
     }
+}
+
+/// S1006 local overrides paired with the same direct-base signature.
+/// Method type parameters use declaration position; containing parameters
+/// use the written direct-base arguments in the derived type's scope.
+fn local_override_pairs<'t>(root: Node<'t>, source: &'t str) -> Vec<(Node<'t>, Node<'t>)> {
+    let types = local_type_table(root, source);
+    let mut pairs = Vec::new();
+    for declaration in local_type_declarations(root) {
+        if is_error_tainted(declaration) {
+            continue;
+        }
+        let Some(base_name) = base_simple_names(declaration, source).first().copied() else {
+            continue;
+        };
+        let Some(base) = types.get(base_name).copied() else {
+            continue;
+        };
+        let derived_bindings = local_type_parameter_names(declaration, source)
+            .into_iter()
+            .enumerate()
+            .map(|(position, name)| (name, format!("$local-type:{position}")))
+            .collect::<std::collections::HashMap<_, _>>();
+        let Some(base_bindings) = local_base_bindings(declaration, base, source, &derived_bindings)
+        else {
+            continue;
+        };
+        let base_methods = member_declarations_of_kind(base, "method_declaration");
+        for method in member_declarations_of_kind(declaration, "method_declaration") {
+            if let Some(candidate) = local_override_base(
+                method,
+                &base_methods,
+                source,
+                &derived_bindings,
+                &base_bindings,
+            ) {
+                pairs.push((method, candidate));
+            }
+        }
+    }
+    pairs
+}
+
+fn local_override_base<'t>(
+    method: Node<'t>,
+    candidates: &[Node<'t>],
+    source: &str,
+    derived_bindings: &std::collections::HashMap<String, String>,
+    base_bindings: &std::collections::HashMap<String, String>,
+) -> Option<Node<'t>> {
+    if !has_modifier(&modifiers_of(method, source), "override") {
+        return None;
+    }
+    let name = node_text(method.child_by_field_name("name")?, source);
+    let arity = type_parameter_list_of(method).map_or(0, |(_, count)| count);
+    let parameters = local_signature_parameters(method, source, derived_bindings)?;
+    candidates.iter().copied().find(|candidate| {
+        candidate
+            .child_by_field_name("name")
+            .is_some_and(|base_name| {
+                node_text(base_name, source) == name
+                    && type_parameter_list_of(*candidate).map_or(0, |(_, count)| count) == arity
+                    && local_signature_parameters(*candidate, source, base_bindings)
+                        .is_some_and(|base| same_signature(&parameters, &base))
+            })
+    })
+}
+
+fn local_type_parameter_names(declaration: Node<'_>, source: &str) -> Vec<String> {
+    let Some((list, _)) = type_parameter_list_of(declaration) else {
+        return Vec::new();
+    };
+    let mut cursor = list.walk();
+    list.named_children(&mut cursor)
+        .filter(|child| child.kind() == "type_parameter")
+        .filter_map(|parameter| parameter.child_by_field_name("name"))
+        .map(|name| node_text(name, source).trim_start_matches('@').to_string())
+        .collect()
+}
+
+fn local_base_bindings(
+    declaration: Node<'_>,
+    base: Node<'_>,
+    source: &str,
+    derived_bindings: &std::collections::HashMap<String, String>,
+) -> Option<std::collections::HashMap<String, String>> {
+    let names = local_type_parameter_names(base, source);
+    let mut cursor = declaration.walk();
+    let list = declaration
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "base_list")?;
+    let mut list_cursor = list.walk();
+    let first = list.named_children(&mut list_cursor).next()?;
+    let mut base_type = first.child_by_field_name("type").unwrap_or(first);
+    while matches!(base_type.kind(), "qualified_name" | "alias_qualified_name") {
+        base_type = base_type.child_by_field_name("name")?;
+    }
+    let mut type_cursor = base_type.walk();
+    let arguments = base_type
+        .named_children(&mut type_cursor)
+        .find(|child| child.kind() == "type_argument_list")
+        .map(|list| {
+            let mut cursor = list.walk();
+            list.named_children(&mut cursor)
+                .filter(|child| child.kind() != "comment")
+                .map(|argument| local_type_key(argument, source, derived_bindings))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    (names.len() == arguments.len()).then(|| names.into_iter().zip(arguments).collect())
+}
+
+fn local_signature_parameters(
+    method: Node<'_>,
+    source: &str,
+    type_bindings: &std::collections::HashMap<String, String>,
+) -> Option<Vec<crate::project_index::IndexedParameter>> {
+    let mut bindings = type_bindings.clone();
+    for (position, name) in local_type_parameter_names(method, source)
+        .into_iter()
+        .enumerate()
+    {
+        bindings.insert(name, format!("$local-method:{position}"));
+    }
+    let types = local_parameter_type_nodes(method);
+    let mut parameters = indexed_parameters(method, source);
+    if parameters.len() != types.len() {
+        return None;
+    }
+    for (parameter, node) in parameters.iter_mut().zip(types) {
+        parameter.type_key = local_type_key(node?, source, &bindings);
+    }
+    Some(parameters)
+}
+
+/// Keep the shared signature grouping, including flattened `params T name`.
+fn local_parameter_type_nodes(method: Node<'_>) -> Vec<Option<Node<'_>>> {
+    let Some(list) = method.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
+    let mut cursor = list.walk();
+    let mut groups = vec![Vec::new()];
+    for child in list.children(&mut cursor) {
+        if child.kind() == "," {
+            groups.push(Vec::new());
+        } else if let Some(group) = groups.last_mut() {
+            group.push(child);
+        }
+    }
+    groups
+        .into_iter()
+        .filter(|group| group.iter().any(Node::is_named))
+        .map(|mut group| {
+            let flattened = group.iter().any(|child| child.kind() == "params");
+            group.retain(Node::is_named);
+            if !flattened
+                && let [only] = group.as_slice()
+                && only.kind() == "parameter"
+            {
+                only.child_by_field_name("type")
+            } else {
+                group.into_iter().find(|child| child.kind() != "identifier")
+            }
+        })
+        .collect()
+}
+
+/// Replace only unqualified type-position identifiers. Qualified member
+/// names, generic type names and tuple element names remain concrete text.
+fn local_type_key(
+    type_node: Node<'_>,
+    source: &str,
+    bindings: &std::collections::HashMap<String, String>,
+) -> String {
+    crate::cst::normalize_type_key(&local_render_type(type_node, source, bindings, None, 0))
+}
+
+/// Render the signature-local identity recursively so composite types keep
+/// their shape while scalar spellings and scoped aliases share one identity.
+fn local_render_type(
+    node: Node<'_>,
+    source: &str,
+    bindings: &std::collections::HashMap<String, String>,
+    blocked_alias_scope: Option<Node<'_>>,
+    depth: usize,
+) -> String {
+    if depth > 16 {
+        return node_text(node, source).to_string();
+    }
+    if let Some(replacement) =
+        local_type_replacement(node, source, bindings, blocked_alias_scope, depth)
+    {
+        return replacement;
+    }
+    let mut rendered = String::new();
+    let mut cursor = node.start_byte();
+    let mut walk = node.walk();
+    for child in node.children(&mut walk) {
+        rendered.push_str(&source[cursor..child.start_byte()]);
+        rendered.push_str(&local_render_type(
+            child,
+            source,
+            bindings,
+            blocked_alias_scope,
+            depth,
+        ));
+        cursor = child.end_byte();
+    }
+    rendered.push_str(&source[cursor..node.end_byte()]);
+    rendered
+}
+
+fn local_type_replacement(
+    node: Node<'_>,
+    source: &str,
+    bindings: &std::collections::HashMap<String, String>,
+    blocked_alias_scope: Option<Node<'_>>,
+    depth: usize,
+) -> Option<String> {
+    if node.kind() == "predefined_type" {
+        return local_bcl_scalar(node_text(node, source))
+            .map(|scalar| format!("$local-bcl:{scalar}"));
+    }
+    if node.kind() == "identifier" && local_type_parameter_identifier(node) {
+        let name = node_text(node, source).trim_start_matches('@');
+        if let Some(replacement) = bindings.get(name) {
+            return Some(replacement.clone());
+        }
+        if let Some((target, scope)) = local_alias_target(node, source, name, blocked_alias_scope) {
+            return Some(local_render_type(
+                target,
+                source,
+                &std::collections::HashMap::new(),
+                Some(scope),
+                depth + 1,
+            ));
+        }
+    }
+    if node.kind() == "identifier" && !local_type_parameter_identifier(node) {
+        return None;
+    }
+    if !matches!(
+        node.kind(),
+        "identifier" | "qualified_name" | "alias_qualified_name"
+    ) {
+        return None;
+    }
+    let (path, absolute, aliased) = local_named_path(node, source, blocked_alias_scope, depth)?;
+    if let Some(scalar) = local_bcl_scalar(&path)
+        && (absolute || !bindings.contains_key("System"))
+        && !local_declares_system_scalar(node, source, &path)
+    {
+        return Some(format!("$local-bcl:{scalar}"));
+    }
+    aliased.then_some(path)
+}
+
+fn local_bcl_scalar(path: &str) -> Option<&'static str> {
+    Some(match path {
+        "bool" | "System.Boolean" => "Boolean",
+        "byte" | "System.Byte" => "Byte",
+        "char" | "System.Char" => "Char",
+        "decimal" | "System.Decimal" => "Decimal",
+        "double" | "System.Double" => "Double",
+        "float" | "System.Single" => "Single",
+        "int" | "System.Int32" => "Int32",
+        "long" | "System.Int64" => "Int64",
+        "object" | "System.Object" => "Object",
+        "sbyte" | "System.SByte" => "SByte",
+        "short" | "System.Int16" => "Int16",
+        "string" | "System.String" => "String",
+        "uint" | "System.UInt32" => "UInt32",
+        "ulong" | "System.UInt64" => "UInt64",
+        "ushort" | "System.UInt16" => "UInt16",
+        "nint" | "System.IntPtr" => "IntPtr",
+        "nuint" | "System.UIntPtr" => "UIntPtr",
+        _ => return None,
+    })
+}
+
+/// Resolve only an alias used as the leading named-type segment. Every
+/// candidate is drawn from a direct using directive in a lexical ancestor.
+fn local_named_path(
+    node: Node<'_>,
+    source: &str,
+    blocked_alias_scope: Option<Node<'_>>,
+    depth: usize,
+) -> Option<(String, bool, bool)> {
+    if depth > 16 || node_text(node, source).contains('<') {
+        return None;
+    }
+    let written = crate::cst::normalize_type_key(node_text(node, source)).replace('@', "");
+    let absolute = written.starts_with("global::");
+    let path = written
+        .strip_prefix("global::")
+        .unwrap_or(&written)
+        .replace("::", ".");
+    let (first, suffix) = path
+        .split_once('.')
+        .map_or((path.as_str(), ""), |(first, suffix)| (first, suffix));
+    if absolute {
+        return Some((path, true, false));
+    }
+    let Some((target, alias_scope)) = local_alias_target(node, source, first, blocked_alias_scope)
+    else {
+        if first == "System"
+            && let Some(shadow) = local_shadowed_system_namespace(node, source)
+        {
+            let expanded = if suffix.is_empty() {
+                shadow
+            } else {
+                format!("{shadow}.{suffix}")
+            };
+            return Some((expanded, false, true));
+        }
+        return Some((path, absolute, false));
+    };
+    let (target_path, target_absolute, _) =
+        local_named_path(target, source, Some(alias_scope), depth + 1)?;
+    let expanded = if suffix.is_empty() {
+        target_path
+    } else {
+        format!("{target_path}.{suffix}")
+    };
+    Some((expanded, target_absolute, true))
+}
+
+fn local_alias_target<'t>(
+    node: Node<'t>,
+    source: &str,
+    alias_name: &str,
+    blocked_scope: Option<Node<'t>>,
+) -> Option<(Node<'t>, Node<'t>)> {
+    for scope in crate::cst::ancestors_of(node).filter(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            "compilation_unit"
+                | "declaration_list"
+                | "namespace_declaration"
+                | "file_scoped_namespace_declaration"
+        )
+    }) {
+        if blocked_scope == Some(scope) {
+            continue;
+        }
+        if let Some(target) = local_scope_alias(scope, source, alias_name) {
+            return Some((target, scope));
+        }
+    }
+    None
+}
+
+fn local_scope_alias<'t>(scope: Node<'t>, source: &str, alias_name: &str) -> Option<Node<'t>> {
+    let mut walk = scope.walk();
+    scope
+        .named_children(&mut walk)
+        .filter(|child| child.kind() == "using_directive")
+        .find_map(|directive| {
+            let name = directive.child_by_field_name("name")?;
+            if node_text(name, source).trim_start_matches('@') != alias_name {
+                return None;
+            }
+            let mut children = directive.walk();
+            let named = directive
+                .named_children(&mut children)
+                .filter(|child| *child != name && child.kind() != "comment")
+                .collect::<Vec<_>>();
+            let target = *named.last()?;
+            let between = &source[name.end_byte()..target.start_byte()];
+            between.contains('=').then_some(target)
+        })
+}
+
+fn local_shadowed_system_namespace(node: Node<'_>, source: &str) -> Option<String> {
+    for declaration in crate::cst::ancestors_of(node).filter(|ancestor| {
+        crate::rules::naming::support::TYPE_DECLARATION_KINDS.contains(&ancestor.kind())
+    }) {
+        let candidate = format!("{}.System", full_type_identity(declaration, source)?);
+        if local_declares_type(node, source, &candidate) {
+            return Some(candidate);
+        }
+    }
+    let namespace = crate::cst::containing_namespace(node, source);
+    let mut prefixes = namespace.split('.').collect::<Vec<_>>();
+    loop {
+        let candidate = if prefixes.is_empty() {
+            "System".to_string()
+        } else {
+            format!("{}.System", prefixes.join("."))
+        };
+        if (candidate != "System" && local_declares_namespace(node, source, &candidate))
+            || local_declares_type(node, source, &candidate)
+        {
+            return Some(candidate);
+        }
+        if prefixes.pop().is_none() {
+            return None;
+        }
+    }
+}
+
+fn local_declares_namespace(node: Node<'_>, source: &str, expected: &str) -> bool {
+    let root = crate::cst::ancestors_of(node).last().unwrap_or(node);
+    collect_kinds(
+        root,
+        &["namespace_declaration", "file_scoped_namespace_declaration"],
+    )
+    .into_iter()
+    .any(|declaration| {
+        let Some(name) = declaration.child_by_field_name("name") else {
+            return false;
+        };
+        let declared = node_text(name, source).replace('@', "");
+        let prefix = crate::cst::containing_namespace(declaration, source);
+        let full = if prefix.is_empty() {
+            declared
+        } else {
+            format!("{prefix}.{declared}")
+        };
+        full == expected || full.starts_with(&format!("{expected}."))
+    })
+}
+
+fn local_declares_system_scalar(node: Node<'_>, source: &str, path: &str) -> bool {
+    if !path.starts_with("System.") {
+        return false;
+    }
+    local_declares_type(node, source, path)
+}
+
+fn local_declares_type(node: Node<'_>, source: &str, path: &str) -> bool {
+    let root = crate::cst::ancestors_of(node).last().unwrap_or(node);
+    collect_kinds(root, &crate::rules::naming::support::TYPE_DECLARATION_KINDS)
+        .into_iter()
+        .any(|declaration| full_type_identity(declaration, source).as_deref() == Some(path))
+}
+
+fn local_type_parameter_identifier(identifier: Node<'_>) -> bool {
+    identifier.parent().is_none_or(|parent| {
+        !(matches!(
+            parent.kind(),
+            "qualified_name" | "alias_qualified_name" | "generic_name"
+        ) || parent.kind() == "tuple_element"
+            && parent.child_by_field_name("name") == Some(identifier))
+    })
 }
 
 /// Overrides whose base class lives in another indexed file: the project
@@ -163,7 +618,8 @@ fn same_signature(
 
 /// The first default-value divergence between an override's CST
 /// parameters and its indexed base parameters: a dropped default anchors
-/// the parameter name, a changed default anchors the written value.
+/// the parameter name, a changed default anchors the written value, and an
+/// added default anchors the complete default clause.
 fn indexed_default_difference(
     units: &[ParameterUnit<'_>],
     derived: &[crate::project_index::IndexedParameter],
@@ -184,12 +640,16 @@ fn indexed_default_difference(
             match (unit.default_value, &base_parameter.default_value) {
                 (None, Some(_)) => unit.name.map(|name| DefaultDifference {
                     range: range_of(name, source),
-                    added: true,
+                    kind: DefaultDifferenceKind::Add,
+                }),
+                (Some(value), None) => Some(DefaultDifference {
+                    range: default_clause_range(value, source),
+                    kind: DefaultDifferenceKind::Remove,
                 }),
                 (Some(value), Some(base_value)) if Some(base_value) != derived_default.as_ref() => {
                     Some(DefaultDifference {
                         range: range_of(value, source),
-                        added: false,
+                        kind: DefaultDifferenceKind::Use,
                     })
                 }
                 _ => None,
@@ -220,7 +680,7 @@ fn default_difference_range(
     match pair_kind {
         PairKind::ExplicitInterface => unit.default_value.map(|value| DefaultDifference {
             range: default_clause_range(value, source),
-            added: false,
+            kind: DefaultDifferenceKind::Use,
         }),
         PairKind::ImplicitInterface => interface_default_difference(unit, base_unit, source),
         PairKind::Override => override_default_difference(unit, base_unit, source),
@@ -235,18 +695,18 @@ fn interface_default_difference(
     match (unit.default_value, base_unit.default_value) {
         (Some(value), None) => Some(DefaultDifference {
             range: default_clause_range(value, source),
-            added: false,
+            kind: DefaultDifferenceKind::Use,
         }),
         (None, Some(_)) => unit.name.map(|name| DefaultDifference {
             range: range_of(name, source),
-            added: true,
+            kind: DefaultDifferenceKind::Add,
         }),
         (Some(value), Some(base_value))
             if node_text(value, source) != node_text(base_value, source) =>
         {
             Some(DefaultDifference {
                 range: range_of(value, source),
-                added: false,
+                kind: DefaultDifferenceKind::Use,
             })
         }
         _ => None,
@@ -261,14 +721,18 @@ fn override_default_difference(
     match (unit.default_value, base_unit.default_value) {
         (None, Some(_)) => unit.name.map(|name| DefaultDifference {
             range: range_of(name, source),
-            added: true,
+            kind: DefaultDifferenceKind::Add,
+        }),
+        (Some(value), None) => Some(DefaultDifference {
+            range: default_clause_range(value, source),
+            kind: DefaultDifferenceKind::Remove,
         }),
         (Some(value), Some(base_value))
             if node_text(value, source) != node_text(base_value, source) =>
         {
             Some(DefaultDifference {
                 range: range_of(value, source),
-                added: false,
+                kind: DefaultDifferenceKind::Use,
             })
         }
         _ => None,
