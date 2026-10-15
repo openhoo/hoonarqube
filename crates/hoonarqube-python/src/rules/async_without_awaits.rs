@@ -23,7 +23,7 @@ pub(crate) fn check_async_without_awaits(
         {
             issues.push(issue_at(
                 "python:S7503",
-                "This async function never awaits; make it synchronous or await something.",
+                "Use asynchronous features in this function or remove the `async` keyword.",
                 function.name.range(),
                 index,
                 source,
