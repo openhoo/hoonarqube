@@ -6,6 +6,37 @@ use crate::test_support::{
 };
 
 #[test]
+fn explicit_source_scope_overrides_all_conventional_python_test_gates() {
+    let source = "import unittest\nclass Checks(unittest.TestCase):\n    def helper(self):\n        return 42\ndef compute(argument):\n    return 42\n";
+    let path = PathBuf::from("tests/checks.py");
+    let inferred = analyze(path.clone(), source, &AnalyzerOptions::default());
+    assert_eq!(findings(&inferred, "python:S2187").len(), 1);
+    for key in ["python:S1720", "python:S1172", "python:S6538"] {
+        assert!(findings(&inferred, key).is_empty(), "default TEST: {key}");
+    }
+    let source_options = AnalyzerOptions {
+        test_scope: Some(false),
+        ..AnalyzerOptions::default()
+    };
+    let main = analyze(path.clone(), source, &source_options);
+    assert_eq!(main.path, path);
+    assert_eq!(main.metrics, inferred.metrics);
+    assert!(findings(&main, "python:S2187").is_empty(), "explicit MAIN");
+    for key in ["python:S1720", "python:S1172", "python:S6538"] {
+        assert!(!findings(&main, key).is_empty(), "explicit MAIN: {key}");
+    }
+    let explicit_test = analyze(
+        PathBuf::from("checks.py"),
+        source,
+        &AnalyzerOptions {
+            test_scope: Some(true),
+            ..AnalyzerOptions::default()
+        },
+    );
+    assert_eq!(explicit_test.issues, inferred.issues);
+}
+
+#[test]
 fn exec_and_print_calls_are_py3_calls_and_not_flagged() {
     // CE matches only py2 statement forms; under py3 parsing `exec(...)` and
     // `print(...)` are plain builtin calls and stay out of scope. Attribute

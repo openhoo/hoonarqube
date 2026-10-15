@@ -751,6 +751,7 @@ pub(crate) fn check_tier_b_battery(
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
     path: &Path,
+    test_scope: bool,
 ) -> Vec<Issue> {
     let table = file_ctx.symbol_table();
     let facts = file_ctx.file_facts();
@@ -758,7 +759,7 @@ pub(crate) fn check_tier_b_battery(
     // Parameter usage has its own function-local reflection exemption.
     // A globals()/vars()/exec() call elsewhere cannot observe this signature.
     issues.extend(check_unused_parameters(
-        table, index, source, file_ctx, path,
+        table, index, source, file_ctx, test_scope,
     ));
     if !facts.dynamic_names {
         issues.extend(check_unused_imports(
@@ -1115,6 +1116,7 @@ pub(crate) fn check_test_assertion_battery(
     source: &str,
     path: &std::path::Path,
     file_ctx: &FileContext,
+    test_scope: bool,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_s3415_assertion_argument_order(
@@ -1131,7 +1133,7 @@ pub(crate) fn check_test_assertion_battery(
         parsed, index, source,
     ));
     issues.extend(check_s2187_test_cases_contain_tests(
-        parsed, index, source, path, file_ctx,
+        parsed, index, source, path, file_ctx, test_scope,
     ));
     issues
 }
@@ -1339,6 +1341,7 @@ pub(crate) fn check_structural_battery(
     source: &str,
     options: &AnalyzerOptions,
     file_ctx: &FileContext,
+    test_scope: bool,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     issues.extend(check_collapsible_ifs(parsed, index, source));
@@ -1350,7 +1353,7 @@ pub(crate) fn check_structural_battery(
     issues.extend(check_old_style_classes(index, source, file_ctx));
     issues.extend(check_keyword_parentheses(parsed, index, source, file_ctx));
     issues.extend(check_missing_return_annotations(
-        path, index, source, file_ctx,
+        test_scope, index, source, file_ctx,
     ));
     issues.extend(check_cognitive_complexity(parsed, index, source, options));
     issues.extend(check_function_complexity(parsed, index, source, options));
