@@ -4,7 +4,7 @@ use crate::context::AnalysisContext;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, ScannedComment, source_slice, static_property_name,
 };
-use hoonarqube_ir::Issue;
+use hoonarqube_ir::{FlowLocation, Issue, IssueFlow};
 use oxc_ast::ast::{
     BlockStatement, CallExpression, CatchClause, ContinueStatement, DebuggerStatement,
     DoWhileStatement, EmptyStatement, ExportAllDeclaration, Expression, ExpressionStatement,
@@ -789,6 +789,19 @@ impl StatementCollector<'_, '_> {
                 "Merge this if statement with the nested one.",
                 Span::new(it.span.start, it.span.start.saturating_add(2)),
             );
+            if RuleScope::Both.active(self.sink.language)
+                && let Some(issue) = self.sink.issues.last_mut()
+            {
+                issue.flows = vec![IssueFlow {
+                    locations: vec![FlowLocation::in_primary_file(
+                        "Nested \"if\" statement.",
+                        self.sink.index.range(Span::new(
+                            inner.span.start,
+                            inner.span.start.saturating_add(2),
+                        )),
+                    )],
+                }];
+            }
         }
         if let Some(Statement::BlockStatement(block)) = &it.alternate
             && block.body.len() == 1
