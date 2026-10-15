@@ -4263,7 +4263,11 @@ fn s134_issue(node: Node<'_>, maximum: usize, source: &str) -> Issue {
         format!("Refactor this code to not nest more than {maximum} control flow statements."),
         node,
         0,
-        if node.kind() == "for_statement" { 3 } else { 2 },
+        match node.kind() {
+            "for_statement" => 3,
+            "expression_switch_statement" | "type_switch_statement" => 6,
+            _ => 2,
+        },
         source,
     );
     // Each flattened else-if chain contributes its first if keyword.
