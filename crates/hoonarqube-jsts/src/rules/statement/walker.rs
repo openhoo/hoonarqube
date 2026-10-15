@@ -774,13 +774,14 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S1066`: an `if` whose consequent block holds exactly one `if`
-    /// without an `else` (an inner `else` would be dropped by merging).
+    /// with neither node having an `else`.
     /// `S6660`: an `else` block holding exactly one `if`.
     fn check_collapsible_if(&mut self, it: &IfStatement<'_>) {
         if let Statement::BlockStatement(block) = &it.consequent
             && block.body.len() == 1
             && let Statement::IfStatement(inner) = &block.body[0]
             && inner.alternate.is_none()
+            && it.alternate.is_none()
         {
             self.sink.emit_span(
                 RuleScope::Both,
