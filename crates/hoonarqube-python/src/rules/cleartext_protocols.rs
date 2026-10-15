@@ -239,13 +239,10 @@ fn protocol_name_has_definition(
     facts: &WebFrameworkFacts<'_>,
 ) -> bool {
     for scope in facts.enclosing_chain(name.range()) {
-        if let Some(range) = scope {
-            let Some(owner) = facts.functions.iter().find(|owner| owner.range() == range) else {
-                return false;
-            };
-            if protocol_function_parameter(owner, name.id.as_str()).is_some() {
-                return false;
-            }
+        if let Some(range) = scope
+            && protocol_scope_has_parameter(range, name.id.as_str(), facts) != Some(false)
+        {
+            return false;
         }
         let mut bindings = facts.stmts.iter().filter(|stmt| {
             protocol_statement_scope(stmt, facts) == scope
@@ -259,6 +256,34 @@ fn protocol_name_has_definition(
         return bindings.next().is_none() && binding.range() == definition;
     }
     false
+}
+
+/// Inspect the actual function or lambda parameters before rejecting an outer
+/// definition. An unrelated lambda parameter does not shadow that definition.
+fn protocol_scope_has_parameter(
+    scope: TextRange,
+    name: &str,
+    facts: &WebFrameworkFacts<'_>,
+) -> Option<bool> {
+    if let Some(function) = facts.functions.iter().find(|owner| owner.range() == scope) {
+        return Some(protocol_function_parameter(function, name).is_some());
+    }
+    let mut result = None;
+    for stmt in &facts.stmts {
+        for_each_stmt_expr(std::slice::from_ref(*stmt), &mut |expr| {
+            if let Expr::Lambda(lambda) = expr
+                && lambda.range() == scope
+            {
+                result = Some(lambda.parameters.as_deref().is_some_and(|parameters| {
+                    protocol_parameters_parameter(parameters, name).is_some()
+                }));
+            }
+        });
+        if result.is_some() {
+            return result;
+        }
+    }
+    None
 }
 
 fn protocol_statement_scope(stmt: &Stmt, facts: &WebFrameworkFacts<'_>) -> Option<TextRange> {
@@ -404,15 +429,21 @@ fn protocol_function_parameter<'a>(
     function: &'a ruff_python_ast::StmtFunctionDef,
     name: &str,
 ) -> Option<&'a ruff_python_ast::Parameter> {
-    function
-        .parameters
+    protocol_parameters_parameter(&function.parameters, name)
+}
+
+fn protocol_parameters_parameter<'a>(
+    parameters: &'a ruff_python_ast::Parameters,
+    name: &str,
+) -> Option<&'a ruff_python_ast::Parameter> {
+    parameters
         .posonlyargs
         .iter()
-        .chain(&function.parameters.args)
-        .chain(&function.parameters.kwonlyargs)
+        .chain(&parameters.args)
+        .chain(&parameters.kwonlyargs)
         .map(|parameter| &parameter.parameter)
-        .chain(function.parameters.vararg.as_deref())
-        .chain(function.parameters.kwarg.as_deref())
+        .chain(parameters.vararg.as_deref())
+        .chain(parameters.kwarg.as_deref())
         .find(|parameter| parameter.name.as_str() == name)
 }
 
