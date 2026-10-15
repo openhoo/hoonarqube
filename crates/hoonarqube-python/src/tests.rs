@@ -3139,7 +3139,7 @@ fn main_scope_rules_stay_silent_on_python_test_files() {
         "OTHER = \"pay load\"\n",
         "THIRD = \"pay load\"\n",
         "GATEWAY = \"192.168.1.1\"\n",
-        "ENDPOINT = \"http://unsafe.example/path\"\n",
+        "ENDPOINT = \"http://remote.invalid/path\"\n",
         "\n",
         "def helper():\n",
         "    stale = 1\n",
@@ -3611,6 +3611,121 @@ fn s1066_flags_collapsible_if_as_sole_elif_statement() {
     assert_eq!(enclosing.range.end, pos(4, 8));
     let else_suite = scan("if a:\n    work()\nelse:\n    if b:\n        work()\n");
     assert!(findings(&else_suite, "python:S1066").is_empty());
+}
+
+#[test]
+fn s1066_elif_line_guard_rejects_click_merged_header() {
+    let report = scan(
+        "def _less_uses_raw_mode(less_env: str, cmd_params: list[str]) -> bool:\n    \"\"\"Detect a raw-control-characters request in a ``less`` invocation.\n\n    Parses the tokens of the ``LESS`` environment variable and the command\n    line: only short-option clusters (``-R``, ``-rX``, ``-XrY``) and the\n    ``--raw-control-chars`` long option request raw mode. Filenames and\n    long-option values may carry the letter ``r`` without being such a\n    request.\n    \"\"\"\n    try:\n        env_tokens = shlex.split(less_env)\n    except ValueError:\n        # Unbalanced quotes make ``LESS`` unparsable: fall back to whitespace\n        # splitting rather than failing the pager over it.\n        env_tokens = less_env.split()\n    tokens = env_tokens + cmd_params\n\n    for token in tokens:\n        if token.startswith(\"--\"):\n            if token.casefold() == \"--raw-control-chars\":\n                return True\n        elif token.startswith(\"-\") and len(token) > 1:\n            if \"r\" in token[1:].casefold():\n                return True\n\n    return False\n",
+    );
+    assert!(findings(&report, "python:S1066").is_empty());
+}
+
+#[test]
+fn s1066_elif_line_guard_uses_selected_condition_at_80_and_81_columns() {
+    for (source, expected) in [
+        (
+            "if root:\n    work()\nelif aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:\n    if inner:\n        work()\n",
+            1,
+        ),
+        (
+            "if root:\n    work()\nelif aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:\n    if inner:\n        work()\n",
+            0,
+        ),
+        (
+            "if rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr:\n    work()\nelif aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:\n    if inner:\n        work()\n",
+            1,
+        ),
+        (
+            "if rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr:\n    work()\nelif aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:\n    if inner:\n        work()\n",
+            0,
+        ),
+        (
+            "if rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr:\n    work()\nelif value:\n    if inner:\n        work()\n",
+            1,
+        ),
+    ] {
+        let report = scan(source);
+        let found = findings(&report, "python:S1066");
+        assert_eq!(found.len(), expected, "{source}");
+        if expected == 1 {
+            assert_eq!(found[0].range.start, pos(4, 4));
+            assert_eq!(found[0].range.end, pos(4, 6));
+            assert_eq!(found[0].flows.len(), 1);
+            let enclosing = &found[0].flows[0].locations[0];
+            assert_eq!(enclosing.message, "enclosing");
+            assert_eq!(enclosing.range.start, pos(3, 0));
+            assert_eq!(enclosing.range.end, pos(3, 4));
+            assert!(enclosing.path.is_none());
+        }
+    }
+}
+
+#[test]
+fn s1066_elif_line_guard_preserves_selection_and_unrelated_guards() {
+    for (source, expected) in [
+        (
+            "if root:\n    work()\nelif value:\n    if inner:\n        work()\n",
+            1,
+        ),
+        ("if outer:\n    if inner:\n        work()\n", 1),
+        (
+            "if outer:\n    if inner:\n        if child:\n            work()\n",
+            2,
+        ),
+        (
+            "if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:\n    if inner:\n        work()\n",
+            1,
+        ),
+        (
+            "if aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:\n    if inner:\n        work()\n",
+            0,
+        ),
+        ("if outer:\n    work()\n", 0),
+        (
+            "if root:\n    work()\nelif earlier:\n    if inner:\n        work()\nelif last:\n    work()\n",
+            0,
+        ),
+        (
+            "if root:\n    work()\nelif value:\n    if inner:\n        work()\nelse:\n    stop()\n",
+            0,
+        ),
+        (
+            "if root:\n    work()\nelif value:\n    if inner:\n        work()\n    else:\n        stop()\n",
+            0,
+        ),
+        (
+            "if root:\n    work()\nelif value:\n    if inner:\n        work()\n    elif other:\n        stop()\n",
+            0,
+        ),
+        (
+            "if root:\n    work()\nelif value:\n    setup()\n    if inner:\n        work()\n",
+            0,
+        ),
+        (
+            "if (root := value):\n    work()\nelif other:\n    if inner:\n        work()\n",
+            0,
+        ),
+        (
+            "if root:\n    work()\nelif value:\n    if (inner := value):\n        work()\n",
+            0,
+        ),
+        (
+            "if root:\n    # preserve current root comment window\n    work()\nelif value:\n    if inner:\n        work()\n",
+            0,
+        ),
+        (
+            "if root:\n    work()\nelif value:\n    # preserve comment guard\n    if inner:\n        work()\n",
+            0,
+        ),
+        ("", 0),
+    ] {
+        assert_eq!(
+            findings(&scan(source), "python:S1066").len(),
+            expected,
+            "{source}"
+        );
+    }
 }
 
 #[test]

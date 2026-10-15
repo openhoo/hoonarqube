@@ -1,4 +1,5 @@
 use crate::support::comment_tokens;
+use crate::support::has_valid_legacy_syntax;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -6,7 +7,11 @@ use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
 
-/// python:S1309 — any `noqa` suppression comment is tracked.
+const NOQA_MESSAGE: &str = "Is 'noqa' used to exclude false-positive or to hide real quality flaw?";
+const NOSEC_MESSAGE: &str =
+    "Is 'nosec' used to exclude false-positive or to hide real security issue?";
+
+/// python:S1309 — `noqa` and `nosec` suppression comments are tracked.
 /// python:S7632 — `noqa` comments must use `# noqa: CODE[,CODE...]` with
 /// uppercase letter+digit codes.
 pub(crate) fn check_noqa_comments(
@@ -15,17 +20,24 @@ pub(crate) fn check_noqa_comments(
     source: &str,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    let valid_syntax = parsed.has_valid_syntax() || has_valid_legacy_syntax(parsed, source);
     for comment in comment_tokens(parsed) {
         let text = &source[comment.range()];
         let lower = text.to_lowercase();
         if !lower.contains("noqa") && !lower.contains("nosonar") && !lower.contains("nosec") {
             continue;
         }
-        if lower.contains("noqa") {
+        // Don't add nosec facts from invalid-source parser recovery. Retain
+        // established noqa recovery behavior on those incomplete files.
+        let message = if valid_syntax {
+            tracking_message(text)
+        } else {
+            lower.contains("noqa").then_some(NOQA_MESSAGE)
+        };
+        if let Some(message) = message {
             issues.push(Issue {
                 rule_key: "python:S1309".to_string(),
-                message: "Do not suppress issues with a 'noqa' comment; fix the issue instead."
-                    .to_string(),
+                message: message.to_string(),
                 range: to_range(comment.range(), index, source),
                 fix: None,
                 flows: Vec::new(),
@@ -44,6 +56,41 @@ pub(crate) fn check_noqa_comments(
         }
     }
     issues
+}
+
+fn tracking_message(text: &str) -> Option<&'static str> {
+    // The reference selects the first valid inline directive, then reports on
+    // the whole original comment. Java's default regex whitespace is ASCII.
+    for piece in text.split('#') {
+        let body = piece.trim_start_matches(reference_whitespace);
+        if let Some(rest) = body.strip_prefix("noqa")
+            && (rest.is_empty()
+                || rest.starts_with(|ch| reference_whitespace(ch) || matches!(ch, ';' | ':')))
+            && !rest.contains(['\u{0085}', '\u{2028}', '\u{2029}'])
+        {
+            return Some(NOQA_MESSAGE);
+        }
+        if body
+            .get(..5)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("nosec"))
+        {
+            let rest = &body[5..];
+            // (?i)^#\s*nosec\b[:\s]*(.*): punctuation is a valid boundary,
+            // and malformed rule arguments still belong to the separate S7632.
+            if !rest.starts_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_')
+                && !rest
+                    .trim_start_matches(|ch| reference_whitespace(ch) || ch == ':')
+                    .contains(['\n', '\r', '\u{0085}', '\u{2028}', '\u{2029}'])
+            {
+                return Some(NOSEC_MESSAGE);
+            }
+        }
+    }
+    None
+}
+
+fn reference_whitespace(ch: char) -> bool {
+    matches!(ch, ' ' | '\t' | '\n' | '\r' | '\u{000b}' | '\u{000c}')
 }
 
 // --- python:S7632 — suppression-comment grammar --------------------------------
@@ -171,6 +218,24 @@ mod tests {
     use crate::{AnalyzerOptions, analyze};
 
     #[test]
+    fn noqa_requires_valid_lowercase_directive_in_complete_source() {
+        for comment in ["# NOQA", "# noqax", "# mention noqa", "# NOQA isort:skip"] {
+            let report = analyze(
+                PathBuf::from("t.py"),
+                &format!("value = 1 {comment}\n"),
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "python:S1309"),
+                "ordinary comment must not acquire S1309: {comment}"
+            );
+        }
+    }
+
+    #[test]
     fn noqa_comments_are_tracked_and_validated() {
         let well_formed = ["# noqa", "# noqa: E501", "# noqa: E501,F841"];
         for source in well_formed {
@@ -195,7 +260,6 @@ mod tests {
             "#noqa",
             "# noqa : E501",
             "# noqa: e501",
-            "# NOQA isort:skip",
             "# noqa isort:skip",
         ] {
             let report = analyze(

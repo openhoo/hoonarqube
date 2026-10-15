@@ -36,6 +36,7 @@ pub(crate) fn check_unused_imports(
         return Vec::new();
     }
     let import_modules = import_module_names(file_ctx);
+    let from_ranges = from_import_name_ranges(file_ctx);
     let comments: Vec<&str> = comment_tokens(parsed)
         .map(|token| &source[token.range()])
         .collect();
@@ -70,11 +71,19 @@ pub(crate) fn check_unused_imports(
                 .any(|comment| comment.contains(name.as_str()))
             || facts.string_texts.iter().any(|text| text == name);
         if !used {
-            for range in import_ranges {
+            let selected_from = import_ranges
+                .iter()
+                .copied()
+                .rev()
+                .find(|range| from_ranges.contains_key(range));
+            for range in import_ranges
+                .into_iter()
+                .filter(|range| !from_ranges.contains_key(range) || Some(*range) == selected_from)
+            {
                 issues.push(issue_at(
                     "python:S1128",
                     "Remove this unused import.",
-                    range,
+                    from_ranges.get(&range).copied().unwrap_or(range),
                     index,
                     source,
                 ));
@@ -82,6 +91,28 @@ pub(crate) fn check_unused_imports(
         }
     }
     issues
+}
+
+/// The reference keeps the last `from` import for each bound name and reports
+/// that Name. Match full definitions against root bindings above, retaining
+/// every definition for usage exclusions and module exemptions.
+fn from_import_name_ranges(
+    file_ctx: &crate::engine::file_context::FileContext<'_>,
+) -> HashMap<TextRange, TextRange> {
+    let mut ranges = HashMap::new();
+    for stmt in &file_ctx.stmts {
+        let Stmt::ImportFrom(import) = stmt else {
+            continue;
+        };
+        for alias in &import.names {
+            let name = alias
+                .asname
+                .as_ref()
+                .map_or_else(|| alias.name.range(), Ranged::range);
+            ranges.insert(alias.range(), name);
+        }
+    }
+    ranges
 }
 
 /// `__future__`, `typing`, `typing_extensions`, and `sklearn.experimental.*`
@@ -125,4 +156,136 @@ fn import_module_names(
         }
     }
     modules
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::test_support::{issue, scan, scan_at, scan_test_file};
+    use hoonarqube_ir::Issue;
+
+    fn targets(report: hoonarqube_ir::FileReport) -> Vec<Issue> {
+        report
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "python:S1128")
+            .collect()
+    }
+
+    fn unused(line: u32, start: u32, end: u32) -> Issue {
+        issue(
+            "python:S1128",
+            "Remove this unused import.",
+            (line, start),
+            (line, end),
+        )
+    }
+
+    #[test]
+    fn from_import_alias_primary_uses_bound_name_without_changing_selection() {
+        // The Requests witness and token controls select the exact installed
+        // ImportFrom alias Name. Entire Issue equality also preserves no fix.
+        for (source, expected) in [
+            (
+                "from http import cookiejar as cookielib\n",
+                vec![unused(1, 30, 39)],
+            ),
+            ("from os import sep as sep\n", vec![unused(1, 22, 25)]),
+            (
+                "from urllib.parse import urlparse as parse_uri, urlencode\n",
+                vec![unused(1, 37, 46), unused(1, 48, 57)],
+            ),
+            (
+                "from os.path import (\n    basename as base_name,\n    dirname,\n)\n",
+                vec![unused(2, 16, 25), unused(3, 4, 11)],
+            ),
+            (
+                "π = 1; from math import sqrt as root\n",
+                vec![unused(1, 32, 36)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn alias_display_preserves_non_alias_usage_exemptions_and_scope() {
+        for source in [
+            "from http import cookiejar as cookielib\nprint(cookielib)\n",
+            "from os import sep as separator\n__all__ = ['separator']\n",
+            "from os import path as file_path\n# file_path\n",
+            "from typing import Any\n",
+            "from http import cookiejar as cookielib\nprint(globals())\n",
+        ] {
+            assert!(targets(scan(source)).is_empty(), "{source}");
+        }
+        let source = "from http import cookiejar as cookielib\n";
+        assert!(targets(scan_at(PathBuf::from("__init__.py"), source)).is_empty());
+        assert!(targets(scan_test_file(source)).is_empty());
+        assert_eq!(
+            targets(scan("from os import path\n")),
+            vec![unused(1, 15, 19)]
+        );
+        assert_eq!(
+            targets(scan("import pathlib as paths\n")),
+            vec![unused(1, 7, 23)]
+        );
+        // Existing aliased allowed-module overfires are an independent lead.
+        // Preserve selection while applying the same alias display contract.
+        assert_eq!(
+            targets(scan("from typing import Any as TypeAny\n")),
+            vec![unused(1, 26, 33)]
+        );
+    }
+
+    #[test]
+    fn from_import_selection_keeps_last_candidate_for_each_bound_name() {
+        for (source, expected) in [
+            (
+                "from alpha import item\nfrom beta import item\n",
+                vec![unused(2, 17, 21)],
+            ),
+            (
+                "if available:\n    from alpha import item\nelse:\n    from beta import item\n",
+                vec![unused(4, 21, 25)],
+            ),
+            (
+                "from alpha import first as shared\nfrom beta import second as shared\n",
+                vec![unused(2, 27, 33)],
+            ),
+            (
+                "from alpha import item as first\nfrom beta import item as second\n",
+                vec![unused(1, 26, 31), unused(2, 25, 31)],
+            ),
+            ("from alpha import item, item\n", vec![unused(1, 24, 28)]),
+            (
+                "from os import sep as sep\nfrom os import sep as sep\n",
+                vec![unused(2, 22, 25)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn same_name_from_selection_preserves_each_direct_import() {
+        for (source, expected) in [
+            ("import socket  # noqa: F401\n", vec![unused(1, 7, 13)]),
+            (
+                "import socket\nimport socket\n",
+                vec![unused(1, 7, 13), unused(2, 7, 13)],
+            ),
+            (
+                "import item\nfrom alpha import item\nfrom beta import item\n",
+                vec![unused(1, 7, 11), unused(3, 17, 21)],
+            ),
+            (
+                "from alpha import item\nfrom beta import item\nimport item\n",
+                vec![unused(2, 17, 21), unused(3, 7, 11)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
+    }
 }

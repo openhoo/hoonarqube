@@ -1,6 +1,7 @@
 use crate::support::child_bodies;
 use crate::support::to_range;
 use hoonarqube_ir::Issue;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
@@ -57,10 +58,10 @@ fn has_comment_before_inner(
     })
 }
 
-/// Merging `outer` and `inner` conditions with ` and ` must stay within 80
+/// Merging the enclosing and inner conditions with ` and ` must stay within 80
 /// columns.
-fn merged_line_too_long(inner: &StmtIf, outer: &StmtIf, index: &LineIndex, source: &str) -> bool {
-    let outer_end = index.line_column(outer.test.end(), source);
+fn merged_line_too_long(inner: &StmtIf, enclosing: &Expr, index: &LineIndex, source: &str) -> bool {
+    let outer_end = index.line_column(enclosing.end(), source);
     let inner_start = index.line_column(inner.test.start(), source);
     let inner_end = index.line_column(inner.test.end(), source);
     let outer_last_column = outer_end.column.get() - 1;
@@ -104,7 +105,10 @@ fn collapsible_inner(
         push_collapsible(
             inner,
             outer,
-            TextRange::new(outer.start(), outer.start() + TextSize::new(2)),
+            (
+                &outer.test,
+                TextRange::new(outer.start(), outer.start() + TextSize::new(2)),
+            ),
             parsed,
             issues,
             index,
@@ -123,12 +127,16 @@ fn collapsible_inner(
         .rposition(|clause| clause.test.is_some());
     if let Some(last) = last_tested.filter(|_| !has_else)
         && let [Stmt::If(inner)] = outer.elif_else_clauses[last].body.as_slice()
+        && let Some(enclosing_test) = outer.elif_else_clauses[last].test.as_ref()
     {
         let clause = &outer.elif_else_clauses[last];
         push_collapsible(
             inner,
             outer,
-            TextRange::new(clause.start(), clause.start() + TextSize::new(4)),
+            (
+                enclosing_test,
+                TextRange::new(clause.start(), clause.start() + TextSize::new(4)),
+            ),
             parsed,
             issues,
             index,
@@ -140,7 +148,7 @@ fn collapsible_inner(
 fn push_collapsible(
     inner: &StmtIf,
     outer: &StmtIf,
-    enclosing_keyword: TextRange,
+    (enclosing_test, enclosing_keyword): (&Expr, TextRange),
     parsed: &Parsed<ModModule>,
     issues: &mut Vec<Issue>,
     index: &LineIndex,
@@ -150,7 +158,7 @@ fn push_collapsible(
         || contains_walrus(&inner.test)
         || contains_walrus(&outer.test)
         || has_comment_before_inner(inner, outer, parsed, index, source)
-        || merged_line_too_long(inner, outer, index, source)
+        || merged_line_too_long(inner, enclosing_test, index, source)
     {
         return;
     }
