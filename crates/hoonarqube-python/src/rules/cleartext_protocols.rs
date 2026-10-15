@@ -199,12 +199,9 @@ fn protocol_method_has_nonstring_owner(
         Expr::BytesLiteral(_) => true,
         Expr::Call(call) => {
             protocol_type_has_nonstring_method(&call.func, method, facts, 0)
-                || facts
-                    .resolve_function(call)
-                    .and_then(|function| function.returns.as_deref())
-                    .is_some_and(|annotation| {
-                        protocol_type_has_nonstring_method(annotation, method, facts, 0)
-                    })
+                || protocol_function_return_annotation(call, facts).is_some_and(|annotation| {
+                    protocol_type_has_nonstring_method(annotation, method, facts, 0)
+                })
                 || protocol_expression_has_bytes_result(receiver, facts, 0)
         }
         Expr::Name(name) => {
@@ -217,6 +214,51 @@ fn protocol_method_has_nonstring_owner(
         }
         _ => protocol_type_has_nonstring_method(receiver, method, facts, 0),
     }
+}
+
+/// Declared results are proof only for a uniquely bound local bare function.
+/// Parameters, imports, assignments and ambiguous writes keep the call unknown.
+fn protocol_function_return_annotation<'a>(
+    call: &ruff_python_ast::ExprCall,
+    facts: &WebFrameworkFacts<'a>,
+) -> Option<&'a Expr> {
+    let Expr::Name(name) = call.func.as_ref() else {
+        return None;
+    };
+    let function = facts.resolve_function(call)?;
+    for scope in facts.enclosing_chain(call.range()) {
+        if let Some(range) = scope {
+            let owner = facts
+                .functions
+                .iter()
+                .find(|owner| owner.range() == range)?;
+            if protocol_function_parameter(owner, name.id.as_str()).is_some() {
+                return None;
+            }
+        }
+        let mut bindings = facts.stmts.iter().filter(|stmt| {
+            protocol_statement_scope(stmt, facts) == scope
+                && crate::support::stmt_store_names(stmt)
+                    .iter()
+                    .any(|binding| binding == name.id.as_str())
+        });
+        let Some(binding) = bindings.next() else {
+            continue;
+        };
+        if bindings.next().is_some() || binding.range() != function.range() {
+            return None;
+        }
+        return function.returns.as_deref();
+    }
+    None
+}
+
+fn protocol_statement_scope(stmt: &Stmt, facts: &WebFrameworkFacts<'_>) -> Option<TextRange> {
+    facts
+        .enclosing_chain(stmt.range())
+        .into_iter()
+        .find(|scope| *scope != Some(stmt.range()))
+        .flatten()
 }
 
 /// Preserve the bytes result of the two transforms verified against the live
@@ -241,10 +283,7 @@ fn protocol_expression_has_bytes_result(
             .is_some_and(is_bytes_type),
         Expr::Call(call) => {
             is_bytes_type(&call.func)
-                || facts
-                    .resolve_function(call)
-                    .and_then(|function| function.returns.as_deref())
-                    .is_some_and(is_bytes_type)
+                || protocol_function_return_annotation(call, facts).is_some_and(is_bytes_type)
                 || matches!(call.func.as_ref(), Expr::Attribute(method)
                     if matches!(method.attr.as_str(), "strip" | "lower")
                         && protocol_expression_has_bytes_result(&method.value, facts, depth + 1))
@@ -347,6 +386,13 @@ fn protocol_parameter<'a>(
         .functions
         .iter()
         .find(|function| function.range() == scope)?;
+    protocol_function_parameter(function, name.id.as_str())
+}
+
+fn protocol_function_parameter<'a>(
+    function: &'a ruff_python_ast::StmtFunctionDef,
+    name: &str,
+) -> Option<&'a ruff_python_ast::Parameter> {
     function
         .parameters
         .posonlyargs
@@ -356,7 +402,7 @@ fn protocol_parameter<'a>(
         .map(|parameter| &parameter.parameter)
         .chain(function.parameters.vararg.as_deref())
         .chain(function.parameters.kwarg.as_deref())
-        .find(|parameter| parameter.name.as_str() == name.id.as_str())
+        .find(|parameter| parameter.name.as_str() == name)
 }
 
 /// The super-call contract depends on the enclosing class's imported base,
