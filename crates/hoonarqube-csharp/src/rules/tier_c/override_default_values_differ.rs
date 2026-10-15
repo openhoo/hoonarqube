@@ -1728,4 +1728,75 @@ mod tests {
             assert_local_generic_difference(source, None, None);
         }
     }
+
+    #[test]
+    fn s1006_indexed_review_nullable_decoys_keep_matching_defaults_clean() {
+        for methods in [
+            "public virtual int M(int? x) => 0; public virtual int M(int x = 1) => 1;",
+            "public virtual int M(int x = 1) => 1; public virtual int M(int? x) => 0;",
+            "public virtual int M(int? x) => 0; public virtual int M(global::System.Int32 x = 1) => 1;",
+            "public virtual int M(global::System.Int32 x = 1) => 1; public virtual int M(int? x) => 0;",
+        ] {
+            let base = format!("namespace Triage;\npublic class B {{ {methods} }}\n");
+            let derived = "namespace Triage;\npublic class D : B { public override int M(int x = 1) => 1; }\n";
+            let snapshots = [
+                crate::semantic::SourceSnapshot::new(std::path::PathBuf::from("Base.cs"), &base),
+                crate::semantic::SourceSnapshot::new(
+                    std::path::PathBuf::from("Derived.cs"),
+                    derived,
+                ),
+            ];
+            let options = crate::AnalyzerOptions {
+                project_type_index: Some(std::sync::Arc::new(crate::ProjectTypeIndex::build(
+                    &snapshots,
+                ))),
+                ..crate::AnalyzerOptions::default()
+            };
+            assert!(
+                with_key(&crate::tests::analyze_options(derived, &options), KEY).is_empty(),
+                "{methods}"
+            );
+        }
+    }
+
+    #[test]
+    fn s1006_indexed_review_unproven_remove_keeps_later_existing_difference() {
+        let base = "namespace Triage;\npublic class Value {}\npublic class B { public virtual int M(Value value, int x = 1) => x; }\n";
+        let derived = "namespace Triage;\npublic class D : B { public override int M(Value value = null, int x = 2) => x; }\n";
+        let snapshots = [
+            crate::semantic::SourceSnapshot::new(std::path::PathBuf::from("Base.cs"), base),
+            crate::semantic::SourceSnapshot::new(std::path::PathBuf::from("Derived.cs"), derived),
+        ];
+        let options = crate::AnalyzerOptions {
+            project_type_index: Some(std::sync::Arc::new(crate::ProjectTypeIndex::build(
+                &snapshots,
+            ))),
+            ..crate::AnalyzerOptions::default()
+        };
+        let report = crate::tests::analyze_options(derived, &options);
+        let found = with_key(&report, KEY);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].message,
+            "Use the default parameter value defined in the overridden method."
+        );
+        let column = u32::try_from(
+            derived
+                .lines()
+                .nth(1)
+                .expect("override line")
+                .find("2)")
+                .expect("changed default"),
+        )
+        .expect("short source");
+        assert_eq!(
+            (
+                found[0].range.start.line,
+                found[0].range.start.column,
+                found[0].range.end.line,
+                found[0].range.end.column
+            ),
+            (2, column, 2, column + 1)
+        );
+    }
 }

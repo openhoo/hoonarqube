@@ -907,3 +907,87 @@ fn csharp_s1006_local_review_namespace_import_decoys_compile_and_stay_clean() {
         assert_eq!(fixture.read("Control.cs"), source.as_bytes());
     }
 }
+
+fn indexed_review_project(fixture: &Fixture, base: &str, derived: &str, program: &str) {
+    fixture.write("Base.cs", base);
+    fixture.write("Derived.cs", derived);
+    fixture.write("Program.cs", program);
+    fixture.write("Control.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>S1006Runtime</AssemblyName><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup><ItemGroup><Compile Include=\"Base.cs\" /><Compile Include=\"Derived.cs\" /><Compile Include=\"Program.cs\" /></ItemGroup></Project>\n");
+    fixture.write(
+        "NuGet.Config",
+        "<configuration><packageSources><clear /></packageSources></configuration>\n",
+    );
+    fixture.dotnet(&[
+        "restore",
+        "Control.csproj",
+        "--configfile",
+        "NuGet.Config",
+        "--disable-parallel",
+        "--nologo",
+    ]);
+}
+
+#[test]
+fn csharp_s1006_indexed_review_nullable_decoys_compile_and_stay_clean() {
+    for methods in [
+        "public virtual int M(int? x) => 0; public virtual int M(int x = 1) => 1;",
+        "public virtual int M(int x = 1) => 1; public virtual int M(int? x) => 0;",
+        "public virtual int M(int? x) => 0; public virtual int M(global::System.Int32 x = 1) => 1;",
+        "public virtual int M(global::System.Int32 x = 1) => 1; public virtual int M(int? x) => 0;",
+    ] {
+        let fixture = Fixture::new("indexed-nullable-decoy");
+        let base = format!("namespace Triage;\npublic class B {{ {methods} }}\n");
+        let derived =
+            "namespace Triage;\npublic class D : B { public override int M(int x = 1) => 1; }\n";
+        let program = "namespace Triage;\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M()); } }\n";
+        indexed_review_project(&fixture, &base, derived, program);
+        let runtime = fixture.runtime();
+        assert_eq!(runtime.stdout, b"1\n");
+        assert!(runtime.stderr.is_empty());
+        for format in ["json", "sonar"] {
+            let paths = &["Base.cs", "Derived.cs", "Program.cs"];
+            let report = fixture.analyze(format, paths);
+            assert!(targets(&report, format).is_empty(), "{methods}: {report}");
+            assert_eq!(report, fixture.analyze(format, paths));
+        }
+        assert_eq!(fixture.read("Base.cs"), base.as_bytes());
+        assert_eq!(fixture.read("Derived.cs"), derived.as_bytes());
+        assert_eq!(fixture.read("Program.cs"), program.as_bytes());
+        assert_eq!(fixture.runtime().stdout, runtime.stdout);
+    }
+}
+
+#[test]
+fn csharp_s1006_indexed_review_unproven_remove_preserves_later_use_and_runtime() {
+    let fixture = Fixture::new("indexed-later-use");
+    let base = "namespace Triage;\npublic class Value {}\npublic class B { public virtual int M(Value value, int x = 1) => x; }\n";
+    let derived = "namespace Triage;\npublic class D : B { public override int M(Value value = null, int x = 2) => x; }\n";
+    let program = "namespace Triage;\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M()); } }\n";
+    indexed_review_project(&fixture, base, derived, program);
+    let runtime = fixture.runtime();
+    assert_eq!(runtime.stdout, b"2\n");
+    assert!(runtime.stderr.is_empty());
+    let column = derived
+        .lines()
+        .nth(1)
+        .expect("override line")
+        .find("2)")
+        .expect("changed default");
+    for format in ["json", "sonar"] {
+        let report = fixture.analyze(format, &["Base.cs", "Derived.cs", "Program.cs"]);
+        let expected = if format == "json" {
+            json!({"rule_key":KEY,"message":"Use the default parameter value defined in the overridden method.","range":{"start":{"line":2,"column":column},"end":{"line":2,"column":column + 1}}})
+        } else {
+            json!({"ruleId":KEY,"primaryLocation":{"filePath":"Derived.cs","message":"Use the default parameter value defined in the overridden method.","textRange":{"startLine":2,"startColumn":column,"endLine":2,"endColumn":column + 1}}})
+        };
+        assert_eq!(targets(&report, format), vec![&expected]);
+        assert_eq!(
+            report,
+            fixture.analyze(format, &["Base.cs", "Derived.cs", "Program.cs"])
+        );
+    }
+    assert_eq!(fixture.read("Base.cs"), base.as_bytes());
+    assert_eq!(fixture.read("Derived.cs"), derived.as_bytes());
+    assert_eq!(fixture.read("Program.cs"), program.as_bytes());
+    assert_eq!(fixture.runtime().stdout, runtime.stdout);
+}
