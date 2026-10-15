@@ -67,8 +67,13 @@ pub(crate) fn check_cleartext_protocols(
         "graphml.graphdrawing.org",
         "json-schema.org",
     ];
+    let facts = WebFrameworkFacts::build(file_ctx);
+    let patterns = protocol_identification_ranges(file_ctx, &facts);
     let mut issues = Vec::new();
     for_each_value_string_element(parsed.syntax().body.as_slice(), &mut |text, range| {
+        if patterns.contains(&range) {
+            return;
+        }
         let mut flagged_protocol = None;
         for scheme in CLEARTEXT_SCHEMES {
             // Only endpoint values, not a URI embedded in prose or another URL.
@@ -108,7 +113,6 @@ pub(crate) fn check_cleartext_protocols(
     if !file_ctx.calls.iter().any(|call| matches!(call.func.as_ref(), Expr::Attribute(method) if matches!(method.attr.as_str(), "serve_forever" | "server_bind"))) {
         return issues;
     }
-    let facts = WebFrameworkFacts::build(file_ctx);
     for call in &file_ctx.calls {
         if sensitive_http_super_call(call, &facts) {
             issues.push(issue_at(
@@ -121,6 +125,195 @@ pub(crate) fn check_cleartext_protocols(
         }
     }
     issues
+}
+
+/// Select the reference check's regular argument, then descend through tuples
+/// only. Ruff already removes parentheses; calls and lists retain their own
+/// context and must not inherit an outer protocol-identification exemption.
+fn protocol_identification_ranges(
+    file_ctx: &FileContext<'_>,
+    facts: &WebFrameworkFacts<'_>,
+) -> Vec<TextRange> {
+    let mut ranges = Vec::new();
+    for call in &file_ctx.calls {
+        let Expr::Attribute(method) = call.func.as_ref() else {
+            continue;
+        };
+        if !matches!(
+            method.attr.as_str(),
+            "startswith" | "replace" | "removeprefix" | "removesuffix"
+        ) || protocol_method_has_nonstring_owner(&method.value, method.attr.as_str(), facts)
+        {
+            continue;
+        }
+        let position = usize::from(is_builtin_protocol_type(&method.value, "str", facts));
+        if let Some(argument) = call.arguments.args.get(position) {
+            collect_protocol_pattern_ranges(argument, &mut ranges);
+        }
+    }
+    ranges
+}
+
+fn collect_protocol_pattern_ranges(expr: &Expr, ranges: &mut Vec<TextRange>) {
+    match expr {
+        Expr::StringLiteral(literal) => {
+            ranges.extend(literal.value.iter().map(Ranged::range));
+        }
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                collect_protocol_pattern_ranges(element, ranges);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_builtin_protocol_type(expr: &Expr, expected: &str, facts: &WebFrameworkFacts<'_>) -> bool {
+    let expr = facts.resolve_local_alias_chain(expr);
+    match expr {
+        Expr::Name(name)
+            if name.id.as_str() == expected
+                && matches!(
+                    facts.resolve_name(expected, name.range()),
+                    NameResolution::Unbound
+                ) =>
+        {
+            true
+        }
+        Expr::Name(_) | Expr::Attribute(_) => facts
+            .expr_fqn(expr)
+            .is_some_and(|fqn| fqn == format!("builtins.{expected}")),
+        _ => false,
+    }
+}
+
+/// A missing or unresolved method has an unknown owner in SonarPython and
+/// remains eligible. Only a proven non-string method owner rejects the pattern.
+fn protocol_method_has_nonstring_owner(
+    receiver: &Expr,
+    method: &str,
+    facts: &WebFrameworkFacts<'_>,
+) -> bool {
+    let receiver = facts.resolve_local_alias_chain(receiver);
+    match receiver {
+        Expr::BytesLiteral(_) => true,
+        Expr::Call(call) => protocol_type_has_nonstring_method(&call.func, method, facts, 0),
+        Expr::Name(name) => {
+            if let Some(parameter) = protocol_parameter(name, facts) {
+                return parameter.annotation.as_deref().is_some_and(|annotation| {
+                    protocol_type_has_nonstring_method(annotation, method, facts, 0)
+                });
+            }
+            protocol_type_has_nonstring_method(receiver, method, facts, 0)
+        }
+        _ => protocol_type_has_nonstring_method(receiver, method, facts, 0),
+    }
+}
+
+fn protocol_type_has_nonstring_method(
+    expr: &Expr,
+    method: &str,
+    facts: &WebFrameworkFacts<'_>,
+    depth: u32,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let expr = facts.resolve_local_alias_chain(expr);
+    if ["bytes", "bytearray"]
+        .iter()
+        .any(|name| is_builtin_protocol_type(expr, name, facts))
+    {
+        return true;
+    }
+    let Some(class) = protocol_class(expr, facts) else {
+        return false;
+    };
+    if protocol_type_extends_string(expr, facts, depth) != Some(false) {
+        return false;
+    }
+    class
+        .body
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::FunctionDef(function) if function.name.as_str() == method))
+        || class
+            .bases()
+            .iter()
+            .any(|base| protocol_type_has_nonstring_method(base, method, facts, depth + 1))
+}
+
+fn protocol_type_extends_string(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'_>,
+    depth: u32,
+) -> Option<bool> {
+    if depth > 8 {
+        return None;
+    }
+    let expr = facts.resolve_local_alias_chain(expr);
+    if is_builtin_protocol_type(expr, "str", facts) {
+        return Some(true);
+    }
+    if [
+        "object",
+        "bytes",
+        "bytearray",
+        "int",
+        "float",
+        "bool",
+        "list",
+        "tuple",
+        "dict",
+        "set",
+    ]
+    .iter()
+    .any(|name| is_builtin_protocol_type(expr, name, facts))
+    {
+        return Some(false);
+    }
+    let class = protocol_class(expr, facts)?;
+    let mut unknown = false;
+    for base in class.bases() {
+        match protocol_type_extends_string(base, facts, depth + 1) {
+            Some(true) => return Some(true),
+            None => unknown = true,
+            Some(false) => {}
+        }
+    }
+    (!unknown).then_some(false)
+}
+
+fn protocol_class<'a>(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'a>,
+) -> Option<&'a ruff_python_ast::StmtClassDef> {
+    if let Expr::Name(name) = expr
+        && protocol_parameter(name, facts).is_some()
+    {
+        return None;
+    }
+    facts.resolve_class_def(expr, expr.range())
+}
+
+fn protocol_parameter<'a>(
+    name: &ruff_python_ast::ExprName,
+    facts: &WebFrameworkFacts<'a>,
+) -> Option<&'a ruff_python_ast::Parameter> {
+    let scope = facts.enclosing_scope(name.range())?;
+    let function = facts
+        .functions
+        .iter()
+        .find(|function| function.range() == scope)?;
+    function
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&function.parameters.args)
+        .chain(&function.parameters.kwonlyargs)
+        .map(|parameter| &parameter.parameter)
+        .chain(function.parameters.vararg.as_deref())
+        .chain(function.parameters.kwarg.as_deref())
+        .find(|parameter| parameter.name.as_str() == name.id.as_str())
 }
 
 /// The super-call contract depends on the enclosing class's imported base,
