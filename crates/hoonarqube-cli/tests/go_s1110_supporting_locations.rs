@@ -227,7 +227,7 @@ const SOURCES: &[(&str, &str)] = &[
     ),
 ];
 
-const EXPECTED_NATIVE: &str = r###"{
+const EXPECTED_NATIVE: &str = r#"{
   "schema_version": 1,
   "files": [
     {
@@ -805,9 +805,9 @@ const EXPECTED_NATIVE: &str = r###"{
       "."
     ]
   }
-}"###;
+}"#;
 
-const EXPECTED_GENERIC: &str = r###"{
+const EXPECTED_GENERIC: &str = r#"{
   "issues": [
     {
       "primaryLocation": {
@@ -1077,10 +1077,10 @@ const EXPECTED_GENERIC: &str = r###"{
       "type": "CODE_SMELL"
     }
   ]
-}"###;
+}"#;
 
-const EXPECTED_MALFORMED_NATIVE: &str = r###"{"schema_version":1,"files":[{"path":"./09-malformed-missing-close/case.go","language":"go","issues":[{"rule_key":"go:S2260","message":"A parsing error occurred in this file.","range":{"start":{"line":5,"column":19},"end":{"line":5,"column":19}}}],"metrics":{"lines":7,"code_lines":4,"comment_lines":1}}],"project":{"metrics":{"files":0,"lines":0,"code_lines":0,"comment_lines":0},"files":[{"path":"./09-malformed-missing-close/case.go","classification":"source","status":"failed","metrics":null,"duplication":null,"reason":"syntax tree contains recovered or missing nodes"}],"duplications":[],"duplication":null,"complete":false,"warnings":["./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes","cannot analyze ./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes","duplication analysis skipped because one or more eligible source files failed","incomplete source facts for ./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes"],"roots":["."]}}"###;
+const EXPECTED_MALFORMED_NATIVE: &str = r#"{"schema_version":1,"files":[{"path":"./09-malformed-missing-close/case.go","language":"go","issues":[{"rule_key":"go:S2260","message":"A parsing error occurred in this file.","range":{"start":{"line":5,"column":19},"end":{"line":5,"column":19}}}],"metrics":{"lines":7,"code_lines":4,"comment_lines":1}}],"project":{"metrics":{"files":0,"lines":0,"code_lines":0,"comment_lines":0},"files":[{"path":"./09-malformed-missing-close/case.go","classification":"source","status":"failed","metrics":null,"duplication":null,"reason":"syntax tree contains recovered or missing nodes"}],"duplications":[],"duplication":null,"complete":false,"warnings":["./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes","cannot analyze ./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes","duplication analysis skipped because one or more eligible source files failed","incomplete source facts for ./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes"],"roots":["."]}}"#;
 
-const EXPECTED_MALFORMED_GENERIC: &str = r###"{"issues":[{"primaryLocation":{"filePath":"./09-malformed-missing-close/case.go","message":"A parsing error occurred in this file.","textRange":{"endColumn":19,"endLine":5,"startColumn":19,"startLine":5}},"ruleId":"go:S2260"}],"rules":[{"cleanCodeAttribute":"CONVENTIONAL","description":"Hoonarqube finding for `go:S2260`.","engineId":"hoonarqube","id":"go:S2260","impacts":[{"severity":"MEDIUM","softwareQuality":"MAINTAINABILITY"}],"name":"go:S2260","severity":"MAJOR","type":"CODE_SMELL"}]}"###;
+const EXPECTED_MALFORMED_GENERIC: &str = r#"{"issues":[{"primaryLocation":{"filePath":"./09-malformed-missing-close/case.go","message":"A parsing error occurred in this file.","textRange":{"endColumn":19,"endLine":5,"startColumn":19,"startLine":5}},"ruleId":"go:S2260"}],"rules":[{"cleanCodeAttribute":"CONVENTIONAL","description":"Hoonarqube finding for `go:S2260`.","engineId":"hoonarqube","id":"go:S2260","impacts":[{"severity":"MEDIUM","softwareQuality":"MAINTAINABILITY"}],"name":"go:S2260","severity":"MAJOR","type":"CODE_SMELL"}]}"#;
 
 const EXPECTED_MALFORMED_STDERR: &str = "./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes\ncannot analyze ./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes\nduplication analysis skipped because one or more eligible source files failed\nincomplete source facts for ./09-malformed-missing-close/case.go: syntax tree contains recovered or missing nodes\n";
