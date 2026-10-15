@@ -9,8 +9,8 @@
 {"key": "ruby:S107", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S108", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1110", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S1134", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S1135", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "ruby:S1134", "bad": "s1134_bad.rb", "expect_lines_min": 1}
+{"key": "ruby:S1135", "bad": "s1135_bad.rb", "expect_lines_min": 1}
 {"key": "ruby:S1145", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1151", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S117", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}

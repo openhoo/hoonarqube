@@ -40,8 +40,8 @@
 {"key": "java:S1130", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1132", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1133", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "java:S1134", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "java:S1135", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "java:S1134", "bad": "s1134_bad.java", "expect_lines_min": 1}
+{"key": "java:S1135", "bad": "s1135_bad.java", "expect_lines_min": 1}
 {"key": "java:S114", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1141", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1142", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}

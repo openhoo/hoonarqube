@@ -361,14 +361,6 @@
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
       "implementation_gap": true
     },
-    "java:S1134": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
-    },
-    "java:S1135": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
-    },
     "java:S114": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
       "implementation_gap": true
@@ -3166,14 +3158,6 @@
       "implementation_gap": true
     },
     "ruby:S1110": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
-    },
-    "ruby:S1134": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
-    },
-    "ruby:S1135": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
       "implementation_gap": true
     },

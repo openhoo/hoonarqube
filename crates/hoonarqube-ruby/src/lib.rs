@@ -103,6 +103,8 @@ pub fn analyze_github_quality_report(path: PathBuf, source: &str) -> FileReport 
 
 #[cfg(test)]
 mod tests {
+    mod comment_tags;
+
     use super::*;
     use std::path::PathBuf;
 
