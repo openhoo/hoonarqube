@@ -6,7 +6,7 @@ const KEY: &str = "csharpsquid:S1067";
 // Exact source used by the retained installed-analyzer driver. The eight
 // ternary-bearing expectations come from its actual diagnostics; the extra
 // pure-logical inner finding remains an explicitly out-of-package residual.
-const BOUNDARY: &str = r#"namespace S1067BoundaryProbes
+const BOUNDARY: &str = r"namespace S1067BoundaryProbes
 {
     public static class Cases
     {
@@ -24,7 +24,7 @@ const BOUNDARY: &str = r#"namespace S1067BoundaryProbes
         public static bool ParenthesizedLogicalFive(bool a, bool b, bool c, bool d, bool e, bool f) => a || (b && c && d && e && f);
     }
 }
-"#;
+";
 const BOUNDARY_EXPECTED: &[(u32, u32, u32, u32)] = &[
     (6, 73, 126, 4),
     (7, 80, 108, 4),
