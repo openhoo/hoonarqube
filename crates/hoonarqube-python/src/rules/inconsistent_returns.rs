@@ -181,4 +181,112 @@ mod tests {
         let generator_itself = scan("def h(flag):\n    yield 1\n    if flag:\n        return 1\n");
         assert!(findings(&generator_itself, "python:S3801").is_empty());
     }
+
+    #[test]
+    fn s3801_literal_true_callable_tails_do_not_fall_through() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n",
+            "class Engine:\n    def choose(self, flag):\n        while True:\n            if flag:\n                return 1\n",
+            "async def poll(ready):\n    while True:\n        if ready:\n            return 9\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_nested_loop_body_break_does_not_exit_outer_loop() {
+        for source in [
+            "def choose(items, ready):\n    while True:\n        for item in items:\n            if item:\n                break\n        if ready:\n            return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_nested_function_break_does_not_exit_outer_loop() {
+        for source in [
+            "def choose(flag):\n    while True:\n        def helper(items):\n            for item in items:\n                break\n        if flag:\n            return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_literal_true_explicit_none_is_valued() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        return None\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_finite_and_unknown_loops_keep_implicit_return() {
+        for source in [
+            "def choose(flag):\n    while flag:\n        if ready:\n            return 1\n",
+            "def choose(flag):\n    while False:\n        if flag:\n            return 1\n",
+            "def choose(items):\n    for item in items:\n        if item:\n            return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_reachable_outer_breaks_keep_implicit_return() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        break\n",
+            "def choose(stop, ready):\n    while True:\n        if stop:\n            break\n        if ready:\n            return 1\n",
+            "def choose(stop, ready, lock):\n    while True:\n        with lock:\n            if stop:\n                break\n        if ready:\n            return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_nested_loop_else_breaks_exit_enclosing_loop() {
+        for source in [
+            "def choose(items):\n    while True:\n        for item in items:\n            break\n        else:\n            break\n        return 1\n",
+            "def choose(inner):\n    while True:\n        while inner:\n            break\n        else:\n            break\n        return 1\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_literal_true_bare_return_stays_inconsistent() {
+        for source in [
+            "def choose(flag):\n    while True:\n        if flag:\n            return 1\n        return\n",
+            "def choose(flag):\n    if flag:\n        return 1\n    return\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_existing_clean_functions_remain_clean() {
+        for source in [
+            "def spin():\n    while True:\n        pass\n",
+            "def choose(flag):\n    if flag:\n        return 1\n    return 2\n",
+        ] {
+            assert_eq!(findings(&scan(source), "python:S3801").len(), 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn s3801_loop_proof_preserves_exception_generator_and_uncertain_breaks() {
+        for source in [
+            "def choose(flag):\n    while True:\n        try:\n            if flag:\n                return 1\n        except OSError:\n            break\n",
+            "def choose(flag):\n    while True:\n        yield 1\n        if flag:\n            return 1\n",
+        ] {
+            assert!(
+                findings(&scan(source), "python:S3801").is_empty(),
+                "{source}"
+            );
+        }
+        // The bounded proof conservatively retains a syntactic break even
+        // after a return: it does not introduce general reachability analysis.
+        let conservative =
+            scan("def choose():\n    while True:\n        return 1\n        break\n");
+        assert_eq!(findings(&conservative, "python:S3801").len(), 1);
+    }
 }
