@@ -402,15 +402,37 @@ fn protocol_class<'a>(
     expr: &Expr,
     facts: &WebFrameworkFacts<'a>,
 ) -> Option<&'a ruff_python_ast::StmtClassDef> {
+    protocol_class_at_depth(expr, facts, 0)
+}
+
+/// Resolve attribute owners locally: an alias can expand back into an
+/// attribute, so delegating that graph to the shared resolver can recurse
+/// indefinitely. Exhausted or cyclic owner inference remains unknown.
+fn protocol_class_at_depth<'a>(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'a>,
+    depth: u32,
+) -> Option<&'a ruff_python_ast::StmtClassDef> {
+    if depth > 8 {
+        return None;
+    }
     let expr = facts.resolve_local_alias_chain(expr);
-    let class = facts.resolve_class_def(expr, expr.range())?;
-    let proven = match expr {
-        Expr::Name(name) => protocol_name_has_definition(name, class.range(), facts),
-        Expr::Attribute(attribute) => protocol_class(&attribute.value, facts)
-            .is_some_and(|owner| owner.body.iter().any(|stmt| stmt.range() == class.range())),
-        _ => false,
-    };
-    proven.then_some(class)
+    match expr {
+        Expr::Name(name) => {
+            let class = facts.resolve_class_def(expr, expr.range())?;
+            protocol_name_has_definition(name, class.range(), facts).then_some(class)
+        }
+        Expr::Attribute(attribute) => {
+            let owner = protocol_class_at_depth(&attribute.value, facts, depth + 1)?;
+            owner.body.iter().find_map(|stmt| match stmt {
+                Stmt::ClassDef(class) if class.name.as_str() == attribute.attr.as_str() => {
+                    Some(class)
+                }
+                _ => None,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn protocol_parameter<'a>(
