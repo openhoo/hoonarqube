@@ -547,6 +547,10 @@ mod protocol_identification_tests {
                 (2, 26, 2, 35)
             );
         }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_preserves_owner_and_wrapper_boundaries() {
         {
             let source = "result = str.startswith(\"http://\", \"https://\")\n";
             let report = scan(source);
