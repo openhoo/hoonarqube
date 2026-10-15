@@ -7019,6 +7019,23 @@ mod s2193_condition_location_tests {
     }
 
     #[test]
+    fn s2193_condition_location_skips_unrelated_earlier_loop_on_same_line() {
+        let source = "fn main() { let mut counter = 0.0; while false {} while counter < 2.0 { counter += 1.0; } }\n";
+        assert_eq!(selected(source), [expected(1, 56, 1, 69)]);
+    }
+
+    #[test]
+    fn s2193_condition_location_selects_one_matching_condition_per_declaration() {
+        let distinct = "fn main() { let mut first = 0.0; let mut second = 0.0; while first < 2.0 { first += 1.0; } while second < 2.0 { second += 1.0; } }\n";
+        assert_eq!(
+            selected(distinct),
+            [expected(1, 61, 1, 72), expected(1, 97, 1, 109)]
+        );
+        let reused = "fn main() { let mut counter = 0.0; while counter < 2.0 { counter += 1.0; } while counter < 4.0 { counter += 1.0; } }\n";
+        assert_eq!(selected(reused), [expected(1, 41, 1, 54)]);
+    }
+
+    #[test]
     fn s2193_condition_location_keeps_clean_controls_and_existing_window() {
         for source in [
             include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_good.rs"),

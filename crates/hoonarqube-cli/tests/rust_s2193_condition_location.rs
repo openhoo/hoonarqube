@@ -295,3 +295,37 @@ fn rust_s2193_cli_unavailable_fix_preserves_source_and_complete_reports() {
         assert_eq!(fixture.analyze("strict", "sonar", 0), generic);
     }
 }
+
+#[test]
+fn rust_s2193_cli_same_line_loops_match_the_accepted_counter_identifier() {
+    let fixture = Fixture::new();
+    for (source, ranges) in [
+        (
+            "fn main() { let mut counter = 0.0; while false {} while counter < 2.0 { counter += 1.0; } }\n",
+            vec![(1, 56, 1, 69)],
+        ),
+        (
+            "fn main() { let mut first = 0.0; let mut second = 0.0; while first < 2.0 { first += 1.0; } while second < 2.0 { second += 1.0; } }\n",
+            vec![(1, 61, 1, 72), (1, 97, 1, 109)],
+        ),
+        (
+            "fn main() { let mut counter = 0.0; while counter < 2.0 { counter += 1.0; } while counter < 4.0 { counter += 1.0; } }\n",
+            vec![(1, 41, 1, 54)],
+        ),
+    ] {
+        fixture.write(source.as_bytes());
+        for format in ["json", "sonar"] {
+            let document = fixture.analyze("sonar-parity", format, 0);
+            let target: Vec<_> = issues(&document, format)
+                .into_iter()
+                .filter(|issue| rule(issue, format) == KEY)
+                .collect();
+            let expected: Vec<_> = ranges
+                .iter()
+                .map(|range| expected(KEY, MESSAGE, *range, format))
+                .collect();
+            assert_eq!(target, expected.iter().collect::<Vec<_>>(), "{source}");
+        }
+        fixture.assert_source(source.as_bytes());
+    }
+}
