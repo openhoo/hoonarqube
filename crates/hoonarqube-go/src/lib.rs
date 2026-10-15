@@ -3154,7 +3154,7 @@ fn check_function(
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let count = parameter_count(parameters);
         if count > options.maximum_function_parameters {
-            issues.push(node_issue(
+            let mut issue = node_issue(
                 "go:S107",
                 format!(
                     "This function has {count} parameters, which is greater than the {0} authorized.",
@@ -3162,7 +3162,15 @@ fn check_function(
                 ),
                 node.child_by_field_name("name").unwrap_or(parameters),
                 source,
-            ));
+            );
+            if let Some(locations) =
+                excess_parameter_locations(parameters, options.maximum_function_parameters, source)
+            {
+                for location in locations {
+                    issue = issue.with_flow(vec![location]);
+                }
+            }
+            issues.push(issue);
         }
         check_parameter_names(parameters, source, issues);
     }
@@ -4107,6 +4115,78 @@ fn parameter_count(node: Node<'_>) -> usize {
         }
     }
     count
+}
+
+fn excess_parameter_locations(
+    parameters: Node<'_>,
+    maximum: usize,
+    source: &str,
+) -> Option<Vec<FlowLocation>> {
+    if parameters.has_error()
+        || parameters.is_missing()
+        || parameters
+            .parent()
+            .is_some_and(|parent| parent.child_by_field_name("type_parameters").is_some())
+    {
+        return None;
+    }
+    let mut cursor = parameters.walk();
+    let groups: Option<Vec<_>> = parameters
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() != "comment")
+        .map(|child| ordinary_parameter_ranges(child, source))
+        .collect();
+    Some(
+        groups?
+            .into_iter()
+            .flatten()
+            .skip(maximum)
+            .map(|range| FlowLocation::in_primary_file("", range))
+            .collect(),
+    )
+}
+
+fn ordinary_parameter_ranges(declaration: Node<'_>, source: &str) -> Option<Vec<Range>> {
+    let parameter_type = declaration.child_by_field_name("type")?;
+    // Only the qualified ordinary named shape has a measured support policy.
+    // Other shapes retain the existing primary without guessed locations.
+    if declaration.kind() != "parameter_declaration"
+        || declaration.has_error()
+        || declaration.is_missing()
+        || parameter_type.kind() != "type_identifier"
+        || parameter_type.is_missing()
+    {
+        return None;
+    }
+    let mut cursor = declaration.walk();
+    let names: Vec<_> = declaration
+        .children_by_field_name("name", &mut cursor)
+        .collect();
+    if names.is_empty()
+        || names.iter().any(|name| {
+            name.kind() != "identifier" || name.is_missing() || text(*name, source) == "_"
+        })
+    {
+        return None;
+    }
+    Some(
+        names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| Range {
+                start: node_range(*name, source).start,
+                end: node_range(
+                    if index + 1 == names.len() {
+                        declaration
+                    } else {
+                        *name
+                    },
+                    source,
+                )
+                .end,
+            })
+            .collect(),
+    )
 }
 
 fn cognitive_complexity(
