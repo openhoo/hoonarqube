@@ -38,7 +38,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
             // closing brace, semicolon, or later-line body.
             let end = row_statements
                 .iter()
-                .map(|statement| statement.end_byte())
+                .map(Node::end_byte)
                 .max()
                 .unwrap_or(first.end_byte());
             issues.push(issue(
