@@ -6872,6 +6872,149 @@ regex_fn!(
 mod s7411_tests;
 
 #[cfg(test)]
+mod s2193_condition_location_tests {
+    use super::*;
+
+    const MESSAGE: &str = "Avoid using floating-point numbers as loop counters.";
+    const ORIGINAL: &str =
+        include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_bad.rs");
+
+    fn report(source: &str) -> FileReport {
+        analyze(
+            PathBuf::from("counter.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        )
+    }
+
+    fn selected(source: &str) -> Vec<Issue> {
+        report(source)
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "rust:S2193")
+            .collect()
+    }
+
+    fn expected(sl: u32, sc: u32, el: u32, ec: u32) -> Issue {
+        Issue::new(
+            "rust:S2193",
+            MESSAGE,
+            Range {
+                start: Pos {
+                    line: sl,
+                    column: sc,
+                },
+                end: Pos {
+                    line: el,
+                    column: ec,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn s2193_condition_location_matches_reference_and_preserves_unrelated_finding() {
+        assert_eq!(
+            report(ORIGINAL).issues,
+            [
+                expected(4, 10, 4, 24),
+                Issue::new(
+                    "rust:S106",
+                    "Use a logging framework to log this message to the console.",
+                    Range {
+                        start: Pos { line: 5, column: 8 },
+                        end: Pos {
+                            line: 5,
+                            column: 40,
+                        },
+                    },
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn s2193_condition_location_is_independent_of_names_and_multiline_layout() {
+        for (source, range) in [
+            (
+                "fn main() {\n    let mut counter = 0.0;\n    while counter < 10.0 {\n        counter += 1.0;\n    }\n}\n",
+                (3, 10, 3, 24),
+            ),
+            (
+                "fn main() {\n    let mut progress = 0.0;\n    while progress < 10.0 {\n        progress += 1.0;\n    }\n}\n",
+                (3, 10, 3, 25),
+            ),
+            (
+                "fn main() {\n    let mut progress = 0.0;\n    while progress\n        < 10.0\n    {\n        progress += 1.0;\n    }\n}\n",
+                (3, 10, 4, 14),
+            ),
+            (
+                "fn main() { let mut count: f32 = 0.0; while count < 2.0 { count += 1.0; } }\n",
+                (1, 44, 1, 55),
+            ),
+        ] {
+            assert_eq!(
+                selected(source),
+                [expected(range.0, range.1, range.2, range.3)],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_keeps_separate_loop_multiplicity() {
+        let source = concat!(
+            "fn main() {\n",
+            "    let mut counter = 0.0;\n",
+            "    while counter < 10.0 {\n",
+            "        counter += 1.0;\n",
+            "    }\n",
+            "    let mut counter = 0.0;\n",
+            "    while counter < 10.0 {\n",
+            "        counter += 1.0;\n",
+            "    }\n",
+            "}\n",
+        );
+        assert_eq!(
+            report(source).issues,
+            [expected(3, 10, 3, 24), expected(7, 10, 7, 24)]
+        );
+    }
+
+    #[test]
+    fn s2193_condition_location_preserves_scalar_columns_and_crlf() {
+        let source = concat!(
+            "fn main() {\n",
+            "    let mut progress = 0.0;\n",
+            "    let _label = \"é😀\"; while progress < 10.0 {\n",
+            "        progress += 1.0;\n",
+            "    }\n",
+            "}\n",
+        );
+        for source in [source.to_string(), source.replace('\n', "\r\n")] {
+            assert_eq!(selected(&source), [expected(3, 29, 3, 44)]);
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_keeps_clean_controls_and_existing_window() {
+        for source in [
+            include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_good.rs"),
+            "fn main() { let mut counter = 0; while counter < 10 { counter += 1; } }\n",
+            "fn main() { let mut counter = 0.0; counter += 1.0; std::hint::black_box(counter); }\n",
+            "fn value(mut counter: f64) { while counter < 10.0 { counter += 1.0; } }\n",
+            "fn main() { let mut counter = -1.0; while counter < 10.0 { counter += 1.0; } }\n",
+            "fn main() {\n    let mut counter = 0.0;\n\n\n\n    while counter < 10.0 { counter += 1.0; }\n}\n",
+            "// let mut counter = 0.0; while counter < 10.0 {}\nfn main() { let _text = \"let mut counter = 0.0; while counter < 10.0 {}\"; }\n",
+        ] {
+            assert!(selected(source).is_empty(), "{source}");
+        }
+        let within_window = "fn main() {\n    let mut counter = 0.0;\n\n\n    while counter < 10.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(within_window), [expected(5, 10, 5, 24)]);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
