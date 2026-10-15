@@ -530,7 +530,8 @@ fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries()
             assert!(output.stderr.is_empty(), "{output:?}");
             let report: Value = serde_json::from_slice(&output.stdout).expect("report");
             assert_eq!(report.get("parity").is_some(), profile == "sonar-parity");
-            let mut actual: std::collections::BTreeMap<String, Vec<Value>> = Default::default();
+            let mut actual: std::collections::BTreeMap<String, Vec<Value>> =
+                std::collections::BTreeMap::default();
             let key = if format == "json" {
                 "rule_key"
             } else {
