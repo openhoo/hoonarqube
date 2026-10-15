@@ -336,6 +336,18 @@ mod tests {
     }
 
     #[test]
+    fn s107_parent_signature_includes_static_and_class_method_children() {
+        assert_messages(
+            "class Base:\n    def change(self, a, b):\n        pass\nclass StaticChild(Base):\n    @staticmethod\n    def change(a, b, c):\n        pass\nclass ClassChild(Base):\n    @classmethod\n    def change(cls, a, b, c):\n        pass\ndef change(a, b, c):\n    pass\n",
+            2,
+            &[(
+                12,
+                "Function \"change\" has 3 parameters, which is greater than the 2 authorized.",
+            )],
+        );
+    }
+
+    #[test]
     fn s107_first_resolved_eligible_parent_controls_the_decision() {
         assert_messages(
             "class Narrow:\n    def change(self):\n        pass\nclass Wide:\n    def change(self, a, b, c):\n        pass\nclass First(Narrow, Wide):\n    def change(self, a, b, c, d):\n        pass\nclass Second(Wide, Narrow):\n    def change(self, a, b, c, d):\n        pass\nclass Empty:\n    pass\nclass Third(Empty, Wide):\n    def change(self, a, b, c, d):\n        pass\n",
