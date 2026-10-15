@@ -4,7 +4,7 @@ use std::process::Command;
 use serde_json::{Value, json};
 
 // Primary text is backed by twelve original SonarPython 5.31 findings.
-// Their missing async-keyword supporting locations remain a separate residual.
+// Async-keyword supporting locations now complete those retained target objects.
 // Contract/Unicode/recovery/cache cases below preserve measured native baselines.
 const MESSAGE: &str = "Use asynchronous features in this function or remove the `async` keyword.";
 const POSITIVE: &str = "async def compute(value):\n    return value\n";
@@ -175,11 +175,15 @@ fn targets(report: &Value, format: &str) -> Vec<Value> {
 fn expected_primary(name: &str, format: &str, line: u32, end: u32) -> Value {
     if format == "json" {
         json!({"rule_key": "python:S7503", "message": MESSAGE,
-            "range": {"start": {"line": line, "column": 10}, "end": {"line": line, "column": end}}})
+            "range": {"start": {"line": line, "column": 10}, "end": {"line": line, "column": end}},
+            "flows": [{"locations": [{"message": "This function is async.",
+                "range": {"start": {"line": line, "column": 0}, "end": {"line": line, "column": 5}}}]}]})
     } else {
         json!({"ruleId": "python:S7503", "primaryLocation": {
             "filePath": format!("{name}.py"), "message": MESSAGE,
-            "textRange": {"startLine": line, "startColumn": 10, "endLine": line, "endColumn": end}}})
+            "textRange": {"startLine": line, "startColumn": 10, "endLine": line, "endColumn": end}},
+            "secondaryLocations": [{"filePath": format!("{name}.py"), "message": "This function is async.",
+                "textRange": {"startLine": line, "startColumn": 0, "endLine": line, "endColumn": 5}}]})
     }
 }
 
@@ -218,6 +222,7 @@ fn assert_contract_ranges(report: &Value, name: &str, profile: &str, format: &st
             json!({"startLine": line, "startColumn": 10, "endLine": line, "endColumn": end})
         };
         assert_eq!(*range, expected_range);
+        assert_eq!(*issue, expected_primary(name, format, *line, *end));
     }
 }
 

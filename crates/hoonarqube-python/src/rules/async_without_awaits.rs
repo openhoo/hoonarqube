@@ -114,6 +114,13 @@ fn for_each_expr_for_async_scope(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
 mod tests {
 
     use crate::test_support::{findings, issue, scan};
+    use hoonarqube_ir::{FlowLocation, Pos, Range};
+
+    use super::check_async_without_awaits;
+    use crate::engine::file_context::FileContext;
+    use ruff_python_ast::Stmt;
+    use ruff_source_file::LineIndex;
+    use ruff_text_size::TextRange;
 
     #[test]
     fn s7503_flags_async_functions_without_awaits() {
@@ -136,6 +143,13 @@ mod tests {
                 (1, 10),
                 (1, 14),
             )
+            .with_flow(vec![FlowLocation::in_primary_file(
+                "This function is async.",
+                Range {
+                    start: Pos { line: 1, column: 0 },
+                    end: Pos { line: 1, column: 5 },
+                },
+            )])
         );
     }
     #[test]
@@ -145,5 +159,46 @@ mod tests {
         let nested_yield =
             scan("async def outer():\n    def values():\n        yield 1\n    return values\n");
         assert_eq!(findings(&nested_yield, "python:S7503").len(), 1);
+    }
+
+    #[test]
+    fn s7503_unproven_keyword_ranges_keep_the_original_primary() {
+        let source = "async def noop():\n    return '𐐀'\n";
+        let parsed = ruff_python_parser::parse_module(source).expect("valid fixture");
+        let index = LineIndex::from_source_text(source);
+        let end = u32::try_from(source.len()).expect("small fixture");
+        let inside_unicode =
+            u32::try_from(source.find('𐐀').expect("astral character") + 1).expect("small fixture");
+        let cases = [
+            (1, end, 10, 14),
+            (0, 4, 10, 14),
+            (0, 13, 10, 14),
+            (0, end + 1, 10, 14),
+            (0, end, 4, 8),
+            (0, end, 10, 10),
+            (0, end, 11, 15),
+            (u32::MAX, u32::MAX, 10, 14),
+            (0, inside_unicode, 10, 14),
+        ];
+        for (start, end, name_start, name_end) in cases {
+            let mut stmt = parsed.syntax().body[0].clone();
+            let Stmt::FunctionDef(function) = &mut stmt else {
+                panic!("function fixture");
+            };
+            function.range = TextRange::new(start.into(), end.into());
+            function.name.range = TextRange::new(name_start.into(), name_end.into());
+            let mut context = FileContext::build(&parsed, source);
+            context.stmts = vec![&stmt];
+            assert_eq!(
+                check_async_without_awaits(&index, source, &context),
+                vec![issue(
+                    "python:S7503",
+                    "Use asynchronous features in this function or remove the `async` keyword.",
+                    (1, name_start),
+                    (1, name_end),
+                )],
+                "declaration {start}..{end}, name {name_start}..{name_end}"
+            );
+        }
     }
 }
