@@ -773,3 +773,99 @@ const LAMBDA_OWNER_CASES: &[Case] = &[
 fn python_s5332_protocol_identification_preserves_live_lambda_owner_boundaries() {
     check_live_owner_project(LAMBDA_OWNER_CASES);
 }
+
+// Native crash reductions from Click _compat.py and its self/mutual aliases.
+// These are not additional live SonarQube scans. Target expectations preserve
+// the established unknown-owner and unsafe bare-endpoint contracts.
+const CYCLIC_OWNER_CASES: &[Case] = &[
+    Case {
+        name: "original-click-compat-reduction",
+        source: "def _is_jupyter_kernel_output(stream: t.IO[t.Any]) -> bool:\n    while isinstance(stream, (_FixupStream, _NonClosingTextIOWrapper)):\n        stream = stream._stream\n\n    return stream.__class__.__module__.startswith(\"ipykernel.\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "self-attribute-alias",
+        source: "stream = stream._stream\nresult = stream.startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "mutual-attribute-aliases",
+        source: "first = second._stream\nsecond = first._stream\nresult = second.startswith(\"http://\")\n",
+        ranges: &[],
+        group: 0,
+        incomplete: false,
+    },
+    Case {
+        name: "cyclic-owner-preserves-bare-endpoint",
+        source: "stream = stream._stream\nidentification = stream.startswith(\"http://\")\nendpoint = \"http://\"\n",
+        ranges: &[(3, 11, 3, 20)],
+        group: 0,
+        incomplete: false,
+    },
+];
+
+fn cyclic_owner_outputs(case: &Case) -> (Fixture, Vec<(&'static str, &'static str, Output)>) {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join("case.py"), case.source).expect("cyclic owner source");
+    let mut outputs = Vec::new();
+    for profile in ["strict", "sonar-parity"] {
+        for format in ["json", "sonar"] {
+            let output = Command::new(env!("CARGO_BIN_EXE_hoonarqube"))
+                .current_dir(&fixture.0)
+                .args([
+                    "analyze",
+                    "case.py",
+                    "--profile",
+                    profile,
+                    "--format",
+                    format,
+                    "--cache-dir",
+                ])
+                .arg(fixture.0.join(format!("cache-{profile}-{format}")))
+                .output()
+                .expect("analyze cyclic owner source");
+            eprintln!(
+                "cyclic-owner {}/{profile}/{format}: {:?}",
+                case.name, output.status
+            );
+            outputs.push((profile, format, output));
+        }
+    }
+    (fixture, outputs)
+}
+
+#[test]
+fn python_s5332_protocol_identification_terminates_cyclic_attribute_owners() {
+    // Execute every source/profile/format before any behavioral assertion so
+    // a crashing first child cannot hide the other output format or aliases.
+    let runs: Vec<_> = CYCLIC_OWNER_CASES
+        .iter()
+        .map(|case| (case, cyclic_owner_outputs(case)))
+        .collect();
+    for (case, (fixture, outputs)) in runs {
+        for (profile, format, output) in outputs {
+            assert!(
+                output.status.success(),
+                "{}/{profile}/{format}: {output:?}",
+                case.name
+            );
+            assert!(output.stderr.is_empty(), "{output:?}");
+            let report: Value = serde_json::from_slice(&output.stdout).expect("complete report");
+            assert_eq!(report.get("parity").is_some(), profile == "sonar-parity");
+            if format == "json" {
+                assert_eq!(report["project"]["complete"], true);
+                assert_eq!(report["project"]["metrics"]["files"], 1);
+                assert_eq!(report["project"]["files"][0]["status"], "complete");
+            }
+            assert_targets(&report, case, format);
+        }
+        assert_eq!(
+            std::fs::read(fixture.0.join("case.py")).expect("source readback"),
+            case.source.as_bytes()
+        );
+    }
+}
