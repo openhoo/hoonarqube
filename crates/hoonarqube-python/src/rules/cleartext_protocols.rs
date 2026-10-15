@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn s5332_flags_remote_cleartext_urls_and_spares_safe_hosts() {
-        let bad = scan("web = 'http://unsafe.example/path'\nfiles = 'ftp://files.example/data'\n");
+        let bad = scan("web = 'http://remote.invalid/path'\nfiles = 'ftp://remote.invalid/data'\n");
         assert_eq!(findings(&bad, "python:S5332").len(), 2);
 
         let good = scan("secure = 'https://unsafe.test'\nlocal = 'http://localhost:8000'\n");
@@ -688,7 +688,7 @@ mod docstring_prose_tests {
         let source = concat!(
             "def fetch():\n",
             "    \"\"\"Reads the spec at http://yaml.org/spec.\"\"\"\n",
-            "    return download(\"http://unsafe.example/data\")\n",
+            "    return download(\"http://remote.invalid/data\")\n",
         );
         let flagged = scan(source);
         let found = findings(&flagged, "python:S5332");
@@ -1358,5 +1358,113 @@ mod protocol_identification_tests {
             }
         }
         assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
+}
+
+#[cfg(test)]
+mod documentation_hosts_tests {
+    use crate::test_support::{findings, scan};
+
+    type Expected<'a> = (&'a str, (u32, u32, u32, u32));
+
+    fn assert_reference(source: &str, expected: &[Expected<'_>]) {
+        let report = scan(source);
+        let actual = findings(&report, "python:S5332")
+            .into_iter()
+            .map(|issue| {
+                (
+                    issue.message.as_str(),
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "{source}");
+    }
+
+    #[test]
+    fn s5332_documentation_hosts_exempts_original_example_endpoint() {
+        assert_reference("endpoint = \"http://api.internal.example/v1\"\n", &[]);
+        assert_reference("endpoint = \"https://api.internal.example/v1\"\n", &[]);
+    }
+
+    #[test]
+    fn s5332_documentation_hosts_exempts_case_and_authority_controls() {
+        assert_reference(
+            "endpoint = \"http://api.internal.example:8080/v1?next=http://remote.invalid/#fragment\"\n",
+            &[],
+        );
+        assert_reference("endpoint = \"http://API.INTERNAL.EXAMPLE/v1\"\n", &[]);
+    }
+
+    #[test]
+    fn s5332_documentation_hosts_preserves_actual_unsafe_protocols() {
+        assert_reference(
+            "endpoint = \"http://\"\n",
+            &[(
+                "Using HTTP protocol is insecure. Use HTTPS instead.",
+                (1, 11, 1, 20),
+            )],
+        );
+        assert_reference(
+            "endpoint = \"http://api.example.invalid/v1\"\n",
+            &[(
+                "Using HTTP protocol is insecure. Use HTTPS instead.",
+                (1, 11, 1, 42),
+            )],
+        );
+        assert_reference(
+            "endpoint = \"ftp://remote.invalid/data\"\n",
+            &[(
+                "Using FTP protocol is insecure. Use SFTP, SCP or FTPS instead.",
+                (1, 11, 1, 38),
+            )],
+        );
+        assert_reference(
+            "endpoint = \"http://remote.invalid/path\"\n",
+            &[(
+                "Using HTTP protocol is insecure. Use HTTPS instead.",
+                (1, 11, 1, 39),
+            )],
+        );
+        assert_reference(
+            "endpoint = \"telnet://remote.invalid/data\"\n",
+            &[(
+                "Using Telnet protocol is insecure. Use SSH instead.",
+                (1, 11, 1, 41),
+            )],
+        );
+    }
+
+    #[test]
+    fn s5332_documentation_hosts_preserves_migrated_unsafe_fixture_bodies() {
+        assert_reference(
+            "def fetch():\n    \"\"\"Reads the spec at http://yaml.org/spec.\"\"\"\n    return download(\"http://remote.invalid/data\")\n",
+            &[(
+                "Using HTTP protocol is insecure. Use HTTPS instead.",
+                (3, 20, 3, 48),
+            )],
+        );
+        assert_reference(
+            "web = 'http://remote.invalid/path'\nfiles = 'ftp://remote.invalid/data'\n",
+            &[
+                (
+                    "Using HTTP protocol is insecure. Use HTTPS instead.",
+                    (1, 6, 1, 34),
+                ),
+                (
+                    "Using FTP protocol is insecure. Use SFTP, SCP or FTPS instead.",
+                    (2, 8, 2, 35),
+                ),
+            ],
+        );
+        assert_reference(
+            "secure = 'https://unsafe.test'\nlocal = 'http://localhost:8000'\n",
+            &[],
+        );
     }
 }
