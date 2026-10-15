@@ -9,7 +9,7 @@ const KEY: &str = "csharpsquid:S881";
 // 10.33 analyzer (assembly SHA256 461b82be21a9e8f57c1312ff877f8276789eeec5e64678344e961a0a3edfd957).
 // Full-document digests pin independently reviewed predictions: unrelated ordered
 // issues, all metadata/metrics/parity values and Sonar descriptors are included.
-const CONTROL: &str = r#"using System;
+const CONTROL: &str = r"using System;
 namespace Scope;
 class Cases
 {
@@ -35,9 +35,9 @@ class Cases
         for (var j = 0; j < 1; j++) { }
     }
 }
-"#;
+";
 
-const CLEAN: &str = r#"using System;
+const CLEAN: &str = r"using System;
 class Clean
 {
     int M(string text, int[] values, int i)
@@ -49,9 +49,9 @@ class Clean
         return --i;
     }
 }
-"#;
+";
 
-const BARRIERS: &str = r#"using System;
+const BARRIERS: &str = r"using System;
 class Barriers
 {
     static int Take(int x) => x;
@@ -71,7 +71,7 @@ class Barriers
         var lambdaIndex = Invoke(() => values[i++]) + 1;
     }
 }
-"#;
+";
 
 const OPERATORS: &str = r#"using System;
 class Operators
@@ -113,7 +113,7 @@ class Operators
 }
 "#;
 
-const ORIGINAL: &str = r#"using System.Collections.Generic;
+const ORIGINAL: &str = r"using System.Collections.Generic;
 namespace Scope;
 class Roman
 {
@@ -124,7 +124,7 @@ class Roman
         return digit;
     }
 }
-"#;
+";
 
 struct Fixture(PathBuf);
 

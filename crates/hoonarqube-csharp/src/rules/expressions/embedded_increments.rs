@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn s881_matches_installed_call_index_and_arithmetic_boundaries() {
-        let source = r#"using System;
+        let source = r"using System;
 namespace Scope;
 class Cases
 {
@@ -136,7 +136,7 @@ class Cases
         for (var j = 0; j < 1; j++) { }
     }
 }
-"#;
+";
         assert_eq!(
             exact(source),
             vec![
@@ -203,7 +203,7 @@ class Operators
 
     #[test]
     fn s881_preserves_arithmetic_through_expression_lambdas() {
-        let source = r#"using System;
+        let source = r"using System;
 class Barriers
 {
     static int Take(int x) => x;
@@ -223,7 +223,7 @@ class Barriers
         var lambdaIndex = Invoke(() => values[i++]) + 1;
     }
 }
-"#;
+";
         assert_eq!(
             exact(source),
             vec![
@@ -261,7 +261,7 @@ class Barriers
 
     #[test]
     fn s881_preserves_original_humanizer_nested_index_call() {
-        let source = r#"using System.Collections.Generic;
+        let source = r"using System.Collections.Generic;
 namespace Scope;
 class Roman
 {
@@ -272,7 +272,7 @@ class Roman
         return digit;
     }
 }
-"#;
+";
         assert!(exact(source).is_empty());
     }
 
