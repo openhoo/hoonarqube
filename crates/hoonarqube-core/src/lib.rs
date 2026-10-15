@@ -277,7 +277,27 @@ pub fn analyze(
             report
         }
     };
-    if options.profile != RuleProfile::SonarParity {
+    finalize_profile_report(language, source, options.profile, &mut report);
+    Some(report)
+}
+
+/// Applies native-rule selection and shared profile policy to a language report.
+///
+/// Compiler-backed callers use the same finalization as ordinary dispatch.
+/// This preserves report facts and errors while retaining cumulative native
+/// profiles. Razor source is finalized without a plain C# native pass because
+/// its trusted compiler facts describe a template rather than C# source.
+/// The isolated GitHub Code Quality dispatch owns its own registry policy.
+pub fn finalize_profile_report(
+    language: Language,
+    source: &str,
+    profile: RuleProfile,
+    report: &mut hoonarqube_ir::FileReport,
+) {
+    if profile == RuleProfile::GithubCodeQuality {
+        return;
+    }
+    if profile != RuleProfile::SonarParity && !is_razor_path(&report.path) {
         let mut native = match language {
             Language::Python => hoonarqube_python::analyze_native(source),
             Language::JavaScript => {
@@ -298,15 +318,14 @@ pub fn analyze(
         );
         native.retain(|issue| {
             hoonarqube_catalog::native_rule(&issue.rule_key)
-                .is_some_and(|rule| options.profile.includes(rule.minimum_profile))
+                .is_some_and(|rule| profile.includes(rule.minimum_profile))
         });
         report.issues.extend(native);
         hoonarqube_ir::sort_issues(&mut report.issues);
         report.issues.dedup();
     }
-    retain_profile_active_issues(options.profile, &mut report);
-    drop_retired_security_hotspots(&mut report);
-    Some(report)
+    retain_profile_active_issues(profile, report);
+    drop_retired_security_hotspots(report);
 }
 
 /// Catalog rules the reporter-observed `SonarQube` Server 2025.4.4 default
