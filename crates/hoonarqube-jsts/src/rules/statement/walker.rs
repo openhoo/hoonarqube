@@ -4,7 +4,7 @@ use crate::context::AnalysisContext;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, ScannedComment, source_slice, static_property_name,
 };
-use hoonarqube_ir::Issue;
+use hoonarqube_ir::{FlowLocation, Issue, IssueFlow};
 use oxc_ast::ast::{
     BlockStatement, CallExpression, CatchClause, ContinueStatement, DebuggerStatement,
     DoWhileStatement, EmptyStatement, ExportAllDeclaration, Expression, ExpressionStatement,
@@ -789,6 +789,19 @@ impl StatementCollector<'_, '_> {
                 "Merge this if statement with the nested one.",
                 Span::new(it.span.start, it.span.start.saturating_add(2)),
             );
+            if RuleScope::Both.active(self.sink.language)
+                && let Some(issue) = self.sink.issues.last_mut()
+            {
+                issue.flows = vec![IssueFlow {
+                    locations: vec![FlowLocation::in_primary_file(
+                        "Nested \"if\" statement.",
+                        self.sink.index.range(Span::new(
+                            inner.span.start,
+                            inner.span.start.saturating_add(2),
+                        )),
+                    )],
+                }];
+            }
         }
         if let Some(Statement::BlockStatement(block)) = &it.alternate
             && block.body.len() == 1
@@ -1659,7 +1672,9 @@ export { accumulate };
         assert_eq!(count_key(&mergeable, "javascript:S1066"), 1);
     }
 
-    fn assert_s1066_primaries(source: &str, expected: &[(u32, u32)]) {
+    type IfKeywordPair = ((u32, u32), (u32, u32));
+
+    fn assert_s1066_primaries(source: &str, expected: &[IfKeywordPair]) {
         let mut actual_reports = Vec::new();
         let mut expected_reports = Vec::new();
         for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
@@ -1671,13 +1686,28 @@ export { accumulate };
                 .collect();
             let expected: Vec<_> = expected
                 .iter()
-                .map(|&(line, column)| {
+                .map(|&((line, column), (inner_line, inner_column))| {
                     issue(
                         &key,
                         "Merge this if statement with the nested one.",
                         (line, column),
                         (line, column + 2),
                     )
+                    .with_flow(vec![
+                        hoonarqube_ir::FlowLocation::in_primary_file(
+                            "Nested \"if\" statement.",
+                            hoonarqube_ir::Range {
+                                start: hoonarqube_ir::Pos {
+                                    line: inner_line,
+                                    column: inner_column,
+                                },
+                                end: hoonarqube_ir::Pos {
+                                    line: inner_line,
+                                    column: inner_column + 2,
+                                },
+                            },
+                        ),
+                    ])
                 })
                 .collect();
             actual_reports.push((language, findings));
@@ -1714,14 +1744,17 @@ export { accumulate };
 
     #[test]
     fn s1066_mergeable_pair_keeps_exact_issue() {
-        assert_s1066_primaries("if (a) {\n  if (b) {\n    work();\n  }\n}\n", &[(1, 0)]);
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) {\n    work();\n  }\n}\n",
+            &[((1, 0), (2, 2))],
+        );
     }
 
     #[test]
     fn s1066_outer_else_does_not_hide_mergeable_descendant() {
         assert_s1066_primaries(
             "if (a) {\n  if (b) {\n    if (c) { work(); }\n  }\n} else { recover(); }\n",
-            &[(2, 2)],
+            &[((2, 2), (3, 4))],
         );
     }
 
@@ -1729,7 +1762,7 @@ export { accumulate };
     fn s1066_final_else_if_arm_keeps_its_own_mergeable_pair() {
         assert_s1066_primaries(
             "if (a) { one(); }\nelse if (b) {\n  if (c) { two(); }\n}\n",
-            &[(2, 5)],
+            &[((2, 5), (3, 2))],
         );
     }
 
@@ -1771,7 +1804,34 @@ export { accumulate };
     fn s1066_mixed_crlf_unicode_keeps_scalar_primary() {
         assert_s1066_primaries(
             "/* 🦉 */ if (a) { if (b) { work(); } } else { recover(); }\r\n/* 🦉 */ if (c) { if (d) { keep(); } }\r\n",
-            &[(2, 8)],
+            &[((2, 8), (2, 17))],
         );
+    }
+
+    #[test]
+    fn s1066_supporting_locations_point_to_each_immediate_nested_keyword() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) {\n    if (c) {\n      if (d) { work(); }\n    }\n  }\n}\n",
+            &[((1, 0), (2, 2)), ((2, 2), (3, 4)), ((3, 4), (4, 6))],
+        );
+    }
+
+    #[test]
+    fn s1066_supporting_locations_preserve_distinct_scalar_columns_and_crlf() {
+        assert_s1066_primaries(
+            "/* 🦉 */ if (skip) { if (guard) { skip(); } } else { recover(); }\r\n/* 🦉 */ if (a) {\r\n  /* 🦉🦉 */ if (b) { work(); }\r\n}\r\n",
+            &[((2, 8), (3, 11))],
+        );
+    }
+
+    #[test]
+    fn s1066_supporting_locations_keep_inner_else_and_empty_controls_clean() {
+        assert_s1066_primaries("if (a) { if (b) { work(); } else { recover(); } }\n", &[]);
+        assert_s1066_primaries("", &[]);
+    }
+
+    #[test]
+    fn s1066_unbraced_consequent_residual_is_unchanged() {
+        assert_s1066_primaries("if (a) if (b) { work(); }\n", &[]);
     }
 }
