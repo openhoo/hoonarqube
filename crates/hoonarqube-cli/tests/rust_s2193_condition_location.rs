@@ -341,3 +341,34 @@ fn rust_s2193_cli_same_line_loops_match_the_accepted_counter_identifier() {
         fixture.assert_source(source.as_bytes());
     }
 }
+
+#[test]
+fn rust_s2193_cli_labeled_loop_uses_while_keyword_and_exact_identifiers() {
+    let fixture = Fixture::new();
+    let substring = "fn main() { let mut count = 0.0; let mut counter = 0; while counter < 2 { counter += 1; } std::hint::black_box(count); }\n";
+    fixture.write(substring.as_bytes());
+    for format in ["json", "sonar"] {
+        let document = fixture.analyze("sonar-parity", format, 0);
+        assert!(
+            issues(&document, format)
+                .iter()
+                .all(|issue| rule(issue, format) != KEY)
+        );
+    }
+    fixture.assert_source(substring.as_bytes());
+    let labeled = "fn main() {\n let mut counter = 0.0;\n 'outer:\n while counter < 2.0 { counter += 1.0; }\n}\n";
+    for source in [labeled.to_string(), labeled.replace('\n', "\r\n")] {
+        fixture.write(source.as_bytes());
+        for format in ["json", "sonar"] {
+            let document = fixture.analyze("sonar-parity", format, 0);
+            assert_eq!(
+                issues(&document, format)
+                    .into_iter()
+                    .filter(|issue| rule(issue, format) == KEY)
+                    .collect::<Vec<_>>(),
+                [&expected(KEY, MESSAGE, (4, 7, 4, 20), format)]
+            );
+        }
+        fixture.assert_source(source.as_bytes());
+    }
+}

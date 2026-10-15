@@ -7054,6 +7054,16 @@ mod s2193_condition_location_tests {
     }
 
     #[test]
+    fn s2193_condition_location_uses_while_keyword_after_a_preceding_label() {
+        let substring = "fn main() { let mut count = 0.0; let mut counter = 0; while counter < 2 { counter += 1; } std::hint::black_box(count); }\n";
+        assert!(selected(substring).is_empty());
+        let labeled = "fn main() {\n let mut counter = 0.0;\n 'outer:\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        for source in [labeled.to_string(), labeled.replace('\n', "\r\n")] {
+            assert_eq!(selected(&source), [expected(4, 7, 4, 20)]);
+        }
+    }
+
+    #[test]
     fn s2193_condition_location_keeps_clean_controls_and_existing_window() {
         for source in [
             include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_good.rs"),
