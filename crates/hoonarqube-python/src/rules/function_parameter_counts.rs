@@ -1,12 +1,17 @@
 use crate::AnalyzerOptions;
+use crate::engine::scope::{BindingKind, DefFlavor, ScopeKind, SymbolTable, build_symbol_table};
 use crate::support::for_each_function_def;
 use crate::support::issue_at;
 use crate::support::to_u32;
+use crate::support::{child_bodies, for_each_stmt_expr};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
+use ruff_python_ast::{Expr, ExprContext, ExprName, Stmt, StmtClassDef, StmtFunctionDef};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
+use ruff_text_size::TextRange;
+use std::collections::{HashMap, HashSet};
 
 /// python:S107 — parameter count against `maximumFunctionParameters`;
 /// `*args` and `**kwargs` each count as one parameter.
@@ -17,6 +22,7 @@ pub(crate) fn check_function_parameter_counts(
     options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
+    let mut parent_signatures = None;
     for_each_function_def(
         parsed.syntax().body.as_slice(),
         false,
@@ -36,6 +42,13 @@ pub(crate) fn check_function_parameter_counts(
             }
             let maximum = options.maximum_function_parameters;
             if to_u32(count) > maximum {
+                if in_class_body
+                    && parent_signatures
+                        .get_or_insert_with(|| ParentSignatures::build(parsed))
+                        .suppresses(function, maximum)
+                {
+                    return;
+                }
                 let kind = if is_method { "Method" } else { "Function" };
                 issues.push(issue_at(
                     "python:S107",
@@ -97,6 +110,397 @@ fn parameter_list_range(
         })
         .map_or(last.end(), Ranged::end);
     ruff_text_size::TextRange::new(start, end)
+}
+
+#[derive(Clone, Copy)]
+enum ParameterParent {
+    Local(usize, bool),
+    Object,
+    Unresolved,
+}
+
+/// S107-only same-file parent signatures, indexed by existing lexical scope
+/// identities. This does not infer external types or follow assigned aliases.
+struct ParentSignatures<'a> {
+    table: SymbolTable,
+    classes: HashMap<usize, &'a StmtClassDef>,
+    class_sites: HashMap<usize, usize>,
+    functions: HashMap<TextRange, &'a StmtFunctionDef>,
+    function_sites: HashMap<TextRange, usize>,
+    loads: HashMap<TextRange, usize>,
+    class_names: HashMap<TextRange, usize>,
+    parents: HashMap<usize, Vec<ParameterParent>>,
+    uncertain_definitions: HashSet<TextRange>,
+    invalid_bindings: HashSet<(usize, String)>,
+    dynamic: bool,
+}
+
+impl<'a> ParentSignatures<'a> {
+    fn build(parsed: &'a Parsed<ModModule>) -> Self {
+        let table = build_symbol_table(parsed);
+        let mut class_nodes = HashMap::new();
+        let mut functions = HashMap::new();
+        let mut uncertain_definitions = HashSet::new();
+        let mut dynamic = false;
+        let mut pending: Vec<_> = parsed
+            .syntax()
+            .body
+            .iter()
+            .map(|stmt| (stmt, true))
+            .collect();
+        while let Some((stmt, unconditional)) = pending.pop() {
+            match stmt {
+                Stmt::ClassDef(class) => {
+                    class_nodes.insert(class.name.range(), class);
+                    if !unconditional
+                        || !class.decorator_list.is_empty()
+                        || class
+                            .arguments
+                            .as_deref()
+                            .is_some_and(|args| !args.keywords.is_empty())
+                    {
+                        uncertain_definitions.insert(class.name.range());
+                    }
+                    pending.extend(class.body.iter().map(|stmt| (stmt, true)));
+                }
+                Stmt::FunctionDef(function) => {
+                    functions.insert(function.name.range(), function);
+                    if !unconditional {
+                        uncertain_definitions.insert(function.name.range());
+                    }
+                    pending.extend(function.body.iter().map(|stmt| (stmt, true)));
+                }
+                Stmt::ImportFrom(import)
+                    if import.names.iter().any(|alias| alias.name.as_str() == "*") =>
+                {
+                    dynamic = true;
+                }
+                _ => {
+                    for body in child_bodies(stmt) {
+                        pending.extend(body.iter().map(|stmt| (stmt, false)));
+                    }
+                }
+            }
+        }
+        let mut facts = Self {
+            loads: table
+                .resolved_loads
+                .iter()
+                .filter_map(|load| load.target.map(|scope| (load.range, scope)))
+                .collect(),
+            table,
+            classes: HashMap::new(),
+            class_sites: HashMap::new(),
+            functions,
+            function_sites: HashMap::new(),
+            class_names: HashMap::new(),
+            parents: HashMap::new(),
+            uncertain_definitions,
+            invalid_bindings: HashSet::new(),
+            dynamic,
+        };
+        for (index, site) in facts.table.def_sites.iter().enumerate() {
+            if site.flavor == DefFlavor::Class {
+                if let Some(class) = class_nodes.get(&site.name_range) {
+                    facts.classes.insert(site.own_scope, *class);
+                    facts.class_sites.insert(site.own_scope, index);
+                    facts.class_names.insert(site.name_range, site.own_scope);
+                }
+            } else {
+                facts.function_sites.insert(site.name_range, index);
+            }
+        }
+        facts.collect_uncertainty(parsed);
+        for (&scope, class) in &facts.classes {
+            let parents = class
+                .arguments
+                .as_deref()
+                .map_or_else(Vec::new, |arguments| {
+                    arguments
+                        .args
+                        .iter()
+                        .map(|base| {
+                            let Expr::Name(name) = base else {
+                                return ParameterParent::Unresolved;
+                            };
+                            if let Some(parent) = facts.class_for_name(name) {
+                                ParameterParent::Local(
+                                    parent,
+                                    facts.classes[&parent].start() < class.start(),
+                                )
+                            } else if name.id.as_str() == "object"
+                                && !facts.loads.contains_key(&name.range())
+                            {
+                                ParameterParent::Object
+                            } else {
+                                ParameterParent::Unresolved
+                            }
+                        })
+                        .collect()
+                });
+            facts.parents.insert(scope, parents);
+        }
+        facts
+    }
+
+    fn collect_uncertainty(&mut self, parsed: &Parsed<ModModule>) {
+        for_each_stmt_expr(&parsed.syntax().body, &mut |expr| match expr {
+            Expr::Name(name) if name.ctx == ExprContext::Del => {
+                if let Some(&scope) = self.loads.get(&name.range()) {
+                    self.invalid_bindings.insert((scope, name.id.to_string()));
+                }
+            }
+            Expr::Attribute(attribute)
+                if matches!(attribute.ctx, ExprContext::Store | ExprContext::Del) =>
+            {
+                if let Expr::Name(owner) = attribute.value.as_ref()
+                    && let Some(class) = self.class_for_name(owner)
+                {
+                    self.invalid_bindings
+                        .insert((class, attribute.attr.to_string()));
+                    if attribute.attr.as_str() == "__bases__" {
+                        let site = &self.table.def_sites[self.class_sites[&class]];
+                        self.invalid_bindings
+                            .insert((site.enclosing_scope, site.name.clone()));
+                    }
+                }
+            }
+            Expr::Call(call)
+                if matches!(call.func.as_ref(), Expr::Name(name)
+                if matches!(name.id.as_str(), "eval" | "exec" | "globals" | "locals" | "setattr" | "delattr")) =>
+            {
+                self.dynamic = true;
+            }
+            _ => {}
+        });
+        for (scope_index, scope) in self.table.scopes.iter().enumerate() {
+            for name in scope.bindings.keys() {
+                if scope_index != 0 && scope.declares_global(name) {
+                    self.invalid_bindings.insert((0, name.clone()));
+                }
+                if scope.declares_nonlocal(name) {
+                    let mut current = scope.parent;
+                    while let Some(parent) = current {
+                        let enclosing = &self.table.scopes[parent];
+                        if enclosing.kind == ScopeKind::Function
+                            && enclosing.bindings.contains_key(name)
+                        {
+                            self.invalid_bindings.insert((parent, name.clone()));
+                            break;
+                        }
+                        current = enclosing.parent;
+                    }
+                }
+            }
+        }
+    }
+
+    fn unique_definition(&self, scope: usize, name: &str) -> Option<TextRange> {
+        if self.invalid_bindings.contains(&(scope, name.to_string())) {
+            return None;
+        }
+        let bindings = self.table.scopes[scope].bindings.get(name)?;
+        let [binding] = bindings.as_slice() else {
+            return None;
+        };
+        (binding.kind == BindingKind::Definition
+            && !self.uncertain_definitions.contains(&binding.range))
+        .then_some(binding.range)
+    }
+
+    fn class_for_name(&self, name: &ExprName) -> Option<usize> {
+        let scope = *self.loads.get(&name.range())?;
+        let range = self.unique_definition(scope, name.id.as_str())?;
+        self.class_names.get(&range).copied()
+    }
+
+    fn suppresses(&self, function: &StmtFunctionDef, maximum: u32) -> bool {
+        if self.dynamic {
+            return false;
+        }
+        let Some(&site_index) = self.function_sites.get(&function.name.range()) else {
+            return false;
+        };
+        let site = &self.table.def_sites[site_index];
+        let Some(&class_site_index) = self.class_sites.get(&site.enclosing_scope) else {
+            return false;
+        };
+        let class_site = &self.table.def_sites[class_site_index];
+        if self.unique_definition(class_site.enclosing_scope, &class_site.name)
+            != Some(class_site.name_range)
+            || self.unique_definition(site.enclosing_scope, &site.name) != Some(site.name_range)
+            || self.known_mro(site.enclosing_scope).is_none()
+        {
+            return false;
+        }
+        for parent in &self.parents[&site.enclosing_scope] {
+            let inherited = match parent {
+                ParameterParent::Local(parent, true) => self.member(*parent, &site.name),
+                ParameterParent::Object => continue,
+                ParameterParent::Local(_, false) | ParameterParent::Unresolved => return false,
+            };
+            match inherited {
+                Ok(Some(parent)) => {
+                    let p = &parent.parameters;
+                    let mut count = p.posonlyargs.len()
+                        + p.args.len()
+                        + p.kwonlyargs.len()
+                        + usize::from(p.vararg.is_some())
+                        + usize::from(p.kwarg.is_some());
+                    if parent
+                        .decorator_list
+                        .iter()
+                        .any(|decorator| decorator_contains_staticmethod(&decorator.expression))
+                    {
+                        count = count.saturating_sub(1);
+                    }
+                    return to_u32(count) > maximum;
+                }
+                Ok(None) => {}
+                Err(()) => return false,
+            }
+        }
+        false
+    }
+
+    fn own_member(&self, scope: usize, name: &str) -> Result<Option<&'a StmtFunctionDef>, ()> {
+        if self.invalid_bindings.contains(&(scope, name.to_string())) {
+            return Err(());
+        }
+        if !self.table.scopes[scope].bindings.contains_key(name) {
+            return Ok(None);
+        }
+        let range = self.unique_definition(scope, name).ok_or(())?;
+        self.functions.get(&range).copied().map(Some).ok_or(())
+    }
+
+    fn member(&self, scope: usize, name: &str) -> Result<Option<&'a StmtFunctionDef>, ()> {
+        if let Some(function) = self.own_member(scope, name)? {
+            return Ok(Some(function));
+        }
+        let mut pending = vec![scope];
+        let mut visited = HashSet::new();
+        while let Some(current) = pending.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            for parent in &self.parents[&current] {
+                match parent {
+                    ParameterParent::Local(parent, true) => pending.push(*parent),
+                    ParameterParent::Object => {}
+                    ParameterParent::Local(_, false) | ParameterParent::Unresolved => {
+                        return Err(());
+                    }
+                }
+            }
+        }
+        for ancestor in self.known_mro(scope).ok_or(())?.into_iter().skip(1) {
+            if ancestor == usize::MAX {
+                continue;
+            }
+            if let Some(function) = self.own_member(ancestor, name)? {
+                return Ok(Some(function));
+            }
+        }
+        Ok(None)
+    }
+
+    fn known_bases(&self, scope: usize) -> Vec<usize> {
+        if scope == usize::MAX {
+            return Vec::new();
+        }
+        let mut bases: Vec<_> = self.parents[&scope]
+            .iter()
+            .filter_map(|parent| match parent {
+                ParameterParent::Local(scope, _) => Some(*scope),
+                ParameterParent::Object => Some(usize::MAX),
+                ParameterParent::Unresolved => None,
+            })
+            .collect();
+        if bases.is_empty() {
+            bases.push(usize::MAX);
+        }
+        bases
+    }
+
+    fn known_mro(&self, root: usize) -> Option<Vec<usize>> {
+        let mut states = HashMap::new();
+        let mut pending = vec![(root, false)];
+        let mut orders = HashMap::<usize, Vec<usize>>::new();
+        while let Some((scope, expanded)) = pending.pop() {
+            if expanded {
+                let bases = self.known_bases(scope);
+                let mut sequences: Vec<_> = bases
+                    .iter()
+                    .map(|base| orders.get(base).cloned())
+                    .collect::<Option<_>>()?;
+                sequences.push(bases);
+                let mut order = vec![scope];
+                order.extend(merge_parent_orders(&sequences)?);
+                orders.insert(scope, order);
+                states.insert(scope, true);
+                continue;
+            }
+            match states.get(&scope) {
+                Some(true) => continue,
+                Some(false) => return None,
+                None => {}
+            }
+            states.insert(scope, false);
+            pending.push((scope, true));
+            pending.extend(
+                self.known_bases(scope)
+                    .into_iter()
+                    .rev()
+                    .map(|base| (base, false)),
+            );
+        }
+        orders.remove(&root)
+    }
+}
+
+fn decorator_contains_staticmethod(expr: &Expr) -> bool {
+    let mut current = expr;
+    loop {
+        match current {
+            Expr::Name(name) => return name.id.as_str().contains("staticmethod"),
+            Expr::Attribute(attribute) => {
+                if attribute.attr.as_str().contains("staticmethod") {
+                    return true;
+                }
+                current = &attribute.value;
+            }
+            _ => return false,
+        }
+    }
+}
+
+fn merge_parent_orders(sequences: &[Vec<usize>]) -> Option<Vec<usize>> {
+    let mut positions = vec![0; sequences.len()];
+    let mut result = Vec::new();
+    loop {
+        let heads: Vec<_> = sequences
+            .iter()
+            .enumerate()
+            .filter_map(|(index, seq)| seq.get(positions[index]))
+            .copied()
+            .collect();
+        if heads.is_empty() {
+            return Some(result);
+        }
+        let candidate = heads.into_iter().find(|candidate| {
+            sequences.iter().enumerate().all(|(index, seq)| {
+                let tail = positions[index].saturating_add(1).min(seq.len());
+                !seq[tail..].contains(candidate)
+            })
+        })?;
+        result.push(candidate);
+        for (index, seq) in sequences.iter().enumerate() {
+            if seq.get(positions[index]) == Some(&candidate) {
+                positions[index] += 1;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
