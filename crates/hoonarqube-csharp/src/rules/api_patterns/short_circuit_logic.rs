@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((left, right)) = binary_operands(expression) else {
             continue;
         };
-        if looks_boolean_expression(left, source) && looks_boolean_expression(right, source) {
+        if looks_boolean_operand(left, source) && looks_boolean_operand(right, source) {
             let mut cursor = expression.walk();
             let operator = expression
                 .children(&mut cursor)
@@ -45,6 +45,38 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
+}
+
+/// Preserve the original bare shapes; only checked parentheses add admission.
+fn looks_boolean_operand(expression: Node<'_>, source: &str) -> bool {
+    if expression.kind() == "parenthesized_expression" {
+        parenthesized_terminal(expression)
+            .is_some_and(|terminal| looks_boolean_expression(terminal, source))
+    } else {
+        looks_boolean_expression(expression, source)
+    }
+}
+
+/// A terminal must fit in the same 64 visits used by operand facts. Comments
+/// are extra named children and cannot be silently discarded while peeling.
+fn parenthesized_terminal(mut expression: Node<'_>) -> Option<Node<'_>> {
+    for _ in 0..64 {
+        if expression.has_error()
+            || is_error_tainted(expression)
+            || enclosing_callable(expression).is_some_and(|owner| owner.has_error())
+        {
+            return None;
+        }
+        if expression.kind() != "parenthesized_expression" {
+            return Some(expression);
+        }
+        let child = sole_child(expression)?;
+        if child.is_extra() || child.is_missing() {
+            return None;
+        }
+        expression = child;
+    }
+    None
 }
 
 /// Whether this operand reads like a boolean: literals, comparisons,
@@ -106,7 +138,11 @@ struct OperandFact {
 }
 
 fn operand_advice(expression: Node<'_>, source: &str) -> &'static str {
-    if expression.kind() != "identifier"
+    let identifier = expression.kind() == "identifier"
+        || (expression.kind() == "parenthesized_expression"
+            && parenthesized_terminal(expression)
+                .is_some_and(|terminal| terminal.kind() == "identifier"));
+    if !identifier
         && operand_fact(expression, source, 0)
             .is_some_and(|fact| fact.primitive == Primitive::Bool && fact.runtime)
     {
@@ -142,6 +178,9 @@ fn operand_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<Oper
             let fact = operand_fact(sole_child(expression)?, source, depth + 1)?;
             (fact.primitive == Primitive::Bool).then_some(fact)
         }
+        "binary_expression" if matches!(operator_of(expression), Some("&&" | "||")) => {
+            logical_fact(expression, source, depth + 1)
+        }
         "binary_expression" => comparison_fact(expression, source, depth + 1),
         _ => None,
     }
@@ -151,6 +190,27 @@ fn sole_child(expression: Node<'_>) -> Option<Node<'_>> {
     (expression.named_child_count() == 1)
         .then(|| expression.named_child(0))
         .flatten()
+}
+
+/// Only two direct runtime Bool identifiers, or two valid Bool literals,
+/// have qualified logical facts. Mixed and compound children remain Unknown.
+fn logical_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<OperandFact> {
+    let (left, right) = binary_operands(expression)?;
+    let runtime = match (left.kind(), right.kind()) {
+        ("identifier", "identifier") => true,
+        ("boolean_literal", "boolean_literal") => false,
+        _ => return None,
+    };
+    let left = operand_fact(left, source, depth)?;
+    let right = operand_fact(right, source, depth)?;
+    (left.primitive == Primitive::Bool
+        && right.primitive == Primitive::Bool
+        && left.runtime == runtime
+        && right.runtime == runtime)
+        .then_some(OperandFact {
+            primitive: Primitive::Bool,
+            runtime,
+        })
 }
 
 fn comparison_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<OperandFact> {
