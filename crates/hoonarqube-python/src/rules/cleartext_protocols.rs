@@ -84,6 +84,9 @@ pub(crate) fn check_cleartext_protocols(
                     || host.ends_with(".example.com")
                     || host.ends_with(".svc.cluster.local")
                     || host.rsplit_once('.').is_some_and(|(_, tld)| tld == "test")
+                    || host
+                        .rsplit_once('.')
+                        .is_some_and(|(_, tld)| tld.eq_ignore_ascii_case("example"))
                     || host.ends_with(".localhost")
                     || NAMESPACE_AUTHORITIES.contains(&host);
                 // Sonar flags even a bare `http://` literal — the empty host
