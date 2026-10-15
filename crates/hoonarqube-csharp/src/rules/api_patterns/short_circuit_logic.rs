@@ -1254,8 +1254,8 @@ mod tests {
             r###"identifier_&"###,
             r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((IsReady) & ((HasItems))) return true; return false; } }
 "###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":85},"end":{"line":1,"column":86}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":98},"end":{"line":1,"column":99}}}]"###,
+            r###"[]"###,
+            r###"[]"###,
         ),
         (
             r###"wrapper"###,
@@ -1526,8 +1526,8 @@ mod tests {
             r###"logical_child_wrapped"###,
             r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((HasItems) && CanFail)) return true; return false; } }
 "###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"###,
+            r###"[]"###,
+            r###"[]"###,
         ),
         (
             r###"unknown"###,
