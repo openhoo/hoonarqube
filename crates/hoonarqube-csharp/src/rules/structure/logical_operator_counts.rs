@@ -323,17 +323,8 @@ mod tests {
     }
 
     #[test]
-    fn s1067_conditional_preserves_pure_logical_parenthesized_residual() {
-        let outer = "a || (b && c && d && e && f)";
-        let inner = "b && c && d && e && f";
-        let source = source(outer);
-        assert_eq!(
-            targets(&source, 3),
-            vec![
-                expected(&source, outer, 5, 3),
-                expected(&source, inner, 4, 3)
-            ]
-        );
+    fn s1067_conditional_preserves_one_complete_pure_logical_component() {
+        one("a || (b && c && d && e && f)", 5);
     }
 
     #[test]
@@ -372,6 +363,151 @@ mod tests {
         for source in [
             "class C { int M(bool a) => a ? 1 : ; }",
             "class C { int M(bool a) => (a ? 1 : 0) + (a ? : 0) + (a ? 1 : 0) + (a ? 1 : 0); }",
+        ] {
+            assert!(targets(source, 0).is_empty());
+        }
+    }
+
+    #[test]
+    fn s1067_logical_parenthesized_component_has_no_inner_duplicate() {
+        one("a || (b && c && d && e && f)", 5);
+    }
+
+    #[test]
+    fn s1067_logical_root_includes_all_transparent_parentheses() {
+        one("(a || (b && c && d && e && f))", 5);
+        one("(((a && b && c && d && e)))", 4);
+    }
+
+    #[test]
+    fn s1067_logical_root_includes_logical_negation() {
+        one("!(a || (b && c && d && e && f))", 5);
+    }
+
+    #[test]
+    fn s1067_logical_root_includes_the_comparison_expression() {
+        one("(a && b && c && d && e) == f", 4);
+    }
+
+    #[test]
+    fn s1067_logical_combines_chains_joined_by_equality_and_bitwise_operators() {
+        for expression in [
+            "(a && b && c) == (d && e && f)",
+            "(a && b && c) & (d && e && f)",
+            "!((a && b && c) == (d && e && f))",
+            "((a && b && c) & (d && e)) || f",
+        ] {
+            one(expression, 4);
+        }
+    }
+
+    #[test]
+    fn s1067_logical_component_uses_configured_maximum_and_message() {
+        let expression = "(a || (b && c && d && e && f))";
+        let source = source(expression);
+        assert!(targets(&source, 5).is_empty());
+        assert_eq!(
+            targets(&source, 4),
+            vec![expected(&source, expression, 5, 4)]
+        );
+        assert_eq!(
+            targets(&source, 2),
+            vec![expected(&source, expression, 5, 2)]
+        );
+        let single = self::source("(a && b)");
+        assert!(targets(&single, 1).is_empty());
+        assert_eq!(
+            targets(&single, 0),
+            vec![expected(&single, "(a && b)", 1, 0)]
+        );
+    }
+
+    #[test]
+    fn s1067_logical_below_threshold_and_lexical_decoys_remain_clean() {
+        for expression in [
+            "a && b && c && d",
+            "(a || (b && c && d))",
+            "!(a && b && c && d)",
+            "(a && b) == (c && d)",
+            "(a && b && c) == d",
+            r#""&& || ? : && ||" != """#,
+        ] {
+            assert!(targets(&source(expression), 3).is_empty(), "{expression}");
+        }
+    }
+
+    #[test]
+    fn s1067_logical_invocation_arguments_remain_separate_components() {
+        let left = "a && b && c && d && e";
+        let right = "b && c && d && e && f";
+        let source = source(&format!("F({left}) | F({right})"));
+        assert_eq!(
+            targets(&source, 3),
+            vec![
+                expected(&source, left, 4, 3),
+                expected(&source, right, 4, 3)
+            ]
+        );
+    }
+
+    #[test]
+    fn s1067_logical_preserves_separate_opaque_call_counting_residual() {
+        let outer = "a || F(b && c && d && e && f)";
+        let source = source(outer);
+        assert_eq!(
+            targets(&source, 3),
+            vec![
+                expected(&source, outer, 5, 3),
+                expected(&source, "b && c && d && e && f", 4, 3)
+            ]
+        );
+        let outer = "F(a && b && c) || F(d && e && f)";
+        let source = self::source(outer);
+        assert_eq!(targets(&source, 3), vec![expected(&source, outer, 5, 3)]);
+    }
+
+    #[test]
+    fn s1067_logical_lambda_and_cast_inner_roots_keep_complete_parentheses() {
+        for outer in [
+            "a || F(() => (b && c && d && e && f))",
+            "a || (bool)(b && c && d && e && f)",
+        ] {
+            let source = source(outer);
+            assert_eq!(
+                targets(&source, 3),
+                vec![
+                    expected(&source, outer, 5, 3),
+                    expected(&source, "(b && c && d && e && f)", 4, 3)
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn s1067_logical_romanian_shape_retains_only_matching_outer_object() {
+        let expression = "a && (!words.EndsWith(\"zece\")\n && (words.EndsWith(\"a\") || words.EndsWith(\"ă\")\n || words.EndsWith(\"e\") || words.EndsWith(\"i\")))";
+        one(expression, 5);
+    }
+
+    #[test]
+    fn s1067_logical_complete_spans_preserve_unicode_and_line_endings() {
+        for newline in ["\n", "\r\n"] {
+            let expression = format!("!(a ||{newline} (b && c && d && e && f))");
+            let source = format!(
+                "\u{feff}// header{newline}class C {{ /* 😀 */ bool M(bool a, bool b, bool c, bool d, bool e, bool f) => {expression}; }}{newline}"
+            );
+            assert_eq!(
+                targets(&source, 3),
+                vec![expected(&source, &expression, 5, 3)]
+            );
+        }
+    }
+
+    #[test]
+    fn s1067_logical_malformed_components_do_not_produce_clean_findings() {
+        for source in [
+            "class C { bool M(bool a) => !(a && ; }",
+            "class C { bool M(bool a) => a || (a && ; }",
         ] {
             assert!(targets(source, 0).is_empty());
         }
