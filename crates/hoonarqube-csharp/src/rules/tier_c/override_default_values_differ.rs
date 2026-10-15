@@ -851,6 +851,7 @@ fn indexed_default_difference(
     base: &[crate::project_index::IndexedParameter],
     source: &str,
 ) -> Option<DefaultDifference> {
+    let removal_eligible = indexed_remove_signature_proven(derived, base);
     units.iter().zip(derived.iter().zip(base.iter())).find_map(
         |(unit, (derived_parameter, base_parameter))| {
             let derived_default = unit
@@ -867,7 +868,7 @@ fn indexed_default_difference(
                     range: range_of(name, source),
                     kind: DefaultDifferenceKind::Add,
                 }),
-                (Some(value), None) => Some(DefaultDifference {
+                (Some(value), None) if removal_eligible => Some(DefaultDifference {
                     range: default_clause_range(value, source),
                     kind: DefaultDifferenceKind::Remove,
                 }),
@@ -882,6 +883,41 @@ fn indexed_default_difference(
         },
     )
 }
+
+/// The index keeps written types but no lexical scope for aliases or names.
+/// Only matching keyword scalar identities can justify a new indexed Remove;
+/// legacy Add/Use differences still run when that proof is unavailable.
+fn indexed_remove_signature_proven(
+    derived: &[crate::project_index::IndexedParameter],
+    base: &[crate::project_index::IndexedParameter],
+) -> bool {
+    derived.len() == base.len()
+        && derived.iter().zip(base).all(|(left, right)| {
+            indexed_keyword_type_key(&left.display)
+                .zip(indexed_keyword_type_key(&right.display))
+                .is_some_and(|(left, right)| left == right)
+        })
+}
+
+fn indexed_keyword_type_key(display: &str) -> Option<String> {
+    let written = display
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let (keyword, nullable) = written
+        .strip_suffix('?')
+        .map_or((written.as_str(), false), |inner| (inner, true));
+    if keyword.contains('.') || keyword.contains(':') {
+        return None;
+    }
+    let scalar = local_bcl_scalar(keyword)?;
+    if nullable && !matches!(scalar, "Object" | "String") {
+        Some(format!("$indexed-nullable:{scalar}"))
+    } else {
+        Some(scalar.to_string())
+    }
+}
+
 fn first_default_difference_range(
     pair_kind: PairKind,
     overriding: Node<'_>,
