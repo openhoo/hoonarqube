@@ -1482,6 +1482,7 @@ mod tests {
     #[test]
     fn s1006_local_review_nullable_value_type_decoys_keep_matching_defaults_clean() {
         for source in [
+            "namespace Triage {\npublic struct Value {}\npublic class B { public virtual int M(Value? x) => 0; public virtual int M(Value x = default) => 1; }\npublic class D : B { public override int M(Value x = default) => 1; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M()); } }\n}\n",
             "namespace Triage {\npublic class B {\n  public virtual int M(int? x) => 0;\n  public virtual int M(int x = 1) => x;\n}\npublic class D : B { public override int M(int x = 1) => x; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(1)); } }\n}\n",
             "namespace Triage {\npublic class B {\n  public virtual int M(int x = 1) => x;\n  public virtual int M(int? x) => 0;\n}\npublic class D : B { public override int M(int x = 1) => x; }\npublic static class Program { public static void Main() { global::System.Console.WriteLine(new D().M(1)); } }\n}\n",
         ] {
