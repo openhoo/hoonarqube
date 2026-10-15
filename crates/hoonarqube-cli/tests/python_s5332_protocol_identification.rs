@@ -504,6 +504,63 @@ const LIVE_OWNER_CASES: &[Case] = &[
     },
 ];
 
+fn live_owner_targets(
+    report: &Value,
+    format: &str,
+) -> std::collections::BTreeMap<String, Vec<Value>> {
+    let mut actual: std::collections::BTreeMap<String, Vec<Value>> =
+        std::collections::BTreeMap::default();
+    if format == "json" {
+        assert_eq!(report["project"]["complete"], true);
+        assert_eq!(
+            report["project"]["metrics"]["files"],
+            LIVE_OWNER_CASES.len()
+        );
+        for file in report["files"].as_array().expect("files") {
+            actual.insert(
+                file["path"].as_str().expect("path").to_owned(),
+                file["issues"]
+                    .as_array()
+                    .expect("issues")
+                    .iter()
+                    .filter(|issue| issue["rule_key"] == KEY)
+                    .cloned()
+                    .collect(),
+            );
+        }
+    } else {
+        for case in LIVE_OWNER_CASES {
+            actual.insert(format!("./{}", case.name), vec![]);
+        }
+        for issue in report["issues"]
+            .as_array()
+            .expect("issues")
+            .iter()
+            .filter(|issue| issue["ruleId"] == KEY)
+        {
+            actual
+                .get_mut(issue["primaryLocation"]["filePath"].as_str().expect("path"))
+                .expect("known source")
+                .push(issue.clone());
+        }
+    }
+    actual
+}
+
+fn expected_live_owner_targets(format: &str) -> std::collections::BTreeMap<String, Vec<Value>> {
+    LIVE_OWNER_CASES.iter().map(|case| {
+        let path = format!("./{}", case.name);
+        let issues = case.ranges.iter().map(|&(line, column, end_line, end_column)| {
+            if format == "json" {
+                json!({"rule_key": KEY, "message": MESSAGE, "range": {"start": {"line": line, "column": column}, "end": {"line": end_line, "column": end_column}}})
+            } else {
+                json!({"ruleId": KEY, "primaryLocation": {"filePath": path, "message": MESSAGE, "textRange": {"startLine": line, "startColumn": column, "endLine": end_line, "endColumn": end_column}}})
+            }
+        }).collect();
+        (path, issues)
+    }).collect()
+}
+
 #[test]
 fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries() {
     let fixture = Fixture::new();
@@ -530,57 +587,17 @@ fn python_s5332_protocol_identification_preserves_live_result_owner_boundaries()
             assert!(output.stderr.is_empty(), "{output:?}");
             let report: Value = serde_json::from_slice(&output.stdout).expect("report");
             assert_eq!(report.get("parity").is_some(), profile == "sonar-parity");
-            let mut actual: std::collections::BTreeMap<String, Vec<Value>> =
-                std::collections::BTreeMap::default();
-            let key = if format == "json" {
-                "rule_key"
-            } else {
-                "ruleId"
-            };
-            if format == "json" {
-                assert_eq!(report["project"]["complete"], true);
-                assert_eq!(report["project"]["metrics"]["files"], 9);
-                for file in report["files"].as_array().expect("files") {
-                    actual.insert(
-                        file["path"].as_str().expect("path").to_owned(),
-                        file["issues"]
-                            .as_array()
-                            .expect("issues")
-                            .iter()
-                            .filter(|issue| issue[key] == KEY)
-                            .cloned()
-                            .collect(),
-                    );
-                }
-            } else {
-                for case in LIVE_OWNER_CASES {
-                    actual.insert(format!("./{}", case.name), vec![]);
-                }
-                for issue in report["issues"]
-                    .as_array()
-                    .expect("issues")
-                    .iter()
-                    .filter(|issue| issue[key] == KEY)
-                {
-                    actual
-                        .get_mut(issue["primaryLocation"]["filePath"].as_str().expect("path"))
-                        .expect("known source")
-                        .push(issue.clone());
-                }
+            assert_eq!(
+                live_owner_targets(&report, format),
+                expected_live_owner_targets(format),
+                "{profile}/{format}"
+            );
+            for case in LIVE_OWNER_CASES {
+                assert_eq!(
+                    std::fs::read(fixture.0.join(case.name)).expect("source readback"),
+                    case.source.as_bytes()
+                );
             }
-            let expected: std::collections::BTreeMap<_, _> = LIVE_OWNER_CASES.iter().map(|case| {
-                let path = format!("./{}", case.name);
-                let issues = case.ranges.iter().map(|&(line, column, end_line, end_column)| {
-                    if format == "json" {
-                        json!({"rule_key": KEY, "message": MESSAGE, "range": {"start": {"line": line, "column": column}, "end": {"line": end_line, "column": end_column}}})
-                    } else {
-                        json!({"ruleId": KEY, "primaryLocation": {"filePath": path, "message": MESSAGE, "textRange": {"startLine": line, "startColumn": column, "endLine": end_line, "endColumn": end_column}}})
-                    }
-                }).collect::<Vec<_>>();
-                assert_eq!(std::fs::read(fixture.0.join(case.name)).expect("source readback"), case.source.as_bytes());
-                (path, issues)
-            }).collect();
-            assert_eq!(actual, expected, "{profile}/{format}");
         }
     }
 }
