@@ -4,8 +4,8 @@ use std::process::{Command, Output};
 
 const KEY: &str = "csharpsquid:S1067";
 // Exact source used by the retained installed-analyzer driver. The eight
-// ternary-bearing expectations come from its actual diagnostics; the extra
-// pure-logical inner finding remains an explicitly out-of-package residual.
+// ternary-bearing expectations and complete pure-logical roots come from its
+// actual diagnostics, including the single outer object on line 16.
 const BOUNDARY: &str = r"namespace S1067BoundaryProbes
 {
     public static class Cases
@@ -36,7 +36,6 @@ const BOUNDARY_EXPECTED: &[(u32, u32, u32, u32)] = &[
     (14, 82, 103, 4),
     (15, 80, 109, 5),
     (16, 103, 131, 5),
-    (16, 109, 130, 4),
 ];
 
 struct Fixture(PathBuf);
@@ -157,7 +156,7 @@ fn complete_native_inventory(report: &Value, format: &str) {
 }
 
 #[test]
-fn csharp_s1067_conditional_cli_matches_exact_local_reference_and_keeps_logical_residual() {
+fn csharp_s1067_conditional_cli_matches_all_exact_local_reference_objects() {
     let fixture = Fixture::new("boundary");
     fixture.write(BOUNDARY.as_bytes());
     for format in ["json", "sonar"] {
