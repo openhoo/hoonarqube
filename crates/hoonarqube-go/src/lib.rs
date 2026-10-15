@@ -3575,10 +3575,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             source,
         ));
     }
-    if node
-        .parent()
-        .is_some_and(|parent| parent.kind() == "if_statement")
-    {
+    if is_else_if(node) {
         return;
     }
     let chain = collect_if_chain(node, source, issues);
@@ -3677,14 +3674,15 @@ fn report_if_chain_smells(
     source: &str,
     issues: &mut Vec<Issue>,
 ) {
-    // SonarGo reports only the outermost if/else-if chain missing a final
-    // `else`; a chain head nested inside another if-chain's branch is not
-    // separately reported. Else-if members already returned in `check_if`, so
-    // any `if_statement` ancestor means this head sits inside a branch.
-    let nested_in_if_branch = ancestors(node)
-        .take_while(|ancestor| !is_function(*ancestor))
-        .any(|ancestor| ancestor.kind() == "if_statement");
-    if chain.condition_count > 1 && !chain.ends_with_else && !nested_in_if_branch {
+    // Each independent chain is checked, including chains inside another
+    // branch. Only actual else-if members are skipped by `check_if`.
+    // SonarGo exempts a chain when every branch's final direct statement is
+    // a return, break, continue, or an unqualified panic invocation.
+    let all_branches_terminate = chain
+        .branches
+        .iter()
+        .all(|(_, branch)| branch_ends_with_jump_or_panic(*branch, source));
+    if chain.condition_count > 1 && !chain.ends_with_else && !all_branches_terminate {
         let range = nested_else_if_range(chain.last_if, source)
             .unwrap_or_else(|| node_range(chain.last_if, source));
         issues.push(Issue::new(
@@ -3714,6 +3712,33 @@ fn report_if_chain_smells(
             .all(|branch| branch.0 == chain.branches[0].0)
     {
         issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node, source));
+    }
+}
+
+fn branch_ends_with_jump_or_panic(branch: Node<'_>, source: &str) -> bool {
+    let Some(statements) = named_children(branch)
+        .into_iter()
+        .find(|child| child.kind() == "statement_list")
+    else {
+        return false;
+    };
+    let Some(last) = named_children(statements)
+        .into_iter()
+        .rfind(|child| !matches!(child.kind(), "comment" | "empty_statement"))
+    else {
+        return false;
+    };
+    match last.kind() {
+        "return_statement" | "break_statement" | "continue_statement" => true,
+        "expression_statement" => first_named(last).is_some_and(|expression| {
+            expression.kind() == "call_expression"
+                && expression
+                    .child_by_field_name("function")
+                    .is_some_and(|function| {
+                        function.kind() == "identifier" && text(function, source) == "panic"
+                    })
+        }),
+        _ => false,
     }
 }
 
@@ -4779,6 +4804,9 @@ fn relative_issue(
         },
     )
 }
+
+#[cfg(test)]
+mod s126_tests;
 
 #[cfg(test)]
 mod tests {
@@ -6323,7 +6351,7 @@ mod tests {
     }
 
     #[test]
-    fn s126_reports_only_the_outermost_missing_else_chain() {
+    fn s126_reports_outer_chain_and_exempts_nested_return_chain() {
         let found = keys(concat!(
             "package p\n",
             "func pick(a, b, c bool) int {\n",
@@ -6350,7 +6378,7 @@ mod tests {
         assert_eq!(
             found.iter().filter(|key| key.as_str() == "go:S126").count(),
             2,
-            "outer chain and standalone chain fire; the nested chain does not: {found:?}"
+            "outer and standalone chains fire; all nested branches end in return: {found:?}"
         );
     }
 
