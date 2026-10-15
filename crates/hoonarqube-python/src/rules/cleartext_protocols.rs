@@ -671,4 +671,81 @@ mod protocol_identification_tests {
             assert_eq!(found.len(), 0, "unicode-crlf-pattern");
         }
     }
+
+    #[test]
+    fn s5332_protocol_identification_resolves_string_aliases_subclasses_and_unknown_methods() {
+        let cases = [
+            (
+                "imported-type-alias",
+                "from builtins import str as Text\nresult = Text.startswith(value, \"http://\")\n",
+            ),
+            (
+                "imported-module-alias",
+                "import builtins as b\nresult = b.str.startswith(value, \"http://\")\n",
+            ),
+            (
+                "assigned-type-alias",
+                "Text = str\nresult = Text.startswith(value, \"http://\")\n",
+            ),
+            (
+                "string-subclass",
+                "class Text(str):\n    pass\nresult = Text().startswith(\"http://\")\n",
+            ),
+            (
+                "string-subclass-method",
+                "class Text(str):\n    def startswith(self, value):\n        return value\nresult = Text().startswith(\"http://\")\n",
+            ),
+            (
+                "unknown-local-method",
+                "class Endpoint:\n    pass\nresult = Endpoint().startswith(\"http://\")\n",
+            ),
+            (
+                "unknown-imported-method",
+                "from other import Endpoint\nresult = Endpoint().startswith(\"http://\")\n",
+            ),
+            (
+                "shadowed-class-name",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(Endpoint):\n    return Endpoint().startswith(\"http://\")\n",
+            ),
+        ];
+        for (name, source) in cases {
+            let report = scan(source);
+            assert!(findings(&report, "python:S5332").is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_keeps_known_nonstring_method_owners_unsafe() {
+        let cases = [
+            (
+                "inherited-nonstr-method",
+                "class Parent:\n    def startswith(self, value):\n        return value\nclass Child(Parent):\n    pass\nresult = Child().startswith(\"http://\")\n",
+            ),
+            (
+                "typed-bytes-owner",
+                "def identify(value: bytes):\n    return value.startswith(\"http://\")\n",
+            ),
+            (
+                "typed-custom-owner",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(value: Endpoint):\n    return value.startswith(\"http://\")\n",
+            ),
+            (
+                "imported-bytes-owner",
+                "from builtins import bytes as Bytes\nresult = Bytes().startswith(\"http://\")\n",
+            ),
+            (
+                "shadowed-builtin-class",
+                "def identify(str):\n    return str.startswith(value, \"http://\")\n",
+            ),
+        ];
+        for (name, source) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            assert_eq!(issues.len(), 1, "{name}");
+            assert_eq!(
+                issues[0].message,
+                "Using HTTP protocol is insecure. Use HTTPS instead."
+            );
+        }
+    }
 }
