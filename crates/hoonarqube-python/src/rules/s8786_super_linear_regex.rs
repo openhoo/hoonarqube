@@ -29,8 +29,8 @@ const MESSAGE: &str = "Simplify this regular expression to reduce its runtime, a
 /// runs in free-end mode. Pairs additionally require forward reachability
 /// plus the three intersection conditions on the elements and the gap
 /// between them, and a partial-match site flags any repetition reachable
-/// from the pattern start without consuming input (the implicit `.*?`
-/// prefix overlap).
+/// from the pattern start without consuming input or crossing a mandatory
+/// boundary (the implicit `.*?` prefix overlap).
 pub(crate) fn check_s8786_super_linear_regex(
     index: &LineIndex,
     source: &str,
@@ -254,15 +254,19 @@ fn lookaround_body_reaches_end(node: &RxNode) -> bool {
     }
 }
 
-/// `canReachWithoutConsumingInput(startOfRegex, rep)`: every item before
-/// `index` is skippable (using the original branch graph).
+/// `canReachWithoutConsumingInputNorCrossingBoundaries(startOfRegex, rep)`:
+/// every preceding item is skippable without crossing a mandatory boundary.
 fn reachable_from_start(lin: &[&RxItem], index: usize) -> bool {
     lin[..index].iter().all(|item| {
+        // Anchors are nullable, but the implicit search prefix cannot cross
+        // a mandatory boundary. Optional boundaries can still be skipped.
+        if matches!(&item.atom, RxAtom::Anchor(_)) {
+            return item.quant.as_ref().is_some_and(|quant| quant.min == 0);
+        }
         if item_is_nullable(item) {
             return true;
         }
         match &item.atom {
-            RxAtom::Anchor(_) => true,
             RxAtom::Group(group)
                 if matches!(
                     group.kind,
