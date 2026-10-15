@@ -1159,7 +1159,7 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
         .filter_map(|contract| {
             // These rules derive complete syntax ranges independently of frozen
             // source anchors and must not add a second calibrated identity.
-            if matches!(contract.key, "rust:S2479" | "rust:S920") {
+            if matches!(contract.key, "rust:S2479" | "rust:S920" | "rust:S2193") {
                 return None;
             }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
@@ -1353,7 +1353,7 @@ fn check_whole_file(
     check_raw_pointer_functions(root, source, issues);
     check_infinite_iterators(root, source, issues);
     check_mutable_return(source, code, issues);
-    check_float_loop_counter(source, code, issues);
+    check_float_loop_counter(root, source, code, issues);
     check_redundant_casts(root, source, code, issues);
     check_numeric_suffixes(source, code, issues);
     check_unit_sort_closure(source, code, issues);
@@ -3479,27 +3479,71 @@ fn check_mutable_return(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_float_loop_counter(source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_float_loop_counter(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
     for captures in float_counter_regex().captures_iter(scan) {
         let Some(name) = captures.name("name") else {
             continue;
         };
-        let tail = &scan[captures.get(0).expect("whole regex capture").end()..];
-        if tail
-            .lines()
-            .take(4)
-            .any(|line| line.contains("while ") && line.contains(name.as_str()))
-        {
-            let full = captures.get(0).expect("whole regex capture");
-            issues.push(offset_issue(
+        let full = captures.get(0).expect("whole regex capture");
+        if let Some(condition) = float_counter_condition(root, scan, full.end(), name.as_str()) {
+            issues.push(node_issue(
                 "rust:S2193",
                 "Use an integer type for this while-loop counter.",
+                condition,
                 source,
-                full.start(),
-                full.end(),
             ));
         }
     }
+}
+
+fn float_counter_condition<'tree>(
+    root: Node<'tree>,
+    scan: &str,
+    start: usize,
+    name: &str,
+) -> Option<Node<'tree>> {
+    // Preserve the detector's existing four-line eligibility window while
+    // projecting the accepted loop onto its complete syntax condition.
+    let mut line_start = start;
+    for line in scan[start..].split_inclusive('\n').take(4) {
+        let line_end = line_start + line.len();
+        if line.contains("while ") && line.contains(name) {
+            let mut condition = None;
+            walk_valid(root, &mut |node| {
+                if condition.is_none()
+                    && node.kind() == "while_expression"
+                    && while_keyword_start(node)
+                        .is_some_and(|offset| (line_start..line_end).contains(&offset))
+                {
+                    condition = node
+                        .child_by_field_name("condition")
+                        .filter(|candidate| float_condition_uses_counter(*candidate, scan, name));
+                }
+            });
+            if let Some(condition) = condition {
+                return Some(condition);
+            }
+        }
+        line_start = line_end;
+    }
+    None
+}
+
+fn while_keyword_start(node: Node<'_>) -> Option<usize> {
+    (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == "while")
+        .map(|keyword| keyword.start_byte())
+}
+
+fn float_condition_uses_counter(condition: Node<'_>, scan: &str, name: &str) -> bool {
+    let mut uses_counter = false;
+    walk_valid(condition, &mut |node| {
+        if node.kind() == "identifier" && text(node, scan) == name {
+            uses_counter = true;
+        }
+    });
+    uses_counter
 }
 
 fn check_redundant_casts(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -6870,6 +6914,182 @@ regex_fn!(
 
 #[cfg(test)]
 mod s7411_tests;
+
+#[cfg(test)]
+mod s2193_condition_location_tests {
+    use super::*;
+
+    const MESSAGE: &str = "Avoid using floating-point numbers as loop counters.";
+    const ORIGINAL: &str =
+        include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_bad.rs");
+
+    fn report(source: &str) -> FileReport {
+        analyze(
+            PathBuf::from("counter.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        )
+    }
+
+    fn selected(source: &str) -> Vec<Issue> {
+        report(source)
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "rust:S2193")
+            .collect()
+    }
+
+    fn expected(sl: u32, sc: u32, el: u32, ec: u32) -> Issue {
+        Issue::new(
+            "rust:S2193",
+            MESSAGE,
+            Range {
+                start: Pos {
+                    line: sl,
+                    column: sc,
+                },
+                end: Pos {
+                    line: el,
+                    column: ec,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn s2193_condition_location_matches_reference_and_preserves_unrelated_finding() {
+        assert_eq!(
+            report(ORIGINAL).issues,
+            [
+                expected(4, 10, 4, 24),
+                Issue::new(
+                    "rust:S106",
+                    "Use a logging framework to log this message to the console.",
+                    Range {
+                        start: Pos { line: 5, column: 8 },
+                        end: Pos {
+                            line: 5,
+                            column: 40,
+                        },
+                    },
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn s2193_condition_location_is_independent_of_names_and_multiline_layout() {
+        for (source, range) in [
+            (
+                "fn main() {\n    let mut counter = 0.0;\n    while counter < 10.0 {\n        counter += 1.0;\n    }\n}\n",
+                (3, 10, 3, 24),
+            ),
+            (
+                "fn main() {\n    let mut progress = 0.0;\n    while progress < 10.0 {\n        progress += 1.0;\n    }\n}\n",
+                (3, 10, 3, 25),
+            ),
+            (
+                "fn main() {\n    let mut progress = 0.0;\n    while progress\n        < 10.0\n    {\n        progress += 1.0;\n    }\n}\n",
+                (3, 10, 4, 14),
+            ),
+            (
+                "fn main() { let mut count: f32 = 0.0; while count < 2.0 { count += 1.0; } }\n",
+                (1, 44, 1, 55),
+            ),
+        ] {
+            assert_eq!(
+                selected(source),
+                [expected(range.0, range.1, range.2, range.3)],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_keeps_separate_loop_multiplicity() {
+        let source = concat!(
+            "fn main() {\n",
+            "    let mut counter = 0.0;\n",
+            "    while counter < 10.0 {\n",
+            "        counter += 1.0;\n",
+            "    }\n",
+            "    let mut counter = 0.0;\n",
+            "    while counter < 10.0 {\n",
+            "        counter += 1.0;\n",
+            "    }\n",
+            "}\n",
+        );
+        assert_eq!(
+            report(source).issues,
+            [expected(3, 10, 3, 24), expected(7, 10, 7, 24)]
+        );
+    }
+
+    #[test]
+    fn s2193_condition_location_preserves_scalar_columns_and_crlf() {
+        let source = concat!(
+            "fn main() {\n",
+            "    let mut progress = 0.0;\n",
+            "    let _label = \"é😀\"; while progress < 10.0 {\n",
+            "        progress += 1.0;\n",
+            "    }\n",
+            "}\n",
+        );
+        for source in [source.to_string(), source.replace('\n', "\r\n")] {
+            assert_eq!(selected(&source), [expected(3, 29, 3, 44)]);
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_skips_unrelated_earlier_loop_on_same_line() {
+        let source = "fn main() { let mut counter = 0.0; while false {} while counter < 2.0 { counter += 1.0; } }\n";
+        assert_eq!(selected(source), [expected(1, 56, 1, 69)]);
+    }
+
+    #[test]
+    fn s2193_condition_location_selects_one_matching_condition_per_declaration() {
+        let distinct = "fn main() { let mut first = 0.0; let mut second = 0.0; while first < 2.0 { first += 1.0; } while second < 2.0 { second += 1.0; } }\n";
+        assert_eq!(
+            selected(distinct),
+            [expected(1, 61, 1, 72), expected(1, 97, 1, 109)]
+        );
+        let reused = "fn main() { let mut counter = 0.0; while counter < 2.0 { counter += 1.0; } while counter < 4.0 { counter += 1.0; } }\n";
+        assert_eq!(selected(reused), [expected(1, 41, 1, 54)]);
+        let later_line = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(later_line), [expected(4, 7, 4, 20)]);
+        let last_eligible_line = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(last_eligible_line), [expected(5, 7, 5, 20)]);
+        let outside_window = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert!(selected(outside_window).is_empty());
+    }
+
+    #[test]
+    fn s2193_condition_location_uses_while_keyword_after_a_preceding_label() {
+        let substring = "fn main() { let mut count = 0.0; let mut counter = 0; while counter < 2 { counter += 1; } std::hint::black_box(count); }\n";
+        assert!(selected(substring).is_empty());
+        let labeled = "fn main() {\n let mut counter = 0.0;\n 'outer:\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        for source in [labeled.to_string(), labeled.replace('\n', "\r\n")] {
+            assert_eq!(selected(&source), [expected(4, 7, 4, 20)]);
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_keeps_clean_controls_and_existing_window() {
+        for source in [
+            include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_good.rs"),
+            "fn main() { let mut counter = 0; while counter < 10 { counter += 1; } }\n",
+            "fn main() { let mut counter = 0.0; counter += 1.0; std::hint::black_box(counter); }\n",
+            "fn value(mut counter: f64) { while counter < 10.0 { counter += 1.0; } }\n",
+            "fn main() { let mut counter = -1.0; while counter < 10.0 { counter += 1.0; } }\n",
+            "fn main() {\n    let mut counter = 0.0;\n\n\n\n    while counter < 10.0 { counter += 1.0; }\n}\n",
+            "// let mut counter = 0.0; while counter < 10.0 {}\nfn main() { let _text = \"let mut counter = 0.0; while counter < 10.0 {}\"; }\n",
+        ] {
+            assert!(selected(source).is_empty(), "{source}");
+        }
+        let within_window = "fn main() {\n    let mut counter = 0.0;\n\n\n    while counter < 10.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(within_window), [expected(5, 10, 5, 24)]);
+    }
+}
 
 #[cfg(test)]
 mod tests {
