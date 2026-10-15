@@ -1,4 +1,4 @@
-//! S107 supporting locations measured with SonarQube 26.9 / Go 1.43.
+//! S107 supporting locations measured with `SonarQube` 26.9 / Go 1.43.
 //! Root qualification: 73f163049214ce13e7b1a114ad34c31ceca421a5029a0ef0083b30d80e818ec4.
 //! Raw reference support messages are absent; existing IR stores empty strings.
 use super::{AnalyzerOptions, FlowLocation, Issue, Pos, Range, analyze};
