@@ -25,7 +25,7 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         let Some((left, right)) = binary_operands(expression) else {
             continue;
         };
-        if looks_boolean_operand(left, source) && looks_boolean_operand(right, source) {
+        if looks_boolean_expression(left, source) && looks_boolean_expression(right, source) {
             let mut cursor = expression.walk();
             let operator = expression
                 .children(&mut cursor)
@@ -45,38 +45,6 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         }
     }
     issues
-}
-
-/// Preserve the original bare shapes; only checked parentheses add admission.
-fn looks_boolean_operand(expression: Node<'_>, source: &str) -> bool {
-    if expression.kind() == "parenthesized_expression" {
-        parenthesized_terminal(expression)
-            .is_some_and(|terminal| looks_boolean_expression(terminal, source))
-    } else {
-        looks_boolean_expression(expression, source)
-    }
-}
-
-/// A terminal must fit in the same 64 visits used by operand facts. Comments
-/// are extra named children and cannot be silently discarded while peeling.
-fn parenthesized_terminal(mut expression: Node<'_>) -> Option<Node<'_>> {
-    for _ in 0..64 {
-        if expression.has_error()
-            || is_error_tainted(expression)
-            || enclosing_callable(expression).is_some_and(|owner| owner.has_error())
-        {
-            return None;
-        }
-        if expression.kind() != "parenthesized_expression" {
-            return Some(expression);
-        }
-        let child = sole_child(expression)?;
-        if child.is_extra() || child.is_missing() {
-            return None;
-        }
-        expression = child;
-    }
-    None
 }
 
 /// Whether this operand reads like a boolean: literals, comparisons,
@@ -138,11 +106,7 @@ struct OperandFact {
 }
 
 fn operand_advice(expression: Node<'_>, source: &str) -> &'static str {
-    let identifier = expression.kind() == "identifier"
-        || (expression.kind() == "parenthesized_expression"
-            && parenthesized_terminal(expression)
-                .is_some_and(|terminal| terminal.kind() == "identifier"));
-    if !identifier
+    if expression.kind() != "identifier"
         && operand_fact(expression, source, 0)
             .is_some_and(|fact| fact.primitive == Primitive::Bool && fact.runtime)
     {
@@ -178,9 +142,6 @@ fn operand_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<Oper
             let fact = operand_fact(sole_child(expression)?, source, depth + 1)?;
             (fact.primitive == Primitive::Bool).then_some(fact)
         }
-        "binary_expression" if matches!(operator_of(expression), Some("&&" | "||")) => {
-            logical_fact(expression, source, depth + 1)
-        }
         "binary_expression" => comparison_fact(expression, source, depth + 1),
         _ => None,
     }
@@ -190,27 +151,6 @@ fn sole_child(expression: Node<'_>) -> Option<Node<'_>> {
     (expression.named_child_count() == 1)
         .then(|| expression.named_child(0))
         .flatten()
-}
-
-/// Only two direct runtime Bool identifiers, or two valid Bool literals,
-/// have qualified logical facts. Mixed and compound children remain Unknown.
-fn logical_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<OperandFact> {
-    let (left, right) = binary_operands(expression)?;
-    let runtime = match (left.kind(), right.kind()) {
-        ("identifier", "identifier") => true,
-        ("boolean_literal", "boolean_literal") => false,
-        _ => return None,
-    };
-    let left = operand_fact(left, source, depth)?;
-    let right = operand_fact(right, source, depth)?;
-    (left.primitive == Primitive::Bool
-        && right.primitive == Primitive::Bool
-        && left.runtime == runtime
-        && right.runtime == runtime)
-        .then_some(OperandFact {
-            primitive: Primitive::Bool,
-            runtime,
-        })
 }
 
 fn comparison_fact(expression: Node<'_>, source: &str, depth: usize) -> Option<OperandFact> {
@@ -1155,8 +1095,8 @@ mod tests {
             "parenthesized_detector",
             r"class C {  bool M(int n) {  if (true & (n < 4)) return true; return false; } }
 ",
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":37},"end":{"line":1,"column":38}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":50},"end":{"line":1,"column":51}}}]"###,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":37},"end":{"line":1,"column":38}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":50},"end":{"line":1,"column":51}}}]"#,
         ),
         (
             "depth",
@@ -1286,596 +1226,596 @@ mod tests {
     // Native preservation controls; actual-reference qualification is limited to the typed CLI matrix.
     const PARENTHESIZED_CONTROLS: &[(&str, &str, &str, &str, &str)] = &[
         (
-            r###"wrapper"###,
-            r###"left_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((true) & n < 4) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":82},"end":{"line":1,"column":83}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"###,
-        ),
-        (
-            r###"wrapper"###,
-            r###"right_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n < 4)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"wrapper"###,
-            r###"both_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) & ((n < 4))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"###,
-        ),
-        (
-            r###"wrapper"###,
-            r###"identifier_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((IsReady) & ((HasItems))) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"wrapper"###,
-            r###"literal_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) & ((false))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"###,
-        ),
-        (
-            r###"logical"###,
-            r###"logical_ids_&&_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"logical"###,
-            r###"logical_literals_&&_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true && false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"unknown"###,
-            r###"mixed_false_&&_HasItems_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (false && HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"unknown"###,
-            r###"mixed_true_&&_HasItems_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true && HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"unknown"###,
-            r###"mixed_HasItems_&&_false_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"unknown"###,
-            r###"mixed_HasItems_&&_true_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && true)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"logical"###,
-            r###"logical_ids_||_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems || CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"logical"###,
-            r###"logical_literals_||_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true || false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"wrapper",
+            r"left_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((true) & n < 4) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":82},"end":{"line":1,"column":83}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"#,
+        ),
+        (
+            r"wrapper",
+            r"right_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n < 4)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"wrapper",
+            r"both_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) & ((n < 4))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"#,
+        ),
+        (
+            r"wrapper",
+            r"identifier_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((IsReady) & ((HasItems))) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"wrapper",
+            r"literal_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) & ((false))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"#,
+        ),
+        (
+            r"logical",
+            r"logical_ids_&&_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"logical",
+            r"logical_literals_&&_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true && false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"unknown",
+            r"mixed_false_&&_HasItems_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (false && HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"unknown",
+            r"mixed_true_&&_HasItems_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true && HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"unknown",
+            r"mixed_HasItems_&&_false_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"unknown",
+            r"mixed_HasItems_&&_true_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && true)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"logical",
+            r"logical_ids_||_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems || CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"logical",
+            r"logical_literals_||_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true || false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_false_||_HasItems_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (false || HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_false_||_HasItems_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (false || HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_true_||_HasItems_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true || HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_true_||_HasItems_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (true || HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_HasItems_||_false_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems || false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_HasItems_||_false_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems || false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_HasItems_||_true_&"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems || true)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_HasItems_||_true_&",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems || true)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"left_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((true) | n < 4) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":82},"end":{"line":1,"column":83}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"###,
+            r"wrapper",
+            r"left_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((true) | n < 4) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":82},"end":{"line":1,"column":83}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"right_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (n < 4)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"wrapper",
+            r"right_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (n < 4)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"both_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) | ((n < 4))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"###,
+            r"wrapper",
+            r"both_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) | ((n < 4))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"identifier_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((IsReady) | ((HasItems))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":85},"end":{"line":1,"column":86}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":98},"end":{"line":1,"column":99}}}]"###,
+            r"wrapper",
+            r"identifier_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if ((IsReady) | ((HasItems))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":85},"end":{"line":1,"column":86}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":98},"end":{"line":1,"column":99}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"literal_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) | ((false))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"###,
+            r"wrapper",
+            r"literal_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (((true)) | ((false))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":97},"end":{"line":1,"column":98}}}]"#,
         ),
         (
-            r###"logical"###,
-            r###"logical_ids_&&_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"logical",
+            r"logical_ids_&&_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"logical"###,
-            r###"logical_literals_&&_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true && false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"logical",
+            r"logical_literals_&&_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true && false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_false_&&_HasItems_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (false && HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_false_&&_HasItems_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (false && HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_true_&&_HasItems_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true && HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_true_&&_HasItems_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true && HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_HasItems_&&_false_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems && false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_HasItems_&&_false_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems && false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_HasItems_&&_true_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems && true)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_HasItems_&&_true_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems && true)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"logical"###,
-            r###"logical_ids_||_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems || CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"logical",
+            r"logical_ids_||_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems || CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"logical"###,
-            r###"logical_literals_||_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true || false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"logical",
+            r"logical_literals_||_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true || false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_false_||_HasItems_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (false || HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_false_||_HasItems_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (false || HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_true_||_HasItems_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true || HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_true_||_HasItems_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (true || HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_HasItems_||_false_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems || false)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_HasItems_||_false_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems || false)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"mixed_HasItems_||_true_|"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems || true)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"mixed_HasItems_||_true_|",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true | (HasItems || true)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '|' to '||'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_child_call"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (ReadFlag() && HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"###,
+            r"unknown",
+            r"logical_child_call",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (ReadFlag() && HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_child_comparison"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n < 4 && HasItems)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"###,
+            r"unknown",
+            r"logical_child_comparison",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n < 4 && HasItems)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_child_unary"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (!HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"###,
+            r"unknown",
+            r"logical_child_unary",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (!HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_child_wrapped"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((HasItems) && CanFail)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"unknown",
+            r"logical_child_wrapped",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((HasItems) && CanFail)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"unknown"###,
-            r###"logical_child_nested"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && CanFail && IsReady)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"###,
+            r"unknown",
+            r"logical_child_nested",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems && CanFail && IsReady)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_params"###,
-            r###"class C {  bool M(bool HasItems, bool CanFail, params int[] values) {  if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"logical_binding_params",
+            r"class C {  bool M(bool HasItems, bool CanFail, params int[] values) {  if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_duplicate"###,
-            r###"class C {  bool M(bool HasItems, bool CanFail) { bool HasItems = true; if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
+            r"unknown",
+            r"logical_binding_duplicate",
+            r"class C {  bool M(bool HasItems, bool CanFail) { bool HasItems = true; if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_const"###,
-            r###"class C {  bool M(bool CanFail) { const bool HasItems = true; if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":71},"end":{"line":1,"column":72}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"###,
+            r"unknown",
+            r"logical_binding_const",
+            r"class C {  bool M(bool CanFail) { const bool HasItems = true; if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":71},"end":{"line":1,"column":72}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":84},"end":{"line":1,"column":85}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_var"###,
-            r###"class C {  bool M(bool CanFail) { var HasItems = true; if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":64},"end":{"line":1,"column":65}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":77},"end":{"line":1,"column":78}}}]"###,
+            r"unknown",
+            r"logical_binding_var",
+            r"class C {  bool M(bool CanFail) { var HasItems = true; if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":64},"end":{"line":1,"column":65}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":77},"end":{"line":1,"column":78}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_late"###,
-            r###"class C { bool M(bool CanFail) { if (true & (HasItems && CanFail)) return true; bool HasItems = true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":42},"end":{"line":1,"column":43}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":55},"end":{"line":1,"column":56}}}]"###,
+            r"unknown",
+            r"logical_binding_late",
+            r"class C { bool M(bool CanFail) { if (true & (HasItems && CanFail)) return true; bool HasItems = true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":42},"end":{"line":1,"column":43}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":55},"end":{"line":1,"column":56}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_other_type"###,
-            r###"class C {  bool M(int HasItems, bool CanFail) {  if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":58},"end":{"line":1,"column":59}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":71},"end":{"line":1,"column":72}}}]"###,
+            r"unknown",
+            r"logical_binding_other_type",
+            r"class C {  bool M(int HasItems, bool CanFail) {  if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":58},"end":{"line":1,"column":59}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":71},"end":{"line":1,"column":72}}}]"#,
         ),
         (
-            r###"unknown"###,
-            r###"logical_binding_owner"###,
-            r###"class C {  bool M(bool HasItems, bool CanFail) { System.Func<bool> f = () => true; if (true & (HasItems && CanFail)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":92},"end":{"line":1,"column":93}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":105},"end":{"line":1,"column":106}}}]"###,
+            r"unknown",
+            r"logical_binding_owner",
+            r"class C {  bool M(bool HasItems, bool CanFail) { System.Func<bool> f = () => true; if (true & (HasItems && CanFail)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":92},"end":{"line":1,"column":93}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":105},"end":{"line":1,"column":106}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"direct_invocation"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (ReadFlag())) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"direct_invocation",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (ReadFlag())) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"wrapper"###,
-            r###"wrapped_negated_call"###,
-            r###"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (!ReadFlag())) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"###,
+            r"wrapper",
+            r"wrapped_negated_call",
+            r"class C { bool ReadFlag() { return true; } bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (!ReadFlag())) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":112},"end":{"line":1,"column":113}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":125},"end":{"line":1,"column":126}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"ordinary_name"###,
-            r###"class C {  bool M(bool flag) {  if (true & (flag)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"ordinary_name",
+            r"class C {  bool M(bool flag) {  if (true & (flag)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"wrapper"###,
-            r###"cast"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((bool)HasItems)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"cast",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((bool)HasItems)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"wrapper"###,
-            r###"arithmetic"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n + 1)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"arithmetic",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n + 1)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"wrapper"###,
-            r###"bitwise_child"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n & 1)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"bitwise_child",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (n & 1)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"wrapper"###,
-            r###"outside_assignment"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  bool value = true & (HasItems && CanFail); return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"outside_assignment",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  bool value = true & (HasItems && CanFail); return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"wrapper"###,
-            r###"outside_return"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  return true & (HasItems && CanFail); return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"outside_return",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  return true & (HasItems && CanFail); return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"context"###,
-            r###"condition_while"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  while (true & (n < 4)) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"###,
+            r"context",
+            r"condition_while",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  while (true & (n < 4)) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"#,
         ),
         (
-            r###"context"###,
-            r###"condition_do"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  do { n++; } while (true & (n < 4)); return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"###,
+            r"context",
+            r"condition_do",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  do { n++; } while (true & (n < 4)); return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":95},"end":{"line":1,"column":96}}}]"#,
         ),
         (
-            r###"context"###,
-            r###"condition_for"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  for (; true & (n < 4);) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"###,
+            r"context",
+            r"condition_for",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  for (; true & (n < 4);) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":83},"end":{"line":1,"column":84}}}]"#,
         ),
         (
-            r###"wrapper"###,
-            r###"logical_only"###,
-            r###"class C { bool M() { if ((true) && (false)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"wrapper",
+            r"logical_only",
+            r"class C { bool M() { if ((true) && (false)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
         (
-            r###"context"###,
-            r###"nearest_lambda"###,
-            r###"class C { void M(bool HasItems, bool CanFail) { System.Func<bool> f = () => { if (true & (HasItems && CanFail)) return true; return false; }; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":87},"end":{"line":1,"column":88}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":100},"end":{"line":1,"column":101}}}]"###,
+            r"context",
+            r"nearest_lambda",
+            r"class C { void M(bool HasItems, bool CanFail) { System.Func<bool> f = () => { if (true & (HasItems && CanFail)) return true; return false; }; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":87},"end":{"line":1,"column":88}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":100},"end":{"line":1,"column":101}}}]"#,
         ),
         (
-            r###"context"###,
-            r###"nearest_local_function"###,
-            r###"class C { void M(bool HasItems, bool CanFail) { bool F() { if (true & (HasItems && CanFail)) return true; return false; } } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":68},"end":{"line":1,"column":69}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":81},"end":{"line":1,"column":82}}}]"###,
+            r"context",
+            r"nearest_local_function",
+            r"class C { void M(bool HasItems, bool CanFail) { bool F() { if (true & (HasItems && CanFail)) return true; return false; } } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":68},"end":{"line":1,"column":69}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":81},"end":{"line":1,"column":82}}}]"#,
         ),
         (
-            r###"context"###,
-            r###"nearest_accessor"###,
-            r###"class C { bool HasItems, CanFail; bool P { get { if (true & (HasItems && CanFail)) return true; return false; } } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":58},"end":{"line":1,"column":59}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":71},"end":{"line":1,"column":72}}}]"###,
+            r"context",
+            r"nearest_accessor",
+            r"class C { bool HasItems, CanFail; bool P { get { if (true & (HasItems && CanFail)) return true; return false; } } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":58},"end":{"line":1,"column":59}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":71},"end":{"line":1,"column":72}}}]"#,
         ),
         (
-            r###"refusal"###,
-            r###"comment_before"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (/* note */ HasItems)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"refusal"###,
-            r###"comment_after"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems /* note */)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"refusal"###,
-            r###"comment_inner"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((/* note */ HasItems))) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"depth"###,
-            r###"literal_depth_62"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((false))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"depth"###,
-            r###"comparison_depth_62"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((n < 4))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"depth"###,
-            r###"literal_depth_63"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((false)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"depth"###,
-            r###"comparison_depth_63"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((n < 4)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
-"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"###,
-            r###"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"###,
-        ),
-        (
-            r###"depth"###,
-            r###"literal_depth_64"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((false))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"depth"###,
-            r###"comparison_depth_64"###,
-            r###"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((n < 4))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"malformed"###,
-            r###"extra"###,
-            r###"class C { bool M(bool HasItems) { if (true & (HasItems false)) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"malformed"###,
-            r###"missing"###,
-            r###"class C { bool M() { if (true & ()) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"malformed"###,
-            r###"child_error"###,
-            r###"class C { bool M(int n) { if (true & (n < )) return true; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
-        ),
-        (
-            r###"malformed"###,
-            r###"owner_error"###,
-            r###"class C { bool M(int n) { if (true & (n < 4)) return true; int broken = ; return false; } }
-"###,
-            r###"[]"###,
-            r###"[]"###,
+            r"refusal",
+            r"comment_before",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (/* note */ HasItems)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"refusal",
+            r"comment_after",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (HasItems /* note */)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"refusal",
+            r"comment_inner",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((/* note */ HasItems))) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"depth",
+            r"literal_depth_62",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((false))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"depth",
+            r"comparison_depth_62",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((n < 4))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&' and extract the right operand to a variable if it should always be evaluated.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"depth",
+            r"literal_depth_63",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((false)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"depth",
+            r"comparison_depth_63",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((n < 4)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
+",
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":80},"end":{"line":1,"column":81}}}]"#,
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":93},"end":{"line":1,"column":94}}}]"#,
+        ),
+        (
+            r"depth",
+            r"literal_depth_64",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((false))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"depth",
+            r"comparison_depth_64",
+            r"class C {  bool M(bool IsReady, bool HasItems, bool CanFail, int n) {  if (true & ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((n < 4))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"malformed",
+            r"extra",
+            r"class C { bool M(bool HasItems) { if (true & (HasItems false)) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"malformed",
+            r"missing",
+            r"class C { bool M() { if (true & ()) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"malformed",
+            r"child_error",
+            r"class C { bool M(int n) { if (true & (n < )) return true; return false; } }
+",
+            r"[]",
+            r"[]",
+        ),
+        (
+            r"malformed",
+            r"owner_error",
+            r"class C { bool M(int n) { if (true & (n < 4)) return true; int broken = ; return false; } }
+",
+            r"[]",
+            r"[]",
         ),
     ];
 
