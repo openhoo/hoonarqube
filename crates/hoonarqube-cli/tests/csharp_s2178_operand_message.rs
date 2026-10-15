@@ -890,3 +890,53 @@ fn csharp_s2178_cli_preserves_malformed_and_invalid_utf8_documents() {
         assert_eq!(fixture.source(), source);
     }
 }
+
+// Flattened params are deliberately outside the bounded binding witness.
+const PARAMS_CONTROLS: &[(&str, &str, [&str; 2], [&str; 2])] = &[
+    (
+        "params-callee-shadow",
+        r"class C { bool ReadFlag() { return true; } bool M(params System.Func<bool>[] ReadFlag) { if (true & !ReadFlag()) return true; return false; } }
+",
+        [
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":98},"end":{"line":1,"column":99}}}]"#,
+            r#"[{"primaryLocation":{"filePath":"cases.cs","message":"Correct this '&' to '&&'.","textRange":{"endColumn":99,"endLine":1,"startColumn":98,"startLine":1}},"ruleId":"csharpsquid:S2178"}]"#,
+        ],
+        [
+            "1b081356d3a5a8b74c27568b0ab9b994ad83bf98ed485fd7d56a804f79831464",
+            "970fa6f6f4f28ea230bbfa6c69d5d33d5f8d02e6295171fb226108da71ae2e19",
+        ],
+    ),
+    (
+        "params-runtime-comparison",
+        r"class C { bool M(int n, params int[] values) { if (true & n <= 31) return true; return false; } }
+",
+        [
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":56},"end":{"line":1,"column":57}}}]"#,
+            r#"[{"primaryLocation":{"filePath":"cases.cs","message":"Correct this '&' to '&&'.","textRange":{"endColumn":57,"endLine":1,"startColumn":56,"startLine":1}},"ruleId":"csharpsquid:S2178"}]"#,
+        ],
+        [
+            "a4b435e86142bacf0a44c6f93d9d4faf28ee32d3c8aa3088aaa369fe82cc662e",
+            "eace40d449e7df8beabead1b58fb5c8112d5aed53024139833d9f19378333289",
+        ],
+    ),
+    (
+        "params-duplicate-fallback",
+        r"class C { bool M(int n, params int[] n) { if (true & n <= 31) return true; return false; } }
+",
+        [
+            r#"[{"rule_key":"csharpsquid:S2178","message":"Correct this '&' to '&&'.","range":{"start":{"line":1,"column":51},"end":{"line":1,"column":52}}}]"#,
+            r#"[{"primaryLocation":{"filePath":"cases.cs","message":"Correct this '&' to '&&'.","textRange":{"endColumn":52,"endLine":1,"startColumn":51,"startLine":1}},"ruleId":"csharpsquid:S2178"}]"#,
+        ],
+        [
+            "22d27c06cc0d9f6d24f2678a7615eb1c8e8981aa4b8c4b9145a3f052f6bff464",
+            "c23e0af0d4c7449d4a8b7becc69a33597322c2e465277f492256039528563c6a",
+        ],
+    ),
+];
+
+#[test]
+fn csharp_s2178_cli_flattened_params_complete_documents() {
+    for &(name, source, expected, hashes) in PARAMS_CONTROLS {
+        check(name, source, expected, hashes);
+    }
+}
