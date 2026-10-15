@@ -3514,7 +3514,9 @@ fn float_counter_condition<'tree>(
                     && node.kind() == "while_expression"
                     && (line_start..line_end).contains(&node.start_byte())
                 {
-                    condition = node.child_by_field_name("condition");
+                    condition = node
+                        .child_by_field_name("condition")
+                        .filter(|candidate| float_condition_uses_counter(*candidate, scan, name));
                 }
             });
             return condition;
@@ -3522,6 +3524,16 @@ fn float_counter_condition<'tree>(
         line_start = line_end;
     }
     None
+}
+
+fn float_condition_uses_counter(condition: Node<'_>, scan: &str, name: &str) -> bool {
+    let mut uses_counter = false;
+    walk_valid(condition, &mut |node| {
+        if node.kind() == "identifier" && text(node, scan) == name {
+            uses_counter = true;
+        }
+    });
+    uses_counter
 }
 
 fn check_redundant_casts(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
