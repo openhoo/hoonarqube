@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 hoonarqube-dataflow = { version = "0.11.1", path = "../hoonarqube-dataflow" }
 hoonarqube-ir = { version = "0.11.1", path = "../hoonarqube-ir" }
+sha2 = "0.10.9"
 tree-sitter = "0.25.10"
 tree-sitter-go = "0.25.0"
 

@@ -362,12 +362,14 @@ pub(crate) fn analyze_project_paths(
         &collected.auto_projects,
         warnings,
     );
+    let go_context = GoProjectContext::build(&collected);
     let cache = project_cache(
         paths,
         options,
         project_options,
         collected.semantic_input_complete,
         semantic.as_ref(),
+        go_context.as_ref(),
     );
     let worker_count = thread::available_parallelism()
         .map_or(1, std::num::NonZeroUsize::get)
@@ -378,6 +380,7 @@ pub(crate) fn analyze_project_paths(
             &collected.source_inventory,
             options,
             semantic.as_ref(),
+            go_context.as_ref(),
             worker_count,
             cache.as_ref(),
         )
@@ -495,6 +498,7 @@ fn append_unsupported_inventory(
 struct CollectedProjectInputs {
     project_files: Vec<ProjectFile>,
     source_inventory: Vec<AnalyzedSource>,
+    go_receipts: std::collections::BTreeMap<PathBuf, GoSourceReceipt>,
     pending: Vec<ProjectInput>,
     unsupported_inventory: Vec<(PathBuf, FileClassification)>,
     retained_bytes: usize,
@@ -535,6 +539,7 @@ fn collect_project_inputs(
     let mut collected = CollectedProjectInputs {
         project_files: Vec::with_capacity(files.len() + collection_failures.len()),
         source_inventory: Vec::new(),
+        go_receipts: std::collections::BTreeMap::new(),
         pending: Vec::new(),
         unsupported_inventory,
         retained_bytes: unsupported_inventory_bytes,
@@ -563,7 +568,8 @@ fn collect_project_inputs(
         );
     }
     for path in files {
-        let auto_retain = auto_tsconfigs.contains_key(&normalized_input_path(&path));
+        let auto_retain = auto_tsconfigs.contains_key(&normalized_input_path(&path))
+            || hoonarqube_core::language_for_path(&path) == Some(Language::Go);
         collect_project_input(
             path,
             &project_options.patterns,
@@ -584,6 +590,7 @@ fn record_collection_failure(
     semantics_requested: bool,
 ) {
     let classification = patterns.classify_scope(&path);
+    register_go_receipt(collected, &path, classification);
     if semantics_requested
         && !is_inventory_class(classification)
         && hoonarqube_core::language_for_path(&path).is_some()
@@ -608,6 +615,7 @@ fn collect_project_input(
     collected: &mut CollectedProjectInputs,
 ) {
     let classification = classify_collected_path(patterns, &path);
+    register_go_receipt(collected, &path, classification);
     let duplication_excluded = patterns.duplication_excluded(&path);
     if is_inventory_class(classification) {
         collected.project_files.push(ProjectFile {
@@ -659,6 +667,7 @@ fn collect_retained_project_input(
     opportunistic: bool,
     collected: &mut CollectedProjectInputs,
 ) {
+    register_go_receipt(collected, &path, classification);
     match read_project_source(&path, classification) {
         ProjectSourceRead::Source(source)
             if collected
@@ -667,6 +676,9 @@ fn collect_retained_project_input(
                 .is_some_and(|bytes| bytes <= MAX_RETAINED_SOURCE_BYTES) =>
         {
             collected.retained_bytes += source.len();
+            if let Some(receipt) = collected.go_receipts.get_mut(&path) {
+                receipt.source_digest = Some(Cache::source_digest(source.as_bytes()));
+            }
             let source_index = collected.source_inventory.len();
             collected.source_inventory.push(AnalyzedSource {
                 path: path.clone(),
@@ -856,6 +868,7 @@ fn project_cache(
     project_options: &ProjectAnalysisOptions,
     semantic_input_complete: bool,
     semantic: Option<&ProjectSemanticContext>,
+    go_context: Option<&GoProjectContext>,
 ) -> Option<Cache> {
     let mut fingerprints = semantic.map_or_else(CacheFingerprints::default, |context| {
         context.cache_fingerprints().clone()
@@ -864,6 +877,9 @@ fn project_cache(
         || project_options.features.semantics_requested()
     {
         fingerprints = augment_assessment_fingerprints(fingerprints, project_options, paths);
+    }
+    if let Some(context) = go_context {
+        fingerprints.compose_go_context(context.index.digest());
     }
     if semantic_input_complete
         && (!project_options.features.semantics_requested()
@@ -1056,6 +1072,157 @@ fn digest_feature_values(domain: &str, values: &[&[u8]]) -> String {
     result
 }
 
+#[derive(Clone)]
+struct GoSourceReceipt {
+    normalized_path: PathBuf,
+    physical_path: Option<PathBuf>,
+    classification: FileClassification,
+    source_digest: Option<[u8; 32]>,
+}
+
+impl GoSourceReceipt {
+    fn identity(&self, admitted: bool) -> hoonarqube_core::GoProjectSourceIdentity<'_> {
+        hoonarqube_core::GoProjectSourceIdentity {
+            normalized_path: &self.normalized_path,
+            physical_path: admitted.then_some(self.physical_path.as_deref()).flatten(),
+            classification: self.classification,
+        }
+    }
+}
+
+fn register_go_receipt(
+    collected: &mut CollectedProjectInputs,
+    path: &Path,
+    classification: FileClassification,
+) {
+    if hoonarqube_core::language_for_path(path) != Some(Language::Go) {
+        return;
+    }
+    collected
+        .go_receipts
+        .entry(path.to_path_buf())
+        .or_insert_with(|| GoSourceReceipt {
+            normalized_path: normalized_input_path(path),
+            physical_path: (!is_inventory_class(classification))
+                .then(|| {
+                    fs::canonicalize(path)
+                        .ok()
+                        .filter(|physical| physical.is_file())
+                })
+                .flatten(),
+            classification,
+            source_digest: None,
+        });
+}
+
+/// The complete selected inventory is authoritative, including unavailable
+/// members. Never fill a missing sibling slot by reading the filesystem here.
+struct GoProjectContext {
+    index: hoonarqube_core::GoProjectErrorIndex,
+    receipts: std::collections::BTreeMap<PathBuf, GoSourceReceipt>,
+}
+
+impl GoProjectContext {
+    fn build(collected: &CollectedProjectInputs) -> Option<Self> {
+        let mut selected = Vec::new();
+        for input in &collected.pending {
+            if hoonarqube_core::language_for_path(&input.path) != Some(Language::Go) {
+                continue;
+            }
+            let snapshot = input
+                .source_index
+                .and_then(|slot| collected.source_inventory.get(slot));
+            let receipt = collected.go_receipts.get(&input.path);
+            let admitted = receipt.zip(snapshot).is_some_and(|(receipt, snapshot)| {
+                snapshot.path == input.path
+                    && snapshot.classification == input.classification
+                    && receipt.classification == input.classification
+                    && receipt.source_digest
+                        == Some(Cache::source_digest(snapshot.source.as_bytes()))
+            });
+            let mut identity = receipt.cloned().unwrap_or_else(|| GoSourceReceipt {
+                normalized_path: normalized_input_path(&input.path),
+                physical_path: None,
+                classification: input.classification,
+                source_digest: None,
+            });
+            identity.classification = input.classification;
+            selected.push((
+                identity,
+                snapshot.map(|snapshot| snapshot.source.as_str()),
+                admitted,
+            ));
+        }
+        for file in &collected.project_files {
+            if hoonarqube_core::language_for_path(&file.path) == Some(Language::Go) {
+                let mut receipt = collected
+                    .go_receipts
+                    .get(&file.path)
+                    .cloned()
+                    .unwrap_or_else(|| GoSourceReceipt {
+                        normalized_path: normalized_input_path(&file.path),
+                        physical_path: None,
+                        classification: file.classification,
+                        source_digest: None,
+                    });
+                receipt.classification = file.classification;
+                selected.push((receipt, None, false));
+            }
+        }
+        if selected.is_empty() {
+            return None;
+        }
+        let snapshots: Vec<_> = selected
+            .iter()
+            .map(
+                |(receipt, source, admitted)| hoonarqube_core::GoProjectSourceSnapshot {
+                    identity: receipt.identity(*admitted),
+                    source: *source,
+                },
+            )
+            .collect();
+        Some(Self {
+            index: hoonarqube_core::GoProjectErrorIndex::build(&snapshots),
+            receipts: collected.go_receipts.clone(),
+        })
+    }
+}
+
+fn analyze_native_project_source(
+    input: &ProjectInput,
+    source: &str,
+    options: &AnalyzerOptionsBundle,
+    go_context: Option<&GoProjectContext>,
+) -> ProjectFile {
+    if let Some((context, receipt)) = go_context.and_then(|context| {
+        context
+            .receipts
+            .get(&input.path)
+            .map(|receipt| (context, receipt))
+    }) {
+        return hoonarqube_core::project::analyze_project_file_with_go_context(
+            &input.path,
+            source,
+            options,
+            input.classification,
+            input.duplication_excluded,
+            receipt.identity(true),
+            &context.index,
+        );
+    }
+    analyze_project_file(
+        &input.path,
+        source,
+        options,
+        input.classification,
+        input.duplication_excluded,
+    )
+}
+
+#[cfg(test)]
+#[path = "go_s3776_project_context_tests.rs"]
+mod go_project_context_tests;
+
 struct ProjectInput {
     path: PathBuf,
     classification: FileClassification,
@@ -1068,6 +1235,7 @@ fn analyze_project_files(
     sources: &[AnalyzedSource],
     options: &AnalyzerOptionsBundle,
     semantic: Option<&ProjectSemanticContext>,
+    go_context: Option<&GoProjectContext>,
     worker_count: usize,
     cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
@@ -1086,7 +1254,7 @@ fn analyze_project_files(
             .map(|(index, file)| {
                 (
                     index,
-                    read_and_analyze_project(file, sources, options, semantic, cache),
+                    read_and_analyze_project(file, sources, options, semantic, go_context, cache),
                 )
             })
             .collect();
@@ -1105,11 +1273,17 @@ fn analyze_project_files(
                 hoonarqube_core::spawn_analyzer_worker(
                     scope,
                     "hoonarqube-project-file-worker",
-                    || analyze_project_pending(files, sources, options, semantic, &next, cache),
+                    || {
+                        analyze_project_pending(
+                            files, sources, options, semantic, go_context, &next, cache,
+                        )
+                    },
                 )
             } else {
                 thread::Builder::new().spawn_scoped(scope, || {
-                    analyze_project_pending(files, sources, options, semantic, &next, cache)
+                    analyze_project_pending(
+                        files, sources, options, semantic, go_context, &next, cache,
+                    )
                 })
             };
             let Ok(worker) = worker else {
@@ -1120,7 +1294,7 @@ fn analyze_project_files(
         let mut outcomes = if requires_jsts_stack && !workers.is_empty() {
             Vec::new()
         } else {
-            analyze_project_pending(files, sources, options, semantic, &next, cache)
+            analyze_project_pending(files, sources, options, semantic, go_context, &next, cache)
         };
         for worker in workers {
             outcomes.extend(
@@ -1140,6 +1314,7 @@ fn analyze_project_pending(
     sources: &[AnalyzedSource],
     options: &AnalyzerOptionsBundle,
     semantic: Option<&ProjectSemanticContext>,
+    go_context: Option<&GoProjectContext>,
     next: &AtomicUsize,
     cache: Option<&Cache>,
 ) -> Vec<(usize, ProjectFile)> {
@@ -1151,7 +1326,7 @@ fn analyze_project_pending(
         };
         outcomes.push((
             index,
-            read_and_analyze_project(file, sources, options, semantic, cache),
+            read_and_analyze_project(file, sources, options, semantic, go_context, cache),
         ));
     }
 }
@@ -1161,6 +1336,7 @@ fn read_and_analyze_project(
     sources: &[AnalyzedSource],
     options: &AnalyzerOptionsBundle,
     semantic: Option<&ProjectSemanticContext>,
+    go_context: Option<&GoProjectContext>,
     cache: Option<&Cache>,
 ) -> ProjectFile {
     if let Some(source_index) = input.source_index {
@@ -1174,11 +1350,18 @@ fn read_and_analyze_project(
                 duplication_excluded: input.duplication_excluded,
             };
         };
-        return analyze_project_source(input, &snapshot.source, options, semantic, cache);
+        return analyze_project_source(
+            input,
+            &snapshot.source,
+            options,
+            semantic,
+            go_context,
+            cache,
+        );
     }
     match read_project_source(&input.path, input.classification) {
         ProjectSourceRead::Source(source) => {
-            analyze_project_source(input, &source, options, semantic, cache)
+            analyze_project_source(input, &source, options, semantic, go_context, cache)
         }
         ProjectSourceRead::Oversize(facts) => oversize_project_file(
             input.path.clone(),
@@ -1200,6 +1383,7 @@ fn analyze_project_source(
     source: &str,
     options: &AnalyzerOptionsBundle,
     semantic: Option<&ProjectSemanticContext>,
+    go_context: Option<&GoProjectContext>,
     cache: Option<&Cache>,
 ) -> ProjectFile {
     let content_digest = cache.map(|_| Cache::source_digest(source.as_bytes()));
@@ -1240,35 +1424,17 @@ fn analyze_project_source(
                 false,
             ),
             Ok(None) => (
-                analyze_project_file(
-                    &input.path,
-                    source,
-                    options,
-                    input.classification,
-                    input.duplication_excluded,
-                ),
+                analyze_native_project_source(input, source, options, go_context),
                 false,
             ),
             Err(error) => {
-                let mut result = analyze_project_file(
-                    &input.path,
-                    source,
-                    options,
-                    input.classification,
-                    input.duplication_excluded,
-                );
+                let mut result = analyze_native_project_source(input, source, options, go_context);
                 result.error = Some(format!("semantic analysis unavailable: {error}"));
                 (result, true)
             }
         },
         None => (
-            analyze_project_file(
-                &input.path,
-                source,
-                options,
-                input.classification,
-                input.duplication_excluded,
-            ),
+            analyze_native_project_source(input, source, options, go_context),
             false,
         ),
     };
@@ -2328,10 +2494,11 @@ mod tests {
             };
             let expected: Vec<_> = files
                 .iter()
-                .map(|file| read_and_analyze_project(file, &[], &options, None, None))
+                .map(|file| read_and_analyze_project(file, &[], &options, None, None, None))
                 .collect();
             for workers in [0, 1, 2, 4] {
-                let outcomes = analyze_project_files(&files, &[], &options, None, workers, None);
+                let outcomes =
+                    analyze_project_files(&files, &[], &options, None, None, workers, None);
                 assert_eq!(
                     outcomes.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
                     expected_indices
@@ -2668,6 +2835,7 @@ mod tests {
         let mut collected = CollectedProjectInputs {
             project_files: Vec::new(),
             source_inventory: Vec::new(),
+            go_receipts: std::collections::BTreeMap::new(),
             pending: Vec::new(),
             unsupported_inventory: Vec::new(),
             retained_bytes: 0,

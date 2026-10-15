@@ -916,6 +916,7 @@ version = "0.11.1"
 dependencies = [
  "hoonarqube-dataflow",
  "hoonarqube-ir",
+ "sha2",
  "tree-sitter",
  "tree-sitter-go",
 ]

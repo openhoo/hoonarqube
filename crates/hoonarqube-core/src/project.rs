@@ -54,6 +54,52 @@ pub fn analyze_project_file(
     classification: FileClassification,
     duplication_excluded: bool,
 ) -> ProjectFile {
+    analyze_project_file_internal(
+        path,
+        source,
+        options,
+        classification,
+        duplication_excluded,
+        None,
+    )
+}
+
+/// Analyzes an admitted Go snapshot through the ordinary project measurement path.
+///
+/// # Panics
+/// Panics only under the existing language analyzer parser/registry contracts.
+#[must_use]
+pub fn analyze_project_file_with_go_context(
+    path: &Path,
+    source: &str,
+    options: &AnalyzerOptions,
+    classification: FileClassification,
+    duplication_excluded: bool,
+    target: crate::GoProjectSourceIdentity<'_>,
+    context: &crate::GoProjectErrorIndex,
+) -> ProjectFile {
+    let context = (target.classification == classification).then_some((target, context));
+    analyze_project_file_internal(
+        path,
+        source,
+        options,
+        classification,
+        duplication_excluded,
+        context,
+    )
+}
+
+fn analyze_project_file_internal(
+    path: &Path,
+    source: &str,
+    options: &AnalyzerOptions,
+    classification: FileClassification,
+    duplication_excluded: bool,
+    go_context: Option<(
+        crate::GoProjectSourceIdentity<'_>,
+        &crate::GoProjectErrorIndex,
+    )>,
+) -> ProjectFile {
     if !matches!(
         classification,
         FileClassification::Source | FileClassification::Test
@@ -88,13 +134,7 @@ pub fn analyze_project_file(
         options
     };
 
-    let mut report = if is_razor_path(path) || source_exceeds_limits(path, source) {
-        // Razor and resource-sized input have no safe native-analysis path;
-        // source facts still retain bounded metrics and the failure reason.
-        None
-    } else {
-        analyze(path, source, options)
-    };
+    let mut report = analyze_project_report(path, source, options, go_context);
     if classification == FileClassification::Test
         && let Some(report) = report.as_mut()
         && language_for_path(path) == Some(Language::CSharp)
@@ -138,6 +178,28 @@ pub fn analyze_project_file(
         facts,
         error,
         duplication_excluded,
+    }
+}
+
+fn analyze_project_report(
+    path: &Path,
+    source: &str,
+    options: &AnalyzerOptions,
+    go_context: Option<(
+        crate::GoProjectSourceIdentity<'_>,
+        &crate::GoProjectErrorIndex,
+    )>,
+) -> Option<FileReport> {
+    // Razor and resource-sized input have no safe native-analysis path;
+    // source facts still retain bounded metrics and the failure reason.
+    if is_razor_path(path) || source_exceeds_limits(path, source) {
+        return None;
+    }
+    match go_context {
+        Some((target, context)) => {
+            crate::analyze_with_go_project_context(path, source, options, target, context)
+        }
+        None => analyze(path, source, options),
     }
 }
 
@@ -1184,5 +1246,130 @@ mod tests {
         assert!(report.project.complete, "{:?}", report.project.warnings);
         assert_eq!(report.project.metrics.code_lines, 2);
         assert!(report.project.duplication.is_some());
+    }
+    #[test]
+    fn go_project_context_preserves_scope_metrics_and_failures() {
+        use super::analyze_project_file_with_go_context;
+        use crate::{GoProjectErrorIndex, GoProjectSourceIdentity, GoProjectSourceSnapshot};
+        let path = Path::new("/virtual/pkg/consumer.go");
+        let helper_path = Path::new("/virtual/pkg/helper.go");
+        let source =
+            "package p\nfunc inspect(){_,problem:=supply();if problem!=nil{println(problem)}}\n";
+        let identity = GoProjectSourceIdentity {
+            normalized_path: path,
+            physical_path: Some(path),
+            classification: FileClassification::Source,
+        };
+        let index = GoProjectErrorIndex::build(&[
+            GoProjectSourceSnapshot {
+                identity,
+                source: Some(source),
+            },
+            GoProjectSourceSnapshot {
+                identity: GoProjectSourceIdentity {
+                    normalized_path: helper_path,
+                    physical_path: Some(helper_path),
+                    classification: FileClassification::Source,
+                },
+                source: Some("package p\nfunc supply()(int,error){return 0,nil}\n"),
+            },
+        ]);
+        let mut options = AnalyzerOptions::default();
+        options.go.maximum_cognitive_complexity = 0;
+        for classification in [
+            FileClassification::Source,
+            FileClassification::Test,
+            FileClassification::Excluded,
+            FileClassification::Generated,
+            FileClassification::Vendor,
+        ] {
+            let mut expected = analyze_project_file(path, source, &options, classification, true);
+            if classification == FileClassification::Source {
+                expected
+                    .report
+                    .as_mut()
+                    .unwrap()
+                    .issues
+                    .retain(|i| i.rule_key != "go:S3776");
+            }
+            let actual = analyze_project_file_with_go_context(
+                path,
+                source,
+                &options,
+                classification,
+                true,
+                identity,
+                &index,
+            );
+            assert_eq!(actual.report, expected.report);
+            assert_eq!(actual.facts, expected.facts);
+            assert_eq!(actual.error, expected.error);
+            assert_eq!(actual.classification, classification);
+            assert!(actual.duplication_excluded);
+            assert_eq!(actual.path, path);
+            if classification == FileClassification::Source {
+                let report = build_project_report(
+                    vec![actual],
+                    vec![PathBuf::from(".")],
+                    Vec::new(),
+                    &DuplicationOptions::default(),
+                )
+                .unwrap();
+                assert!(report.project.complete);
+                assert_eq!(report.project.metrics.files, 1);
+                assert!(report.project.duplications.is_empty());
+            }
+        }
+        assert_go_project_failure_controls(path, identity, &index, &options);
+    }
+
+    fn assert_go_project_failure_controls(
+        path: &Path,
+        identity: crate::GoProjectSourceIdentity<'_>,
+        index: &crate::GoProjectErrorIndex,
+        options: &AnalyzerOptions,
+    ) {
+        use super::analyze_project_file_with_go_context;
+        let malformed = "package p\nfunc broken( {\n";
+        let actual = analyze_project_file_with_go_context(
+            path,
+            malformed,
+            options,
+            FileClassification::Source,
+            false,
+            identity,
+            index,
+        );
+        let expected =
+            analyze_project_file(path, malformed, options, FileClassification::Source, false);
+        assert_eq!(actual.report, expected.report);
+        assert_eq!(actual.facts, expected.facts);
+        assert_eq!(actual.error, expected.error);
+        assert!(
+            actual
+                .report
+                .as_ref()
+                .unwrap()
+                .issues
+                .iter()
+                .any(|i| i.rule_key == "go:S2260")
+        );
+        assert!(actual.facts.as_ref().unwrap().error.is_some());
+        let oversized = "x".repeat(crate::MAX_SOURCE_BYTES + 1);
+        let actual = analyze_project_file_with_go_context(
+            path,
+            &oversized,
+            options,
+            FileClassification::Source,
+            false,
+            identity,
+            index,
+        );
+        let expected =
+            analyze_project_file(path, &oversized, options, FileClassification::Source, false);
+        assert_eq!(actual.report, expected.report);
+        assert_eq!(actual.facts, expected.facts);
+        assert_eq!(actual.error, expected.error);
+        assert!(actual.report.is_none());
     }
 }

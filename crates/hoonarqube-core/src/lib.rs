@@ -30,6 +30,10 @@ use hoonarqube_csharp::CsLanguage;
 use hoonarqube_jsts::JstsLanguage;
 
 pub use hoonarqube_catalog::RuleProfile;
+pub use hoonarqube_go::{
+    ProjectErrorIndex as GoProjectErrorIndex, ProjectSourceIdentity as GoProjectSourceIdentity,
+    ProjectSourceSnapshot as GoProjectSourceSnapshot,
+};
 #[doc(hidden)]
 pub use hoonarqube_jsts::spawn_analyzer_worker;
 
@@ -241,6 +245,30 @@ pub fn analyze(
     source: &str,
     options: &AnalyzerOptions,
 ) -> Option<hoonarqube_ir::FileReport> {
+    analyze_internal(path, source, options, None)
+}
+
+/// Analyzes with an exact selected Go snapshot, preserving profile finalization.
+///
+/// # Panics
+/// Panics if an analyzer violates its existing parser or registry contract.
+#[must_use]
+pub fn analyze_with_go_project_context(
+    path: &Path,
+    source: &str,
+    options: &AnalyzerOptions,
+    target: GoProjectSourceIdentity<'_>,
+    context: &GoProjectErrorIndex,
+) -> Option<hoonarqube_ir::FileReport> {
+    analyze_internal(path, source, options, Some((target, context)))
+}
+
+fn analyze_internal(
+    path: &Path,
+    source: &str,
+    options: &AnalyzerOptions,
+    go_context: Option<(GoProjectSourceIdentity<'_>, &GoProjectErrorIndex)>,
+) -> Option<hoonarqube_ir::FileReport> {
     let language = language_for_path(path)?;
     if is_razor_path(path) {
         return None;
@@ -265,7 +293,16 @@ pub fn analyze(
         Language::CSharp => {
             hoonarqube_csharp::analyze(path, source, CsLanguage::CSharp, &options.csharp)
         }
-        Language::Go => hoonarqube_go::analyze(path, source, &options.go),
+        Language::Go => match go_context {
+            Some((target, context)) => hoonarqube_go::analyze_with_project_context(
+                path,
+                source,
+                &options.go,
+                target,
+                context,
+            ),
+            None => hoonarqube_go::analyze(path, source, &options.go),
+        },
         Language::Java => hoonarqube_java::analyze(path, source, &options.java),
         Language::Ruby => hoonarqube_ruby::analyze(path, source, &options.ruby),
         Language::Rust => hoonarqube_rust::analyze(path, source, &options.rust),
@@ -1154,5 +1191,67 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["typescript:S106"]
         );
+    }
+    #[test]
+    fn go_project_context_preserves_profile_finalization() {
+        use super::{
+            GoProjectErrorIndex, GoProjectSourceIdentity, GoProjectSourceSnapshot,
+            analyze_with_go_project_context,
+        };
+        use hoonarqube_ir::FileClassification;
+        let path = Path::new("/virtual/pkg/consumer.go");
+        let helper_path = Path::new("/virtual/pkg/helper.go");
+        let source = "package p\nimport \"crypto/md5\"\nfunc inspect(){ _,problem:=supply();if problem!=nil{println(problem)};_=md5.New()}\n";
+        let helper = "package p\nfunc supply()(int,error){return 0,nil}\n";
+        let identity = |path| GoProjectSourceIdentity {
+            normalized_path: path,
+            physical_path: Some(path),
+            classification: FileClassification::Source,
+        };
+        let index = GoProjectErrorIndex::build(&[
+            GoProjectSourceSnapshot {
+                identity: identity(path),
+                source: Some(source),
+            },
+            GoProjectSourceSnapshot {
+                identity: identity(helper_path),
+                source: Some(helper),
+            },
+        ]);
+        for profile in [
+            RuleProfile::SonarParity,
+            RuleProfile::Recommended,
+            RuleProfile::Extended,
+            RuleProfile::Strict,
+            RuleProfile::GithubCodeQuality,
+        ] {
+            let mut options = AnalyzerOptions {
+                profile,
+                ..AnalyzerOptions::default()
+            };
+            options.go.maximum_cognitive_complexity = 0;
+            let mut expected = analyze(path, source, &options).unwrap();
+            if profile != RuleProfile::GithubCodeQuality {
+                assert!(expected.issues.iter().any(|i| i.rule_key == "go:S3776"));
+            }
+            expected.issues.retain(|i| i.rule_key != "go:S3776");
+            let actual =
+                analyze_with_go_project_context(path, source, &options, identity(path), &index)
+                    .unwrap();
+            assert_eq!(actual, expected, "profile {profile:?}");
+            if profile == RuleProfile::Strict {
+                assert!(
+                    actual
+                        .issues
+                        .iter()
+                        .any(|i| i.rule_key == "hoonarqube-go:G401")
+                );
+            }
+            let other = Path::new("ordinary.py");
+            assert_eq!(
+                analyze_with_go_project_context(other, "x=1\n", &options, identity(path), &index),
+                analyze(other, "x=1\n", &options)
+            );
+        }
     }
 }
