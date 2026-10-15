@@ -1,4 +1,4 @@
-use super::support::{enclosing_callable, operator_of};
+use super::support::operator_of;
 use crate::CsLanguage;
 use crate::cst::{ancestors_of, collect_kinds, is_error_tainted, issue, range_of};
 use hoonarqube_ir::Issue;
@@ -12,17 +12,13 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
         if is_error_tainted(unary) || !matches!(operator_of(unary), Some("++" | "--")) {
             continue;
         }
-        let callable = enclosing_callable(unary).map(|owner| owner.id());
         let mixed = ancestors_of(unary)
             .take_while(|ancestor| {
                 !matches!(ancestor.kind(), "expression_statement" | "for_statement")
-                    && Some(ancestor.id()) != callable
             })
             .any(|ancestor| {
-                matches!(
-                    ancestor.kind(),
-                    "binary_expression" | "conditional_expression" | "invocation_expression"
-                )
+                ancestor.kind() == "binary_expression"
+                    && matches!(operator_of(ancestor), Some("+" | "-" | "*" | "/" | "%"))
             });
         if !mixed {
             continue;
