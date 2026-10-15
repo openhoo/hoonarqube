@@ -2,7 +2,7 @@
 //!
 //! Original chi sources are pinned to167e1e3bd039d060696b99c8da4e876ae04f42c1.
 //! The ten supplementary sources and expectations were measured independently
-//! with actual SonarGo before this implementation. The two switch primary
+//! with actual `SonarGo` before this implementation. The two switch primary
 //! range differences remain explicit residuals. Native coordinates are scalar.
 /*
 Copyright (c) 2015-present Peter Kieltyka (https://github.com/pkieltyka), Google Inc.
@@ -306,7 +306,7 @@ fn s134_native_maximum_1() {
     );
 }
 
-const BOUNDARY_1: &str = r###"package mixed
+const BOUNDARY_1: &str = r"package mixed
 
 func MixedAncestors(value any, limit int, enabled bool) {
 	if enabled {
@@ -327,9 +327,9 @@ func MixedAncestors(value any, limit int, enabled bool) {
 		}
 	}
 }
-"###;
+";
 
-const BOUNDARY_2: &str = r###"package forprimary
+const BOUNDARY_2: &str = r"package forprimary
 
 func ForPrimary(values []int, seed int, enabled bool) {
 	if enabled {
@@ -347,9 +347,9 @@ func ForPrimary(values []int, seed int, enabled bool) {
 		}
 	}
 }
-"###;
+";
 
-const BOUNDARY_3: &str = r###"package expressionprimary
+const BOUNDARY_3: &str = r"package expressionprimary
 
 func ExpressionSwitchPrimary(flags [4]bool, value int) {
 	if flags[0] {
@@ -367,9 +367,9 @@ func ExpressionSwitchPrimary(flags [4]bool, value int) {
 		}
 	}
 }
-"###;
+";
 
-const BOUNDARY_4: &str = r###"package typeprimary
+const BOUNDARY_4: &str = r#"package typeprimary
 
 func TypeSwitchPrimary(flags [4]bool, value any) {
 	if flags[0] {
@@ -387,9 +387,9 @@ func TypeSwitchPrimary(flags [4]bool, value any) {
 		}
 	}
 }
-"###;
+"#;
 
-const BOUNDARY_5: &str = r###"package effectiveelseif
+const BOUNDARY_5: &str = r"package effectiveelseif
 
 func EffectiveElseIf(mode int, flags [4]bool) {
 	if flags[0] {
@@ -410,9 +410,9 @@ func EffectiveElseIf(mode int, flags [4]bool) {
 		}
 	}
 }
-"###;
+";
 
-const BOUNDARY_6: &str = r###"package transparentliteral
+const BOUNDARY_6: &str = r"package transparentliteral
 
 func TransparentLiteral(flags [4]bool, limit int) {
 	if flags[0] {
@@ -429,9 +429,9 @@ func TransparentLiteral(flags [4]bool, limit int) {
 		}
 	}
 }
-"###;
+";
 
-const BOUNDARY_7: &str = r###"package isolation
+const BOUNDARY_7: &str = r#"package isolation
 
 func FirstDeep(flags [5]bool) {
 	if flags[0] {
@@ -474,9 +474,9 @@ func (guard Guard) NextMethod(flags [3]bool) {
 		}
 	}
 }
-"###;
+"#;
 
-const BOUNDARY_8: &str = r###"package threshold
+const BOUNDARY_8: &str = r#"package threshold
 
 func FourLevels(flags [4]bool) {
 	if flags[0] {
@@ -521,11 +521,11 @@ func SevenLevels(flags [7]bool) {
 		}
 	}
 }
-"###;
+"#;
 
 const BOUNDARY_9: &str = "package unicodecrlf\r\n\r\nfunc UnicodeCRLF(value int) {\r\n\t_ = \"🦉é\"; if value > 0 { if value > 1 { if value > 2 { if value > 3 { if value > 4 { println(value) } } } } }\r\n}\r\n";
 
-const BOUNDARY_10: &str = r###"package nativeoptions
+const BOUNDARY_10: &str = r"package nativeoptions
 
 func NativeOptionsShallow(enabled bool, value int) {
 	if enabled {
@@ -534,9 +534,9 @@ func NativeOptionsShallow(enabled bool, value int) {
 		}
 	}
 }
-"###;
+";
 
-const ORIGINAL_CHI: &str = r###"package chi
+const ORIGINAL_CHI: &str = r#"package chi
 
 // Radix tree implementation below is a based on the original work by
 // Armon Dadgar in https://github.com/armon/go-radix/blob/master/radix.go
@@ -1461,22 +1461,22 @@ func walk(r Routes, walkFn WalkFunc, parentRoute string, parentMw ...func(http.H
 
 	return nil
 }
-"###;
+"#;
 
-const ORIGINAL_S134_BAD: &str = r###"// Hoonarqube oracle fixture: go:S134 bad
+const ORIGINAL_S134_BAD: &str = r"// Hoonarqube oracle fixture: go:S134 bad
 package oracle
 func deep(a,b,c,d,e bool) { if a { if b { for c { if d { if e { println(1) } } } } } }
-"###;
+";
 
-const ORIGINAL_S3776_BAD: &str = r###"// Hoonarqube oracle fixture: go:S3776 bad
+const ORIGINAL_S3776_BAD: &str = r"// Hoonarqube oracle fixture: go:S3776 bad
 package oracle
 func complex(a,b,c,d,e bool) {
  if a { if b { if c { if d { if e { println(1) } } } } }
  if a && b && c && d { println(2) }
 }
-"###;
+";
 
-const ORIGINAL_S134_GOOD: &str = r###"// Hoonarqube oracle fixture: go:S134 good
+const ORIGINAL_S134_GOOD: &str = r#"// Hoonarqube oracle fixture: go:S134 good
 package oracle
 
 func nestedFlow(condition1, condition2, condition4, condition5 bool) {
@@ -1496,4 +1496,4 @@ func nestedFlow(condition1, condition2, condition4, condition5 bool) {
 		}
 	}
 }
-"###;
+"#;
