@@ -197,7 +197,16 @@ fn protocol_method_has_nonstring_owner(
     let receiver = facts.resolve_local_alias_chain(receiver);
     match receiver {
         Expr::BytesLiteral(_) => true,
-        Expr::Call(call) => protocol_type_has_nonstring_method(&call.func, method, facts, 0),
+        Expr::Call(call) => {
+            protocol_type_has_nonstring_method(&call.func, method, facts, 0)
+                || facts
+                    .resolve_function(call)
+                    .and_then(|function| function.returns.as_deref())
+                    .is_some_and(|annotation| {
+                        protocol_type_has_nonstring_method(annotation, method, facts, 0)
+                    })
+                || protocol_expression_has_bytes_result(receiver, facts, 0)
+        }
         Expr::Name(name) => {
             if let Some(parameter) = protocol_parameter(name, facts) {
                 return parameter.annotation.as_deref().is_some_and(|annotation| {
@@ -207,6 +216,40 @@ fn protocol_method_has_nonstring_owner(
             protocol_type_has_nonstring_method(receiver, method, facts, 0)
         }
         _ => protocol_type_has_nonstring_method(receiver, method, facts, 0),
+    }
+}
+
+/// Preserve the bytes result of the two transforms verified against the live
+/// reference. Unknown calls and custom methods do not prove a bytes result.
+fn protocol_expression_has_bytes_result(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'_>,
+    depth: u32,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let is_bytes_type = |annotation: &Expr| {
+        ["bytes", "bytearray"]
+            .iter()
+            .any(|name| is_builtin_protocol_type(annotation, name, facts))
+    };
+    match facts.resolve_local_alias_chain(expr) {
+        Expr::BytesLiteral(_) => true,
+        Expr::Name(name) => protocol_parameter(name, facts)
+            .and_then(|parameter| parameter.annotation.as_deref())
+            .is_some_and(is_bytes_type),
+        Expr::Call(call) => {
+            is_bytes_type(&call.func)
+                || facts
+                    .resolve_function(call)
+                    .and_then(|function| function.returns.as_deref())
+                    .is_some_and(is_bytes_type)
+                || matches!(call.func.as_ref(), Expr::Attribute(method)
+                    if matches!(method.attr.as_str(), "strip" | "lower")
+                        && protocol_expression_has_bytes_result(&method.value, facts, depth + 1))
+        }
+        _ => false,
     }
 }
 
