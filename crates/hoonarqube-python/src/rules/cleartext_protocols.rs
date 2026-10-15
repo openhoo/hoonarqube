@@ -187,7 +187,7 @@ fn is_builtin_protocol_type(expr: &Expr, expected: &str, facts: &WebFrameworkFac
     }
 }
 
-/// A missing or unresolved method has an unknown owner in SonarPython and
+/// A missing or unresolved method has an unknown owner in `SonarPython` and
 /// remains eligible. Only a proven non-string method owner rejects the pattern.
 fn protocol_method_has_nonstring_owner(
     receiver: &Expr,
