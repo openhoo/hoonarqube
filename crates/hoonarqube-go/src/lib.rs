@@ -12,7 +12,13 @@ use hoonarqube_ir::{
 use tree_sitter::{Node, Parser, Point};
 mod error_guards;
 mod github_quality;
+mod project_error_index;
+#[cfg(test)]
+mod s107_supporting_location_tests;
+#[cfg(test)]
+mod s134_supporting_location_tests;
 use error_guards::ErrorGuardFacts;
+pub use project_error_index::{ProjectErrorIndex, ProjectSourceIdentity, ProjectSourceSnapshot};
 
 pub use github_quality::analyze_github_quality;
 
@@ -284,6 +290,30 @@ fn is_test_scope_file(path: &Path) -> bool {
 /// parser cannot return a syntax tree.
 #[must_use]
 pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileReport {
+    analyze_internal(path, source, options, None)
+}
+
+/// Analyzes one file with facts bound to an admitted selected project snapshot.
+///
+/// # Panics
+/// Panics only if the embedded grammar is incompatible or parsing returns no tree.
+#[must_use]
+pub fn analyze_with_project_context(
+    path: PathBuf,
+    source: &str,
+    options: &AnalyzerOptions,
+    target: ProjectSourceIdentity<'_>,
+    context: &ProjectErrorIndex,
+) -> FileReport {
+    analyze_internal(path, source, options, context.facts_for(target, source))
+}
+
+fn analyze_internal(
+    path: PathBuf,
+    source: &str,
+    options: &AnalyzerOptions,
+    project: Option<&project_error_index::PackageErrorFacts>,
+) -> FileReport {
     debug_assert_eq!(RULE_KEYS.len(), 36);
     let (source, tree) = parse_go_source(source).expect("Go parser returned no tree");
     let source = source.as_ref();
@@ -304,10 +334,11 @@ pub fn analyze(path: PathBuf, source: &str, options: &AnalyzerOptions) -> FileRe
         };
     }
 
-    let error_guards = ErrorGuardFacts::collect(root, source, &imports);
     let is_test = options
         .test_scope
         .unwrap_or_else(|| is_test_scope_file(path.as_path()));
+    let error_guards =
+        ErrorGuardFacts::collect(root, source, &imports, project.filter(|_| !is_test));
     check_lines(path.as_path(), source, &line_facts, options, &mut issues);
     check_header(source, options, &mut issues);
     check_textual(source, root, &mut issues);
@@ -3012,14 +3043,18 @@ fn check_node(
         "statement_list" => check_statements(node, source, issues),
         "parenthesized_expression" => {
             if first_named(node).is_some_and(|child| child.kind() == "parenthesized_expression") {
-                issues.push(keyword_issue(
+                let mut issue = keyword_issue(
                     "go:S1110",
                     "Remove these useless parentheses.",
                     node,
                     1,
                     1,
                     source,
-                ));
+                );
+                if let Some(location) = s1110_closing_location(node, source) {
+                    issue = issue.with_flow(vec![location]);
+                }
+                issues.push(issue);
             }
         }
         "binary_expression" => check_binary(node, source, options, issues),
@@ -3066,17 +3101,7 @@ fn check_node(
     {
         let depth = control_depth(node);
         if depth == options.maximum_nesting_depth.saturating_add(1) {
-            issues.push(keyword_issue(
-                "go:S134",
-                format!(
-                    "Refactor this code to not nest more than {} control flow statements.",
-                    options.maximum_nesting_depth
-                ),
-                node,
-                0,
-                if node.kind() == "for_statement" { 3 } else { 2 },
-                source,
-            ));
+            issues.push(s134_issue(node, options.maximum_nesting_depth, source));
         }
     }
     if matches!(
@@ -3129,13 +3154,19 @@ fn check_function(
     if let Some(parameters) = node.child_by_field_name("parameters") {
         let count = parameter_count(parameters);
         if count > options.maximum_function_parameters {
-            issues.push(node_issue(
+            let issue = node_issue(
                 "go:S107",
                 format!(
                     "This function has {count} parameters, which is greater than the {0} authorized.",
                     options.maximum_function_parameters
                 ),
                 node.child_by_field_name("name").unwrap_or(parameters),
+                source,
+            );
+            issues.push(with_excess_parameter_locations(
+                issue,
+                parameters,
+                options.maximum_function_parameters,
                 source,
             ));
         }
@@ -3398,15 +3429,23 @@ fn check_identical_operands(
     if matches!(operator, "+" | "*" | "<<") {
         return;
     }
-    let left = skip_parentheses(left);
-    let right = skip_parentheses(right);
-    if canonical_code(left, source) == canonical_code(right, source) {
-        issues.push(node_issue(
-            "go:S1764",
-            "Correct one of the identical sub-expressions on both sides of this operator.",
-            right,
-            source,
-        ));
+    // Normalize for equivalence, while the diagnostic retains both complete
+    // source operands, including their outer parentheses.
+    let comparable_left = skip_parentheses(left);
+    let comparable_right = skip_parentheses(right);
+    if canonical_code(comparable_left, source) == canonical_code(comparable_right, source) {
+        issues.push(
+            node_issue(
+                "go:S1764",
+                "Correct one of the identical sub-expressions on both sides of this operator.",
+                right,
+                source,
+            )
+            .with_flow(vec![FlowLocation::in_primary_file(
+                "",
+                node_range(left, source),
+            )]),
+        );
     }
 }
 
@@ -3536,10 +3575,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
             source,
         ));
     }
-    if node
-        .parent()
-        .is_some_and(|parent| parent.kind() == "if_statement")
-    {
+    if is_else_if(node) {
         return;
     }
     let chain = collect_if_chain(node, source, issues);
@@ -3638,14 +3674,15 @@ fn report_if_chain_smells(
     source: &str,
     issues: &mut Vec<Issue>,
 ) {
-    // SonarGo reports only the outermost if/else-if chain missing a final
-    // `else`; a chain head nested inside another if-chain's branch is not
-    // separately reported. Else-if members already returned in `check_if`, so
-    // any `if_statement` ancestor means this head sits inside a branch.
-    let nested_in_if_branch = ancestors(node)
-        .take_while(|ancestor| !is_function(*ancestor))
-        .any(|ancestor| ancestor.kind() == "if_statement");
-    if chain.condition_count > 1 && !chain.ends_with_else && !nested_in_if_branch {
+    // Each independent chain is checked, including chains inside another
+    // branch. Only actual else-if members are skipped by `check_if`.
+    // SonarGo exempts a chain when every branch's final direct statement is
+    // a return, break, continue, or an unqualified panic invocation.
+    let all_branches_terminate = chain
+        .branches
+        .iter()
+        .all(|(_, branch)| branch_ends_with_jump_or_panic(*branch, source));
+    if chain.condition_count > 1 && !chain.ends_with_else && !all_branches_terminate {
         let range = nested_else_if_range(chain.last_if, source)
             .unwrap_or_else(|| node_range(chain.last_if, source));
         issues.push(Issue::new(
@@ -3675,6 +3712,33 @@ fn report_if_chain_smells(
             .all(|branch| branch.0 == chain.branches[0].0)
     {
         issues.push(node_issue("go:S3923", "Remove this conditional structure or edit its code blocks so that they're not all the same.", node, source));
+    }
+}
+
+fn branch_ends_with_jump_or_panic(branch: Node<'_>, source: &str) -> bool {
+    let Some(statements) = named_children(branch)
+        .into_iter()
+        .find(|child| child.kind() == "statement_list")
+    else {
+        return false;
+    };
+    let Some(last) = named_children(statements)
+        .into_iter()
+        .rfind(|child| !matches!(child.kind(), "comment" | "empty_statement"))
+    else {
+        return false;
+    };
+    match last.kind() {
+        "return_statement" | "break_statement" | "continue_statement" => true,
+        "expression_statement" => first_named(last).is_some_and(|expression| {
+            expression.kind() == "call_expression"
+                && expression
+                    .child_by_field_name("function")
+                    .is_some_and(|function| {
+                        function.kind() == "identifier" && text(function, source) == "panic"
+                    })
+        }),
+        _ => false,
     }
 }
 
@@ -4084,6 +4148,92 @@ fn parameter_count(node: Node<'_>) -> usize {
     count
 }
 
+fn with_excess_parameter_locations(
+    mut issue: Issue,
+    parameters: Node<'_>,
+    maximum: usize,
+    source: &str,
+) -> Issue {
+    if let Some(locations) = excess_parameter_locations(parameters, maximum, source) {
+        for location in locations {
+            issue = issue.with_flow(vec![location]);
+        }
+    }
+    issue
+}
+
+fn excess_parameter_locations(
+    parameters: Node<'_>,
+    maximum: usize,
+    source: &str,
+) -> Option<Vec<FlowLocation>> {
+    if parameters.has_error()
+        || parameters.is_missing()
+        || parameters
+            .parent()
+            .is_some_and(|parent| parent.child_by_field_name("type_parameters").is_some())
+    {
+        return None;
+    }
+    let mut cursor = parameters.walk();
+    let groups: Option<Vec<_>> = parameters
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() != "comment")
+        .map(|child| ordinary_parameter_ranges(child, source))
+        .collect();
+    Some(
+        groups?
+            .into_iter()
+            .flatten()
+            .skip(maximum)
+            .map(|range| FlowLocation::in_primary_file("", range))
+            .collect(),
+    )
+}
+
+fn ordinary_parameter_ranges(declaration: Node<'_>, source: &str) -> Option<Vec<Range>> {
+    let parameter_type = declaration.child_by_field_name("type")?;
+    // Only the qualified ordinary named shape has a measured support policy.
+    // Other shapes retain the existing primary without guessed locations.
+    if declaration.kind() != "parameter_declaration"
+        || declaration.has_error()
+        || declaration.is_missing()
+        || parameter_type.kind() != "type_identifier"
+        || parameter_type.is_missing()
+    {
+        return None;
+    }
+    let mut cursor = declaration.walk();
+    let names: Vec<_> = declaration
+        .children_by_field_name("name", &mut cursor)
+        .collect();
+    if names.is_empty()
+        || names.iter().any(|name| {
+            name.kind() != "identifier" || name.is_missing() || text(*name, source) == "_"
+        })
+    {
+        return None;
+    }
+    Some(
+        names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| Range {
+                start: node_range(*name, source).start,
+                end: node_range(
+                    if index + 1 == names.len() {
+                        declaration
+                    } else {
+                        *name
+                    },
+                    source,
+                )
+                .end,
+            })
+            .collect(),
+    )
+}
+
 fn cognitive_complexity(
     node: Node<'_>,
     source: &str,
@@ -4236,6 +4386,46 @@ fn control_depth(node: Node<'_>) -> usize {
         current = parent;
     }
     depth
+}
+
+fn s134_issue(node: Node<'_>, maximum: usize, source: &str) -> Issue {
+    let mut issue = keyword_issue(
+        "go:S134",
+        format!("Refactor this code to not nest more than {maximum} control flow statements."),
+        node,
+        0,
+        match node.kind() {
+            "for_statement" => 3,
+            "expression_switch_statement" | "type_switch_statement" => 6,
+            _ => 2,
+        },
+        source,
+    );
+    // Each flattened else-if chain contributes its first if keyword.
+    let mut controls: Vec<_> = ancestors(node)
+        .take_while(|ancestor| !is_named_function(*ancestor))
+        .filter(|ancestor| is_control(*ancestor) && !is_else_if(*ancestor))
+        .collect();
+    controls.reverse();
+    for (index, ancestor) in controls.into_iter().enumerate() {
+        let start = point_pos(ancestor.start_position(), ancestor.start_byte(), source);
+        let length = match ancestor.kind() {
+            "for_statement" => 3,
+            "expression_switch_statement" | "type_switch_statement" => 6,
+            _ => 2,
+        };
+        issue = issue.with_flow(vec![FlowLocation::in_primary_file(
+            format!("Nesting depth {}", index + 1),
+            Range {
+                start,
+                end: Pos {
+                    column: start.column.saturating_add(length),
+                    ..start
+                },
+            },
+        )]);
+    }
+    issue
 }
 
 /// Collects `&&`/`||` operator tokens in a logical expression head, mirroring
@@ -4408,6 +4598,17 @@ fn duplicate_branch<'tree>(
         }
     }
     None
+}
+
+fn s1110_closing_location(node: Node<'_>, source: &str) -> Option<FlowLocation> {
+    let inner = first_named(node)?;
+    let closing = (0..inner.child_count())
+        .filter_map(|index| inner.child(index))
+        .find(|token| token.kind() == ")" && !token.is_missing() && !token.has_error())?;
+    Some(FlowLocation::in_primary_file(
+        "",
+        node_range(closing, source),
+    ))
 }
 
 fn first_named(node: Node<'_>) -> Option<Node<'_>> {
@@ -4603,6 +4804,9 @@ fn relative_issue(
         },
     )
 }
+
+#[cfg(test)]
+mod s126_tests;
 
 #[cfg(test)]
 mod tests {
@@ -5961,6 +6165,147 @@ mod tests {
     }
 
     #[test]
+    fn s1764_matches_parenthesized_reference_primary_and_supporting_locations() {
+        let source = concat!(
+            "// Hoonarqube oracle fixture: go:S1764 bad\n",
+            "package oracle\n",
+            "\n",
+            "func main() {\n",
+            "  v1 := (true && false) && (true && false) // Noncompliant\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("fixture.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "go:S1764")
+            .collect();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[0].message,
+            "Correct one of the identical sub-expressions on both sides of this operator."
+        );
+        assert_eq!(
+            issues[0].range,
+            Range {
+                start: Pos {
+                    line: 5,
+                    column: 27
+                },
+                end: Pos {
+                    line: 5,
+                    column: 42
+                },
+            }
+        );
+        assert_eq!(
+            issues[0].flows,
+            vec![hoonarqube_ir::IssueFlow {
+                locations: vec![FlowLocation::in_primary_file(
+                    "",
+                    Range {
+                        start: Pos { line: 5, column: 8 },
+                        end: Pos {
+                            line: 5,
+                            column: 23
+                        },
+                    }
+                )],
+            }]
+        );
+        assert!(issues[0].fix.is_none());
+        assert!(issues[0].alternatives.is_empty());
+    }
+
+    #[test]
+    fn s1764_retains_outer_operand_ranges_for_nested_and_multiline_parentheses() {
+        for (expression, left_end, right_start, right_end_line, right_end_column) in [
+            ("a == a", 9, 13, 3, 14),
+            ("a == (a)", 9, 13, 3, 16),
+            ("(a) == a", 11, 15, 3, 16),
+            ("((a)) == (((a)))", 13, 17, 3, 24),
+            ("( a ) == (( a ))", 13, 17, 3, 24),
+            ("a == (\n  a)", 9, 13, 4, 4),
+            ("(a) == (\n  ((a)))", 11, 15, 4, 8),
+        ] {
+            let source = format!("package p\nfunc f(a int) bool {{\n return {expression}\n}}\n");
+            let report = analyze(
+                PathBuf::from("fixture.go"),
+                &source,
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "go:S2260"),
+                "comparison control must parse: {expression}"
+            );
+            let issues: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "go:S1764")
+                .collect();
+            assert_eq!(issues.len(), 1, "{expression}");
+            let expected = Issue::new(
+                "go:S1764",
+                "Correct one of the identical sub-expressions on both sides of this operator.",
+                Range {
+                    start: Pos {
+                        line: 3,
+                        column: right_start,
+                    },
+                    end: Pos {
+                        line: right_end_line,
+                        column: right_end_column,
+                    },
+                },
+            )
+            .with_flow(vec![FlowLocation::in_primary_file(
+                "",
+                Range {
+                    start: Pos { line: 3, column: 8 },
+                    end: Pos {
+                        line: 3,
+                        column: left_end,
+                    },
+                },
+            )]);
+            assert_eq!(*issues[0], expected, "{expression}");
+        }
+    }
+
+    #[test]
+    fn s1764_different_parenthesized_operands_remain_clean() {
+        for expression in [
+            "a == (b)",
+            "((a)) != ((b))",
+            "((a + 1)) == (a + 2)",
+            "((a)) + (a)",
+            "(a) * ((a))",
+            "((a)) << ((a))",
+        ] {
+            let source = format!("package p\nfunc f(a, b int) {{\n _ = {expression}\n}}\n");
+            let report = analyze(
+                PathBuf::from("fixture.go"),
+                &source,
+                &AnalyzerOptions::default(),
+            );
+            assert!(
+                report
+                    .issues
+                    .iter()
+                    .all(|issue| issue.rule_key != "go:S1764"),
+                "{expression}"
+            );
+        }
+    }
+
+    #[test]
     fn s1764_exempts_idiomatic_operators() {
         let found = keys(concat!(
             "package p\n",
@@ -6006,7 +6351,7 @@ mod tests {
     }
 
     #[test]
-    fn s126_reports_only_the_outermost_missing_else_chain() {
+    fn s126_reports_outer_chain_and_exempts_nested_return_chain() {
         let found = keys(concat!(
             "package p\n",
             "func pick(a, b, c bool) int {\n",
@@ -6033,7 +6378,7 @@ mod tests {
         assert_eq!(
             found.iter().filter(|key| key.as_str() == "go:S126").count(),
             2,
-            "outer chain and standalone chain fire; the nested chain does not: {found:?}"
+            "outer and standalone chains fire; all nested branches end in return: {found:?}"
         );
     }
 
@@ -6592,3 +6937,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod s1110_supporting_location_tests;

@@ -8,10 +8,15 @@ use crate::{
     GoImports, ancestors, named_children, scope_binds_name, text, unwrap_parenthesized, walk,
 };
 
+#[cfg(test)]
+#[path = "s3776_file_local_tests.rs"]
+mod tests;
+
 #[derive(Clone, Default)]
 struct TypeFact {
     error: bool,
     returns: Vec<bool>,
+    receiver: Option<String>,
 }
 
 struct Binding {
@@ -22,20 +27,50 @@ struct Binding {
 pub(crate) struct ErrorGuardFacts {
     bindings: HashMap<usize, HashMap<String, Vec<Binding>>>,
     functions: HashMap<String, Vec<bool>>,
+    methods: HashMap<(String, String), Vec<bool>>,
     aliases: HashMap<String, TypeFact>,
     regexp_alias: Option<String>,
+    url_alias: Option<String>,
     error_type_shadowed: bool,
+    project_functions: HashMap<String, Vec<bool>>,
+    project_variables: HashMap<String, Vec<bool>>,
 }
 
 impl ErrorGuardFacts {
-    pub(crate) fn collect(root: Node<'_>, source: &str, imports: &GoImports) -> Self {
+    pub(crate) fn collect(
+        root: Node<'_>,
+        source: &str,
+        imports: &GoImports,
+        project: Option<&crate::project_error_index::PackageErrorFacts>,
+    ) -> Self {
         let mut facts = Self {
             bindings: HashMap::new(),
             functions: HashMap::new(),
+            methods: HashMap::new(),
             aliases: HashMap::new(),
             regexp_alias: imports.alias("regexp").map(str::to_owned),
+            url_alias: imports.alias("net/url").map(str::to_owned),
             error_type_shadowed: false,
+            project_functions: project.map_or_else(HashMap::new, |p| {
+                p.functions
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            }),
+            project_variables: project.map_or_else(HashMap::new, |p| {
+                p.variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            }),
         };
+        // File imports retain their own scope; aliases are never pooled.
+        facts
+            .project_functions
+            .retain(|name, _| !imports.aliases.values().any(|alias| alias == name));
+        facts
+            .project_variables
+            .retain(|name, _| !imports.aliases.values().any(|alias| alias == name));
         let mut declarations = Vec::new();
         let mut shadowed_aliases = HashSet::new();
         walk(root, &mut |node| {
@@ -66,6 +101,20 @@ impl ErrorGuardFacts {
                     .and_modify(Vec::clear)
                     .or_insert(result);
             }
+            if node.kind() == "method_declaration"
+                && let Some(name) = node.child_by_field_name("name")
+                && let Some(receiver) = node
+                    .child_by_field_name("receiver")
+                    .and_then(crate::first_named)
+                    .and_then(|parameter| parameter.child_by_field_name("type"))
+                    .and_then(|kind| Self::receiver_name(kind, source))
+            {
+                facts
+                    .methods
+                    .entry((receiver.to_owned(), text(name, source).to_owned()))
+                    .and_modify(Vec::clear)
+                    .or_insert_with(|| Self::function_type(node, source).returns);
+            }
             if matches!(
                 node.kind(),
                 "parameter_declaration" | "var_spec" | "short_var_declaration"
@@ -76,6 +125,9 @@ impl ErrorGuardFacts {
         facts
             .aliases
             .retain(|name, _| !shadowed_aliases.contains(name));
+        facts
+            .methods
+            .retain(|(receiver, _), _| !shadowed_aliases.contains(receiver));
         declarations.sort_by_key(Node::start_byte);
         for declaration in declarations {
             facts.collect_binding(declaration, source);
@@ -163,6 +215,7 @@ impl ErrorGuardFacts {
         TypeFact {
             error: false,
             returns,
+            receiver: None,
         }
     }
 
@@ -172,14 +225,28 @@ impl ErrorGuardFacts {
         } else if text(kind, source) == "error" {
             TypeFact {
                 error: true,
-                returns: Vec::new(),
+                ..TypeFact::default()
             }
         } else {
             self.aliases
                 .get(text(kind, source))
                 .cloned()
-                .unwrap_or_default()
+                .unwrap_or_else(|| TypeFact {
+                    receiver: Self::receiver_name(kind, source)
+                        .filter(|name| self.methods.keys().any(|(receiver, _)| receiver == name))
+                        .map(str::to_owned),
+                    ..TypeFact::default()
+                })
         }
+    }
+
+    fn receiver_name<'source>(kind: Node<'_>, source: &'source str) -> Option<&'source str> {
+        let kind = if kind.kind() == "pointer_type" {
+            crate::first_named(kind)?
+        } else {
+            kind
+        };
+        (kind.kind() == "type_identifier").then(|| text(kind, source))
     }
 
     fn collect_binding(&mut self, node: Node<'_>, source: &str) {
@@ -231,7 +298,7 @@ impl ErrorGuardFacts {
             .child_by_field_name("type")
             .map(|kind| self.declared_type(kind, source));
         for (index, name) in names.iter().enumerate() {
-            let fact = declared.clone().unwrap_or_else(|| {
+            let mut fact = declared.clone().unwrap_or_else(|| {
                 if values.len() == names.len() {
                     self.expression_type(values[index], 0, source)
                 } else if values.len() == 1 {
@@ -240,6 +307,11 @@ impl ErrorGuardFacts {
                     TypeFact::default()
                 }
             });
+            if scope.kind() == "source_file"
+                && let Some(returns) = self.project_variables.get(text(*name, source))
+            {
+                fact.returns.clone_from(returns);
+            }
             self.bindings
                 .entry(scope.id())
                 .or_default()
@@ -264,6 +336,15 @@ impl ErrorGuardFacts {
                 .cloned()
                 .unwrap_or_default();
         }
+        if node.kind() == "type_assertion_expression"
+            && index == 0
+            && let Some(kind) = node.child_by_field_name("type")
+        {
+            return TypeFact {
+                receiver: self.declared_type(kind, source).receiver,
+                ..TypeFact::default()
+            };
+        }
         let Some(function) = node
             .child_by_field_name("function")
             .map(unwrap_parenthesized)
@@ -277,24 +358,91 @@ impl ErrorGuardFacts {
                 .map(|fact| &fact.returns)
                 .or_else(|| {
                     (!crate::identifier_is_locally_bound(function, name, source))
-                        .then(|| self.functions.get(name))
+                        .then(|| {
+                            self.functions.get(name).or_else(|| {
+                                (!project_type_is_locally_bound(function, name, source))
+                                    .then(|| {
+                                        self.project_functions
+                                            .get(name)
+                                            .or_else(|| self.project_variables.get(name))
+                                    })
+                                    .flatten()
+                            })
+                        })
                         .flatten()
                 });
             returns
                 .and_then(|returns| returns.get(index))
                 .copied()
                 .unwrap_or(false)
-        } else if let Some((receiver, method)) = crate::selector_parts(function, source) {
-            index == 1
-                && method == "Compile"
-                && self.regexp_alias.as_deref() == Some(receiver)
-                && !crate::identifier_is_locally_bound(function, receiver, source)
+        } else if function.kind() == "selector_expression" {
+            self.selector_returns_error(function, index, source)
         } else {
             false
         };
         TypeFact {
             error,
-            returns: Vec::new(),
+            ..TypeFact::default()
         }
     }
+
+    fn selector_returns_error(&self, function: Node<'_>, index: usize, source: &str) -> bool {
+        let Some((receiver, method)) = crate::selector_parts(function, source) else {
+            return false;
+        };
+        if index == 1
+            && ((method == "Compile" && self.regexp_alias.as_deref() == Some(receiver))
+                || (method == "QueryUnescape" && self.url_alias.as_deref() == Some(receiver)))
+            && !crate::identifier_is_locally_bound(function, receiver, source)
+        {
+            return true;
+        }
+        let Some(operand) = function
+            .child_by_field_name("operand")
+            .map(unwrap_parenthesized)
+            .filter(|operand| operand.kind() == "identifier")
+        else {
+            return false;
+        };
+        self.lookup(operand, text(operand, source), source)
+            .and_then(|fact| fact.receiver.as_ref())
+            .and_then(|receiver| self.methods.get(&(receiver.clone(), method.to_owned())))
+            .and_then(|returns| returns.get(index))
+            .copied()
+            .unwrap_or(false)
+    }
+}
+
+fn project_type_is_locally_bound(call: Node<'_>, name: &str, source: &str) -> bool {
+    ancestors(call)
+        .filter(|scope| {
+            matches!(
+                scope.kind(),
+                "block" | "expression_case" | "type_case" | "default_case"
+            )
+        })
+        .any(|scope| {
+            let statements = named_children(scope)
+                .into_iter()
+                .find(|n| n.kind() == "statement_list")
+                .map_or_else(|| named_children(scope), named_children);
+            statements
+                .into_iter()
+                .take_while(|n| n.start_byte() < call.start_byte())
+                .any(|statement| {
+                    if statement.kind() != "type_declaration"
+                        || statement.end_byte() > call.start_byte()
+                    {
+                        return false;
+                    }
+                    let mut found = false;
+                    walk(statement, &mut |node| {
+                        found |= matches!(node.kind(), "type_spec" | "type_alias")
+                            && node
+                                .child_by_field_name("name")
+                                .is_some_and(|n| text(n, source) == name);
+                    });
+                    found
+                })
+        })
 }
