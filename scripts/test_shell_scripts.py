@@ -263,7 +263,8 @@ class OwnedShellScriptTests(unittest.TestCase):
     def test_analyze_publishes_valid_report_before_propagating_exit_two(self):
         report = (
             '{"rules":[{"id":"R1","severity":"MAJOR"}],'
-            '"issues":[{"ruleId":"R1"}]}\n'
+            '"issues":[{"ruleId":"R1","primaryLocation":'
+            '{"message":"Example finding","filePath":"src/example.py"}}]}\n'
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
