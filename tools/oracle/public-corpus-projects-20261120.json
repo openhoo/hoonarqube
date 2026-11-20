@@ -1,0 +1,418 @@
+{
+  "pilot": [
+    {
+      "name": "requests",
+      "repository": "psf/requests",
+      "ref": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "tree": "10caa09e09cd366febe74c2afa345939ffd5691f",
+      "sources": [
+        "src/requests"
+      ],
+      "exclude": [],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-requests"
+    }
+  ],
+  "captures": [
+    {
+      "name": "werkzeug",
+      "repository": "pallets/werkzeug",
+      "ref": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+      "tree": "307954153426c43960b35906da0a4d82d8eced81",
+      "sources": [
+        "src/werkzeug"
+      ],
+      "exclude": [
+        "**/*.css"
+      ],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-werkzeug"
+    },
+    {
+      "name": "commander",
+      "repository": "tj/commander.js",
+      "ref": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "tree": "ea7f757f861aba3926265ffc2b0955dd73a9684b",
+      "sources": [
+        "index.js",
+        "lib"
+      ],
+      "exclude": [],
+      "language": "js",
+      "project_key": "hq-corpus-20261120-commander"
+    },
+    {
+      "name": "chi",
+      "repository": "go-chi/chi",
+      "ref": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "tree": "78ea402444f50acbf2de96c413503d75ef8b6e54",
+      "sources": [
+        "."
+      ],
+      "exclude": [
+        "**/*_test.go",
+        "_examples/**"
+      ],
+      "language": "go",
+      "project_key": "hq-corpus-20261120-chi"
+    },
+    {
+      "name": "zod",
+      "repository": "colinhacks/zod",
+      "ref": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "tree": "24b5b50586a05b5f1965c6ee6b2b2b442b6eeffb",
+      "sources": [
+        "packages/zod/src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benchmarks/**"
+      ],
+      "language": "ts",
+      "project_key": "hq-corpus-20261120-zod"
+    },
+    {
+      "name": "flask",
+      "repository": "pallets/flask",
+      "ref": "refs/tags/3.1.2",
+      "commit": "2c1b30d0503cfb064f1cb252e6614a06915a362a",
+      "tree": "1f787a439328e6397cab9f7b79f0f6350031d7d1",
+      "sources": [
+        "src/flask"
+      ],
+      "exclude": [],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-flask"
+    },
+    {
+      "name": "click",
+      "repository": "pallets/click",
+      "ref": "refs/tags/8.2.1",
+      "commit": "fd183b2ced1cb5857784fe7fb22f4982f671f098",
+      "tree": "9d603ea306b13bd10ef094a845b3bbb16f520bc7",
+      "sources": [
+        "src/click"
+      ],
+      "exclude": [],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-click"
+    },
+    {
+      "name": "jinja",
+      "repository": "pallets/jinja",
+      "ref": "refs/tags/3.1.6",
+      "commit": "15206881c006c79667fe5154fe80c01c65410679",
+      "tree": "e200557b4756d9367d7a08930480efe5ad867bc5",
+      "sources": [
+        "src/jinja2"
+      ],
+      "exclude": [],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-jinja"
+    },
+    {
+      "name": "attrs",
+      "repository": "python-attrs/attrs",
+      "ref": "refs/tags/25.3.0",
+      "commit": "3dca08ce5bbe673d7df25f44f3dda92505d1043d",
+      "tree": "2f143c350d12dc394f3320a2d4e259dda86874d7",
+      "sources": [
+        "src/attr",
+        "src/attrs"
+      ],
+      "exclude": [],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-attrs"
+    },
+    {
+      "name": "fastapi",
+      "repository": "fastapi/fastapi",
+      "ref": "refs/tags/0.116.1",
+      "commit": "313723494be79d4b24ccaa60e4f6d1f96c150fed",
+      "tree": "3d6c45f96703b383450789a78567bfcaec6bb4e9",
+      "sources": [
+        "fastapi"
+      ],
+      "exclude": [],
+      "language": "py",
+      "project_key": "hq-corpus-20261120-fastapi"
+    },
+    {
+      "name": "chalk",
+      "repository": "chalk/chalk",
+      "ref": "refs/tags/v5.4.1",
+      "commit": "5dbc1e2633f3874f43c144fa4919934bc934c495",
+      "tree": "8fc5ee60aefbf8cd90742d2781521533071e595b",
+      "sources": [
+        "source"
+      ],
+      "exclude": [],
+      "language": "js",
+      "project_key": "hq-corpus-20261120-chalk"
+    },
+    {
+      "name": "axios",
+      "repository": "axios/axios",
+      "ref": "refs/tags/v1.12.2",
+      "commit": "e5a33366d75b65f88052b230b103731eb7dcb793",
+      "tree": "ae737fcd70971e8be70657c0ac0c87d603b4a117",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [],
+      "language": "js",
+      "project_key": "hq-corpus-20261120-axios"
+    },
+    {
+      "name": "redux",
+      "repository": "reduxjs/redux",
+      "ref": "refs/tags/v5.0.1",
+      "commit": "50b010210df25c470386f7e39a9389a4a77b3842",
+      "tree": "47c668c1c25a6d996a01dc03dec7bcb9478585dd",
+      "sources": [
+        "src"
+      ],
+      "exclude": [],
+      "language": "ts",
+      "project_key": "hq-corpus-20261120-redux"
+    },
+    {
+      "name": "ajv",
+      "repository": "ajv-validator/ajv",
+      "ref": "refs/tags/v8.17.1",
+      "commit": "9050ba1359fb87cd7c143f3c79513ea7624ea443",
+      "tree": "97327f3e4bdbab48e38f3eebe698148d61537e53",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [],
+      "language": "ts",
+      "project_key": "hq-corpus-20261120-ajv"
+    },
+    {
+      "name": "mux",
+      "repository": "gorilla/mux",
+      "ref": "refs/tags/v1.8.1",
+      "commit": "b4617d0b9670ad14039b2739167fd35a60f557c5",
+      "tree": "c8380e4bc1743c193f5a6c3b2ad6268fac129fb4",
+      "sources": [
+        "."
+      ],
+      "exclude": [
+        "**/*_test.go",
+        "**/testdata/**"
+      ],
+      "language": "go",
+      "project_key": "hq-corpus-20261120-mux"
+    },
+    {
+      "name": "cors",
+      "repository": "go-chi/cors",
+      "ref": "refs/tags/v1.2.2",
+      "commit": "3a5381283113550282a3dcfba669a48ba4691d84",
+      "tree": "45d77bbd3fe101bef6076b43f08254c8aac4caee",
+      "sources": [
+        "."
+      ],
+      "exclude": [
+        "**/*_test.go",
+        "_examples/**"
+      ],
+      "language": "go",
+      "project_key": "hq-corpus-20261120-cors"
+    },
+    {
+      "name": "pflag",
+      "repository": "spf13/pflag",
+      "ref": "refs/tags/v1.0.6",
+      "commit": "5ca813443bd2a4d9f46a253ea0407d23b3790713",
+      "tree": "08163a44df887d7beeb7c10a26ea36badf8d7af8",
+      "sources": [
+        "."
+      ],
+      "exclude": [
+        "**/*_test.go",
+        "**/testdata/**"
+      ],
+      "language": "go",
+      "project_key": "hq-corpus-20261120-pflag"
+    },
+    {
+      "name": "rack",
+      "repository": "rack/rack",
+      "ref": "refs/tags/v3.1.8",
+      "commit": "0eabeb73b3fb590e187dacfd9a890fbb7ffb9477",
+      "tree": "cd1052296661e4de09b8d9f72acd43d976bec812",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [],
+      "language": "ruby",
+      "project_key": "hq-corpus-20261120-rack"
+    },
+    {
+      "name": "sinatra",
+      "repository": "sinatra/sinatra",
+      "ref": "refs/tags/v4.1.1",
+      "commit": "7b50a1bbb5324838908dfaa00ec53ad322673a29",
+      "tree": "166815c315bb3cb12d9a63aa28ca79a943ee8b53",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [],
+      "language": "ruby",
+      "project_key": "hq-corpus-20261120-sinatra"
+    },
+    {
+      "name": "jekyll",
+      "repository": "jekyll/jekyll",
+      "ref": "refs/tags/v4.4.1",
+      "commit": "1f319fb273b6cdf876bc6edd38d7477935cdda8c",
+      "tree": "fe1de4cfb03ea6e36a749a13ea0e3fbec16885e5",
+      "sources": [
+        "lib/jekyll",
+        "lib/jekyll.rb"
+      ],
+      "exclude": [],
+      "language": "ruby",
+      "project_key": "hq-corpus-20261120-jekyll"
+    },
+    {
+      "name": "rails-active-support",
+      "repository": "rails/rails",
+      "ref": "refs/tags/v8.0.2",
+      "commit": "3235827585d87661942c91bc81f64f56d710f0b2",
+      "tree": "f3e082edc5c7d8d49d4847ec8c0656ddfc0f649a",
+      "sources": [
+        "activesupport/lib/active_support",
+        "activesupport/lib/active_support.rb"
+      ],
+      "exclude": [],
+      "language": "ruby",
+      "project_key": "hq-corpus-20261120-rails-active-support"
+    },
+    {
+      "name": "clap",
+      "repository": "clap-rs/clap",
+      "ref": "refs/tags/v4.5.48",
+      "commit": "8e3d03639756241aa2b7dd624a7f5852bef76f31",
+      "tree": "b395c3a2c598fc6fb760fc8ff6799ceb89cf4332",
+      "sources": [
+        "clap_builder/src"
+      ],
+      "exclude": [],
+      "language": "rust",
+      "project_key": "hq-corpus-20261120-clap"
+    }
+  ],
+  "additional": [
+    {
+      "name": "javapoet",
+      "repository": "square/javapoet",
+      "ref": "refs/tags/javapoet-1.13.0",
+      "commit": "714e05ca60179285746604452324262b126dcb2d",
+      "tree": "34185bdc3331d62cd3ff397ae07776230ec0aa53",
+      "sources": [
+        "src/main/java"
+      ],
+      "exclude": [],
+      "language": "java",
+      "project_key": "hq-corpus-20261120-javapoet",
+      "java_release": "8"
+    },
+    {
+      "name": "commons-cli",
+      "repository": "apache/commons-cli",
+      "ref": "refs/tags/rel/commons-cli-1.9.0",
+      "commit": "698b238276c0e22e97e4aec703a0b00201d29666",
+      "tree": "8382f5f45081b8adec8bc7bd581949271926dfd0",
+      "sources": [
+        "src/main/java"
+      ],
+      "exclude": [],
+      "language": "java",
+      "project_key": "hq-corpus-20261120-commons-cli",
+      "java_release": "8"
+    },
+    {
+      "name": "commons-lang",
+      "repository": "apache/commons-lang",
+      "ref": "refs/tags/rel/commons-lang-3.12.0",
+      "commit": "105a350b154eac7c3f3a6bac94ec2cfb0fbe232b",
+      "tree": "8f328615f95cb3c426e52dcc09136506b8cb98da",
+      "sources": [
+        "src/main/java"
+      ],
+      "exclude": [],
+      "language": "java",
+      "project_key": "hq-corpus-20261120-commons-lang",
+      "java_release": "8"
+    },
+    {
+      "name": "rake",
+      "repository": "ruby/rake",
+      "ref": "refs/tags/v13.3.0",
+      "commit": "0fdacef47aa9a4140e472b0ce302a2dd09423a75",
+      "tree": "1db8a24705300445357ffb19561349a030c1d5f9",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [],
+      "language": "ruby",
+      "project_key": "hq-corpus-20261120-rake"
+    },
+    {
+      "name": "serde-json",
+      "repository": "serde-rs/json",
+      "ref": "refs/tags/v1.0.140",
+      "commit": "762783414e6c4f8d670c9d87eb04913efb80d3be",
+      "tree": "5ddb43d4f9c54e31e0d0adf98cca47e34920351c",
+      "sources": [
+        "src"
+      ],
+      "exclude": [],
+      "language": "rust",
+      "project_key": "hq-corpus-20261120-serde-json"
+    }
+  ],
+  "aligned": [
+    {
+      "name": "chalk-aligned",
+      "repository": "chalk/chalk",
+      "ref": "refs/tags/v5.4.1",
+      "commit": "5dbc1e2633f3874f43c144fa4919934bc934c495",
+      "tree": "8fc5ee60aefbf8cd90742d2781521533071e595b",
+      "sources": [
+        "source"
+      ],
+      "exclude": [
+        "source/index.d.ts",
+        "source/vendor/**"
+      ],
+      "language": "js",
+      "project_key": "hq-corpus-20261120-chalk-aligned",
+      "variant_of": "chalk"
+    },
+    {
+      "name": "redux-without-parser-failure",
+      "repository": "reduxjs/redux",
+      "ref": "refs/tags/v5.0.1",
+      "commit": "50b010210df25c470386f7e39a9389a4a77b3842",
+      "tree": "47c668c1c25a6d996a01dc03dec7bcb9478585dd",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "src/types/store.ts"
+      ],
+      "language": "ts",
+      "project_key": "hq-corpus-20261120-redux-without-parser-failure",
+      "variant_of": "redux"
+    }
+  ]
+}
