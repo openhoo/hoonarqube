@@ -94,26 +94,8 @@ impl ErrorGuardFacts {
         let mut declarations = Vec::new();
         let mut shadowed_aliases = HashSet::new();
         walk(root, &mut |node| {
-            if matches!(node.kind(), "type_spec" | "type_alias")
-                && let Some(name) = node.child_by_field_name("name")
-            {
-                let name = text(name, source);
-                facts.error_type_shadowed |= name == "error";
-                if ancestors(node).any(crate::is_function) {
-                    shadowed_aliases.insert(name.to_owned());
-                } else if node.kind() == "type_spec"
-                    && let Some(kind) = node.child_by_field_name("type")
-                {
-                    if kind.kind() == "function_type" {
-                        facts
-                            .aliases
-                            .insert(name.to_owned(), Self::function_type(kind, source));
-                    } else if kind.kind() == "struct_type"
-                        && node.child_by_field_name("type_parameters").is_none()
-                    {
-                        facts.collect_struct_callbacks(kind, name, source);
-                    }
-                }
+            if matches!(node.kind(), "type_spec" | "type_alias") {
+                facts.collect_type_declaration(node, source, &mut shadowed_aliases);
             }
             if node.kind() == "function_declaration"
                 && let Some(name) = node.child_by_field_name("name")
@@ -157,6 +139,39 @@ impl ErrorGuardFacts {
             facts.collect_binding(declaration, source);
         }
         facts
+    }
+
+    fn collect_type_declaration(
+        &mut self,
+        node: Node<'_>,
+        source: &str,
+        shadowed_aliases: &mut HashSet<String>,
+    ) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let name = text(name, source);
+        self.error_type_shadowed |= name == "error";
+        if ancestors(node).any(crate::is_function) {
+            shadowed_aliases.insert(name.to_owned());
+            return;
+        }
+        if node.kind() != "type_spec" {
+            return;
+        }
+        let Some(kind) = node.child_by_field_name("type") else {
+            return;
+        };
+        match kind.kind() {
+            "function_type" => {
+                self.aliases
+                    .insert(name.to_owned(), Self::function_type(kind, source));
+            }
+            "struct_type" if node.child_by_field_name("type_parameters").is_none() => {
+                self.collect_struct_callbacks(kind, name, source);
+            }
+            _ => {}
+        }
     }
 
     fn collect_struct_callbacks(&mut self, kind: Node<'_>, receiver: &str, source: &str) {

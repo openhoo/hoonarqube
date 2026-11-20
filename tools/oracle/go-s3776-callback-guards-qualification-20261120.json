@@ -2,7 +2,7 @@
   "claim": "Go S3776 nil guards on directly typed callback fields and the error result of os.Stat / strconv.ParseBool.",
   "date": "2026-11-20",
   "parent": "b8411407357d1eabf8d2bce59035d7343996e6ec",
-  "native_binary_sha256": "b45b4f60727c3c51eb60d75d5c931fec3770baea116cdb390289c619067b5326",
+  "native_binary_sha256": "d42e60f9e10026d218631065f9424b6e8cc89f17c5d7d7598a7645c5f7ed6605",
   "reference": {
     "product": "SonarQube Community Build 26.9.0.129388",
     "go_analyzer": "1.43.0.7704",
