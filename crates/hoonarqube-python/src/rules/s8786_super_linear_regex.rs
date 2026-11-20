@@ -29,8 +29,8 @@ const MESSAGE: &str = "Simplify this regular expression to reduce its runtime, a
 /// runs in free-end mode. Pairs additionally require forward reachability
 /// plus the three intersection conditions on the elements and the gap
 /// between them, and a partial-match site flags any repetition reachable
-/// from the pattern start without consuming input (the implicit `.*?`
-/// prefix overlap).
+/// from the pattern start without consuming input or crossing a mandatory
+/// boundary (the implicit `.*?` prefix overlap).
 pub(crate) fn check_s8786_super_linear_regex(
     index: &LineIndex,
     source: &str,
@@ -254,15 +254,19 @@ fn lookaround_body_reaches_end(node: &RxNode) -> bool {
     }
 }
 
-/// `canReachWithoutConsumingInput(startOfRegex, rep)`: every item before
-/// `index` is skippable (using the original branch graph).
+/// `canReachWithoutConsumingInputNorCrossingBoundaries(startOfRegex, rep)`:
+/// every preceding item is skippable without crossing a mandatory boundary.
 fn reachable_from_start(lin: &[&RxItem], index: usize) -> bool {
     lin[..index].iter().all(|item| {
+        // Anchors are nullable, but the implicit search prefix cannot cross
+        // a mandatory boundary. Optional boundaries can still be skipped.
+        if matches!(&item.atom, RxAtom::Anchor(_)) {
+            return item.quant.as_ref().is_some_and(|quant| quant.min == 0);
+        }
         if item_is_nullable(item) {
             return true;
         }
         match &item.atom {
-            RxAtom::Anchor(_) => true,
             RxAtom::Group(group)
                 if matches!(
                     group.kind,
@@ -387,5 +391,128 @@ mod tests {
                 "{pattern}"
             );
         }
+    }
+
+    // Native reductions for the pinned installed no-cross-boundary heuristic.
+    // These assertions do not certify regex runtime complexity.
+    fn implicit_targets(source: &str) -> Vec<hoonarqube_ir::Issue> {
+        findings(&scan(source), "python:S8786")
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    fn implicit_source(expression: &str) -> String {
+        format!("import re\n{expression}\n")
+    }
+
+    fn implicit_expected(source: &str, pattern: &str) -> hoonarqube_ir::Issue {
+        use hoonarqube_ir::{Issue, Pos, Range};
+        let opener = format!("r\"{pattern}\"");
+        let start = source.find(&opener).expect("literal pattern") + 2;
+        let pos = |offset: usize| {
+            let prefix = &source[..offset];
+            Pos {
+                line: u32::try_from(prefix.bytes().filter(|&byte| byte == b'\n').count() + 1)
+                    .expect("line"),
+                column: u32::try_from(prefix.rsplit('\n').next().unwrap().chars().count())
+                    .expect("column"),
+            }
+        };
+        Issue::new(
+            "python:S8786",
+            "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking.",
+            Range {
+                start: pos(start),
+                end: pos(start + pattern.len()),
+            },
+        )
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_original_click_pattern_is_clean() {
+        let source = implicit_source(r#"re.search(r"^(\d+)\.(\d+)\.\d+", text)"#);
+        assert!(implicit_targets(&source).is_empty());
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_mandatory_direct_assertions_are_clean() {
+        for pattern in [r"^a+Z", r"\Aa+Z", r"\ba+Z", r"\Ba+Z"] {
+            let source = implicit_source(&format!(r#"re.search(r"{pattern}", text)"#));
+            assert!(implicit_targets(&source).is_empty(), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_transparent_groups_and_anchored_branches_are_clean() {
+        for pattern in [r"(^a+)Z", r"(?:^a+)Z", r"^a+Z|^b+Z"] {
+            let source = implicit_source(&format!(r#"re.search(r"{pattern}", text)"#));
+            assert!(implicit_targets(&source).is_empty(), "{pattern}");
+        }
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_optional_and_unanchored_paths_remain_reported() {
+        for pattern in [r"a+Z", r"^a+Z|b+Z", r"(?:^)?a+Z"] {
+            let source = implicit_source(&format!(r#"re.search(r"{pattern}", text)"#));
+            assert_eq!(
+                implicit_targets(&source),
+                vec![implicit_expected(&source, pattern)]
+            );
+        }
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_anchored_internal_overlap_remains_reported() {
+        for pattern in [r"^a+a+Z", r"\Aa+a+Z"] {
+            let source = implicit_source(&format!(r#"re.search(r"{pattern}", text)"#));
+            assert_eq!(
+                implicit_targets(&source),
+                vec![implicit_expected(&source, pattern)]
+            );
+        }
+        assert!(implicit_targets(&implicit_source(r#"re.search(r"^a+b+Z", text)"#)).is_empty());
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_match_usage_and_compiled_usage_are_preserved() {
+        for expression in [
+            r#"re.fullmatch(r"a+Z", text)"#,
+            r#"re.match(r"a+Z", text)"#,
+            "pattern = re.compile(r\"^a+Z\")\npattern.search(text)",
+            "pattern = re.compile(r\"^a+Z\")\npattern.fullmatch(text)",
+            "pattern = re.compile(r\"^a+Z\")\npattern.search(text)\npattern.fullmatch(text)",
+        ] {
+            assert!(
+                implicit_targets(&implicit_source(expression)).is_empty(),
+                "{expression}"
+            );
+        }
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_flags_retain_the_installed_heuristic() {
+        // MULTILINE/DOTALL do not relax the pinned Sonar helper. This is a
+        // detector contract, not a guarantee about actual runtime complexity.
+        for expression in [
+            r#"re.search(r"^a+Z", text, re.MULTILINE)"#,
+            r#"re.search(r"^.*Z", text, re.MULTILINE | re.DOTALL)"#,
+            r#"re.search(r"(?m)^a+Z", text)"#,
+            r#"re.search(r"(?m:^a+)Z", text)"#,
+        ] {
+            assert!(
+                implicit_targets(&implicit_source(expression)).is_empty(),
+                "{expression}"
+            );
+        }
+    }
+
+    #[test]
+    fn s8786_implicit_boundaries_unicode_crlf_retains_exact_positive_range() {
+        let source = "import re\r\nmarker = \"😀\"; re.search(r\"^a+Z\", text); re.search(r\"a+Z\", text)\r\n";
+        assert_eq!(
+            implicit_targets(source),
+            vec![implicit_expected(source, "a+Z")]
+        );
     }
 }
