@@ -8,14 +8,18 @@ steps require Bash 4+, `jq`, and GNU coreutils (including `realpath -m` for
 SARIF path normalization), as provided by GitHub Ubuntu runners. Supplying a
 local `executable` skips installation but retains those shell dependencies.
 
-To verify the SARIF publication contract locally with those tools installed:
+To verify the report publication contracts locally with those tools installed:
 
 ```sh
 python3 -m unittest discover -s actions/tests -v
 ```
 
-The action publishes exactly one validated SARIF JSON document. Invalid or
-concatenated documents leave any existing report untouched.
+Both analysis actions publish exactly one validated JSON document. Invalid or
+concatenated documents leave any existing report untouched. Generic Issue
+Import validation checks unique rule IDs, supported severities, finding-to-rule
+references, and primary/secondary locations with ordered numeric ranges. Both
+actions accept newline-separated paths with LF or CRLF line endings and
+preserve spaces and leading dashes in each source path.
 
 ## SonarQube Generic Issue Import
 
