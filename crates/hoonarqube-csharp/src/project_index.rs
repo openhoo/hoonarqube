@@ -98,12 +98,24 @@ impl ProjectTypeIndex {
     /// are skipped, matching the analyzer's per-file acceptance contract.
     #[must_use]
     pub fn build(sources: &[SourceSnapshot]) -> Self {
-        let mut types: BTreeMap<String, Vec<IndexedType>> = BTreeMap::new();
-        for snapshot in sources {
-            if is_razor_path(&snapshot.path) {
-                continue;
+        Self::from_sources(
+            sources
+                .iter()
+                .map(|snapshot| (snapshot.path.as_path(), snapshot.source.as_str())),
+        )
+    }
+
+    /// Builds the syntax index in input order without retaining source text.
+    /// Callers can supply existing snapshots or read one owned source at a time.
+    #[must_use]
+    pub fn from_sources<'a, S: AsRef<str>>(
+        sources: impl IntoIterator<Item = (&'a Path, S)>,
+    ) -> Self {
+        let mut types = BTreeMap::new();
+        for (path, source) in sources {
+            if !is_razor_path(path) {
+                index_source(path, source.as_ref(), &mut types);
             }
-            index_source(&snapshot.path, &snapshot.source, &mut types);
         }
         Self {
             digest: index_digest(&types),
