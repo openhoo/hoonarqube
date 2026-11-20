@@ -102,17 +102,23 @@ jobs:
           install -m 0644 LICENSE README.md "dist/$package/"
           tar -C dist -czf "dist/$package.tar.gz" "$package"
 
-      - name: Smoke packaged binaries on Debian bookworm
+      - name: Verify archived CLI and service, including Debian bookworm startup
         env:
           RELEASE_VERSION: ${{ needs.release.outputs.version }}
         run: |
           set -euo pipefail
           package="hoonarqube-${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
-          docker run --rm -v "$PWD/dist/$package:/work:ro" \
+          extracted="$(mktemp -d)"
+          trap 'rm -rf "$extracted"' EXIT
+          tar -C "$extracted" -xzf "dist/$package.tar.gz"
+          # Old tags do not contain the current workflow's acceptance script.
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/smoke_cli_service.py" > "$extracted/smoke.py"
+          python3 "$extracted/smoke.py" "$extracted/$package"
+          docker run --rm --network none -v "$extracted/$package:/work:ro" \
             docker.io/library/debian:bookworm-slim \
             /work/hoonarqube --version
           status=0
-          docker run --rm -v "$PWD/dist/$package:/work:ro" \
+          docker run --rm --network none -v "$extracted/$package:/work:ro" \
             -e HOONARQUBE_SERVICE_CREDENTIALS='[{"user_id":"smoke","token":"smoke-token","projects":{},"global_admin":false}]' \
             -e HOONARQUBE_SERVICE_DB=/tmp/smoke.sqlite3 \
             -e HOONARQUBE_SERVICE_BIND=127.0.0.1:18080 \
@@ -241,17 +247,23 @@ jobs:
           install -m 0644 LICENSE README.md "dist/$package/"
           tar -C dist -czf "dist/$package.tar.gz" "$package"
 
-      - name: Smoke packaged binaries on Debian bookworm
+      - name: Verify archived CLI and service, including Debian bookworm startup
         env:
           RELEASE_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
           package="hoonarqube-${RELEASE_VERSION}-x86_64-unknown-linux-gnu"
-          docker run --rm -v "$PWD/dist/$package:/work:ro" \
+          extracted="$(mktemp -d)"
+          trap 'rm -rf "$extracted"' EXIT
+          tar -C "$extracted" -xzf "dist/$package.tar.gz"
+          # Old tags do not contain the current workflow's acceptance script.
+          git show "${GITHUB_WORKFLOW_SHA}:scripts/smoke_cli_service.py" > "$extracted/smoke.py"
+          python3 "$extracted/smoke.py" "$extracted/$package"
+          docker run --rm --network none -v "$extracted/$package:/work:ro" \
             docker.io/library/debian:bookworm-slim \
             /work/hoonarqube --version
           status=0
-          docker run --rm -v "$PWD/dist/$package:/work:ro" \
+          docker run --rm --network none -v "$extracted/$package:/work:ro" \
             -e HOONARQUBE_SERVICE_CREDENTIALS='[{"user_id":"smoke","token":"smoke-token","projects":{},"global_admin":false}]' \
             -e HOONARQUBE_SERVICE_DB=/tmp/smoke.sqlite3 \
             -e HOONARQUBE_SERVICE_BIND=127.0.0.1:18080 \

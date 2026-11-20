@@ -76,12 +76,10 @@ jobs:
           dotnet build tools/semantic/csharp/CSharpSemanticHelper.csproj --configuration Release --nologo
           node --check tools/semantic/typescript/semantic-helper.cjs
 
-      - name: Release version synchronization
+      - name: Release version and repository script tests
         run: |
           python3 scripts/sync_release_version.py --check
-          python3 -m unittest scripts/test_sync_release_version.py
-          python3 -m unittest scripts/test_shell_scripts.py
-          python3 -m unittest scripts/test_issue_queue.py
+          python3 -m unittest discover -s scripts -p 'test_*.py' -v
           python3 -m unittest discover -s actions/tests -v
 
       - name: Dashboard asynchronous state isolation
@@ -94,6 +92,14 @@ jobs:
         run: |
           cargo metadata --locked --format-version 1 --no-deps |
             jq -e 'all(.packages[]; .publish == [])'
+
+      - name: Keep scanner dependencies out of the report service
+        run: |
+          cargo tree --locked -p hoonarqube-service --edges normal,build --prefix none > "$RUNNER_TEMP/service-tree"
+          if grep -E '^hoonarqube-(core|csharp|go|java|jsts|python|ruby|rust) v' "$RUNNER_TEMP/service-tree"; then
+            echo "::error::The production report service must build without language analyzers."
+            exit 1
+          fi
 
       - name: Rust lint
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
@@ -246,8 +252,11 @@ jobs:
           shared-key: ci
           save-if: false
 
-      - name: Build current Code Quality CLI
-        run: cargo build --locked -p hoonarqube-cli
+      - name: Build current CLI and service
+        run: cargo build --locked -p hoonarqube-cli -p hoonarqube-service
+
+      - name: Scan, ingest and reopen a persisted analysis
+        run: python3 scripts/smoke_cli_service.py target/debug
 
       - name: GitHub Code Quality action smoke (upload disabled)
         id: code-quality-smoke
