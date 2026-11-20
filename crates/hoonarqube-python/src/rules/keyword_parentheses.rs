@@ -238,13 +238,35 @@ fn report_clause(
     if !removal_preserves_semantics(role, ctx.parsed, ctx.source, pair) {
         return;
     }
+    // SonarPython's NOT visitor unwraps exactly one parenthesized tree and
+    // reports its child. Keep inner pairs, but exclude surrounding trivia;
+    // the Ruff expression range alone would unwrap every grouping layer.
+    let primary_range = if role == ClauseRole::Not {
+        let interior = TextRange::new(
+            pair.start() + TextSize::of('('),
+            pair.end() - TextSize::of(')'),
+        );
+        let mut significant = ctx
+            .tokens
+            .in_range(interior)
+            .iter()
+            .filter(|token| !token.kind().is_trivia());
+        significant.next().map_or(pair, |first| {
+            TextRange::new(
+                first.start(),
+                significant.next_back().unwrap_or(first).end(),
+            )
+        })
+    } else {
+        pair
+    };
     let mut issue = Issue {
         rule_key: "python:S1721".to_string(),
         message: format!(
             "Remove the parentheses after this \"{}\" keyword.",
             role.keyword()
         ),
-        range: to_range(pair, ctx.index, ctx.source),
+        range: to_range(primary_range, ctx.index, ctx.source),
         fix: None,
         alternatives: Vec::new(),
         flows: Vec::new(),
@@ -605,5 +627,78 @@ mod tests {
         let report = scan("def f(xs):\n    return(x for x in xs)\n");
         // Removal does not parse, so the site is not reported at all.
         assert!(findings(&report, "python:S1721").is_empty());
+    }
+
+    #[test]
+    fn not_primary_unwraps_one_pair_and_preserves_complete_fixes() {
+        use hoonarqube_ir::{Fix, Issue, Pos, Range, TextEdit};
+
+        for (source, start, end, opening, closing) in [
+            ("ok = not (left == right)\n", 10, 23, 9, 23),
+            ("ok = not (value)\n", 10, 15, 9, 15),
+            ("ok = not ((value))\n", 10, 17, 9, 17),
+            ("ok = not (  left == right \t)\n", 12, 25, 9, 27),
+            ("ok = not(value)\n", 9, 14, 8, 14),
+            ("é = 0; ok = not (ü)\n", 17, 18, 16, 18),
+        ] {
+            let range = |start, end| Range {
+                start: Pos {
+                    line: 1,
+                    column: start,
+                },
+                end: Pos {
+                    line: 1,
+                    column: end,
+                },
+            };
+            let expected = Issue {
+                rule_key: "python:S1721".to_string(),
+                message: "Remove the parentheses after this \"not\" keyword.".to_string(),
+                range: range(start, end),
+                fix: Some(Fix::new(
+                    "Remove redundant parentheses",
+                    vec![
+                        TextEdit {
+                            range: range(opening, opening + 1),
+                            replacement: " ".to_string(),
+                        },
+                        TextEdit {
+                            range: range(closing, closing + 1),
+                            replacement: String::new(),
+                        },
+                    ],
+                )),
+                alternatives: Vec::new(),
+                flows: Vec::new(),
+            };
+            let report = scan(source);
+            assert_eq!(
+                findings(&report, "python:S1721"),
+                vec![&expected],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn not_range_change_keeps_other_keyword_pairs_and_refusals() {
+        let source = "def f(value):\n    return (value)\n";
+        let report = scan(source);
+        let selected = findings(&report, "python:S1721");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].range.start.column, 11);
+        assert_eq!(selected[0].range.end.column, 18);
+        for source in [
+            "ok = not (ready and able)\n",
+            "ok = not (ready or able)\n",
+            "ok = not (value := 1)\n",
+            "ok = not ()\n",
+            "ok = not (x for x in values)\n",
+            "ok = not (\n    value\n)\n",
+            "ok = not (value,)\n",
+        ] {
+            assert!(findings_in(source).is_empty(), "{source}");
+        }
+        assert!(messages_for("tests/test_case.py", "ok = not (value)\n").is_empty());
     }
 }
