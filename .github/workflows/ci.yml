@@ -209,8 +209,9 @@ jobs:
 
       - name: Run remaining workspace tests
         env:
-          HOONARQUBE_TYPESCRIPT_PACKAGE: ${{ runner.temp }}/hoonarqube-typescript/node_modules/typescript
+          # CLI cache tests hash the executable; omit test debug symbols.
           CARGO_PROFILE_TEST_DEBUG: "0"
+          HOONARQUBE_TYPESCRIPT_PACKAGE: ${{ runner.temp }}/hoonarqube-typescript/node_modules/typescript
         run: >-
           cargo test --locked --workspace --all-targets --all-features
           --exclude hoonarqube-csharp
