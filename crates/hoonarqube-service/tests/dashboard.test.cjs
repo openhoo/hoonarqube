@@ -386,3 +386,17 @@ test('metric formatting preserves zero, missing measurements and unknown metric 
   const nonnumeric = await renderedMetrics({}, {duplicated_lines_density: 'unknown'});
   assert.deepEqual(nonnumeric, [['Duplication density', 'unknown']]);
 });
+
+test('gate details identify only conditions compared with one decimal place', async () => {
+  const ui = dashboard(); await loadedHistory(ui, [{id: 1}]);
+  const common = {scope: 'overall', metric: 'line_coverage', operator: 'gte', threshold: 66.7};
+  const conditions = [
+    {...common, actual: 66.7, precision: 'one_decimal', status: 'pass'},
+    {...common, actual: 66.66666666666667, status: 'fail'},
+  ];
+  ui.requests[3].respond({analysis: {id: 1, complete: true, gate: {status: 'fail', conditions}}}); await settle();
+  const [rounded, full] = ui.get('gates-list').children.map(nodeText);
+  assert.match(rounded, /66\.7 \(rounded to one decimal place\) gte 66\.7/);
+  assert.match(full, /66\.66666666666667 gte 66\.7/);
+  assert.doesNotMatch(full, /rounded/);
+});

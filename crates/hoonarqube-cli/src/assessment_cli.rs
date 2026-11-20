@@ -24,7 +24,7 @@ use hoonarqube_core::{
 use hoonarqube_ir::AnalysisReport;
 use hoonarqube_ir::assessment::{
     ASSESSMENT_SCHEMA_VERSION, AnalysisContext, AssessmentReport, AssessmentStatus,
-    CoverageCounter, GateReport, GateStatus, NewCodeReport, SourceInput,
+    CoverageCounter, GatePrecision, GateReport, GateStatus, NewCodeReport, SourceInput,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -949,7 +949,7 @@ fn append_gate_summary(output: &mut String, assessment: &AssessmentReport) {
     for condition in &gate.conditions {
         let _ = writeln!(
             output,
-            "quality gate condition: scope={}, metric={}, operator={}, threshold={}, actual={}, status={}",
+            "quality gate condition: scope={}, metric={}, operator={}, threshold={}, actual={}, status={}{}",
             gate_scope_name(condition.scope),
             condition.metric,
             gate_operator_name(condition.operator),
@@ -958,6 +958,10 @@ fn append_gate_summary(output: &mut String, assessment: &AssessmentReport) {
                 .actual
                 .map_or_else(|| "n/a".to_owned(), |actual| actual.to_string()),
             gate_status_name(condition.status),
+            match condition.precision {
+                GatePrecision::Full => "",
+                GatePrecision::OneDecimal => ", precision=one_decimal",
+            },
         );
         if let Some(diagnostic) = condition.diagnostic.as_deref() {
             let _ = writeln!(output, "quality gate diagnostic: {diagnostic}");
@@ -1005,6 +1009,49 @@ pub(crate) fn assessment_exit_status(report: &AnalysisReport) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gate_precision_preserves_legacy_json_and_round_trips_the_opt_in() {
+        use hoonarqube_ir::assessment::GateConditionResult;
+        let config = r#"{"schema_version":1,"conditions":[{"scope":"overall","metric":"line_coverage","operator":"gte","threshold":66.7}]}"#;
+        let result = r#"{"scope":"overall","metric":"line_coverage","operator":"gte","threshold":66.7,"actual":66.7,"status":"pass"}"#;
+        for (wire, expected) in [
+            ("", GatePrecision::Full),
+            (r#","precision":"full""#, GatePrecision::Full),
+            (r#","precision":"one_decimal""#, GatePrecision::OneDecimal),
+        ] {
+            let insert = |json: &str| {
+                json.replace(r#""threshold":66.7"#, &format!(r#""threshold":66.7{wire}"#))
+            };
+            let parsed: GateConfig = serde_json::from_str(&insert(config)).unwrap();
+            assert_eq!(parsed.conditions[0].precision, expected);
+            assert_eq!(
+                serde_json::to_string(&parsed).unwrap(),
+                if expected.is_full() {
+                    config.to_string()
+                } else {
+                    insert(config)
+                }
+            );
+            let parsed: GateConditionResult = serde_json::from_str(&insert(result)).unwrap();
+            assert_eq!(parsed.precision, expected);
+            assert_eq!(
+                serde_json::to_string(&parsed).unwrap(),
+                if expected.is_full() {
+                    result.to_string()
+                } else {
+                    insert(result)
+                }
+            );
+        }
+        assert!(
+            serde_json::from_str::<GateConfig>(&config.replace(
+                r#""threshold":66.7"#,
+                r#""threshold":66.7,"precision":"two_decimals""#
+            ))
+            .is_err()
+        );
+    }
 
     #[test]
     fn python_scope_changes_assessment_options_provenance() {

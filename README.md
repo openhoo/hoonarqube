@@ -555,6 +555,23 @@ are explicit inputs:
   `new_code` does not support `code_lines` or `comment_lines`, and any
   `new_code` condition requires `--baseline`.
 
+By default, gate comparisons use the full measured value. For overall
+`line_coverage` only, add `"precision":"one_decimal"` to a condition to round
+the measured percentage to the nearest tenth before comparing it with the
+unchanged threshold. Exact halves round up: 1 covered line out of 16 becomes
+6.3% instead of 6.25%. For example:
+
+```json
+{"schema_version":1,"conditions":[{"scope":"overall","metric":"line_coverage","operator":"gte","threshold":6.3,"precision":"one_decimal"}]}
+```
+
+The condition reports the value it compared in `actual`; the original
+covered and eligible counts remain in `assessment.coverage.lines`. Omitting
+`precision` or specifying `"full"` keeps the original behavior. Missing or
+incomplete coverage, or zero eligible lines, still yields `unavailable`.
+See the [Commander.js coverage comparison](tools/oracle/public-line-coverage-gates-20261120.md)
+for measured examples and a replay with the CLI and report service.
+
 Coverage, baseline, and gate results are versioned under the native
 `assessment` object. Missing, invalid, or incomplete assessment data, an
 unavailable gate, or an incomplete native project yields exit **2**; a

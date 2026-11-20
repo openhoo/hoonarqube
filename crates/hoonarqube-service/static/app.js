@@ -539,7 +539,8 @@
       const detail = document.createElement("div");
       detail.className = "gate-detail";
       const actual = condition.actual === null || condition.actual === undefined ? "not measured" : condition.actual;
-      appendText(detail, `${actual} ${condition.operator || ""} ${condition.threshold === undefined ? "—" : condition.threshold}${condition.diagnostic ? ` — ${condition.diagnostic}` : ""}`);
+      const precision = condition.precision === "one_decimal" ? " (rounded to one decimal place)" : "";
+      appendText(detail, `${actual}${precision} ${condition.operator || ""} ${condition.threshold === undefined ? "—" : condition.threshold}${condition.diagnostic ? ` — ${condition.diagnostic}` : ""}`);
       copy.append(label, detail);
       const status = document.createElement("span");
       setBadge(status, condition.status || "unavailable");

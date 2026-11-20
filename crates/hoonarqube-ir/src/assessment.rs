@@ -727,6 +727,27 @@ pub enum GateScope {
     NewCode,
 }
 
+/// Precision used to compare the measured value with the configured threshold.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GatePrecision {
+    #[default]
+    Full,
+    OneDecimal,
+}
+
+impl GatePrecision {
+    #[must_use]
+    pub const fn is_full(&self) -> bool {
+        matches!(self, Self::Full)
+    }
+
+    #[must_use]
+    pub fn supports(self, scope: GateScope, metric: &str) -> bool {
+        self.is_full() || (scope == GateScope::Overall && metric == "line_coverage")
+    }
+}
+
 /// Comparison operator for a quality-gate threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -754,6 +775,8 @@ pub struct GateConditionResult {
     pub metric: String,
     pub operator: GateOperator,
     pub threshold: f64,
+    #[serde(default, skip_serializing_if = "GatePrecision::is_full")]
+    pub precision: GatePrecision,
     pub actual: Option<f64>,
     pub status: GateStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -766,6 +789,8 @@ struct GateConditionResultRepr {
     metric: String,
     operator: GateOperator,
     threshold: f64,
+    #[serde(default)]
+    precision: GatePrecision,
     #[serde(default)]
     actual: Option<f64>,
     status: GateStatus,
@@ -792,6 +817,7 @@ impl<'de> Deserialize<'de> for GateConditionResult {
             metric: raw.metric,
             operator: raw.operator,
             threshold: raw.threshold,
+            precision: raw.precision,
             actual: raw.actual,
             status: raw.status,
             diagnostic: raw.diagnostic,
@@ -828,6 +854,15 @@ impl GateReport {
             GateStatus::Pass
         };
         for condition in &self.conditions {
+            if !condition
+                .precision
+                .supports(condition.scope, &condition.metric)
+            {
+                return Err(AssessmentError::Invalid {
+                    artifact: "gate",
+                    reason: "one_decimal precision requires overall line_coverage".to_string(),
+                });
+            }
             if condition.metric.trim().is_empty()
                 || !condition.threshold.is_finite()
                 || condition.threshold < 0.0

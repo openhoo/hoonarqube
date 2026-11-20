@@ -1,0 +1,482 @@
+{
+  "source": {
+    "repository": "tj/commander.js",
+    "commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+    "tree": "ea7f757f861aba3926265ffc2b0955dd73a9684b",
+    "sources": [
+      "index.js",
+      "lib"
+    ],
+    "exclude": []
+  },
+  "source_sha256": {
+    "lib/argument.js": "a86c43174d904198b92ece266e97b6b711e640f3b89ac45291b682a753e145e4",
+    "lib/command.js": "751c19479dac3e3f415fbbd709df90d25c595034f699dba7bef6eeab4dc1304b",
+    "lib/error.js": "98ac5e1b63894792fa7740e5fb2b79ef8c016d94fc41e55bb6ff85fff3346e72",
+    "lib/help.js": "c1a58d89555b8c0cef5c3da9b173c998ce1faf43fe2cdcb331c0fd2c3a455c38",
+    "index.js": "3b1110c896b70704627d415e6658953a5a6f099e0b141311c73dfb06e55bdbcc",
+    "lib/option.js": "29fc1d0311f16f33fd0df2d8589c93b0a7e37fb89afd852672ba3b7083fa1515",
+    "lib/suggestSimilar.js": "eaa0c4bd9f4d51259c9107e65173f7de37a5413cbd5de39a5795d83d3c7deb3f"
+  },
+  "node_image": "node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5",
+  "node_version": "24.22.3",
+  "reference": {
+    "server_version": "26.9.0.129388",
+    "server_image": {
+      "image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+      "platform_fingerprint": "arm64 linux sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+    },
+    "scanner_image": {
+      "image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "platform_fingerprint": "amd64 linux sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
+    },
+    "js_plugin": {
+      "key": "javascript",
+      "version": "13.8 (build 44569)",
+      "hash": "c63fe71805947ac812bbf21746e893ed"
+    }
+  },
+  "native_baseline": {
+    "commit": "1884c8bca3f62fa83964914ce972392ad21af383",
+    "binary_sha256": "746a2e2ba44d9669e231ecff77090a9a072caa9a5287af51f8c22e60fb6f5510"
+  },
+  "test_sets": {
+    "focused": {
+      "test_files": [
+        "tests/argument.chain.test.js",
+        "tests/argument.choices.test.js",
+        "tests/argument.custom-processing.test.js",
+        "tests/argument.required.test.js",
+        "tests/argument.variadic.test.js"
+      ],
+      "passed": 43
+    },
+    "broad": {
+      "test_files": [
+        "tests/argument.chain.test.js",
+        "tests/argument.choices.test.js",
+        "tests/argument.custom-processing.test.js",
+        "tests/argument.required.test.js",
+        "tests/argument.variadic.test.js",
+        "tests/command.action.test.js",
+        "tests/command.addCommand.test.js",
+        "tests/command.addHelpOption.test.js",
+        "tests/command.addHelpText.test.js",
+        "tests/command.alias.test.js",
+        "tests/command.allowExcessArguments.test.js",
+        "tests/command.allowUnknownOption.test.js",
+        "tests/command.argumentVariations.test.js",
+        "tests/command.asterisk.test.js",
+        "tests/command.chain.test.js",
+        "tests/command.commandHelp.test.js",
+        "tests/command.configureHelp.test.js",
+        "tests/command.configureOutput.test.js",
+        "tests/command.copySettings.test.js",
+        "tests/command.createArgument.test.js",
+        "tests/command.createHelp.test.js",
+        "tests/command.createOption.test.js",
+        "tests/command.default.test.js",
+        "tests/command.description.test.js",
+        "tests/command.error.test.js",
+        "tests/command.exitOverride.test.js",
+        "tests/command.help.test.js",
+        "tests/command.helpCommand.test.js",
+        "tests/command.helpOption.test.js",
+        "tests/command.hook.test.js",
+        "tests/command.name.test.js",
+        "tests/command.nested.test.js",
+        "tests/command.onCommand.test.js",
+        "tests/command.option-misuse.test.js",
+        "tests/command.parse.test.js",
+        "tests/command.parseOptions.test.js",
+        "tests/command.positionalOptions.test.js",
+        "tests/command.registerClash.test.js",
+        "tests/command.showHelpAfterError.test.js",
+        "tests/command.showSuggestionAfterError.test.js",
+        "tests/command.summary.test.js",
+        "tests/command.unknownCommand.test.js",
+        "tests/command.unknownOption.test.js",
+        "tests/command.usage.test.js",
+        "tests/option.bad-flags.test.js",
+        "tests/option.chain.test.js"
+      ],
+      "passed": 588
+    }
+  },
+  "cases": {
+    "focused": {
+      "tests": "focused",
+      "lcov_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "reference": {
+        "ce_task_id": "511beece-7d7e-412b-a48d-b76d751a3d7b",
+        "analysis_id": "4386249c-d5c1-4cc1-960e-37193739c5b6",
+        "ce_status": "SUCCESS",
+        "gate": "ERROR",
+        "condition": {
+          "status": "ERROR",
+          "metricKey": "line_coverage",
+          "comparator": "LT",
+          "errorThreshold": "60",
+          "actualValue": "59.2"
+        },
+        "metrics": {
+          "lines_to_cover": "4201",
+          "uncovered_conditions": "84",
+          "branch_coverage": "63.8",
+          "uncovered_lines": "1716",
+          "files": "7",
+          "conditions_to_cover": "232",
+          "line_coverage": "59.2"
+        }
+      },
+      "native_full_precision": {
+        "gate": "fail",
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 60.0,
+          "actual": 59.15258271840038,
+          "status": "fail",
+          "diagnostic": "actual 59.1525827184 does not satisfy >= 60 for line_coverage"
+        },
+        "exit_code": 1,
+        "lines": {
+          "eligible": 4201,
+          "covered": 2485
+        }
+      },
+      "line_counts_by_file": {
+        "index.js": {
+          "eligible": 21,
+          "covered": 21,
+          "line_hit_map_sha256": "d5a808e295b2679912e3965bc342a404fe7b5a534f508e3c7a15fc69618b441a"
+        },
+        "lib/argument.js": {
+          "eligible": 147,
+          "covered": 147,
+          "line_hit_map_sha256": "d73700e258045c0a9a7e19e82c679c5a7d672b629c934df545d1fd7492b7d42d"
+        },
+        "lib/command.js": {
+          "eligible": 2790,
+          "covered": 1719,
+          "line_hit_map_sha256": "79138fe3f14ee427000bc1e5e3c131d42421ae8aa97bb10cdddf4457a4380ec1"
+        },
+        "lib/error.js": {
+          "eligible": 36,
+          "covered": 36,
+          "line_hit_map_sha256": "4e400c41020184d6f881bd9018c146df86d303673a43b9fd56a0c11ada4f7341"
+        },
+        "lib/help.js": {
+          "eligible": 731,
+          "covered": 286,
+          "line_hit_map_sha256": "881f22bca71c090e56e9546c2a9dbc0bb1bbb585307db54514795f326f35cccf"
+        },
+        "lib/option.js": {
+          "eligible": 377,
+          "covered": 264,
+          "line_hit_map_sha256": "889542ad634d8e61d5e02f661adac997eed439519fcfe478b35a9cff18daef68"
+        },
+        "lib/suggestSimilar.js": {
+          "eligible": 99,
+          "covered": 12,
+          "line_hit_map_sha256": "fd0ac12366ddcfbd00162c62a0caf1d65d37ce23ce7b5eb5bdf51994a3ebaa60"
+        }
+      },
+      "native_one_decimal": {
+        "gate": "fail",
+        "exit_code": 1,
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 60.0,
+          "precision": "one_decimal",
+          "actual": 59.2,
+          "status": "fail",
+          "diagnostic": "actual 59.2 does not satisfy >= 60 for line_coverage"
+        }
+      }
+    },
+    "broad": {
+      "tests": "broad",
+      "lcov_sha256": "6f7fb1f4027d2821a673c1a6127f791ec6b88082a6c3934d6d1ddcdd0ee8dba7",
+      "reference": {
+        "ce_task_id": "c1c3d0b9-f5d6-48c1-bb00-5fb1dfc25004",
+        "analysis_id": "fd5a6223-a3c2-4fb0-816c-4c64a8587ea4",
+        "ce_status": "SUCCESS",
+        "gate": "OK",
+        "condition": {
+          "status": "OK",
+          "metricKey": "line_coverage",
+          "comparator": "LT",
+          "errorThreshold": "60",
+          "actualValue": "93.0"
+        },
+        "metrics": {
+          "lines_to_cover": "4201",
+          "uncovered_conditions": "62",
+          "branch_coverage": "92.4",
+          "uncovered_lines": "294",
+          "files": "7",
+          "conditions_to_cover": "816",
+          "line_coverage": "93.0"
+        }
+      },
+      "native_full_precision": {
+        "gate": "pass",
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 60.0,
+          "actual": 93.00166626993573,
+          "status": "pass"
+        },
+        "exit_code": 0,
+        "lines": {
+          "eligible": 4201,
+          "covered": 3907
+        }
+      },
+      "line_counts_by_file": {
+        "index.js": {
+          "eligible": 21,
+          "covered": 21,
+          "line_hit_map_sha256": "d5a808e295b2679912e3965bc342a404fe7b5a534f508e3c7a15fc69618b441a"
+        },
+        "lib/argument.js": {
+          "eligible": 147,
+          "covered": 147,
+          "line_hit_map_sha256": "d73700e258045c0a9a7e19e82c679c5a7d672b629c934df545d1fd7492b7d42d"
+        },
+        "lib/command.js": {
+          "eligible": 2790,
+          "covered": 2587,
+          "line_hit_map_sha256": "8b93e007b084cc35feaa11d8bfa3afb2054877514fef66d81721a30b8e560345"
+        },
+        "lib/error.js": {
+          "eligible": 36,
+          "covered": 36,
+          "line_hit_map_sha256": "4e400c41020184d6f881bd9018c146df86d303673a43b9fd56a0c11ada4f7341"
+        },
+        "lib/help.js": {
+          "eligible": 731,
+          "covered": 667,
+          "line_hit_map_sha256": "cb4d7f5e6bfe1485e830802cdf9779dd4b7950188a43bab4c34bd8db6c52f8dc"
+        },
+        "lib/option.js": {
+          "eligible": 377,
+          "covered": 352,
+          "line_hit_map_sha256": "99a5f6a986b8838ce78b52f7c9ea7fee05e1f9bcdb2f90bb6372f4ba7942d41b"
+        },
+        "lib/suggestSimilar.js": {
+          "eligible": 99,
+          "covered": 97,
+          "line_hit_map_sha256": "b6fd9e34a56f8310a3cee1adbbfe82cadd1f274d5c9811928a54442f9726f525"
+        }
+      },
+      "native_one_decimal": {
+        "gate": "pass",
+        "exit_code": 0,
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 60.0,
+          "precision": "one_decimal",
+          "actual": 93.0,
+          "status": "pass"
+        }
+      }
+    },
+    "missing": {
+      "tests": null,
+      "lcov_sha256": null,
+      "reference": {
+        "ce_task_id": "a64d6611-58a7-45c9-863a-6dbd38afa2ba",
+        "analysis_id": "4ad8031e-ba33-4d54-aead-b3f23f7531d2",
+        "ce_status": "SUCCESS",
+        "gate": "ERROR",
+        "condition": {
+          "status": "ERROR",
+          "metricKey": "line_coverage",
+          "comparator": "LT",
+          "errorThreshold": "60",
+          "actualValue": "0.0"
+        },
+        "metrics": {
+          "lines_to_cover": "1252",
+          "uncovered_lines": "1252",
+          "files": "7",
+          "line_coverage": "0.0"
+        }
+      },
+      "native_full_precision": {
+        "gate": "unavailable",
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 60.0,
+          "actual": null,
+          "status": "unavailable",
+          "diagnostic": "coverage report is missing"
+        },
+        "exit_code": 2,
+        "lines": null
+      },
+      "native_one_decimal": {
+        "gate": "unavailable",
+        "exit_code": 2,
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 60.0,
+          "precision": "one_decimal",
+          "actual": null,
+          "status": "unavailable",
+          "diagnostic": "coverage report is missing"
+        }
+      }
+    },
+    "decimal": {
+      "tests": "focused",
+      "lcov_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "reference": {
+        "ce_task_id": "3c49adb9-b528-411f-afbe-299decdfcf08",
+        "analysis_id": "c4d1750d-dd5a-435f-a124-0aea22a0af00",
+        "ce_status": "SUCCESS",
+        "gate": "OK",
+        "condition": {
+          "status": "OK",
+          "metricKey": "line_coverage",
+          "comparator": "LT",
+          "errorThreshold": "59.2",
+          "actualValue": "59.2"
+        },
+        "metrics": {
+          "lines_to_cover": "4201",
+          "uncovered_conditions": "84",
+          "branch_coverage": "63.8",
+          "uncovered_lines": "1716",
+          "files": "7",
+          "conditions_to_cover": "232",
+          "line_coverage": "59.2"
+        }
+      },
+      "native_full_precision": {
+        "gate": "fail",
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 59.2,
+          "actual": 59.15258271840038,
+          "status": "fail",
+          "diagnostic": "actual 59.1525827184 does not satisfy >= 59.2 for line_coverage"
+        },
+        "exit_code": 1,
+        "lines": {
+          "eligible": 4201,
+          "covered": 2485
+        }
+      },
+      "line_counts_by_file": {
+        "index.js": {
+          "eligible": 21,
+          "covered": 21,
+          "line_hit_map_sha256": "d5a808e295b2679912e3965bc342a404fe7b5a534f508e3c7a15fc69618b441a"
+        },
+        "lib/argument.js": {
+          "eligible": 147,
+          "covered": 147,
+          "line_hit_map_sha256": "d73700e258045c0a9a7e19e82c679c5a7d672b629c934df545d1fd7492b7d42d"
+        },
+        "lib/command.js": {
+          "eligible": 2790,
+          "covered": 1719,
+          "line_hit_map_sha256": "79138fe3f14ee427000bc1e5e3c131d42421ae8aa97bb10cdddf4457a4380ec1"
+        },
+        "lib/error.js": {
+          "eligible": 36,
+          "covered": 36,
+          "line_hit_map_sha256": "4e400c41020184d6f881bd9018c146df86d303673a43b9fd56a0c11ada4f7341"
+        },
+        "lib/help.js": {
+          "eligible": 731,
+          "covered": 286,
+          "line_hit_map_sha256": "881f22bca71c090e56e9546c2a9dbc0bb1bbb585307db54514795f326f35cccf"
+        },
+        "lib/option.js": {
+          "eligible": 377,
+          "covered": 264,
+          "line_hit_map_sha256": "889542ad634d8e61d5e02f661adac997eed439519fcfe478b35a9cff18daef68"
+        },
+        "lib/suggestSimilar.js": {
+          "eligible": 99,
+          "covered": 12,
+          "line_hit_map_sha256": "fd0ac12366ddcfbd00162c62a0caf1d65d37ce23ce7b5eb5bdf51994a3ebaa60"
+        }
+      },
+      "native_one_decimal": {
+        "gate": "pass",
+        "exit_code": 0,
+        "condition": {
+          "scope": "overall",
+          "metric": "line_coverage",
+          "operator": "gte",
+          "threshold": 59.2,
+          "precision": "one_decimal",
+          "actual": 59.2,
+          "status": "pass"
+        }
+      }
+    }
+  },
+  "native_candidate": {
+    "cli_sha256": "c27d693a4a29a81a37663e3873d54f4dfe63e83beab6ac895cb6e72663ad3e30",
+    "service_sha256": "57d9a02d9202c8cf26951fd217a82243887309d19987f4f2507ae912b3b48e38",
+    "restart_and_retry": true,
+    "controls_status": {
+      "absolute-provenance": 400,
+      "actual": 409,
+      "precision": 409
+    },
+    "stored_cases": {
+      "broad-full": {
+        "gate": "pass",
+        "raw_cli_report_sha256": "1d9b4a811ff9332960c42c0ce8fc016814ffdcdea952adcd393c2ef66fc7d9a7"
+      },
+      "broad-one_decimal": {
+        "gate": "pass",
+        "raw_cli_report_sha256": "30be635a48961043cea01359d111e9b47de37ce007130a4e8767ed64afc3532a"
+      },
+      "decimal-full": {
+        "gate": "fail",
+        "raw_cli_report_sha256": "20f34261cb0a2a7ec967b09fdc3847e4587714a8d04dfb1b06777a82a4de18b6"
+      },
+      "decimal-one_decimal": {
+        "gate": "pass",
+        "raw_cli_report_sha256": "d08119b1842b8f995c097d1a761ec5f8d92aeaa191284d8135ced8b6339de986"
+      },
+      "focused-full": {
+        "gate": "fail",
+        "raw_cli_report_sha256": "d75ce5d73b9aa5f1b0f888f03c52b9d8db150b3445cdc325558c34efa73d15e6"
+      },
+      "focused-one_decimal": {
+        "gate": "fail",
+        "raw_cli_report_sha256": "2d9ec4ac47066e81421f669d97c5408ff0367b52867d98c61ca714c8fc5fe287"
+      },
+      "missing-full": {
+        "gate": "unavailable",
+        "raw_cli_report_sha256": "b6618010946ab3efd138e328ad5a4cccdbb620dbe441df556859cb8c5815000c"
+      },
+      "missing-one_decimal": {
+        "gate": "unavailable",
+        "raw_cli_report_sha256": "31aa0c556a7e35b8915c26aa37fd3e5033c7740950686b0b7ab8b470c87df96e"
+      }
+    }
+  }
+}
