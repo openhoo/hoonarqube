@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-14",
+  "base_commit": "108877fa702b02f5c50a5dc37308a75de3b031ef",
+  "parent_commit": "150551d7997228e59fcc7832199f3f1a2fa2c866",
+  "native_s1451_source_sha256": "0a0ef402789932ee66056590584d31eddd9fcdbc66252bc4c66c31c05d020f1b",
+  "rules": [
+    "javascript:S1451",
+    "typescript:S1451"
+  ],
+  "change": "Update exactly four native corpus S1451 ranges from line 1 to the existing all-zero file-level sentinel, matching the production identity repair. Preserve all other pinned rows, fixture bytes, comparator code and original issue-specific assertions.",
+  "updated_expectations": [
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-787/expected-findings.jsonl",
+      "before_sha256": "0a8da57ff4e9ac064e432b3a467ede167e360f5581b28eace3217cea2eb64123",
+      "after_sha256": "857dd6b7351b8963b2ee941d306bf25e65bbfe08a347fd20f43b46466bb4cf0c",
+      "row_count": 2,
+      "range_only_updates": [
+        {
+          "row": 1,
+          "before": {
+            "rule": "javascript:S1451",
+            "file": "regex.mjs",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            }
+          },
+          "after": {
+            "rule": "javascript:S1451",
+            "file": "regex.mjs",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 0,
+                "column": 0
+              },
+              "end": {
+                "line": 0,
+                "column": 0
+              }
+            }
+          }
+        }
+      ],
+      "non_target_rows_unchanged": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-788/expected-findings.jsonl",
+      "before_sha256": "fcfd4cfdd9414176fb06896685e57138bf527e3f4086aed3c0c95a80e0c0c98d",
+      "after_sha256": "6289eabe24d5523339ed8adccaa366bcef183ed508a60f8452eb9d9d6a69cbec",
+      "row_count": 2,
+      "range_only_updates": [
+        {
+          "row": 1,
+          "before": {
+            "rule": "typescript:S1451",
+            "file": "control-flow.ts",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            }
+          },
+          "after": {
+            "rule": "typescript:S1451",
+            "file": "control-flow.ts",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 0,
+                "column": 0
+              },
+              "end": {
+                "line": 0,
+                "column": 0
+              }
+            }
+          }
+        }
+      ],
+      "non_target_rows_unchanged": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-790/expected-findings.jsonl",
+      "before_sha256": "b57cf29e8ca66cfce1edc4ef8d397b1a12614d1dc141133973df019e7ed02d46",
+      "after_sha256": "d4c6fcd8da9f3285576fa0c1423bca68dee2d8753ea7a49a921a8d2e8922af69",
+      "row_count": 1,
+      "range_only_updates": [
+        {
+          "row": 1,
+          "before": {
+            "rule": "typescript:S1451",
+            "file": "test.ts",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            }
+          },
+          "after": {
+            "rule": "typescript:S1451",
+            "file": "test.ts",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 0,
+                "column": 0
+              },
+              "end": {
+                "line": 0,
+                "column": 0
+              }
+            }
+          }
+        }
+      ],
+      "non_target_rows_unchanged": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-792/expected-findings.jsonl",
+      "before_sha256": "cfa01d208332c7f9048131e33c602963258ae62373f94534170ef8bc19f3e489",
+      "after_sha256": "982c7e28c1c448b74d365934ea3e7000ef0ec064e23662afc45efb32b05383c2",
+      "row_count": 1,
+      "range_only_updates": [
+        {
+          "row": 1,
+          "before": {
+            "rule": "javascript:S1451",
+            "file": "regex.mjs",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 0
+              }
+            }
+          },
+          "after": {
+            "rule": "javascript:S1451",
+            "file": "regex.mjs",
+            "message": "Add or update the header of this file.",
+            "range": {
+              "start": {
+                "line": 0,
+                "column": 0
+              },
+              "end": {
+                "line": 0,
+                "column": 0
+              }
+            }
+          }
+        }
+      ],
+      "non_target_rows_unchanged": true
+    }
+  ],
+  "fixture_pins": [
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-787/regex.mjs",
+      "sha256": "15d2d782299533b2fb89b5dbc5df7ad11663f50149cb4d5f119d7fa38de59f4e",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-788/control-flow.ts",
+      "sha256": "9f731d174fa96caa10476b30bf59d182b98ffd7e3a8ef280d31517e73361e377",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-789/InstanceService.cs",
+      "sha256": "8f0e7754c96b5c87ad58c4f1a48362ca12851ccdd6caf2ce0078ff463c9a67f8",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-790/test.ts",
+      "sha256": "2bff825c430e4b348836b0143b1dc377a6236cf78eb4beaa692f6740f2d53477",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-791/augmented_assignment.py",
+      "sha256": "2da2009dba50f445e85340c92eab65ad384f86ee14e218a444e765eca7e9abf4",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-792/regex.mjs",
+      "sha256": "cb35ee73e92addbd733c0ff052c9cb7e2afb235320fdb4ba0dfe1e841227071a",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": ".oracle/sonar/projects/oracle-regressions/issue-793/StructuredLogging.cs",
+      "sha256": "63ac59da8af11f00c55d2a0468081f966b7ef0afd6682787316f5d0bba0685b1",
+      "unchanged_from_parent": true
+    }
+  ],
+  "unchanged_guard_and_comparator_pins": [
+    {
+      "path": "tools/oracle/test_regression_corpus.py",
+      "sha256": "e1702b9820e084878add148eba18495fa47d1117cac67fd9bbb38fb26489d510",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": "tools/oracle/parity.py",
+      "sha256": "0c9aed39ff3cfe5c398a0ab3b06da6fa7182eb60b521154374c20cc2699d34f9",
+      "unchanged_from_parent": true
+    },
+    {
+      "path": "tools/oracle/parity_suite.py",
+      "sha256": "55109601e86354316141f119040ffb52788d2a195b3988113bc9088e6f8f7aea",
+      "unchanged_from_parent": true
+    }
+  ],
+  "original_guard_contract": {
+    "issue-787": "exactly one javascript:S5852",
+    "issue-788": "typescript:S3972 absent",
+    "issue-789": "csharpsquid:S1118 absent",
+    "issue-790": "typescript:S7060 absent",
+    "issue-791": "python:S1226 absent and empty complete finding multiset",
+    "issue-792": "javascript:S5843 absent at the reference-aligned score",
+    "issue-793": "csharpsquid:S2629 absent",
+    "every_issue": "complete exact rule/path/range/message multiset and native completeness"
+  },
+  "executed_native_corpus": {
+    "python": "3.14",
+    "command": [
+      "/opt/homebrew/bin/python3.14",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tools/oracle",
+      "-p",
+      "test_regression_corpus.py",
+      "-v"
+    ],
+    "red": {
+      "tests": 8,
+      "failures": 4,
+      "exit_code": 1,
+      "receipt_sha256": "a3c0f48fc97d6d05bc6d29fc1e800b236dfac8970f454f10a0711ae42ff445c2",
+      "stderr_sha256": "1d52e270b83fc549d10d0ebb17892211f42938623862698171772aa5026d759c"
+    },
+    "green": {
+      "tests": 8,
+      "failures": 0,
+      "exit_code": 0,
+      "receipt_sha256": "93b36bf37579f73c770da6720372281180b75d19084cd6547ad281ff32afba8c",
+      "stderr_sha256": "064399c8f30cffcb13c3ac6846d80f60ae1bd5c29e5022e2a40f08049de754f8"
+    }
+  },
+  "file_level_reference_authority": {
+    "basis": "Retained genuine SonarQube S1451 issues omit line and textRange; immutable SonarJS implementation raises Program findings with the file-level contract. These are identity authority, not fresh reference captures for these four native corpus fixtures.",
+    "sonarqube": "Community 26.9.0.129388",
+    "sonarjs": "13.8 build 44569",
+    "sonarjs_commit": "1eea9253f87b448684d1089dc7160eca388b21b6",
+    "source_blobs": [
+      {
+        "upstream_path": "packages/analysis/src/jsts/rules/S1451/config.ts",
+        "git_blob_sha": "493ec65fb88c841d355bb0521c383fda0377bea0",
+        "sha256": "aac2a2f5645d0e2205ebcac6cc980139d8449104be9c6cf1cace07955f1bb2a8"
+      },
+      {
+        "upstream_path": "packages/analysis/src/jsts/rules/S1451/meta.ts",
+        "git_blob_sha": "32b896dab8f5d20326b86a5bae6496bbe886c3bd",
+        "sha256": "ccb98d5a6910bb96d56ffdb910fc78d4b9e27ab5a44b29d511228856fa478a18"
+      },
+      {
+        "upstream_path": "packages/analysis/src/jsts/rules/S1451/rule.ts",
+        "git_blob_sha": "75c88217b9384cc7ac37a82e0d16fd2a6c86fc23",
+        "sha256": "5bd46c39973a911fb31393641e7056962e69eabb5f75331397edbca1fce8bdaf"
+      },
+      {
+        "upstream_path": "packages/analysis/src/jsts/rules/S1451/unit.test.ts",
+        "git_blob_sha": "a654fb7c312232d34fef266b18aab7565ca65abc",
+        "sha256": "20d1b8cd1856da6ec1d508a99379c9e721582bb4ae5d94726d2b8469646464be"
+      }
+    ],
+    "retained_scan_result": {
+      "scopes": 8,
+      "files": 451,
+      "native_s1451": 447,
+      "reference_s1451": 435,
+      "exact_primary_matches": 435,
+      "unchanged_test_extras": 12,
+      "reference_only": 0
+    }
+  },
+  "limitations": [
+    "Native expectation qualification only; no fresh SonarQube scans of the four updated corpus fixtures.",
+    "No comparator relaxation or finding suppression.",
+    "The S1451 test-classification extras and configured header matching boundaries remain separate.",
+    "No full S1451 or analyzer parity claim."
+  ]
+}

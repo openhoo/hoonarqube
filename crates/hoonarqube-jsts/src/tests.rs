@@ -594,6 +594,12 @@ new window.Function('also ignored');
         report.issues,
         vec![
             issue(
+                "javascript:S3524",
+                "Remove parentheses around the parameter of this arrow function.",
+                (1, 19),
+                (1, 24),
+            ),
+            issue(
                 "javascript:S1523",
                 "Remove this usage of 'eval'.",
                 (4, 0),
