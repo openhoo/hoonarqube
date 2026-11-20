@@ -76,6 +76,58 @@ On refusal, preserve the database and its WAL files; inspect a backup before
 choosing a compatible binary or restoring a known-good copy. Do not reset
 `PRAGMA user_version` to force an older binary to start.
 
+### Backup choice and limits
+
+The default service applies a 16 MiB JSON limit to both project export and
+restore. A project can exceed this limit even when every individual report
+was accepted. Export then returns HTTP 413. For example, an Acorn project
+export with one assessed analysis was 9,094,745 bytes; two analyses exceeded
+the limit. Test your project export before relying on it for recovery.
+
+Use the SQLite online backup API for a whole-instance snapshot, especially
+when project exports exceed the limit. Open the live database read-only as
+the backup source. Copying only the live main database file can omit
+committed data that is still in the WAL. Check `PRAGMA integrity_check` and
+`PRAGMA foreign_key_check` on the resulting backup. Restore to a new database
+file first; start the same service version and verify the expected projects,
+analyses, findings, and review history before switching the configured
+database path. The database snapshot covers all projects; store it with
+the corresponding access controls.
+
+Retry an interrupted ingest with the same request body. If the original
+committed, the retry returns its analysis ID with `idempotent: true`. If it
+never committed, the retry creates the analysis. A different report for the
+same project, branch, and commit returns HTTP 409.
+
+### Local operations qualification
+
+Build the service at the intended revision and supply four complete CLI
+`--assessment` reports from real projects. Scan the pinned source trees
+exported without Git metadata (for example with `git archive`). The probe
+reuses those unchanged report bytes under test commit labels to exercise
+same-branch history. It starts disposable services bound to loopback and
+prints a JSON receipt. It needs no existing service, database, or credentials.
+
+```sh
+cargo build --locked -p hoonarqube-service
+python3 scripts/qualify_service_operations.py --binary target/debug/hoonarqube-service \
+  zod.json acorn.json ajv.json yjs.json
+```
+
+The probe runs three batches of eight clients on one project and three on
+two projects, with four service workers. Each batch includes concurrent
+duplicate ingests and reads of 100 findings. It checks authorization,
+optimistic review updates, two process kills with subsequent retries,
+project backup, and whole-instance recovery. The recorded inputs were
+Zod `0b216ef674e297ebe41d8bf902262e56f8755822` (5,941 findings), Acorn
+`e4516ce0f49aea06b98ae1a551644119958ed4e1` (5,311), Ajv
+`9050ba1359fb87cd7c143f3c79513ea7624ea443` (5,268), and Yjs
+`ee37f0a0e23a7c3e14531bae335d439e54c743e6` (4,896). Assessed inputs were
+4.1–7.0 MB each. The snapshot case reached 12 analyses and 65,336 findings
+in a 145 MB database. This bounded loopback check measures local timings
+and process restart recovery; it does not establish production throughput,
+availability, or recovery after machine or storage failure.
+
 ## Focused verification
 
 ```sh
