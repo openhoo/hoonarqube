@@ -127,17 +127,17 @@ this contract; it never upgrades a claim by itself.
   when a complete compiler context covered every analyzed JS/TS-family file
   (an explicit `--typescript-project` or complete auto-discovered
   `tsconfig.json` coverage); `csharp` is `supplied` only when a complete
-  `--csharp-project` context was loaded. `missing` is the explicit
-  diagnostic for context-requiring rules that ran without their context; it
-  is recorded, not hidden, and does not by itself change `completeness`.
+  `--csharp-project` context was loaded. A missing required context sets
+  `parity.completeness` to `incomplete`, even when native project analysis
+  completed. Matching a reference cannot upgrade that result.
 - `rule_set_violations` lists emitted rule keys outside the recorded active
   set. It is always empty in a correct run; any entry is a defect signal and
   forces `completeness` to `incomplete`.
 - `completeness` is `reference_parity_verified` only when a
   `--parity-reference` comparison matched while every prerequisite held;
-  `complete_native_analysis` when the analysis completed without violations
-  but no comparison was requested; and `incomplete` when the analysis is
-  incomplete, rule-set violations exist, or a requested comparison diverged.
+  `complete_native_analysis` when the analysis completed with all required
+  contexts, no rule-set violations and no reference comparison; and
+  `incomplete` when a prerequisite failed or a requested comparison diverged.
 
 `--parity-reference PATH` requires `--profile sonar-parity` and compares the
 run's findings against a pinned Generic Issue Import report — the same
@@ -146,6 +146,9 @@ document `--format sonar` emits — by rule id, file path, and text range
 `divergences`). A diverged comparison prints diagnostics to stderr and exits
 non-zero, consistent with the existing fail-closed incomplete handling. An
 unreadable or malformed reference is an input error and also exits non-zero.
+File-level findings omit `textRange`. A present range must be an object with
+a positive `startLine`; omitted end lines or columns remain absent in the
+identity comparison. Invalid coordinates and reversed ranges are input errors.
 
 Profiles other than `sonar-parity` emit no `parity` block and require no
 SonarQube server or proprietary analyzer.
