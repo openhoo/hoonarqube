@@ -181,6 +181,52 @@ def scan_reference(args, row, root, folder, sonar, token, key):
             timeout=240,
         )
     scan = elapsed(t)
+    task = wait_for_compute(sonar, key, folder)
+    components = sonar.pages(
+        "/api/components/tree",
+        {"component": key, "qualifiers": "FIL"},
+        "components",
+        folder,
+        "indexed",
+    )
+    issues = sonar.pages(
+        "/api/issues/search",
+        {"componentKeys": key, "resolved": "false"},
+        "issues",
+        folder,
+        "findings",
+    )
+    ready = elapsed(t)
+    verify_reference_rules(sonar, key)
+    files = inventory(root, (f["path"] for f in components))
+    primaries = []
+    for issue in issues:
+        if issue["rule"] in RULES:
+            component = issue["component"]
+            if not component.startswith(key + ":"):
+                raise ValueError("unexpected reference component")
+            span = issue.get("textRange")
+            coords = (
+                tuple(
+                    span[k]
+                    for k in ("startLine", "startOffset", "endLine", "endOffset")
+                )
+                if span
+                else (None,) * 4
+            )
+            primaries.append(
+                (issue["rule"], normalized_path(component[len(key) + 1 :]), *coords)
+            )
+    write_json_atomic(folder / "compute.json", task)
+    return {
+        "scanner_s": scan,
+        "readable_s": ready,
+        "raw_findings": len(issues),
+        "contract": contract(files, primaries),
+    }
+
+
+def wait_for_compute(sonar, key, folder):
     log = (folder / "scanner.log").read_text()
     if re.search(
         r"\b(?:WARN|ERROR)\b.*(?:failed to parse|parsing error|failed to analyze|unable to parse)",
@@ -199,26 +245,14 @@ def scan_reference(args, row, root, folder, sonar, token, key):
             and task["componentKey"] == key
             and task.get("analysisId")
         ):
-            break
+            return task
         if task["status"] not in {"PENDING", "IN_PROGRESS"} or time.monotonic() >= end:
             write_json_atomic(folder / "failed-compute.json", task)
             raise ValueError(f"compute did not finish successfully: {task['status']}")
         time.sleep(0.1)
-    components = sonar.pages(
-        "/api/components/tree",
-        {"component": key, "qualifiers": "FIL"},
-        "components",
-        folder,
-        "indexed",
-    )
-    issues = sonar.pages(
-        "/api/issues/search",
-        {"componentKeys": key, "resolved": "false"},
-        "issues",
-        folder,
-        "findings",
-    )
-    ready = elapsed(t)
+
+
+def verify_reference_rules(sonar, key):
     profiles = sonar.request(
         "/api/qualityprofiles/search", {"language": "go", "project": key}
     )["profiles"]
@@ -251,32 +285,6 @@ def scan_reference(args, row, root, folder, sonar, token, key):
         parameters[rule] = defaults
     if parameters != PARAMETERS:
         raise ValueError("reference rule activation or parameters changed")
-    files = inventory(root, (f["path"] for f in components))
-    primaries = []
-    for issue in issues:
-        if issue["rule"] in RULES:
-            component = issue["component"]
-            if not component.startswith(key + ":"):
-                raise ValueError("unexpected reference component")
-            span = issue.get("textRange")
-            coords = (
-                tuple(
-                    span[k]
-                    for k in ("startLine", "startOffset", "endLine", "endOffset")
-                )
-                if span
-                else (None,) * 4
-            )
-            primaries.append(
-                (issue["rule"], normalized_path(component[len(key) + 1 :]), *coords)
-            )
-    write_json_atomic(folder / "compute.json", task)
-    return {
-        "scanner_s": scan,
-        "readable_s": ready,
-        "raw_findings": len(issues),
-        "contract": contract(files, primaries),
-    }
 
 
 def compare(name, a, b):
@@ -295,7 +303,25 @@ def compare(name, a, b):
         raise ValueError(f"{name}: output contract differs: {a}, {b}")
 
 
-def main():
+def pinned_checkout(args, name, row):
+    if shutil.disk_usage(args.output).free < 5 * 1024**3:
+        raise OSError("less than 5 GiB free")
+    root = verify_source({**row, "path": str(args.sources / name)})
+    if (
+        subprocess.check_output(
+            ["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True
+        ).strip()
+        != row["tree"]
+    ):
+        raise ValueError("source tree mismatch")
+    if subprocess.check_output(
+        ["git", "ls-files", "--others", "--exclude-standard"], cwd=root
+    ):
+        raise ValueError("untracked public source")
+    return root
+
+
+def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
     for flag in (
         "sources",
@@ -316,6 +342,11 @@ def main():
     for k, v in vars(args).items():
         if isinstance(v, Path):
             setattr(args, k, v.resolve())
+    return args
+
+
+def main():
+    args = parse_args()
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=False)
     token = read_secret_file(args.token_file).strip()
@@ -349,20 +380,7 @@ def main():
         with running_service(args.service, Path(service_dir), user_token) as port:
             for i in range(args.rounds + 1):
                 for j, (name, row) in enumerate(rows.items()):
-                    if shutil.disk_usage(args.output).free < 5 * 1024**3:
-                        raise OSError("less than 5 GiB free")
-                    root = verify_source({**row, "path": str(args.sources / name)})
-                    if (
-                        subprocess.check_output(
-                            ["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True
-                        ).strip()
-                        != row["tree"]
-                    ):
-                        raise ValueError("source tree mismatch")
-                    if subprocess.check_output(
-                        ["git", "ls-files", "--others", "--exclude-standard"], cwd=root
-                    ):
-                        raise ValueError("untracked public source")
+                    root = pinned_checkout(args, name, row)
                     folder = args.output / f"{name}-{i}"
                     folder.mkdir()
                     order = (
