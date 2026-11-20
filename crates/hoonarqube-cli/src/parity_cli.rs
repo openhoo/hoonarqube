@@ -89,7 +89,7 @@ pub(crate) fn attach_comparison(
     if report.parity.is_none() {
         return Err("--parity-reference requires --profile sonar-parity".to_owned());
     }
-    let native_document = crate::sonar_import_value(catalog, &report.files)
+    let native_document = crate::reports::sonar::document(catalog, &report.files)
         .map_err(|error| format!("cannot project findings for parity comparison: {error}"))?;
     let comparison = compare_reference(&native_document, reference_path)?;
     let diverged = comparison.status == ParityComparisonStatus::Diverged;
@@ -396,13 +396,59 @@ struct IssueIdentity {
     end_offset: Option<u32>,
 }
 
+/// A present range identifies at least one line. Missing optional endpoints
+/// stay absent for exact identity comparison.
+struct ReferenceRange {
+    start_line: u32,
+    start_offset: Option<u32>,
+    end_line: Option<u32>,
+    end_offset: Option<u32>,
+}
+
+impl ReferenceRange {
+    fn parse(value: &serde_json::Value) -> Result<Self, String> {
+        let object = value.as_object().ok_or("textRange must be an object")?;
+        let coordinate = |key: &str| -> Result<Option<u32>, String> {
+            object
+                .get(key)
+                .map(|number| {
+                    number
+                        .as_u64()
+                        .and_then(|n| u32::try_from(n).ok())
+                        .ok_or_else(|| {
+                            format!("textRange.{key} must be a non-negative integer within u32")
+                        })
+                })
+                .transpose()
+        };
+        let start_line = coordinate("startLine")?.ok_or("textRange.startLine is required")?;
+        let end_line = coordinate("endLine")?;
+        let start_offset = coordinate("startColumn")?;
+        let end_offset = coordinate("endColumn")?;
+        if start_line == 0 || end_line == Some(0) {
+            return Err("textRange line numbers start at 1".to_owned());
+        }
+        let last_line = end_line.unwrap_or(start_line);
+        if last_line < start_line
+            || (last_line == start_line && start_offset.zip(end_offset).is_some_and(|(a, b)| a > b))
+        {
+            return Err("textRange ends before it starts".to_owned());
+        }
+        Ok(Self {
+            start_line,
+            start_offset,
+            end_line,
+            end_offset,
+        })
+    }
+}
+
 /// Extracts finding identities from a Generic Issue Import document.
 ///
 /// The document must be an object with an `issues` array; every issue needs
 /// a string `ruleId` and a `primaryLocation` object with a string
 /// `filePath`. `textRange` is optional (file-level findings omit it); when
-/// present its four endpoints must be non-negative integers.
-///
+/// present it must identify a valid line or character range.
 fn extract_sonar_issues(value: &serde_json::Value) -> Result<Vec<IssueIdentity>, String> {
     let array = value
         .get("issues")
@@ -425,33 +471,18 @@ fn extract_sonar_issues(value: &serde_json::Value) -> Result<Vec<IssueIdentity>,
             .and_then(|path| path.as_str())
             .ok_or_else(|| format!("{context}: primaryLocation.filePath must be a string"))?
             .to_owned();
-        let range = location.get("textRange");
-        let endpoint = |range: &serde_json::Value, key: &str| -> Result<Option<u32>, String> {
-            range
-                .get(key)
-                .and_then(serde_json::Value::as_u64)
-                .map(|value| {
-                    u32::try_from(value)
-                        .map_err(|_| format!("{context}: textRange.{key} exceeds u32"))
-                })
-                .transpose()
-        };
-        let (start_line, start_offset, end_line, end_offset) = match range {
-            None | Some(serde_json::Value::Null) => (None, None, None, None),
-            Some(range) => (
-                endpoint(range, "startLine")?,
-                endpoint(range, "startColumn")?,
-                endpoint(range, "endLine")?,
-                endpoint(range, "endColumn")?,
-            ),
-        };
+        let range = location
+            .get("textRange")
+            .map(ReferenceRange::parse)
+            .transpose()
+            .map_err(|error| format!("{context}: {error}"))?;
         issues.push(IssueIdentity {
             rule,
             path,
-            start_line,
-            start_offset,
-            end_line,
-            end_offset,
+            start_line: range.as_ref().map(|r| r.start_line),
+            start_offset: range.as_ref().and_then(|r| r.start_offset),
+            end_line: range.as_ref().and_then(|r| r.end_line),
+            end_offset: range.and_then(|r| r.end_offset),
         });
     }
     Ok(issues)
@@ -884,6 +915,8 @@ mod tests {
         let mut reference_doc = reference_document(&source, &rule);
         reference_doc["issues"][0]["primaryLocation"]["textRange"]["startColumn"] =
             serde_json::json!(2);
+        reference_doc["issues"][0]["primaryLocation"]["textRange"]["endColumn"] =
+            serde_json::json!(3);
         let reference = temp.0.join("reference.json");
         std::fs::write(
             &reference,
@@ -949,6 +982,83 @@ mod tests {
         let error = attach_comparison(&mut report, catalog, &reference)
             .expect_err("malformed reference must fail closed");
         assert!(error.contains("invalid parity reference"));
+    }
+
+    #[test]
+    fn malformed_ranges_cannot_verify_a_file_level_finding() {
+        use serde_json::json;
+
+        let temp = TempDir::new("range-validation");
+        let path = temp.0.join("mod.py");
+        let reference = temp.0.join("reference.json");
+        let catalog = hoonarqube_catalog::embedded();
+        let mut file_issue = issue("python:S113", 1, 0, 1, 1);
+        file_issue.range = Range::file_level();
+        let mut report = analysis_report(
+            vec![file_report(&path, "python", vec![file_issue])],
+            vec![measurement(&path, FileClassification::Source)],
+            true,
+        );
+        attach_parity_contract(
+            &mut report,
+            catalog,
+            &parity_options(),
+            &project_options(),
+            None,
+        );
+        let mut document = reference_document(&path, "python:S113");
+        for invalid in [
+            json!("bad range"),
+            json!([]),
+            json!(null),
+            json!({}),
+            json!({"endLine": 2}),
+            json!({"startLine": "1"}),
+            json!({"startLine": 0}),
+            json!({"startLine": 1, "endColumn": -1}),
+            json!({"startLine": 1, "startColumn": null}),
+            json!({"startLine": 1, "endLine": 1.5}),
+            json!({"startLine": 4_294_967_296_u64}),
+            json!({"startLine": 2, "endLine": 1}),
+            json!({"startLine": 1, "startColumn": 2, "endColumn": 1}),
+        ] {
+            document["issues"][0]["primaryLocation"]["textRange"] = invalid;
+            std::fs::write(&reference, document.to_string()).unwrap();
+            let error =
+                attach_comparison(&mut report, catalog, &reference).expect_err("invalid range");
+            assert!(
+                error.contains("invalid parity reference") && error.contains("textRange"),
+                "{error}"
+            );
+            assert!(report.parity.as_ref().unwrap().comparison.is_none());
+        }
+        document["issues"][0]["primaryLocation"]
+            .as_object_mut()
+            .unwrap()
+            .remove("textRange");
+        std::fs::write(&reference, document.to_string()).unwrap();
+        attach_comparison(&mut report, catalog, &reference).expect("file-level comparison");
+        assert_eq!(
+            report.parity.unwrap().completeness,
+            ParityCompleteness::ReferenceParityVerified
+        );
+    }
+
+    #[test]
+    fn line_ranges_preserve_omitted_columns_and_optional_end_line() {
+        let mut document = reference_document(Path::new("src/mod.py"), "python:S113");
+        for (range, expected_end) in [
+            (serde_json::json!({"startLine": 3}), None),
+            (serde_json::json!({"startLine": 3, "endLine": 4}), Some(4)),
+        ] {
+            document["issues"][0]["primaryLocation"]["textRange"] = range;
+            let identity = extract_sonar_issues(&document).unwrap().pop().unwrap();
+            assert_eq!(
+                (identity.start_line, identity.end_line),
+                (Some(3), expected_end)
+            );
+            assert_eq!((identity.start_offset, identity.end_offset), (None, None));
+        }
     }
 
     #[test]

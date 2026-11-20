@@ -131,6 +131,7 @@ impl Default for ProjectSemanticConfig {
 /// Source strings used for deterministic offline helper preparation.  The
 /// preparation function copies these exact bytes into an owned cache before
 /// invoking the installed SDK; it never downloads a runtime or package.
+const BUNDLED_HELPER_SDK_POLICY: &str = include_str!("../../../global.json");
 pub const BUNDLED_HELPER_PROJECT: &str =
     include_str!("../../../tools/semantic/csharp/CSharpSemanticHelper.csproj");
 pub const BUNDLED_HELPER_PROGRAM: &str = include_str!("../../../tools/semantic/csharp/Program.cs");
@@ -165,6 +166,15 @@ const BUNDLED_HELPER_READY_MARKER_TEMP: &str = ".complete.tmp";
 pub fn prepare_bundled_helper(cache_root: &Path) -> Result<HelperCommand, SemanticDiagnostic> {
     let dotnet = std::env::var_os("HOONARQUBE_DOTNET")
         .map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
+    // Changing the child cwd must not change the meaning of an explicit
+    // relative executable path. Bare names still resolve through PATH.
+    let dotnet = if dotnet.is_relative() && dotnet.components().count() > 1 {
+        dotnet
+            .canonicalize()
+            .map_err(|error| diag("dotnet_missing", error.to_string(), Some(dotnet.clone())))?
+    } else {
+        dotnet
+    };
     let directory = bundled_helper_directory(cache_root, &dotnet)?;
     if bundled_helper_ready(&directory) {
         return Ok(HelperCommand {
@@ -202,7 +212,22 @@ fn bundled_helper_directory(
     cache_root: &Path,
     dotnet: &Path,
 ) -> Result<PathBuf, SemanticDiagnostic> {
+    // SDK selection starts at the process working directory, even when the
+    // project argument is absolute. Resolve and build under our own SDK policy
+    // so the scanned repository can have an independent global.json.
+    let policy = cache_root
+        .join(BUNDLED_HELPER_CACHE_NAMESPACE)
+        .join(digest_bytes(BUNDLED_HELPER_SDK_POLICY.as_bytes()));
+    std::fs::create_dir_all(&policy)
+        .map_err(|error| diag("helper_cache", error.to_string(), Some(policy.clone())))?;
+    {
+        let _lock = lock_bundled_helper(&policy)?;
+        let path = policy.join("global.json");
+        write_if_changed(&path, BUNDLED_HELPER_SDK_POLICY)
+            .map_err(|error| diag("helper_cache", error, Some(path)))?;
+    }
     let version = Command::new(dotnet)
+        .current_dir(&policy)
         .arg("--version")
         .output()
         .map_err(|error| {
@@ -215,7 +240,7 @@ fn bundled_helper_directory(
     if !version.status.success() {
         return Err(diag(
             "dotnet_missing",
-            "installed dotnet SDK is unavailable",
+            "the bundled C# helper requires an installed stable .NET 10 SDK",
             None,
         ));
     }
@@ -228,7 +253,7 @@ fn bundled_helper_directory(
         BUNDLED_HELPER_RAZOR_SOURCE_FACTS,
         BUNDLED_HELPER_NUGET_CONFIG,
     ));
-    let directory = cache_root.join(BUNDLED_HELPER_CACHE_NAMESPACE).join(key);
+    let directory = policy.join(key);
     std::fs::create_dir_all(&directory).map_err(|error| {
         diag(
             "helper_cache",
@@ -236,7 +261,11 @@ fn bundled_helper_directory(
             Some(directory.clone()),
         )
     })?;
-    Ok(directory)
+    // The child works in this directory, so argv must remain valid when the
+    // caller supplied a relative cache root.
+    directory
+        .canonicalize()
+        .map_err(|error| diag("helper_cache", error.to_string(), Some(directory)))
 }
 
 fn bundled_helper_ready(directory: &Path) -> bool {
@@ -323,6 +352,7 @@ fn build_bundled_helper(
     nuget_config: &Path,
 ) -> Result<PathBuf, SemanticDiagnostic> {
     let restore = Command::new(dotnet)
+        .current_dir(directory)
         .args([
             "restore",
             project.to_string_lossy().as_ref(),
@@ -351,6 +381,7 @@ fn build_bundled_helper(
         ));
     }
     let build = Command::new(dotnet)
+        .current_dir(directory)
         .args([
             "build",
             project.to_string_lossy().as_ref(),
@@ -398,7 +429,7 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<(), String> {
 fn bundled_helper_digest() -> String {
     digest_bytes(
         format!(
-            "{BUNDLED_HELPER_PROJECT}\0{BUNDLED_HELPER_PROGRAM}\0{BUNDLED_HELPER_QUICKFIX_PLANNER}\0{BUNDLED_HELPER_RAZOR_SOURCE_FACTS}\0{BUNDLED_HELPER_NUGET_CONFIG}"
+            "{BUNDLED_HELPER_SDK_POLICY}\0{BUNDLED_HELPER_PROJECT}\0{BUNDLED_HELPER_PROGRAM}\0{BUNDLED_HELPER_QUICKFIX_PLANNER}\0{BUNDLED_HELPER_RAZOR_SOURCE_FACTS}\0{BUNDLED_HELPER_NUGET_CONFIG}"
         )
         .as_bytes(),
     )
@@ -2401,6 +2432,34 @@ namespace AliasedGuid
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn bundled_helper_resolves_net10_under_an_incompatible_parent_sdk_policy() {
+        let workspace = OwnedTempDir::new("helper-sdk-policy");
+        workspace.write(
+            "global.json",
+            r#"{"sdk":{"version":"99.0.100","rollForward":"disable"}}"#,
+        );
+        let dotnet =
+            env::var_os("HOONARQUBE_DOTNET").map_or_else(|| PathBuf::from("dotnet"), PathBuf::from);
+        let probe = |cwd: &Path| {
+            Command::new(&dotnet)
+                .arg("--version")
+                .current_dir(cwd)
+                .output()
+                .expect("query installed SDK")
+        };
+        assert!(!probe(workspace.path()).status.success());
+        let build_directory = bundled_helper_directory(&workspace.path().join("cache"), &dotnet)
+            .expect("resolve an installed .NET 10 SDK for the helper");
+        let selected = probe(&build_directory);
+        assert!(selected.status.success());
+        assert!(
+            String::from_utf8_lossy(&selected.stdout)
+                .trim()
+                .starts_with("10.0.")
+        );
     }
 
     fn restore_fixture_project(dotnet: &Path, project: &Path) {
