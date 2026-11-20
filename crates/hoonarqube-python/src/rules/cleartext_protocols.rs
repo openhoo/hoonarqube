@@ -67,8 +67,13 @@ pub(crate) fn check_cleartext_protocols(
         "graphml.graphdrawing.org",
         "json-schema.org",
     ];
+    let facts = WebFrameworkFacts::build(file_ctx);
+    let patterns = protocol_identification_ranges(file_ctx, &facts);
     let mut issues = Vec::new();
     for_each_value_string_element(parsed.syntax().body.as_slice(), &mut |text, range| {
+        if patterns.contains(&range) {
+            return;
+        }
         let mut flagged_protocol = None;
         for scheme in CLEARTEXT_SCHEMES {
             // Only endpoint values, not a URI embedded in prose or another URL.
@@ -108,7 +113,6 @@ pub(crate) fn check_cleartext_protocols(
     if !file_ctx.calls.iter().any(|call| matches!(call.func.as_ref(), Expr::Attribute(method) if matches!(method.attr.as_str(), "serve_forever" | "server_bind"))) {
         return issues;
     }
-    let facts = WebFrameworkFacts::build(file_ctx);
     for call in &file_ctx.calls {
         if sensitive_http_super_call(call, &facts) {
             issues.push(issue_at(
@@ -121,6 +125,348 @@ pub(crate) fn check_cleartext_protocols(
         }
     }
     issues
+}
+
+/// Select the reference check's regular argument, then descend through tuples
+/// only. Ruff already removes parentheses; calls and lists retain their own
+/// context and must not inherit an outer protocol-identification exemption.
+fn protocol_identification_ranges(
+    file_ctx: &FileContext<'_>,
+    facts: &WebFrameworkFacts<'_>,
+) -> Vec<TextRange> {
+    let mut ranges = Vec::new();
+    for call in &file_ctx.calls {
+        let Expr::Attribute(method) = call.func.as_ref() else {
+            continue;
+        };
+        if !matches!(
+            method.attr.as_str(),
+            "startswith" | "replace" | "removeprefix" | "removesuffix"
+        ) || protocol_method_has_nonstring_owner(&method.value, method.attr.as_str(), facts)
+        {
+            continue;
+        }
+        let position = usize::from(is_builtin_protocol_type(&method.value, "str", facts));
+        if let Some(argument) = call.arguments.args.get(position) {
+            collect_protocol_pattern_ranges(argument, &mut ranges);
+        }
+    }
+    ranges
+}
+
+fn collect_protocol_pattern_ranges(expr: &Expr, ranges: &mut Vec<TextRange>) {
+    match expr {
+        Expr::StringLiteral(literal) => {
+            ranges.extend(literal.value.iter().map(Ranged::range));
+        }
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                collect_protocol_pattern_ranges(element, ranges);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_builtin_protocol_type(expr: &Expr, expected: &str, facts: &WebFrameworkFacts<'_>) -> bool {
+    let expr = facts.resolve_local_alias_chain(expr);
+    match expr {
+        Expr::Name(name)
+            if name.id.as_str() == expected
+                && matches!(
+                    facts.resolve_name(expected, name.range()),
+                    NameResolution::Unbound
+                ) =>
+        {
+            true
+        }
+        Expr::Name(_) | Expr::Attribute(_) => facts
+            .expr_fqn(expr)
+            .is_some_and(|fqn| fqn == format!("builtins.{expected}")),
+        _ => false,
+    }
+}
+
+/// A missing or unresolved method has an unknown owner in `SonarPython` and
+/// remains eligible. Only a proven non-string method owner rejects the pattern.
+fn protocol_method_has_nonstring_owner(
+    receiver: &Expr,
+    method: &str,
+    facts: &WebFrameworkFacts<'_>,
+) -> bool {
+    let receiver = facts.resolve_local_alias_chain(receiver);
+    match receiver {
+        Expr::BytesLiteral(_) => true,
+        Expr::Call(call) => {
+            protocol_type_has_nonstring_method(&call.func, method, facts, 0)
+                || protocol_function_return_annotation(call, facts).is_some_and(|annotation| {
+                    protocol_type_has_nonstring_method(annotation, method, facts, 0)
+                })
+                || protocol_expression_has_bytes_result(receiver, facts, 0)
+        }
+        Expr::Name(name) => {
+            if let Some(parameter) = protocol_parameter(name, facts) {
+                return parameter.annotation.as_deref().is_some_and(|annotation| {
+                    protocol_type_has_nonstring_method(annotation, method, facts, 0)
+                });
+            }
+            protocol_type_has_nonstring_method(receiver, method, facts, 0)
+        }
+        _ => protocol_type_has_nonstring_method(receiver, method, facts, 0),
+    }
+}
+
+/// Declared results are proof only for a uniquely bound local bare function.
+/// Parameters, imports, assignments and ambiguous writes keep the call unknown.
+fn protocol_function_return_annotation<'a>(
+    call: &ruff_python_ast::ExprCall,
+    facts: &WebFrameworkFacts<'a>,
+) -> Option<&'a Expr> {
+    let Expr::Name(name) = call.func.as_ref() else {
+        return None;
+    };
+    let function = facts.resolve_function(call)?;
+    if protocol_name_has_definition(name, function.range(), facts) {
+        function.returns.as_deref()
+    } else {
+        None
+    }
+}
+
+fn protocol_name_has_definition(
+    name: &ruff_python_ast::ExprName,
+    definition: TextRange,
+    facts: &WebFrameworkFacts<'_>,
+) -> bool {
+    for scope in facts.enclosing_chain(name.range()) {
+        if let Some(range) = scope
+            && protocol_scope_has_parameter(range, name.id.as_str(), facts) != Some(false)
+        {
+            return false;
+        }
+        let mut bindings = facts.stmts.iter().filter(|stmt| {
+            protocol_statement_scope(stmt, facts) == scope
+                && crate::support::stmt_store_names(stmt)
+                    .iter()
+                    .any(|binding| binding == name.id.as_str())
+        });
+        let Some(binding) = bindings.next() else {
+            continue;
+        };
+        return bindings.next().is_none() && binding.range() == definition;
+    }
+    false
+}
+
+/// Inspect the actual function or lambda parameters before rejecting an outer
+/// definition. An unrelated lambda parameter does not shadow that definition.
+fn protocol_scope_has_parameter(
+    scope: TextRange,
+    name: &str,
+    facts: &WebFrameworkFacts<'_>,
+) -> Option<bool> {
+    if let Some(function) = facts.functions.iter().find(|owner| owner.range() == scope) {
+        return Some(protocol_function_parameter(function, name).is_some());
+    }
+    let mut result = None;
+    for stmt in &facts.stmts {
+        for_each_stmt_expr(std::slice::from_ref(*stmt), &mut |expr| {
+            if let Expr::Lambda(lambda) = expr
+                && lambda.range() == scope
+            {
+                result = Some(lambda.parameters.as_deref().is_some_and(|parameters| {
+                    protocol_parameters_parameter(parameters, name).is_some()
+                }));
+            }
+        });
+        if result.is_some() {
+            return result;
+        }
+    }
+    None
+}
+
+fn protocol_statement_scope(stmt: &Stmt, facts: &WebFrameworkFacts<'_>) -> Option<TextRange> {
+    facts
+        .enclosing_chain(stmt.range())
+        .into_iter()
+        .find(|scope| *scope != Some(stmt.range()))
+        .flatten()
+}
+
+/// Preserve the bytes result of the two transforms verified against the live
+/// reference. Unknown calls and custom methods do not prove a bytes result.
+fn protocol_expression_has_bytes_result(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'_>,
+    depth: u32,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let is_bytes_type = |annotation: &Expr| {
+        ["bytes", "bytearray"]
+            .iter()
+            .any(|name| is_builtin_protocol_type(annotation, name, facts))
+    };
+    match facts.resolve_local_alias_chain(expr) {
+        Expr::BytesLiteral(_) => true,
+        Expr::Name(name) => protocol_parameter(name, facts)
+            .and_then(|parameter| parameter.annotation.as_deref())
+            .is_some_and(is_bytes_type),
+        Expr::Call(call) => {
+            is_bytes_type(&call.func)
+                || protocol_function_return_annotation(call, facts).is_some_and(is_bytes_type)
+                || matches!(call.func.as_ref(), Expr::Attribute(method)
+                    if matches!(method.attr.as_str(), "strip" | "lower")
+                        && protocol_expression_has_bytes_result(&method.value, facts, depth + 1))
+        }
+        _ => false,
+    }
+}
+
+fn protocol_type_has_nonstring_method(
+    expr: &Expr,
+    method: &str,
+    facts: &WebFrameworkFacts<'_>,
+    depth: u32,
+) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let expr = facts.resolve_local_alias_chain(expr);
+    if ["bytes", "bytearray"]
+        .iter()
+        .any(|name| is_builtin_protocol_type(expr, name, facts))
+    {
+        return true;
+    }
+    let Some(class) = protocol_class(expr, facts) else {
+        return false;
+    };
+    if protocol_type_extends_string(expr, facts, depth) != Some(false) {
+        return false;
+    }
+    class
+        .body
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::FunctionDef(function) if function.name.as_str() == method))
+        || class
+            .bases()
+            .iter()
+            .any(|base| protocol_type_has_nonstring_method(base, method, facts, depth + 1))
+}
+
+fn protocol_type_extends_string(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'_>,
+    depth: u32,
+) -> Option<bool> {
+    if depth > 8 {
+        return None;
+    }
+    let expr = facts.resolve_local_alias_chain(expr);
+    if is_builtin_protocol_type(expr, "str", facts) {
+        return Some(true);
+    }
+    if [
+        "object",
+        "bytes",
+        "bytearray",
+        "int",
+        "float",
+        "bool",
+        "list",
+        "tuple",
+        "dict",
+        "set",
+    ]
+    .iter()
+    .any(|name| is_builtin_protocol_type(expr, name, facts))
+    {
+        return Some(false);
+    }
+    let class = protocol_class(expr, facts)?;
+    let mut unknown = false;
+    for base in class.bases() {
+        match protocol_type_extends_string(base, facts, depth + 1) {
+            Some(true) => return Some(true),
+            None => unknown = true,
+            Some(false) => {}
+        }
+    }
+    (!unknown).then_some(false)
+}
+
+fn protocol_class<'a>(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'a>,
+) -> Option<&'a ruff_python_ast::StmtClassDef> {
+    protocol_class_at_depth(expr, facts, 0)
+}
+
+/// Resolve attribute owners locally: an alias can expand back into an
+/// attribute, so delegating that graph to the shared resolver can recurse
+/// indefinitely. Exhausted or cyclic owner inference remains unknown.
+fn protocol_class_at_depth<'a>(
+    expr: &Expr,
+    facts: &WebFrameworkFacts<'a>,
+    depth: u32,
+) -> Option<&'a ruff_python_ast::StmtClassDef> {
+    if depth > 8 {
+        return None;
+    }
+    let expr = facts.resolve_local_alias_chain(expr);
+    match expr {
+        Expr::Name(name) => {
+            let class = facts.resolve_class_def(expr, expr.range())?;
+            protocol_name_has_definition(name, class.range(), facts).then_some(class)
+        }
+        Expr::Attribute(attribute) => {
+            let owner = protocol_class_at_depth(&attribute.value, facts, depth + 1)?;
+            owner.body.iter().find_map(|stmt| match stmt {
+                Stmt::ClassDef(class) if class.name.as_str() == attribute.attr.as_str() => {
+                    Some(class)
+                }
+                _ => None,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn protocol_parameter<'a>(
+    name: &ruff_python_ast::ExprName,
+    facts: &WebFrameworkFacts<'a>,
+) -> Option<&'a ruff_python_ast::Parameter> {
+    let scope = facts.enclosing_scope(name.range())?;
+    let function = facts
+        .functions
+        .iter()
+        .find(|function| function.range() == scope)?;
+    protocol_function_parameter(function, name.id.as_str())
+}
+
+fn protocol_function_parameter<'a>(
+    function: &'a ruff_python_ast::StmtFunctionDef,
+    name: &str,
+) -> Option<&'a ruff_python_ast::Parameter> {
+    protocol_parameters_parameter(&function.parameters, name)
+}
+
+fn protocol_parameters_parameter<'a>(
+    parameters: &'a ruff_python_ast::Parameters,
+    name: &str,
+) -> Option<&'a ruff_python_ast::Parameter> {
+    parameters
+        .posonlyargs
+        .iter()
+        .chain(&parameters.args)
+        .chain(&parameters.kwonlyargs)
+        .map(|parameter| &parameter.parameter)
+        .chain(parameters.vararg.as_deref())
+        .chain(parameters.kwarg.as_deref())
+        .find(|parameter| parameter.name.as_str() == name)
 }
 
 /// The super-call contract depends on the enclosing class's imported base,
@@ -301,7 +647,7 @@ mod tests {
                     issue.range.end.column
                 ))
                 .collect::<Vec<_>>(),
-            vec![(1, 4, 1, 13), (2, 22, 2, 31), (9, 11, 9, 61)]
+            vec![(1, 4, 1, 13), (9, 11, 9, 61)]
         );
         assert!(
             found
@@ -352,5 +698,665 @@ mod docstring_prose_tests {
                 .message
                 .starts_with("Using HTTP protocol is insecure")
         );
+    }
+}
+
+#[cfg(test)]
+mod protocol_identification_tests {
+    use crate::test_support::{findings, scan};
+
+    // Current installed SonarPython protocol-identification semantics; bare
+    // endpoint values remain unsafe under the original #642 / #705 contract.
+
+    #[test]
+    fn s5332_protocol_identification_patterns_are_not_endpoint_values() {
+        {
+            let source =
+                "def launch(url: str):\n    return url.startswith((\"http://\", \"https://\"))\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "original-click-reduction");
+        }
+        {
+            let source = "result = \"https://safe.invalid\".startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "literal-instance-startswith");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "typed-instance-startswith");
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.startswith((((\"http://\",),)))\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "nested-tuple-parentheses");
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.replace(\"http://\", \"https://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "replace-old-pattern");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.removeprefix(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "remove-prefix-pattern");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.removesuffix(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "remove-suffix-pattern");
+        }
+        {
+            let source = "result = str.startswith(value, \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "unbound-str-pattern");
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith(\"http://remote.invalid/path\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "full-endpoint-pattern");
+        }
+        {
+            let source = "def identify(value):\n    return value.startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "unknown-receiver-method");
+        }
+        {
+            let source = "a = \"http://\"\nb = value.startswith((\"http://\", \"https://\", \"/\"))\nc = \"see http://www.rssboard.org/rss-profile for details\"\nns = \"http://www.w3.org/2005/Atom\"\nns2 = \"http://purl.org/dc/elements/1.1/\"\nspace = \" http://remote.invalid\"\nsecure = \"https://remote.invalid/?next=http://remote.invalid\"\nlocal = \"http://localhost/?next=ftp://remote.invalid\"\nendpoint = \"http://remote.invalid/?next=ftp://remote.invalid\"\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 2, "prior-committed-bare-contract");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (1, 4, 1, 13)
+            );
+            assert_eq!(
+                (
+                    found[1].range.start.line,
+                    found[1].range.start.column,
+                    found[1].range.end.line,
+                    found[1].range.end.column
+                ),
+                (9, 11, 9, 61)
+            );
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_preserves_argument_and_owner_boundaries() {
+        {
+            let source = "value = \"http://\"\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "bare-assignment-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (1, 8, 1, 17)
+            );
+        }
+        {
+            let source = "def configure(self):\n    self.mount(\"http://\", object())\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "requests-mount-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 15, 2, 24)
+            );
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith(\"https://\", \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "startswith-later-position");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 40, 2, 49)
+            );
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.startswith(prefix=\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "startswith-keyword-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 35, 2, 44)
+            );
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.replace(\"https://\", \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "replace-new-endpoint");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 37, 2, 46)
+            );
+        }
+        {
+            let source = "def identify(value: str):\n    return value.endswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "endswith-name-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 26, 2, 35)
+            );
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_preserves_owner_and_wrapper_boundaries() {
+        {
+            let source = "result = str.startswith(\"http://\", \"https://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "unbound-str-receiver-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (1, 24, 1, 33)
+            );
+        }
+        {
+            let source = "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = Endpoint().startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "known-nonstr-owner-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (4, 31, 4, 40)
+            );
+        }
+        {
+            let source = "def identify(value: str):\n    return value.startswith([\"http://\"])\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "list-wrapper-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 29, 2, 38)
+            );
+        }
+        {
+            let source =
+                "def identify(value: str):\n    return value.startswith(make(\"http://\"))\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "nested-call-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 33, 2, 42)
+            );
+        }
+        {
+            let source =
+                "value = b\"https://safe.invalid\"\nresult = value.startswith(\"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "known-bytes-owner-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (2, 26, 2, 35)
+            );
+        }
+        {
+            let source = "class str:\n    @staticmethod\n    def startswith(receiver, prefix):\n        return prefix\nresult = str.startswith(None, \"http://\")\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 1, "rebound-str-class-guard");
+            assert_eq!(
+                (
+                    found[0].range.start.line,
+                    found[0].range.start.column,
+                    found[0].range.end.line,
+                    found[0].range.end.column
+                ),
+                (5, 30, 5, 39)
+            );
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_keeps_existing_clean_controls() {
+        {
+            let source = "secure = \"https://remote.invalid\"\nlocal = \"http://localhost:8000\"\nprose = \"See http://remote.invalid\"\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "clean-secure-safe-prose");
+        }
+        {
+            let source =
+                "def describe():\n    \"\"\"http://remote.invalid\"\"\"\n    return None\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "docstring-clean");
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_unicode_crlf_retains_endpoint_coordinates() {
+        {
+            let source = "marker = \"😀\"; result = \"url\".startswith(\"http://\")\r\n";
+            let report = scan(source);
+            let found = findings(&report, "python:S5332");
+            assert_eq!(found.len(), 0, "unicode-crlf-pattern");
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_resolves_string_aliases_subclasses_and_unknown_methods() {
+        let cases = [
+            (
+                "imported-type-alias",
+                "from builtins import str as Text\nresult = Text.startswith(value, \"http://\")\n",
+            ),
+            (
+                "imported-module-alias",
+                "import builtins as b\nresult = b.str.startswith(value, \"http://\")\n",
+            ),
+            (
+                "assigned-type-alias",
+                "Text = str\nresult = Text.startswith(value, \"http://\")\n",
+            ),
+            (
+                "string-subclass",
+                "class Text(str):\n    pass\nresult = Text().startswith(\"http://\")\n",
+            ),
+            (
+                "string-subclass-method",
+                "class Text(str):\n    def startswith(self, value):\n        return value\nresult = Text().startswith(\"http://\")\n",
+            ),
+            (
+                "unknown-local-method",
+                "class Endpoint:\n    pass\nresult = Endpoint().startswith(\"http://\")\n",
+            ),
+            (
+                "unknown-imported-method",
+                "from other import Endpoint\nresult = Endpoint().startswith(\"http://\")\n",
+            ),
+            (
+                "shadowed-class-name",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(Endpoint):\n    return Endpoint().startswith(\"http://\")\n",
+            ),
+        ];
+        for (name, source) in cases {
+            let report = scan(source);
+            assert!(findings(&report, "python:S5332").is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn s5332_protocol_identification_keeps_known_nonstring_method_owners_unsafe() {
+        let cases = [
+            (
+                "inherited-nonstr-method",
+                "class Parent:\n    def startswith(self, value):\n        return value\nclass Child(Parent):\n    pass\nresult = Child().startswith(\"http://\")\n",
+            ),
+            (
+                "typed-bytes-owner",
+                "def identify(value: bytes):\n    return value.startswith(\"http://\")\n",
+            ),
+            (
+                "typed-custom-owner",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(value: Endpoint):\n    return value.startswith(\"http://\")\n",
+            ),
+            (
+                "imported-bytes-owner",
+                "from builtins import bytes as Bytes\nresult = Bytes().startswith(\"http://\")\n",
+            ),
+            (
+                "shadowed-builtin-class",
+                "def identify(str):\n    return str.startswith(value, \"http://\")\n",
+            ),
+        ];
+        for (name, source) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            assert_eq!(issues.len(), 1, "{name}");
+            assert_eq!(
+                issues[0].message,
+                "Using HTTP protocol is insecure. Use HTTPS instead."
+            );
+        }
+    }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_result_owner_boundaries() {
+        // Exact sources and ranges from the supplemental live SonarQube scan.
+        let cases = [
+            (
+                "bytes-strip.py",
+                "result = b\"x\".strip().startswith(\"http://\")\n",
+                Some((1, 33, 1, 42)),
+            ),
+            (
+                "annotated-bytes.py",
+                "def provide() -> bytes:\n    return b\"x\"\nresult = provide().startswith(\"http://\")\n",
+                Some((3, 30, 3, 39)),
+            ),
+            (
+                "bytes-lower.py",
+                "def identify(value: bytes):\n    return value.lower().startswith(\"http://\")\n",
+                Some((2, 36, 2, 45)),
+            ),
+            (
+                "annotated-str.py",
+                "def provide() -> str:\n    return \"x\"\nresult = provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "unknown-call.py",
+                "from unknown import provide\nresult = provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "imported-str-alias.py",
+                "from builtins import str as Text\nresult = Text.startswith(value, \"http://\")\n",
+                None,
+            ),
+            (
+                "annotated-custom.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef provide() -> Endpoint:\n    return Endpoint()\nresult = provide().startswith(\"http://\")\n",
+                Some((6, 30, 6, 39)),
+            ),
+            (
+                "bytes-constructor.py",
+                "result = bytes().startswith(\"http://\")\n",
+                Some((1, 28, 1, 37)),
+            ),
+            ("bare.py", "endpoint = \"http://\"\n", Some((1, 11, 1, 20))),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_shadowed_result_owners() {
+        // Exact sources and ranges from the separate live binding-owner scan.
+        let cases = [
+            (
+                "parameter-shadow.py",
+                "def provide() -> bytes:\n    return b\"x\"\ndef identify(provide):\n    return provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "local-shadow.py",
+                "def provide() -> bytes:\n    return b\"x\"\ndef identify():\n    provide = unknown\n    return provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "reassigned-provider.py",
+                "def provide() -> bytes:\n    return b\"x\"\nprovide = unknown\nresult = provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "import-shadow.py",
+                "def provide() -> bytes:\n    return b\"x\"\ndef identify():\n    from other import provide\n    return provide().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "known-bytes.py",
+                "def provide() -> bytes:\n    return b\"x\"\nresult = provide().startswith(\"http://\")\n",
+                Some((3, 30, 3, 39)),
+            ),
+            (
+                "bytes-decode.py",
+                "result = b\"x\".decode().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "unknown-bytes-method.py",
+                "result = b\"x\".unknown().startswith(\"http://\")\n",
+                None,
+            ),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_shadowed_class_owners() {
+        // Exact sources and ranges from the separate live class-owner scan.
+        let cases = [
+            (
+                "class-import-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nfrom other import Endpoint\nresult = Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-local-import-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify():\n    from other import Endpoint\n    return Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-reassignment.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nEndpoint = unknown\nresult = Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-parameter-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\ndef identify(Endpoint):\n    return Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "class-lambda-shadow.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+                None,
+            ),
+            (
+                "nested-class-parameter.py",
+                "class Container:\n    class Endpoint:\n        def startswith(self, value):\n            return value\ndef identify(Container):\n    return Container.Endpoint().startswith(\"http://\")\n",
+                None,
+            ),
+            (
+                "known-class.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = Endpoint().startswith(\"http://\")\n",
+                Some((4, 31, 4, 40)),
+            ),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
+    #[test]
+    fn s5332_protocol_identification_preserves_live_lambda_owner_boundaries() {
+        // Exact sources and ranges from the separate live lambda-owner scan.
+        let cases = [
+            (
+                "class-lambda-unshadowed.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda : Endpoint().startswith(\"http://\"))()\n",
+                Some((4, 41, 4, 50)),
+            ),
+            (
+                "class-lambda-unrelated.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda other: Endpoint().startswith(\"http://\"))(unknown)\n",
+                Some((4, 46, 4, 55)),
+            ),
+            (
+                "class-lambda-shadowed.py",
+                "class Endpoint:\n    def startswith(self, value):\n        return value\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+                None,
+            ),
+            (
+                "function-lambda-unshadowed.py",
+                "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda : Endpoint().startswith(\"http://\"))()\n",
+                Some((3, 41, 3, 50)),
+            ),
+            (
+                "function-lambda-unrelated.py",
+                "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda other: Endpoint().startswith(\"http://\"))(unknown)\n",
+                Some((3, 46, 3, 55)),
+            ),
+            (
+                "function-lambda-shadowed.py",
+                "def Endpoint() -> bytes:\n    return b\"\"\nresult = (lambda Endpoint: Endpoint().startswith(\"http://\"))(unknown)\n",
+                None,
+            ),
+        ];
+        let mut mismatches = Vec::new();
+        for (name, source, expected) in cases {
+            let report = scan(source);
+            let issues = findings(&report, "python:S5332");
+            let actual: Vec<_> = issues
+                .iter()
+                .map(|issue| {
+                    assert_eq!(
+                        issue.message,
+                        "Using HTTP protocol is insecure. Use HTTPS instead."
+                    );
+                    (
+                        issue.range.start.line,
+                        issue.range.start.column,
+                        issue.range.end.line,
+                        issue.range.end.column,
+                    )
+                })
+                .collect();
+            let expected: Vec<_> = expected.into_iter().collect();
+            if actual != expected {
+                mismatches.push((name, actual, expected));
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:?}");
     }
 }
