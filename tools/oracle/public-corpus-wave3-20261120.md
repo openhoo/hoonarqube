@@ -15,13 +15,13 @@ repositories respectively; the three waves selected 121 in total.
 
 ### Findings and file metrics on identical scopes
 
-Both engines completed **46** scopes with the same **659** file paths and
-bytes. Only these scopes contribute to the following totals.
+Both engines completed **45** comparable scopes with the same **658** file
+paths and bytes. Only these scopes contribute to the following totals.
 
 | Observation | Matches | Hoonarqube only | SonarQube only |
 | --- | ---: | ---: | ---: |
-| Primary findings on implemented rules active in both with the same declared parameters | 749 | 631 | 109 |
-| Equal file size metric values | 1,668 / 1,975 | — | — |
+| Primary findings on implemented rules active in both with the same declared parameters | 749 | 405 | 109 |
+| Equal file size metric values | 1,667 / 1,974 | — | — |
 
 Primary identities use rule key, path and full UTF-16 range, with repeated
 identities counted by occurrence. The comparison excludes hotspots, findings
@@ -30,28 +30,44 @@ messages nor secondary locations. The filter for matching declared parameters
 does not establish analyzer equivalence.
 
 File metrics are lines, code lines (`ncloc` in Sonar), and comment lines.
-The possible denominator is 659 × 3 = 1,977. Sonar returned only `lines`
-for `papaparse.js`; its two absent values are excluded rather than counted
-as zero. These totals do not cover aggregate duplication, coverage, gates,
-or commercial sensors. Language in the table refers to project selection;
-the index within an individual scope may include more than one language.
+All 658 comparable files returned all three values. These totals do not
+cover aggregate duplication, coverage, gates, or commercial sensors.
+Language in the table refers to project selection; the index within an
+individual scope may include more than one language.
 
 | Selection language | Selected | Sonar complete | Native complete | Identical scopes | Identical files | Primary matches / native only / Sonar only |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Python | 12 | 12 | 12 | 12 | 219 | 514 / 83 / 93 |
 | Go | 12 | 12 | 12 | 12 | 115 | 83 / 4 / 2 |
-| JavaScript | 7 | 7 | 6 | 5 | 19 | 83 / 496 / 10 |
+| JavaScript | 7 | 7 | 6 | 4 | 18 | 83 / 270 / 10 |
 | TypeScript | 3 | 3 | 2 | 1 | 8 | 19 / 5 / 2 |
 | Ruby | 9 | 9 | 7 | 7 | 150 | 34 / 0 / 2 |
 | Rust | 9 | 9 | 9 | 9 | 148 | 16 / 43 / 0 |
 
-The largest observed rule difference was `javascript:S3504`: Hoonarqube
-reported 222 primary findings in Express, 146 in Papa Parse and 21 in
-minimist; Sonar reported zero for this rule in those scopes. These are
-follow-up candidates, with Papa Parse also showing the missing measures
-above. The counts alone cannot identify the cause or which detector is right.
+The largest rule difference on comparable scopes in this capture was
+`javascript:S3504`: 222 native findings in Express and 21 in minimist, versus
+zero in Sonar. Sonar analyzed all seven files with S3504 active. The pinned
+[SonarJS implementation](https://github.com/SonarSource/SonarJS/blob/1eea9253f87b448684d1089dc7160eca388b21b6/packages/analysis/src/jsts/rules/S3504/decorator.ts)
+suppresses the rule when a file has at least three runtime `var` declarations
+and they make up more than half of its runtime variable declarations. A
+separate live control confirmed the threshold and the exclusion of ambient
+TypeScript declarations. These are historical totals for the recorded native
+binary.
 
 ### Scopes outside the totals
+
+Sonar indexed `papaparse.js` and its compute task succeeded. Its JavaScript
+sensor reported a generated code exclusion, zero analyzed files, and no cache
+hits. Sonar returned only `lines` for the file. Its 226 native findings on
+implemented rules active in both with the same declared parameters (including
+146 S3504 findings) are outside the common analyzer scope. The qualification
+receipt keeps the excluded counts and the successful compute task visible.
+
+A fresh reference project scanned the same file bytes with
+`sonar.javascript.detectBundles=false`. The sensor analyzed the file,
+returned all three file metrics and 66 JavaScript findings, and still
+returned zero S3504 findings. The control did not change the original
+scan settings or replace its results.
 
 Two pairs finished with different file sets. Both engines had 30 indexed
 PostCSS files in common; Hoonarqube also analyzed 22 declaration files.
