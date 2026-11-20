@@ -973,6 +973,7 @@ name = "hoonarqube-ruby"
 version = "0.11.1"
 dependencies = [
  "hoonarqube-ir",
+ "regex",
  "tree-sitter",
  "tree-sitter-ruby",
 ]
