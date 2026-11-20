@@ -343,8 +343,8 @@ Project/compiler contexts use these existing flags:
 - `--csharp-project PATH` selects a C# project or solution. Pair it with
   `--allow-project-build` to explicitly trust project evaluation and the
   bounded `dotnet build --no-restore` used for project references and Razor
-  generated sources. An installed .NET SDK capable of the bundled `net10.0`
-  helper is required; `HOONARQUBE_DOTNET` can select its executable. Without
+  generated sources. The bundled helper selects an installed stable .NET 10 SDK
+  even when newer major versions are installed; `HOONARQUBE_DOTNET` can select its executable. Without
   this flag the project is not executed and compiler-backed C# facts are
   unavailable, while native analysis remains.
 - `--csharp-context-source PATH` supplies an additional compiler-only snapshot
@@ -395,8 +395,8 @@ Standalone release binaries embed the TypeScript CJS helper and the C# helper
 project/program, `QuickFixPlanner`, and `RazorSourceFacts`, then materialize those
 sources at runtime. A Hoonarqube checkout is not needed. The helpers do not bundle
 external runtimes or packages: TypeScript still needs Node.js and the project-local
-TypeScript **6.0.3** package, while C# still needs a .NET SDK capable of the
-bundled `net10.0` helper. Keep `--allow-project-build` as an explicit trust
+TypeScript **6.0.3** package, while C# needs a stable .NET 10 SDK for the
+bundled helper. Keep `--allow-project-build` as an explicit trust
 boundary and use it only with trusted project inputs.
 
 ### Incremental analysis cache
