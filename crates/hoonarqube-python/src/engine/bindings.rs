@@ -46,6 +46,8 @@ pub(crate) enum KnownBinding {
     TrioModule,
     AnyioModule,
     TimeModule,
+    TypingModule,
+    TypingUnion,
     TimeSleep,
     HashlibModule,
     HashlibWeakHash,
@@ -789,6 +791,7 @@ fn module_binding(module: &str) -> KnownBinding {
         "trio" => KnownBinding::TrioModule,
         "anyio" => KnownBinding::AnyioModule,
         "time" => KnownBinding::TimeModule,
+        "typing" => KnownBinding::TypingModule,
         "hashlib" => KnownBinding::HashlibModule,
         "werkzeug" | "werkzeug.wrappers" | "werkzeug.wrappers.response" => {
             KnownBinding::CookieResponseModule(CookieApi::Werkzeug)
@@ -844,6 +847,7 @@ fn from_import_binding(module: Option<&str>, name: &str) -> KnownBinding {
         (Some("asyncio"), "TaskGroup") => KnownBinding::AsyncioTaskGroup,
         (Some("asyncio"), "sleep") => KnownBinding::AsyncioSleep,
         (Some("time"), "sleep") => KnownBinding::TimeSleep,
+        (Some("typing"), "Union") => KnownBinding::TypingUnion,
         (Some("hashlib"), "md5" | "sha1" | "sha224") => KnownBinding::HashlibWeakHash,
         (Some("hashlib"), "new") => KnownBinding::HashlibNew,
         (
@@ -906,6 +910,7 @@ fn attribute_binding(base: KnownBinding, attribute: &str) -> KnownBinding {
         (KnownBinding::AsyncioModule, "TaskGroup") => KnownBinding::AsyncioTaskGroup,
         (KnownBinding::AsyncioModule, "sleep") => KnownBinding::AsyncioSleep,
         (KnownBinding::TimeModule, "sleep") => KnownBinding::TimeSleep,
+        (KnownBinding::TypingModule, "Union") => KnownBinding::TypingUnion,
         (KnownBinding::HashlibModule, "md5" | "sha1" | "sha224") => KnownBinding::HashlibWeakHash,
         (KnownBinding::HashlibModule, "new") => KnownBinding::HashlibNew,
         (KnownBinding::FlaskModule, "Response" | "make_response" | "jsonify") => {
