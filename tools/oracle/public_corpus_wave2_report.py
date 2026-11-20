@@ -170,6 +170,36 @@ def observation(row):
     return names.get(row["comparison_state"], row["comparison_state"])
 
 
+def boundaries(summary):
+    lines = ["", "### Boundaries and failures", ""]
+    for name, detail in SOURCE_BLOCKS.items():
+        lines.append(f"- **{name}:** {detail} Neither analyzer ran on that scope.")
+    for name, detail in REFERENCE_BLOCKS.items():
+        lines.append(
+            f"- **{name}:** {detail} The native source analysis remains in the receipt."
+        )
+    for name, detail in NATIVE_BLOCKS.items():
+        lines.append(f"- **{name}:** {detail}")
+    for name, row in summary["projects"].items():
+        native = row.get("native", {})
+        if native.get("incomplete_files"):
+            files = ", ".join(f"`{f}`" for f in native["incomplete_files"])
+            lines.append(
+                f"- **{name}:** Native analysis reported incomplete files: {files}."
+            )
+        if row["comparison_state"] == "shared_files_only":
+            files = row["files"]
+            lines.append(
+                f"- **{name}:** {len(files['native_only'])} native-only and {len(files['reference_only'])} SonarQube-only files. Only the intersection is compared."
+            )
+        if row.get("reference", {}).get("state") in {"failed", "incomplete"}:
+            ref = row["reference"]
+            lines.append(
+                f"- **{name}:** Reference {ref['state']}. Compute status: {ref.get('compute_status') or 'unavailable'}; parser diagnostic lines: {ref.get('parse_warning_lines') or 0}."
+            )
+    return lines
+
+
 def report(out, summary, manifest, preflight, profile_sha):
     overall = tallies(list(summary["projects"].values()))
     audit = {
@@ -260,32 +290,7 @@ def report(out, summary, manifest, preflight, profile_sha):
         lines.append(
             f"| {repo} | `{spec['commit'][:12]}` | {n} | {s} | {detail} | {count} |"
         )
-    lines += ["", "### Boundaries and failures", ""]
-    for name, detail in SOURCE_BLOCKS.items():
-        lines.append(f"- **{name}:** {detail} Neither analyzer ran on that scope.")
-    for name, detail in REFERENCE_BLOCKS.items():
-        lines.append(
-            f"- **{name}:** {detail} The native source analysis remains in the receipt."
-        )
-    for name, detail in NATIVE_BLOCKS.items():
-        lines.append(f"- **{name}:** {detail}")
-    for name, row in summary["projects"].items():
-        native = row.get("native", {})
-        if native.get("incomplete_files"):
-            files = ", ".join(f"`{f}`" for f in native["incomplete_files"])
-            lines.append(
-                f"- **{name}:** Native analysis reported incomplete files: {files}."
-            )
-        if row["comparison_state"] == "shared_files_only":
-            files = row["files"]
-            lines.append(
-                f"- **{name}:** {len(files['native_only'])} native-only and {len(files['reference_only'])} SonarQube-only files. Only the intersection is compared."
-            )
-        if row.get("reference", {}).get("state") in {"failed", "incomplete"}:
-            ref = row["reference"]
-            lines.append(
-                f"- **{name}:** Reference {ref['state']}. Compute status: {ref.get('compute_status') or 'unavailable'}; parser diagnostic lines: {ref.get('parse_warning_lines') or 0}."
-            )
+    lines += boundaries(summary)
     lines += [
         "",
         "## Provenance and method",
