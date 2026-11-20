@@ -1476,15 +1476,18 @@ impl<'source> FactCollector<'source> {
     }
 
     fn mark_node(&mut self, node: Node<'_>, code: bool) {
-        // JavaScript literal content counts its full span, including blank
-        // template rows. Other syntax marks rows with actual source bytes.
+        // Blank rows inside these parsed literals are source code.
         let start = node.start_byte().min(self.source.len());
         let end = node.end_byte().min(self.source.len()).max(start);
         self.record_jsts_span(start, end, code);
-        if code
-            && matches!(self.language, Language::JavaScript | Language::TypeScript)
-            && (is_string_root_kind(node.kind()) || is_string_content_kind(node.kind()))
-        {
+        let count_literal_span = match self.language {
+            Language::JavaScript | Language::TypeScript => {
+                is_string_root_kind(node.kind()) || is_string_content_kind(node.kind())
+            }
+            Language::Go => node.kind() == "raw_string_literal" && !node.has_error(),
+            _ => false,
+        };
+        if code && count_literal_span {
             let (first, last) = self.line_span(node);
             self.rows.mark(first, last, true);
             return;

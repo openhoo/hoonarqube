@@ -1,0 +1,369 @@
+{
+  "claim": "Go source size measurements on ten pinned project scopes and one authored two-file scan.",
+  "date": "2026-11-20",
+  "builds": {
+    "qualified_release": {
+      "commit": "f94a57724b712262d4f43a93c391880c1a06bfec",
+      "binary_sha256": "8e673c4f6c0e2f8f53c2c9a81ec32b382cc12f7d8b120fff661391c8042985ce"
+    },
+    "unmodified_parent": {
+      "commit": "b8411407357d1eabf8d2bce59035d7343996e6ec",
+      "binary_sha256": "50631f528445e7bf07c4e089b957eb6df34251b39c942d57a336e1b8d4c7f18e"
+    },
+    "implementation": {
+      "commit": "2d4813fbda59303dcea95a58d812c8ec1837fdc7",
+      "binary_sha256": "91f428193bc85651509c98d9f36bc4afcae6aa060053a5e6edfb70e9bb859fd7"
+    }
+  },
+  "reference": {
+    "product": "SonarQube Community Build 26.9.0.129388",
+    "server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+    "scanner": "SonarScanner CLI 8.0.1.6346",
+    "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+    "go_profile": "Sonar way"
+  },
+  "focused_live_scan": {
+    "files": [
+      {
+        "path": "controls.go",
+        "source_utf8": "package p\r\n\r\nconst windows = `\r\n \t\r\n`\r\n\r\n// outside `raw`\r\n\r\nconst plain = \"line\\n\"\r\n",
+        "source_sha256": "05062707e81004e7bd00894fb66ce37ae9743d5d602bef002387ca59c9cbe0ad",
+        "unmodified_parent_ncloc": 4,
+        "revised_ncloc": 5,
+        "sonar": {
+          "comment_lines": 1,
+          "lines": 10,
+          "ncloc": 5
+        }
+      },
+      {
+        "path": "metrics.go",
+        "source_utf8": "package p\n\nconst commands = `start\n \t\n\n// literal text\nend`\nconst escaped = \"`not a raw string`\\n\"\n/* actual `comment`\n\nend */\n\nconst single = `x` + `y`\n",
+        "source_sha256": "e50cbd66ee8cd748cf4e6b9c4151640a54e6f96041e7d1b2a8e1c1b76426aa5e",
+        "unmodified_parent_ncloc": 6,
+        "revised_ncloc": 8,
+        "sonar": {
+          "comment_lines": 2,
+          "lines": 14,
+          "ncloc": 8
+        }
+      }
+    ],
+    "project": {
+      "sonar": {
+        "files": 2,
+        "lines": 24,
+        "ncloc": 13,
+        "comment_lines": 3
+      },
+      "unmodified_parent_ncloc": 10,
+      "revised_ncloc": 13
+    },
+    "raw_api_response_sha256": {
+      "file_measures": "b6ed6dbb767a6dbb7f017eddc4b3ea7fe2cdfc65ff8f082e3497f64351a299af",
+      "project_measures": "0a17775db222ec1871d9e1e935a69bdc28e830d33603b7ffe9282c4b4055a1d5"
+    }
+  },
+  "public_replay": {
+    "method": "Verified each repository commit and the SHA-256 of every source listed in the frozen reference inventory, then replayed the CLI arguments and source selection from each capture. Public project code was not built. The two baseline binaries produced byte-identical CLI JSON for all ten projects. Removing only code_lines from files[].metrics, project.files[].metrics and project.metrics made the parsed parent and revised reports identical for every project. An independent go/scanner lexical pass accounted for all changed rows in Cobra.",
+    "file_metrics": [
+      "lines",
+      "ncloc",
+      "comment_lines"
+    ],
+    "project_metrics": [
+      "files",
+      "lines",
+      "ncloc",
+      "comment_lines"
+    ],
+    "totals": {
+      "projects": 10,
+      "files": 163,
+      "file_metric_cells": 489,
+      "parent_matching_file_cells": 481,
+      "revised_matching_file_cells": 489,
+      "project_metric_cells": 40,
+      "parent_matching_project_cells": 39,
+      "revised_matching_project_cells": 40,
+      "byte_identical_reports_parent_vs_revised": 9,
+      "unchanged_native_findings": 524
+    },
+    "projects": [
+      {
+        "name": "chi",
+        "repository": "go-chi/chi",
+        "commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+        "inventory_sha256": "cec23d72ba3ae02f9037bb8ee1a18a52e69a33115bccb70448128df9eb8fc656",
+        "reference_file_measures_sha256": "484be1581570e8d37e054d2ea0963736c57e1eb52648e000a8178fbf4efc46ea",
+        "files": 35,
+        "old_file_metric_cells_matching": 105,
+        "new_file_metric_cells_matching": 105,
+        "total_file_metric_cells": 105,
+        "old_ncloc": 2841,
+        "new_ncloc": 2841,
+        "sonar_ncloc": 2841,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 36,
+        "reference_project_measures_sha256": "47bd8f17d0840bbc5665389f963cb6fa7d9e7f58567086592a685575e208bd6c",
+        "unmodified_parent_report_sha256": "1b83137b7a7f9dc3d667722b8cd0c8e1b5022b3b63042dd540c2e7ca32eeb2e9",
+        "revised_report_sha256": "1b83137b7a7f9dc3d667722b8cd0c8e1b5022b3b63042dd540c2e7ca32eeb2e9"
+      },
+      {
+        "name": "cobra",
+        "repository": "spf13/cobra",
+        "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+        "inventory_sha256": "527994df4a6dfd4b38beb4c69525694a0097d654421af306ad2f1f0014c0e492",
+        "reference_file_measures_sha256": "401344f5d145e3debda9d7a2f03b62745195c8c07223a582776f43642c9c4f6d",
+        "files": 14,
+        "old_file_metric_cells_matching": 34,
+        "new_file_metric_cells_matching": 42,
+        "total_file_metric_cells": 42,
+        "old_ncloc": 4291,
+        "new_ncloc": 4557,
+        "sonar_ncloc": 4557,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 72,
+        "reference_project_measures_sha256": "d54ef85617b31c4129f60d4115348ac9f93638531173e17465f0934b13bedaa1",
+        "unmodified_parent_report_sha256": "9299432fd3073953cb02f5c4b9d575bd82c92760f3673b308c7a95a6fe055166",
+        "revised_report_sha256": "e3ee9e77f3f2763052d64d42bd20906b385be4f513402dfc051506dc00336e5e"
+      },
+      {
+        "name": "cors",
+        "repository": "go-chi/cors",
+        "commit": "3a5381283113550282a3dcfba669a48ba4691d84",
+        "inventory_sha256": "e76a8db7c67c64754429c3f0d5838de7f2fb46d877d2dd0b84d3b7c0200436a4",
+        "reference_file_measures_sha256": "88145953a54db6518c094641fe54e5cc7fa477cea681b9da6f882939553bd03d",
+        "files": 3,
+        "old_file_metric_cells_matching": 9,
+        "new_file_metric_cells_matching": 9,
+        "total_file_metric_cells": 9,
+        "old_ncloc": 342,
+        "new_ncloc": 342,
+        "sonar_ncloc": 342,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 6,
+        "reference_project_measures_sha256": "317d910f3cf036b0dddbebcaf42cc71ce9e23e903eda13efaee3f705bf4bf6b1",
+        "unmodified_parent_report_sha256": "e453afa2162deaaffac12c394066fa2212de498a75c8a2e47b1ac2e80559981b",
+        "revised_report_sha256": "e453afa2162deaaffac12c394066fa2212de498a75c8a2e47b1ac2e80559981b"
+      },
+      {
+        "name": "cron",
+        "repository": "robfig/cron",
+        "commit": "bc59245fe10efaed9d51b56900192527ed733435",
+        "inventory_sha256": "88f141dbf173f1ab0e41e38867535b2ce4cdebb2c76d047565d7ffca98bc20e4",
+        "reference_file_measures_sha256": "211b5eebb6179662b7c9cd694ebc1215753870131af9420ade671384dc980ca9",
+        "files": 8,
+        "old_file_metric_cells_matching": 24,
+        "new_file_metric_cells_matching": 24,
+        "total_file_metric_cells": 24,
+        "old_ncloc": 873,
+        "new_ncloc": 873,
+        "sonar_ncloc": 873,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 11,
+        "reference_project_measures_sha256": "949deaffb12be98c938ede98ff5c5da64f3fee8c575ec4eb30cbba1377af6e0e",
+        "unmodified_parent_report_sha256": "b3a2722bbe3fd677a7ec982055f50c2c66b7911aae306294369b315cc6fb1935",
+        "revised_report_sha256": "b3a2722bbe3fd677a7ec982055f50c2c66b7911aae306294369b315cc6fb1935"
+      },
+      {
+        "name": "kong",
+        "repository": "alecthomas/kong",
+        "commit": "af6c65142cbcd8c86b11713721d6581bb9df4e07",
+        "inventory_sha256": "dced859d09781a0bb91222aa9f2f807e094ce94481e9a7345135ccc13708c89d",
+        "reference_file_measures_sha256": "9874d988b4edea4b2f675b691d2558d74556f5f0fa182f6c2b2d6dc348ef3ece",
+        "files": 25,
+        "old_file_metric_cells_matching": 75,
+        "new_file_metric_cells_matching": 75,
+        "total_file_metric_cells": 75,
+        "old_ncloc": 5152,
+        "new_ncloc": 5152,
+        "sonar_ncloc": 5152,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 106,
+        "reference_project_measures_sha256": "d5c9f2afb6d68d9bfd2b0b8bae3484e233753cfcdf5655af7e058e4320c7356f",
+        "unmodified_parent_report_sha256": "7c82d8db8f62b724d98270bfcebaef5de6f7bb8cf8e52c517cbdac125e1a3ea0",
+        "revised_report_sha256": "7c82d8db8f62b724d98270bfcebaef5de6f7bb8cf8e52c517cbdac125e1a3ea0"
+      },
+      {
+        "name": "mux",
+        "repository": "gorilla/mux",
+        "commit": "b4617d0b9670ad14039b2739167fd35a60f557c5",
+        "inventory_sha256": "6090c86f35bc2cf49dc681abce54954bf6103b6aa706d73eee5eabf64ecfdccf",
+        "reference_file_measures_sha256": "666eab59cb611d4086df04666e6c5945e047cdbc730cabd7ca17f149c29b4000",
+        "files": 6,
+        "old_file_metric_cells_matching": 18,
+        "new_file_metric_cells_matching": 18,
+        "total_file_metric_cells": 18,
+        "old_ncloc": 1130,
+        "new_ncloc": 1130,
+        "sonar_ncloc": 1130,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 18,
+        "reference_project_measures_sha256": "8fd91fb946c8610647d5092c08e87f3a07f292d88492a3a132242c0507d479d1",
+        "unmodified_parent_report_sha256": "922e9798dae2636acef35e13307b09b814accaee5518d8840f1d21301806d963",
+        "revised_report_sha256": "922e9798dae2636acef35e13307b09b814accaee5518d8840f1d21301806d963"
+      },
+      {
+        "name": "pflag",
+        "repository": "spf13/pflag",
+        "commit": "5ca813443bd2a4d9f46a253ea0407d23b3790713",
+        "inventory_sha256": "a6b0d204de579442dc29d84935f535467bce6cddc1df7c7e4cb7eff877a71757",
+        "reference_file_measures_sha256": "25f9f989356e33896c8d4c4cd16e173742a916ad88bffbdaa77199657f666c31",
+        "files": 37,
+        "old_file_metric_cells_matching": 111,
+        "new_file_metric_cells_matching": 111,
+        "total_file_metric_cells": 111,
+        "old_ncloc": 3959,
+        "new_ncloc": 3959,
+        "sonar_ncloc": 3959,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 19,
+        "reference_project_measures_sha256": "f38d4915c1118e2dac36d637b940cd8b05b39d884125dc783aba90a5349745a4",
+        "unmodified_parent_report_sha256": "e551fdce4db57c76e91a56d23c3f12167a8dc01cbf34834f0c103ecf938392d8",
+        "revised_report_sha256": "e551fdce4db57c76e91a56d23c3f12167a8dc01cbf34834f0c103ecf938392d8"
+      },
+      {
+        "name": "testify",
+        "repository": "stretchr/testify",
+        "commit": "87a7b9d57689f6579db2da795ab8deeab29cb724",
+        "inventory_sha256": "dd0921922db8891a584f5daf96a55ac3935892d86eacdc0ec47de1ec3a5b6885",
+        "reference_file_measures_sha256": "7840c35b703de0f5f920af5da94bc150d6400890ea534375c569f5c9e0971843",
+        "files": 18,
+        "old_file_metric_cells_matching": 54,
+        "new_file_metric_cells_matching": 54,
+        "total_file_metric_cells": 54,
+        "old_ncloc": 5907,
+        "new_ncloc": 5907,
+        "sonar_ncloc": 5907,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 210,
+        "reference_project_measures_sha256": "89bfcf4ee8f37e6f5e9f2a6b63c62b74ae9dc7cdbb1630581535b99a59901869",
+        "unmodified_parent_report_sha256": "0008743b6c4c2fdd18d957c62fc0fda8978fa517796d550fafdf783d45cf4928",
+        "revised_report_sha256": "0008743b6c4c2fdd18d957c62fc0fda8978fa517796d550fafdf783d45cf4928"
+      },
+      {
+        "name": "uuid",
+        "repository": "gofrs/uuid",
+        "commit": "e77e0425f79791b8d7d10d47995cb65b221da492",
+        "inventory_sha256": "67a00571558a98249935d8b2da69adfd3c86fb5cf4c1b114206f7cc0ffd1580e",
+        "reference_file_measures_sha256": "499ce28df3cfd70aaeb370aaf036658f50408d90ed3ae0aa3739cd0f6f33a620",
+        "files": 5,
+        "old_file_metric_cells_matching": 15,
+        "new_file_metric_cells_matching": 15,
+        "total_file_metric_cells": 15,
+        "old_ncloc": 720,
+        "new_ncloc": 720,
+        "sonar_ncloc": 720,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 7,
+        "reference_project_measures_sha256": "43bd0f30a854237e9dbfe63ebef4b65571c0bb094bd7883778a1ccb4e5e5fdf0",
+        "unmodified_parent_report_sha256": "b83ad2dd97fc52270ccfcacac0657807d26e32ec02fdce63dc477ddfd597707a",
+        "revised_report_sha256": "b83ad2dd97fc52270ccfcacac0657807d26e32ec02fdce63dc477ddfd597707a"
+      },
+      {
+        "name": "websocket",
+        "repository": "gorilla/websocket",
+        "commit": "e064f32e3674d9d79a8fd417b5bc06fa5c6cad8f",
+        "inventory_sha256": "d2cafa5d8a06c3597f42cec105cf27f743f51dd09fb792516328ee5e5d11b26c",
+        "reference_file_measures_sha256": "1e54492d50c580a68cc906a731b606a7b4d7aa4e5be06d296445ed997df26d70",
+        "files": 12,
+        "old_file_metric_cells_matching": 36,
+        "new_file_metric_cells_matching": 36,
+        "total_file_metric_cells": 36,
+        "old_ncloc": 2092,
+        "new_ncloc": 2092,
+        "sonar_ncloc": 2092,
+        "matching_project_size_cells": 4,
+        "unchanged_findings": 39,
+        "reference_project_measures_sha256": "2e92fba6640187013063e962258002475b2e5f05aad6e341c435243de20576d2",
+        "unmodified_parent_report_sha256": "127795cfd513cc7067daea30dabf8adda8472dddedfcb7999a3ea9835f8acfba",
+        "revised_report_sha256": "127795cfd513cc7067daea30dabf8adda8472dddedfcb7999a3ea9835f8acfba"
+      }
+    ],
+    "changed_file_ncloc": [
+      {
+        "project": "cobra",
+        "file": "bash_completions.go",
+        "old": 603,
+        "new": 649,
+        "reference": 649,
+        "go_scanner_empty_rows": 46
+      },
+      {
+        "project": "cobra",
+        "file": "bash_completionsV2.go",
+        "old": 401,
+        "new": 460,
+        "reference": 460,
+        "go_scanner_empty_rows": 59
+      },
+      {
+        "project": "cobra",
+        "file": "cobra.go",
+        "old": 159,
+        "new": 160,
+        "reference": 160,
+        "go_scanner_empty_rows": 1
+      },
+      {
+        "project": "cobra",
+        "file": "command.go",
+        "old": 1417,
+        "new": 1427,
+        "reference": 1427,
+        "go_scanner_empty_rows": 10
+      },
+      {
+        "project": "cobra",
+        "file": "completions.go",
+        "old": 601,
+        "new": 628,
+        "reference": 628,
+        "go_scanner_empty_rows": 27
+      },
+      {
+        "project": "cobra",
+        "file": "fish_completions.go",
+        "old": 224,
+        "new": 269,
+        "reference": 269,
+        "go_scanner_empty_rows": 45
+      },
+      {
+        "project": "cobra",
+        "file": "powershell_completions.go",
+        "old": 268,
+        "new": 316,
+        "reference": 316,
+        "go_scanner_empty_rows": 48
+      },
+      {
+        "project": "cobra",
+        "file": "zsh_completions.go",
+        "old": 231,
+        "new": 261,
+        "reference": 261,
+        "go_scanner_empty_rows": 30
+      }
+    ]
+  },
+  "direct_library_ncloc": {
+    "methods": [
+      "hoonarqube_core::collect_source_facts",
+      "hoonarqube_go::analyze",
+      "hoonarqube_go::analyze_github_quality_report"
+    ],
+    "files_matching_sonar_for_all_three_methods": 163
+  },
+  "regressions": {
+    "core": "project::tests::language_metric_helpers_match_public_project_measurements: previously 5 instead of 7; fixed. Also covers CRLF without a final newline.",
+    "go": "tests::go_raw_string_ncloc_does_not_change_rule_line_limits: previously 6 instead of 8; fixed for LF and CRLF while the configured S104 limit still produces no finding.",
+    "crate_tests": {
+      "hoonarqube-core": 136,
+      "hoonarqube-go": 166
+    },
+    "clippy": "cargo clippy --locked -p hoonarqube-core -p hoonarqube-go --all-targets --all-features -- -D warnings (passed)"
+  },
+  "limit": "This qualifies the named size metrics for the recorded files. Unchanged findings describe native before/after stability only; no independent rule, duplication or full-Go parity claim."
+}
