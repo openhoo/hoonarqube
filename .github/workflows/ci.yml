@@ -165,6 +165,20 @@ jobs:
           --exclude hoonarqube-rust
           -- python_s5332_protocol_identification
 
+      - name: Run Python S7503 CLI tests
+        if: matrix.package == 'hoonarqube-java'
+        env:
+          # Cache-enabled fixtures hash the CLI executable on every invocation.
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: >-
+          cargo test --locked --workspace --all-targets --all-features
+          --exclude hoonarqube-csharp
+          --exclude hoonarqube-java
+          --exclude hoonarqube-jsts
+          --exclude hoonarqube-python
+          --exclude hoonarqube-rust
+          -- python_s7503_
+
   quality-tests-rest:
     name: Tests (remaining workspace)
     needs: commitlint
@@ -181,6 +195,8 @@ jobs:
           save-if: false
 
       - name: Run remaining workspace tests
+        env:
+          CARGO_PROFILE_TEST_DEBUG: "0"
         run: >-
           cargo test --locked --workspace --all-targets --all-features
           --exclude hoonarqube-csharp
@@ -188,7 +204,7 @@ jobs:
           --exclude hoonarqube-jsts
           --exclude hoonarqube-python
           --exclude hoonarqube-rust
-          -- --skip python_s5332_protocol_identification
+          -- --skip python_s5332_protocol_identification --skip python_s7503_
 
   quality-dogfood:
     name: Quality (pinned dogfood)
