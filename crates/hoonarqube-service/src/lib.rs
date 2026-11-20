@@ -1,14 +1,17 @@
 #![forbid(unsafe_code)]
 
+mod auth;
 mod store;
+mod wire_json;
 
+use auth::Principal;
+pub use auth::{AuthConfig, Credential, Role};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 #[cfg(test)]
 use std::path::PathBuf;
 use std::path::{Component, Path as FsPath};
-use std::sync::Arc;
 
 use crate::store::{
     AnalysisDetail, AnalysisSummary, BackupAnalysis, BackupFinding, BackupHistory, BackupReview,
@@ -31,10 +34,12 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 const API_PREFIX: &str = "/api/v1";
+const DEFAULT_FINDINGS_PAGE_SIZE: u16 = 100;
+const MAX_FINDINGS_PAGE_SIZE: u16 = 500;
+const MAX_FINDINGS_CURSOR_BYTES: usize = 42;
 const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PROJECT_BYTES: usize = 256;
 const MAX_BRANCH_BYTES: usize = 256;
@@ -120,169 +125,6 @@ where
             .await
             .map(|Json(value)| Self(value))
             .map_err(|rejection| api_body_error(rejection.status()))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Role {
-    Reader,
-    Reviewer,
-    Admin,
-}
-
-impl Role {
-    fn permits(self, required: Self) -> bool {
-        matches!(
-            (self, required),
-            (Role::Admin, _)
-                | (Role::Reviewer, Role::Reader | Role::Reviewer)
-                | (Role::Reader, Role::Reader)
-        )
-    }
-}
-
-#[derive(Clone)]
-pub struct Credential {
-    pub user_id: String,
-    token: String,
-    pub projects: BTreeMap<String, Role>,
-    pub global_admin: bool,
-}
-
-impl Credential {
-    #[must_use]
-    pub fn new(
-        user_id: impl Into<String>,
-        token: impl Into<String>,
-        projects: impl IntoIterator<Item = (String, Role)>,
-    ) -> Self {
-        Self {
-            user_id: user_id.into(),
-            token: token.into(),
-            projects: projects.into_iter().collect(),
-            global_admin: false,
-        }
-    }
-
-    #[must_use]
-    pub fn global_admin(mut self, global_admin: bool) -> Self {
-        self.global_admin = global_admin;
-        self
-    }
-}
-
-#[derive(Clone)]
-pub struct AuthConfig {
-    credentials: Arc<Vec<Credential>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CredentialConfig {
-    user_id: String,
-    token: String,
-    #[serde(default)]
-    projects: BTreeMap<String, Role>,
-    #[serde(default)]
-    global_admin: bool,
-}
-
-impl AuthConfig {
-    /// Builds an authentication configuration after validating all credentials.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InitError::Config` if credentials are empty, invalid, or duplicated.
-    pub fn new(credentials: Vec<Credential>) -> Result<Self, InitError> {
-        if credentials.is_empty() {
-            return Err(InitError::Config(
-                "at least one explicit service credential is required".to_string(),
-            ));
-        }
-        let mut users = BTreeSet::new();
-        let mut tokens = BTreeSet::new();
-        for credential in &credentials {
-            validate_identity_component(&credential.user_id, MAX_PROJECT_BYTES, "user_id")
-                .map_err(InitError::Config)?;
-            if credential.token.is_empty() {
-                return Err(InitError::Config(
-                    "credential token must not be empty".to_string(),
-                ));
-            }
-            if !tokens.insert(&credential.token) {
-                return Err(InitError::Config(
-                    "credential token must be unique".to_string(),
-                ));
-            }
-            if !users.insert(credential.user_id.clone()) {
-                return Err(InitError::Config(
-                    "credential user_id must be unique".to_string(),
-                ));
-            }
-            for project in credential.projects.keys() {
-                validate_identity_component(project, MAX_PROJECT_BYTES, "project")
-                    .map_err(InitError::Config)?;
-            }
-        }
-        Ok(Self {
-            credentials: Arc::new(credentials),
-        })
-    }
-
-    /// Parses authentication credentials from `JSON`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InitError::Config` if the text is invalid or parsed credentials fail validation.
-    pub fn from_json(text: &str) -> Result<Self, InitError> {
-        let entries: Vec<CredentialConfig> = serde_json::from_str(text)
-            .map_err(|error| InitError::Config(format!("invalid credentials JSON: {error}")))?;
-        Self::new(
-            entries
-                .into_iter()
-                .map(|entry| Credential {
-                    user_id: entry.user_id,
-                    token: entry.token,
-                    projects: entry.projects,
-                    global_admin: entry.global_admin,
-                })
-                .collect(),
-        )
-    }
-
-    fn authenticate(&self, token: &str) -> Option<Principal> {
-        self.credentials.iter().find_map(|credential| {
-            if token
-                .as_bytes()
-                .ct_eq(credential.token.as_bytes())
-                .unwrap_u8()
-                != 1
-            {
-                return None;
-            }
-            Some(Principal {
-                user_id: credential.user_id.clone(),
-                projects: credential.projects.clone(),
-                global_admin: credential.global_admin,
-            })
-        })
-    }
-}
-
-#[derive(Clone)]
-struct Principal {
-    user_id: String,
-    projects: BTreeMap<String, Role>,
-    global_admin: bool,
-}
-
-impl Principal {
-    fn permits(&self, project: &str, required: Role) -> bool {
-        self.global_admin
-            || self
-                .projects
-                .get(project)
-                .is_some_and(|role| role.permits(required))
     }
 }
 
@@ -556,12 +398,12 @@ pub(crate) struct ValidatedRestore {
 }
 
 #[derive(Debug, Deserialize)]
-struct IngestRequest {
+struct IngestRequest<R = Value> {
     schema_version: u32,
     branch: String,
     commit: String,
     analyzed_at: String,
-    report: Value,
+    report: R,
 }
 
 #[derive(Debug, Deserialize)]
@@ -631,6 +473,18 @@ struct AnalysisResponse {
 #[derive(Debug, Serialize)]
 struct FindingsResponse {
     findings: Vec<FindingRecord>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FindingsPageQuery {
+    limit: Option<u16>,
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct FindingsPageResponse {
+    findings: Vec<FindingRecord>,
+    next_cursor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -813,6 +667,10 @@ fn router(state: AppState) -> Router {
             get(get_findings),
         )
         .route(
+            &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}/findings/page"),
+            get(get_findings_page),
+        )
+        .route(
             &format!("{API_PREFIX}/projects/{{project}}/reviews"),
             get(list_reviews).post(post_review),
         )
@@ -932,6 +790,49 @@ async fn get_findings(
     Ok(Json(FindingsResponse { findings }))
 }
 
+async fn get_findings_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
+    SafeQuery(query): SafeQuery<FindingsPageQuery>,
+) -> Result<Json<FindingsPageResponse>, ApiError> {
+    authorize_project(&state, &headers, &project, Role::Reader)?;
+    validate_project(&project)?;
+    let limit = query.limit.unwrap_or(DEFAULT_FINDINGS_PAGE_SIZE);
+    if analysis_id <= 0 || !(1..=MAX_FINDINGS_PAGE_SIZE).contains(&limit) {
+        return Err(ApiError::bad_request());
+    }
+    let after_id = query
+        .cursor
+        .as_deref()
+        .map(|cursor| parse_finding_cursor(analysis_id, cursor))
+        .transpose()?;
+    let store::FindingPage { findings, next_id } = state
+        .store
+        .findings_page(&project, analysis_id, after_id, limit)
+        .map_err(|error| store_error(&error))?;
+    Ok(Json(FindingsPageResponse {
+        findings,
+        next_cursor: next_id.map(|id| encode_finding_cursor(analysis_id, id)),
+    }))
+}
+
+fn encode_finding_cursor(analysis_id: i64, finding_id: i64) -> String {
+    format!("v1.{analysis_id}.{finding_id}")
+}
+
+fn parse_finding_cursor(analysis_id: i64, cursor: &str) -> Result<i64, ApiError> {
+    if cursor.len() > MAX_FINDINGS_CURSOR_BYTES {
+        return Err(ApiError::bad_request());
+    }
+    let (_, id) = cursor.rsplit_once('.').ok_or_else(ApiError::bad_request)?;
+    let id: i64 = id.parse().map_err(|_| ApiError::bad_request())?;
+    if id <= 0 || encode_finding_cursor(analysis_id, id) != cursor {
+        return Err(ApiError::bad_request());
+    }
+    Ok(id)
+}
+
 async fn ingest_analysis(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -944,12 +845,39 @@ async fn ingest_analysis(
     if body.len() > state.limits.max_body_bytes {
         return Err(ApiError::too_large());
     }
-    let request: IngestRequest =
+    let IngestRequest {
+        schema_version,
+        branch,
+        commit,
+        analyzed_at,
+        report: raw_report,
+    }: IngestRequest<&serde_json::value::RawValue> =
         serde_json::from_slice(&body).map_err(|_| ApiError::bad_request())?;
-    let data = validate_ingest(&project, request, state.limits)?;
+    let report = wire_json::parse(raw_report.get()).map_err(|_| ApiError::bad_request())?;
+    let data = validate_ingest(
+        &project,
+        IngestRequest {
+            schema_version,
+            branch,
+            commit,
+            analyzed_at,
+            report,
+        },
+        state.limits,
+    )?;
     let result = state
         .store
-        .insert_analysis(&data)
+        .insert_analysis(&data, || {
+            // Only consulted to match a row written by the legacy parser.
+            let legacy: Value = serde_json::from_str(raw_report.get()).ok()?;
+            let json = serde_json::to_string(&legacy).ok()?;
+            Some(analysis_content_hash(
+                &data.branch,
+                &data.commit,
+                &data.analyzed_at,
+                &json,
+            ))
+        })
         .map_err(|error| store_error(&error))?;
     Ok(Json(IngestResponse {
         analysis: result.analysis,
@@ -1243,6 +1171,7 @@ fn store_error(error: &StoreError) -> ApiError {
     match error {
         StoreError::Conflict(_) => ApiError::conflict(),
         StoreError::NotFound => ApiError::not_found(),
+        StoreError::InvalidFindingCursor => ApiError::bad_request(),
         StoreError::Sql(_) | StoreError::Invalid(_) => ApiError::internal(),
     }
 }
@@ -1318,13 +1247,8 @@ fn validate_ingest(
         .transpose()
         .map_err(|_| ApiError::bad_request())?;
     let findings = extract_findings(&report, assessment.as_ref())?;
-    let content_hash = hash_bytes(
-        format!(
-            "{}\n{}\n{}\n{}",
-            request.branch, request.commit, analyzed_at, report_json
-        )
-        .as_bytes(),
-    );
+    let content_hash =
+        analysis_content_hash(&request.branch, &request.commit, &analyzed_at, &report_json);
     Ok(IngestData {
         project: project.to_string(),
         branch: request.branch,
@@ -1709,14 +1633,27 @@ fn append_file_findings(
     accumulator: &mut FindingAccumulator<'_>,
 ) -> Result<(), ApiError> {
     let path = path_string(&file.path)?;
+    // The report preserves the spelling supplied to the CLI; assessment identities
+    // use the IR's normalized spelling even for a scan rooted at ".".
+    let assessment_path = hoonarqube_ir::assessment::normalize_path(&file.path)
+        .map_err(|_| ApiError::bad_request())?;
+    let assessment_path = assessment_path.to_str().ok_or_else(ApiError::bad_request)?;
     for (issue_index, issue) in file.issues.iter().enumerate() {
-        append_finding(&path, &file.language, issue_index, issue, accumulator)?;
+        append_finding(
+            &path,
+            assessment_path,
+            &file.language,
+            issue_index,
+            issue,
+            accumulator,
+        )?;
     }
     Ok(())
 }
 
 fn append_finding(
     path: &str,
+    assessment_path: &str,
     language: &str,
     issue_index: usize,
     issue: &Issue,
@@ -1727,7 +1664,9 @@ fn append_finding(
     let duplicate = accumulator.keys.get(&key).copied().unwrap_or_default() > 1;
     let kind = issue_kind(issue)?;
     let (identity, claimed, claim_present) = {
-        let claim = accumulator.claims.get(&(path.to_owned(), issue_index));
+        let claim = accumulator
+            .claims
+            .get(&(assessment_path.to_owned(), issue_index));
         let claim_present = claim.is_some();
         let (identity, claimed) = match claim {
             Some((Some(identity), false)) => match canonical_claim_identity(identity) {
@@ -1745,7 +1684,7 @@ fn append_finding(
     if claim_present {
         accumulator
             .matched_claims
-            .insert((path.to_owned(), issue_index));
+            .insert((assessment_path.to_owned(), issue_index));
     }
     let range = serde_json::to_value(&issue.range).map_err(|_| ApiError::bad_request())?;
     let range_json = serde_json::to_string(&range).map_err(|_| ApiError::bad_request())?;
@@ -2392,6 +2331,10 @@ fn now_timestamp() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+fn analysis_content_hash(branch: &str, commit: &str, timestamp: &str, report: &str) -> String {
+    hash_bytes(format!("{branch}\n{commit}\n{timestamp}\n{report}").as_bytes())
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {
@@ -3251,6 +3194,322 @@ mod tests {
 
     fn reviewable_report() -> &'static str {
         r#"{"schema_version":1,"files":[{"path":"a.py","language":"python","issues":[{"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":20}}}],"metrics":{"lines":2,"code_lines":1,"comment_lines":1}}],"project":{"metrics":{"files":1,"lines":2,"code_lines":1,"comment_lines":1},"files":[{"path":"a.py","classification":"source","status":"complete","metrics":{"lines":2,"code_lines":1,"comment_lines":1},"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"reason":null}],"duplications":[],"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"complete":true,"warnings":[],"roots":["a.py"]},"assessment":{"schema_version":3,"context":{"analyzer_version":"hoonarqube-cli/0.8.2","catalog_digest":"d9ce2a1a13961a57f4dede498924fd3518312e8de5a4a5bc671952c73c158a84","options_digest":"471a1bbba734ab8a2da6fa62d0d84d5dd967dd2e1476565c78de6881b54b48d1","scope_digest":"dc756006f7d7366908f4cff666986e61f0fbd42c39b18381e745422035d69e36"},"sources":[{"path":"a.py","content_digest":"f89600824c3f62a48dcc441d730d7d43f1923b7b37bccb3a0536d109c1199764","line_digests":["1dd36e4257b84fc35cfcaca20a29fcbbd61530714fcbde191251b7d679dd9a44","e09e09453d48049c48cadbc630a121ed1b033498846be9aba19eafb8ab73f917"],"findings":[{"issue_index":0,"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","source_digest":"2837a0fd9c3732d35586b5be9794e0511049637f586fba20edb81d67b7d237f8","context_digest":"c2d980f6467c3167454753db29f2986ca82af25bd310de58bb297175584b3e30","start_line":1,"end_line":1,"occurrence":0,"content_identity":"7adf5f8ba5eb9ee66cc0e57217b0cf038955673f8f2156e35d664e146042a5ce","identity":"506e1fcd2d2ab0df6909a6d7df84a4c48c623b893175bf1251c636ce01ff2e8b","ambiguous":false,"path":"a.py"}]}]}}"#
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_duplication_density_survives_ingest_read_and_restore() {
+        const DENSITY: &str = "9.586466165413533";
+        let (source, source_server) = spawn_test_service().await;
+        let (destination, destination_server) = spawn_test_service().await;
+        let report = reviewable_report().replace(
+            r#""duplicated_lines_density":0.0"#,
+            &format!(r#""duplicated_lines_density":{DENSITY}"#),
+        );
+        let envelope = format!(
+            r#"{{"schema_version":1,"branch":"main","commit":"precision","analyzed_at":"2026-11-20T12:00:00Z","report":{report}}}"#
+        );
+        let analyses = "/api/v1/projects/demo/analyses";
+        let created = api_request(
+            source,
+            "POST",
+            analyses,
+            Some("application/json"),
+            &envelope,
+        )
+        .await;
+        assert_eq!(created.status, 200);
+        let id = json_body(&created)["analysis"]["id"].as_i64().unwrap();
+        let detail = format!("{analyses}/{id}");
+        let response = api_request(source, "GET", &detail, None, "").await;
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            std::str::from_utf8(&response.body)
+                .unwrap()
+                .matches(DENSITY)
+                .count(),
+            3,
+            "summary, project and file density must preserve the input f64"
+        );
+        let exported = api_request(source, "GET", "/api/v1/projects/demo/export", None, "").await;
+        assert_eq!(exported.status, 200);
+        let backup = std::str::from_utf8(&exported.body).unwrap();
+        for expected_count in [1, 0] {
+            let restored = api_request(
+                destination,
+                "POST",
+                "/api/v1/projects/demo/restore",
+                Some("application/json"),
+                backup,
+            )
+            .await;
+            assert_eq!(restored.status, 200);
+            assert_eq!(json_body(&restored)["restore"]["analyses"], expected_count);
+        }
+        let replay = api_request(
+            destination,
+            "POST",
+            analyses,
+            Some("application/json"),
+            &envelope,
+        )
+        .await;
+        assert_eq!(replay.status, 200);
+        assert_eq!(json_body(&replay)["idempotent"], true);
+        let changed = envelope.replace(DENSITY, "9.586466165413531");
+        let conflict = api_request(
+            destination,
+            "POST",
+            analyses,
+            Some("application/json"),
+            &changed,
+        )
+        .await;
+        assert_api_error(&conflict, 409, "conflict");
+        source_server.abort();
+        destination_server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_legacy_backup_preserves_stored_density_and_accepts_original_replay() {
+        const ORIGINAL: &str = "9.586466165413533";
+        const LEGACY: &str = "9.586466165413531";
+        let (source, source_server) = spawn_test_service().await;
+        let (destination, destination_server) = spawn_test_service().await;
+        let report = reviewable_report().replace(
+            r#""duplicated_lines_density":0.0"#,
+            &format!(r#""duplicated_lines_density":{LEGACY}"#),
+        );
+        let stored = format!(
+            r#"{{"schema_version":1,"branch":"main","commit":"old","analyzed_at":"2026-11-20T12:00:00Z","report":{report}}}"#
+        );
+        let analyses = "/api/v1/projects/demo/analyses";
+        let created =
+            api_request(source, "POST", analyses, Some("application/json"), &stored).await;
+        assert_eq!(created.status, 200);
+        let exported = api_request(source, "GET", "/api/v1/projects/demo/export", None, "").await;
+        assert_eq!(exported.status, 200);
+        let export = String::from_utf8(exported.body).unwrap();
+        assert!(export.contains(r#","exact_floats":true"#));
+        let v1_backup = export.replace(r#","exact_floats":true"#, "");
+        let restored = api_request(
+            destination,
+            "POST",
+            "/api/v1/projects/demo/restore",
+            Some("application/json"),
+            &v1_backup,
+        )
+        .await;
+        assert_eq!(restored.status, 200);
+        let original = stored.replace(LEGACY, ORIGINAL);
+        let replay = api_request(
+            destination,
+            "POST",
+            analyses,
+            Some("application/json"),
+            &original,
+        )
+        .await;
+        assert_eq!(replay.status, 200);
+        assert_eq!(json_body(&replay)["idempotent"], true);
+        let id = json_body(&replay)["analysis"]["id"].as_i64().unwrap();
+        let response = api_request(destination, "GET", &format!("{analyses}/{id}"), None, "").await;
+        assert_eq!(response.status, 200);
+        let raw = std::str::from_utf8(&response.body).unwrap();
+        assert_eq!(raw.matches(LEGACY).count(), 3);
+        assert!(!raw.contains(ORIGINAL));
+        // A real content change must still conflict with a legacy hash.
+        let changed = original.replace(r#""roots":["a.py"]"#, r#""roots":["a.py","changed"]"#);
+        assert_ne!(changed, original);
+        let response = api_request(
+            destination,
+            "POST",
+            analyses,
+            Some("application/json"),
+            &changed,
+        )
+        .await;
+        assert_api_error(&response, 409, "conflict");
+        source_server.abort();
+        destination_server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_findings_pages_preserve_order_and_validate_cursors() {
+        let (address, server) = spawn_test_service().await;
+        let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+        report.as_object_mut().unwrap().remove("assessment");
+        let issues = report["files"][0]["issues"].as_array_mut().unwrap();
+        let item = issues[0].clone();
+        issues.push(item.clone());
+        for message in ["second", "third", "fourth"] {
+            let mut finding = item.clone();
+            finding["message"] = json!(message);
+            issues.push(finding);
+        }
+        let mut empty_report = report.clone();
+        empty_report["files"][0]["issues"] = json!([]);
+        let response = ingest_report(address, "paginated", report).await;
+        assert_eq!(response.status, 200);
+        let id = json_body(&response)["analysis"]["id"].as_i64().unwrap();
+        let path = format!("/api/v1/projects/demo/analyses/{id}/findings");
+        let unpaginated = api_request(address, "GET", &path, None, "").await;
+        assert_eq!(unpaginated.status, 200);
+        let all = json_body(&unpaginated)["findings"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(all.len(), 5);
+
+        let page_path = format!("{path}/page");
+        let mut fetched = Vec::new();
+        let mut query = String::new();
+        for count in [2, 2, 1] {
+            let response = api_request(
+                address,
+                "GET",
+                &format!("{page_path}?limit=2{query}"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(response.status, 200);
+            let page = json_body(&response);
+            let items = page["findings"].as_array().unwrap();
+            assert_eq!(items.len(), count);
+            fetched.extend_from_slice(items);
+            if count == 1 {
+                assert!(page["next_cursor"].is_null());
+            } else {
+                query = format!("&cursor={}", page["next_cursor"].as_str().unwrap());
+            }
+        }
+        assert_eq!(fetched, all);
+        let default = api_request(address, "GET", &page_path, None, "").await;
+        assert_eq!(default.status, 200);
+        assert_eq!(
+            json_body(&default),
+            json!({"findings": all, "next_cursor": null})
+        );
+
+        let empty = ingest_report(address, "no-findings", empty_report).await;
+        assert_eq!(empty.status, 200);
+        let other_id = json_body(&empty)["analysis"]["id"].as_i64().unwrap();
+        let empty_path = format!("/api/v1/projects/demo/analyses/{other_id}/findings/page");
+        let response = api_request(address, "GET", &empty_path, None, "").await;
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            json_body(&response),
+            json!({"findings": [], "next_cursor": null})
+        );
+        let foreign_cursor = format!("{empty_path}?limit=2{query}");
+        let response = api_request(address, "GET", &foreign_cursor, None, "").await;
+        assert_api_error(&response, 400, "invalid_request");
+
+        for invalid in [
+            "limit=0".to_owned(),
+            "limit=501".to_owned(),
+            "limit=-1".to_owned(),
+            "limit=abc".to_owned(),
+            "cursor=invalid".to_owned(),
+            format!("cursor=v1.{id}.{}", i64::MAX),
+        ] {
+            let url = format!("{page_path}?{invalid}");
+            let response = api_request(address, "GET", &url, None, "").await;
+            assert_api_error(&response, 400, "invalid_request");
+        }
+        let forbidden = format!("/api/v1/projects/foreign/analyses/{id}/findings/page?limit=1");
+        let response = api_request(address, "GET", &forbidden, None, "").await;
+        assert_api_error(&response, 403, "forbidden");
+        let nonexistent = format!("/api/v1/projects/demo/analyses/{}/findings/page", i64::MAX);
+        let response = api_request(address, "GET", &nonexistent, None, "").await;
+        assert_api_error(&response, 404, "not_found");
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn assessment_claims_follow_the_normalized_report_path() {
+        let (address, server) = spawn_test_service().await;
+        let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+        let claim = report["assessment"]["sources"][0]["findings"][0]["identity"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        for path in ["./a.py", "a.py", "../a.py", "other.py"] {
+            report["files"][0]["path"] = json!(path);
+            report["project"]["files"][0]["path"] = json!(path);
+            let response =
+                ingest_report(address, &format!("case-{}", path.len()), report.clone()).await;
+            if path == "../a.py" || path == "other.py" {
+                assert!(matches!(response.status, 400 | 409));
+                continue;
+            }
+            assert_eq!(response.status, 200, "{path}");
+            let id = json_body(&response)["analysis"]["id"].as_i64().unwrap();
+            let list = api_request(
+                address,
+                "GET",
+                &format!("/api/v1/projects/demo/analyses/{id}/findings"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(list.status, 200);
+            let finding = &json_body(&list)["findings"][0];
+            assert_eq!(finding["identity"], format!("sha256:{claim}"));
+            assert_eq!(finding["ambiguous"], false);
+            assert_eq!(finding["path"], path);
+        }
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn findings_only_inherit_reviews_from_the_same_branch_and_context() {
+        let (address, server) = spawn_test_service().await;
+        let (backup, _) = export_reviewed_backup(address).await;
+        let expected = backup["reviews"][0]["identity"].clone();
+        for (commit, branch, field, inherits) in [
+            ("same", "main", "source_revision", true),
+            ("alternate", "develop", "source_revision", false),
+            ("analyzer", "main", "analyzer_version", false),
+            ("catalog", "main", "catalog_digest", false),
+            ("options", "main", "options_digest", false),
+            ("scope", "main", "scope_digest", false),
+        ] {
+            let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+            report["assessment"]["context"][field] = if field == "source_revision" {
+                json!(commit)
+            } else {
+                json!("a".repeat(64))
+            };
+            let input = json!({"schema_version":1,"branch":branch,"commit":commit,
+                "analyzed_at":"2026-11-19T11:00:00Z","report":report});
+            let ingested = api_request(
+                address,
+                "POST",
+                "/api/v1/projects/demo/analyses",
+                Some("application/json"),
+                &input.to_string(),
+            )
+            .await;
+            assert_eq!(ingested.status, 200, "{commit}");
+            let id = json_body(&ingested)["analysis"]["id"].as_i64().unwrap();
+            let result = api_request(
+                address,
+                "GET",
+                &format!("/api/v1/projects/demo/analyses/{id}/findings"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(result.status, 200);
+            let item = &json_body(&result)["findings"][0];
+            assert_eq!(item["identity"], expected);
+            assert_eq!(item.get("review").is_some(), inherits, "{commit}");
+        }
+        server.abort();
+        let _ = server.await;
     }
 
     async fn export_reviewed_backup(source: SocketAddr) -> (Value, i64) {
