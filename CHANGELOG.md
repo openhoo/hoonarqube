@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0 (2026-11-20)
+
+### Features
+
+- **ruby:** detect parsed TODO and FIXME comments (#898) (28dca98)
+
+### Bug Fixes
+
+- qualify constructor probes and component receiver findings (#874) (108877f)
+
+### Other Changes
+
+- qualify scanner, report service and delivery foundations (#953) (e43dc65)
+
 ## 0.11.1 (2026-10-08)
 
 ### Bug Fixes
