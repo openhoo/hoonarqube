@@ -156,6 +156,9 @@ jobs:
 
       - name: Run Python protocol CLI tests
         if: matrix.package == 'hoonarqube-python'
+        env:
+          # Cache-enabled fixtures hash the CLI executable on every invocation.
+          CARGO_PROFILE_TEST_DEBUG: "0"
         run: >-
           cargo test --locked --workspace --all-targets --all-features
           --exclude hoonarqube-csharp
