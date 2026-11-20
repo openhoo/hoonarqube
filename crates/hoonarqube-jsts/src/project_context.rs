@@ -130,7 +130,7 @@ pub struct SemanticSourceSnapshot {
 impl SemanticSourceSnapshot {
     #[must_use]
     pub fn new(path: impl AsRef<Path>, source: String) -> Self {
-        let path = canonical_path(path.as_ref());
+        let path = source_path(path.as_ref());
         let digest = digest_bytes(source.as_bytes());
         Self {
             path,
@@ -616,7 +616,7 @@ fn collect_source_snapshots(
     let mut diagnostics = Vec::new();
     let mut snapshots = BTreeMap::new();
     for item in &sources.files {
-        let path = canonical_path(&item.path);
+        let path = source_path(&item.path);
         let digest = digest_bytes(item.source.as_bytes());
         if digest != item.digest {
             diagnostics.push(SemanticDiagnostic {
@@ -709,7 +709,7 @@ fn collect_helper_facts(
     let expected_paths: BTreeSet<_> = snapshots.keys().cloned().collect();
     let mut facts = BTreeMap::new();
     for item in files {
-        let path = canonical_path(&item.path);
+        let path = source_path(&item.path);
         let Some(snapshot) = snapshots.get(&path) else {
             diagnostics.push(SemanticDiagnostic {
                 code: "JS_CONTEXT_UNEXPECTED_SOURCE".to_owned(),
@@ -824,9 +824,9 @@ impl ProjectSemanticContext {
             helper_digest,
             dependency_whitelist: config.dependency_whitelist.clone(),
             files: snapshots
-                .values()
-                .map(|item| HelperSource {
-                    path: item.path.clone(),
+                .iter()
+                .map(|(path, item)| HelperSource {
+                    path: path.clone(),
                     content: item.source.clone(),
                     digest: item.digest.clone(),
                 })
@@ -947,7 +947,7 @@ impl ProjectSemanticContext {
 
     #[must_use]
     pub fn file_facts(&self, path: &Path) -> Option<&SemanticFileFacts> {
-        self.files.get(&canonical_path(path))
+        self.files.get(&source_path(path))
     }
 
     /// Runs ordinary Oxc rules and then adds compiler-backed semantic rules.
@@ -965,7 +965,7 @@ impl ProjectSemanticContext {
         let ordinary_path = path.clone();
         let ordinary = move || crate::analyze(ordinary_path, source, language, options);
         let mut diagnostics = self.diagnostics.clone();
-        let canonical = canonical_path(&path);
+        let canonical = source_path(&path);
         let digest = digest_bytes(source.as_bytes());
         if self.status != ProjectSemanticStatus::Complete {
             diagnostics.push(SemanticDiagnostic {
@@ -1550,6 +1550,35 @@ fn digest_bytes(bytes: &[u8]) -> String {
 fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
+// Source snapshots can include unsaved files and directories. Resolve the
+// existing prefix so that config resolution and snapshot lookup agree when
+// the same project is reached through a directory alias.
+fn source_path(path: &Path) -> PathBuf {
+    match fs::canonicalize(path) {
+        Ok(physical) => return physical,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return canonical_path(path),
+    }
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
+    for ancestor in absolute.ancestors().skip(1) {
+        match fs::canonicalize(ancestor) {
+            Ok(physical) => {
+                if let Ok(suffix) = absolute.strip_prefix(ancestor)
+                    && suffix
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+                {
+                    return physical.join(suffix);
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => break,
+        }
+    }
+    absolute
+}
+
 fn canonical_path(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| {
         if path.is_absolute() {
@@ -1608,6 +1637,31 @@ mod materialization_tests {
     ) -> Result<ProjectSemanticContext, ProjectContextError> {
         config.helper_program = helper_never_started(scenario);
         ProjectSemanticContext::load(&config, &ProjectSemanticSources::default())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn virtual_sources_share_identity_through_a_project_directory_alias() {
+        let scenario = ScenarioRoot::new("virtual-source-alias");
+        let physical = fs::canonicalize(&scenario.root).expect("physical scenario");
+        let project = physical.join("project");
+        fs::create_dir(&project).expect("project");
+        let alias = physical.join("alias");
+        std::os::unix::fs::symlink(&project, &alias).expect("alias");
+        let file = Path::new("virtual/nested/file.ts");
+        let from_alias = SemanticSourceSnapshot::new(alias.join(file), "export {};".to_owned());
+        assert_eq!(from_alias.path, project.join(file));
+        assert!(!from_alias.path.exists(), "virtual sources stay in memory");
+        let via_both = ProjectSemanticSources::from_pairs([
+            (project.join(file), "export {};".to_owned()),
+            (alias.join(file), "export {};".to_owned()),
+        ]);
+        let (_, diagnostics) = collect_source_snapshots(&via_both);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code == "JS_CONTEXT_DUPLICATE_SOURCE")
+        );
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1686,7 +1740,11 @@ mod materialization_tests {
     fn supports_explicit_external_cache_path() {
         let scenario = ScenarioRoot::new("external-cache");
         let mut config = scenario.config();
-        config.helper_cache_dir = scenario.root.join("external-cache");
+        config.helper_cache_dir = scenario
+            .root
+            .canonicalize()
+            .expect("physical cache parent")
+            .join("external-cache");
         let path = helper_path(&config);
         let _ = load_without_helper(config, &scenario);
         assert!(
