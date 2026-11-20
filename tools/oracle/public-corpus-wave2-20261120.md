@@ -97,6 +97,9 @@ declared rule parameters does not establish detector equivalence.
 - **swr:** Native analysis reported incomplete files: `src/_internal/types.ts`, `src/infinite/types.ts`, `src/mutation/types.ts`.
 - **zustand:** Native analysis reported incomplete files: `src/middleware/subscribeWithSelector.ts`, `src/react.ts`, `src/traditional.ts`, `src/vanilla.ts`.
 
+The [read-only TypeScript replay](public-corpus-typescript-replay-20261120.md)
+accepted the React Hook Form scope with the CLI tested in #970.
+
 ## Provenance and method
 
 The executable SHA-256 was `e719261d0fe6db1f53d362da0ec55b3da152d4a9ec7034474b56018124552021`. It was built at

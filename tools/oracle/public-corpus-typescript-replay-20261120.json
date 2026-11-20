@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-20",
+  "native": {
+    "verified_code": "c2c47d827f65153600a8655120b1dc258e09715d",
+    "tree": "2040a269634ac5e81acedd1f0a144e11f5207854",
+    "sha256": "de85753e3afdbbfb299882b7b8f63b619f9074e71293d6b11c73ae36cc1be0a6",
+    "version": "hoonarqube 0.11.1",
+    "profile": "sonar-parity",
+    "rule_catalog_sha256": "1f01a4236c65bc2bd60ef24ad495d01b423ab38ab766b7bd08e2acd42e134118"
+  },
+  "baseline": {
+    "verified_code": "b8411407357d1eabf8d2bce59035d7343996e6ec",
+    "sha256": "50631f528445e7bf07c4e089b957eb6df34251b39c942d57a336e1b8d4c7f18e"
+  },
+  "reference": {
+    "edition": "community",
+    "version": "26.9.0.129388",
+    "server_image": {
+      "image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+      "platform_fingerprint": "arm64 linux sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+    },
+    "scanner_image": {
+      "image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "platform_fingerprint": "amd64 linux sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
+    },
+    "typescript_analyzer": {
+      "key": "javascript",
+      "version": "13.8 (build 44569)",
+      "implementationBuild": "1eea9253f87b448684d1089dc7160eca388b21b6",
+      "hash": "c63fe71805947ac812bbf21746e893ed"
+    }
+  },
+  "projects": {
+    "react-hook-form": {
+      "source": {
+        "name": "react-hook-form",
+        "repository": "react-hook-form/react-hook-form",
+        "ref": "265ecb970fdaa8eea0442896df1243633f563946",
+        "commit": "265ecb970fdaa8eea0442896df1243633f563946",
+        "tree": "1a97d7bdd19494cf7f3a9ccaf8c60ce0445a03f7",
+        "project_key": "hq-public-wave2-20261120-react-hook-form",
+        "sources": [
+          "src"
+        ],
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "language": "ts"
+      },
+      "reference_corpus": "second_wave",
+      "reference": {
+        "state": "complete",
+        "compute_status": "SUCCESS",
+        "parse_warning_lines": 0,
+        "issue_records": 310,
+        "typescript_profile": {
+          "name": "Sonar way",
+          "builtin": true,
+          "default": true,
+          "active_rules": 435,
+          "type_scope_effective_parameters_sha256": "4497314af4586ac2d0e0d5091e3831cdf0f0ef5a1b9c2abbb950fc4b9b8d012a"
+        }
+      },
+      "native": {
+        "status": "complete",
+        "exit": 0,
+        "files_reported": 124,
+        "issue_records": 1351,
+        "status_counts": {
+          "complete": 124,
+          "excluded": 2
+        },
+        "semantic_context": {
+          "typescript": "missing",
+          "csharp": "not_applicable"
+        },
+        "rule_set_violation_count": 0,
+        "ended_at_utc": "2026-11-20T21:34:28.194339+00:00"
+      },
+      "comparison": {
+        "state": "same_scope",
+        "shared": 124,
+        "native_only": [],
+        "reference_only": [],
+        "indexed_source_bytes_sha256": "90a21578b64f74de8ac673770ee7fe328acc9a2b6a346165c3ab34b6d162a064",
+        "primary_equal_declared_parameters": {
+          "matched": 242,
+          "native_only": 43,
+          "reference_only": 68
+        },
+        "file_metric_cells": {
+          "files": 124,
+          "compared_cells": 372,
+          "matched_cells": 372,
+          "different_files": 0
+        }
+      },
+      "baseline_control": {
+        "guard": "rejected_helper_inside_scope",
+        "generated_relative_path": "src/__typetest__/.hoonarqube/semantic/typescript/semantic-helper-v1.cjs",
+        "generated_helper_sha256": "b6a6cbb529c27133402fcdd6a0d043f5d640d75f542246364088653326f98f9f",
+        "stdout_sha256": "199c1bf176cdd069d88f3b0764272aa83d31d251dbce003f7028e9dd80bd99cc",
+        "report_byte_identical_to_candidate": true
+      },
+      "checks": {
+        "scope_manifest_equal_except_path": true,
+        "git_commit_tree_and_clean_checkout_before_after": true,
+        "source_tree_read_only_and_unchanged": true,
+        "filesystem_inventory_entries": 553,
+        "filesystem_inventory_sha256": "b15c83fc2c91a8e8381234a4cb7fd4e613871950d4dd4425c07a3a548b1b47e8",
+        "run_end_recorded": true,
+        "disk_free_bytes_before_scan": 5915185152,
+        "native_helper_materialized": false,
+        "reference_capture_unchanged": true,
+        "effective_profile_file_sha256": "60e7ce9aad1591477d3daea493a473b19cbcbd7d4e8e9ada4a18faf0b80e4ad1",
+        "verified_native_infrastructure_sha256": "80c11d5742cdfabbc60ef10576d5c179b1d2da1c75f1ac44d96190b84230466e"
+      },
+      "reference_evidence_sha256": {
+        "source.json": "b2419ead810244e8af8ab613ffa4aee643da0f8c622daef052a4ec7f77d1200b",
+        "compute-engine.json": "bf01c06e88802d3f40fc2008d1e6c63afbea914930b701a30715b3f13c9eb17c",
+        "scanner-execution.json": "6a36b9e951d5a9980c75c29575e4535a37266c00e0572bd6e72df0d44d4c8028",
+        "scanner.stdout": "bb9c3d67a66a0328e15011eefc26c3a91f108ab5f6a200276cc7c548f5cc3f52",
+        "issues.json": "5eb302cb7ba391a05ec8d7217599c838b47b7999d24eea30cd64db288f5de2d7",
+        "file-metrics.json": "d19f58e34f12315036a913b1e2a18e83b403e899534b3bc8ac2b4fad40e93f60",
+        "reference-source-files.json": "0d371a42f0b8c584c4e20f2f47677b1101849f5428539e7c8b2d0f09a0f53d0e"
+      },
+      "native_evidence_sha256": {
+        "native-execution.json": "77a8f773573f188376fa1c0e9510b205c1e9d2898d58d48f181bc2521f9c689b",
+        "native.stdout": "199c1bf176cdd069d88f3b0764272aa83d31d251dbce003f7028e9dd80bd99cc",
+        "native-source-files.json": "4b4d1eeef2cfb90b294801b2f123871728215b6c3d7aad44bbe147317f711018",
+        "native-source-manifest.json": "38514b4c476d6791517109869aa36fafd51e347507a0e17c926a8115f5f771ba",
+        "native-progress.json": "e2d0490b83a2b38f236a454df513dc54816e20e723135cc65aeab13e3e140be7"
+      }
+    },
+    "zod": {
+      "source": {
+        "name": "zod",
+        "repository": "colinhacks/zod",
+        "ref": "0b216ef674e297ebe41d8bf902262e56f8755822",
+        "commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+        "tree": "24b5b50586a05b5f1965c6ee6b2b2b442b6eeffb",
+        "project_key": "hq-corpus-20261120-zod",
+        "sources": [
+          "packages/zod/src"
+        ],
+        "exclude": [
+          "**/tests/**",
+          "**/benchmarks/**"
+        ],
+        "language": "ts"
+      },
+      "reference_corpus": "first_wave",
+      "reference": {
+        "state": "complete",
+        "compute_status": "SUCCESS",
+        "parse_warning_lines": 0,
+        "issue_records": 594,
+        "typescript_profile": {
+          "name": "Sonar way",
+          "builtin": true,
+          "default": true,
+          "active_rules": 435,
+          "type_scope_effective_parameters_sha256": "4497314af4586ac2d0e0d5091e3831cdf0f0ef5a1b9c2abbb950fc4b9b8d012a"
+        }
+      },
+      "native": {
+        "status": "complete",
+        "exit": 0,
+        "files_reported": 125,
+        "issue_records": 5941,
+        "status_counts": {
+          "complete": 125,
+          "excluded": 5
+        },
+        "semantic_context": {
+          "typescript": "missing",
+          "csharp": "not_applicable"
+        },
+        "rule_set_violation_count": 0,
+        "ended_at_utc": "2026-11-20T21:34:30.181934+00:00"
+      },
+      "comparison": {
+        "state": "same_scope",
+        "shared": 125,
+        "native_only": [],
+        "reference_only": [],
+        "indexed_source_bytes_sha256": "a660c3de40d3c8a9150aee54bbc1f63ee5889bee028b85aa8be8a41a090ac953",
+        "primary_equal_declared_parameters": {
+          "matched": 500,
+          "native_only": 58,
+          "reference_only": 81
+        },
+        "file_metric_cells": {
+          "files": 125,
+          "compared_cells": 375,
+          "matched_cells": 375,
+          "different_files": 0
+        }
+      },
+      "baseline_control": {
+        "guard": "accepted_after_archiving_helper_outside_scoped_roots",
+        "generated_relative_path": "packages/zod/.hoonarqube/semantic/typescript/semantic-helper-v1.cjs",
+        "generated_helper_sha256": "b6a6cbb529c27133402fcdd6a0d043f5d640d75f542246364088653326f98f9f",
+        "stdout_sha256": "4fdd8c1942d29cdaaf71d3b55a2a524f4ab31c16b6d428fe956affd85289c05e",
+        "report_byte_identical_to_candidate": true
+      },
+      "checks": {
+        "scope_manifest_equal_except_path": true,
+        "git_commit_tree_and_clean_checkout_before_after": true,
+        "source_tree_read_only_and_unchanged": true,
+        "filesystem_inventory_entries": 827,
+        "filesystem_inventory_sha256": "28b5092257db7ca60f36cfe2b8be6c1b1a5c267af382c5bcab085df9596091be",
+        "run_end_recorded": true,
+        "disk_free_bytes_before_scan": 5914357760,
+        "native_helper_materialized": false,
+        "reference_capture_unchanged": true,
+        "effective_profile_file_sha256": "398dc0b9412ff79261471e6d3a1bde31a4ac5d1b3a79e81a27bca533d3e38306",
+        "verified_native_infrastructure_sha256": "80c11d5742cdfabbc60ef10576d5c179b1d2da1c75f1ac44d96190b84230466e"
+      },
+      "reference_evidence_sha256": {
+        "source.json": "d23520a42706f13585d8020ff75d19187fac360c4996cf7dcd743ff47abebc26",
+        "compute-engine.json": "959c53023e8cbaa6cafdeaf9d8e1d745b24fc68f39e8c1ef82cc49e16c8f73ea",
+        "scanner-execution.json": "3b720b6eaa7a109d68c6bfba422d497fcac8a48fe140b7e78b12e05e187955a9",
+        "scanner.stdout": "e3992e323b34588d9f002d2b0f6fb10685cd38433e1a66bc2294f994a14d5fc2",
+        "issues.json": "9bbea9cb34b5b762e032a926b729bbecb9e8a6961d8e74c830797d7f1b2ec9eb",
+        "file-metrics.json": "4631d5c5c361c31833a93831d8e82ca824557192b3b81e17130d420c18b7e861",
+        "reference-source-files.json": "5fc4d28cbd08c5477ba990f6062bb08d53e3b0c98ab8a7853b401c38f16eea1a"
+      },
+      "native_evidence_sha256": {
+        "native-execution.json": "fdfeb248d6536017d5c2310fe1590abe098b1a6796f8759e63c43587d375a0b1",
+        "native.stdout": "4fdd8c1942d29cdaaf71d3b55a2a524f4ab31c16b6d428fe956affd85289c05e",
+        "native-source-files.json": "31ee5ac6bca5b303f31236d7b4ac525a1d8d10a2b4cbfd558b8010c44bbb1672",
+        "native-source-manifest.json": "6dc3b7aac3619d9b6107353bd052dd24c789c1a216c4d16f37117fbc8df3e7ec",
+        "native-progress.json": "cca4268ee0c557086d3fdf44250ed3a47667d88ff80c14e149138b8f3939e943"
+      }
+    }
+  },
+  "scopes": {
+    "identical": 2,
+    "identical_files": 249,
+    "shared_files_only": 0
+  }
+}
