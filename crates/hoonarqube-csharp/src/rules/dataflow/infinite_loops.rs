@@ -66,7 +66,8 @@ pub(crate) fn check(root: Node<'_>, source: &str, language: CsLanguage) -> Vec<I
                 receiver.kind() == "identifier" && node_text(receiver, source) == "this"
             })
         })
-        .filter(|call| !has_incompatible_fixed_arity(method, *call));
+        .filter(|call| !has_incompatible_fixed_arity(method, *call))
+        .filter(|call| !has_incompatible_double_argument(method, *call, source));
         // A base case anywhere else in the body terminates the recursion
         // (`if (n <= 1) return 1; return Fact(n - 1);`): every escape
         // site must live inside the trailing call itself.
@@ -151,6 +152,70 @@ fn positional_argument_count(call: Node<'_>) -> Option<usize> {
         }
     }
     Some(count)
+}
+
+/// An explicit `double` argument cannot implicitly convert to an integral
+/// value parameter. For this exact shape, a same-name call cannot target the
+/// containing method, including when its parameter is an extension receiver.
+fn has_incompatible_double_argument(method: Node<'_>, call: Node<'_>, source: &str) -> bool {
+    if method.has_error() || call.has_error() {
+        return false;
+    }
+    let Some(parameters) = method.child_by_field_name("parameters") else {
+        return false;
+    };
+    let Some(parameter) = single_parenthesized_child(parameters, "parameter") else {
+        return false;
+    };
+    let Some(parameter_type) = parameter.child_by_field_name("type") else {
+        return false;
+    };
+    if parameter_type.kind() != "predefined_type"
+        || !matches!(
+            node_text(parameter_type, source),
+            "byte" | "sbyte" | "short" | "ushort" | "int" | "uint" | "long" | "ulong"
+        )
+        || parameter.child_by_field_name("name").is_none()
+    {
+        return false;
+    }
+    // Defaults, attributes, comments, and every modifier except a lone `this`
+    // are outside this proof. In particular, do not infer ref/params binding.
+    match (parameter.child_count(), parameter.named_child_count()) {
+        (2, 2) => {}
+        (3, 3)
+            if parameter.child(0).is_some_and(|modifier| {
+                modifier.kind() == "modifier" && node_text(modifier, source) == "this"
+            }) => {}
+        _ => return false,
+    }
+    let Some(arguments) = call.child_by_field_name("arguments") else {
+        return false;
+    };
+    let Some(argument) = single_parenthesized_child(arguments, "argument") else {
+        return false;
+    };
+    if argument.child_count() != 1
+        || argument.named_child_count() != 1
+        || argument.child_by_field_name("name").is_some()
+    {
+        return false;
+    }
+    first_named_child(argument).is_some_and(|cast| {
+        cast.kind() == "cast_expression"
+            && cast.child_count() == 4
+            && cast.named_child_count() == 2
+            && cast.child_by_field_name("type").is_some_and(|target| {
+                target.kind() == "predefined_type" && node_text(target, source) == "double"
+            })
+    })
+}
+
+fn single_parenthesized_child<'a>(list: Node<'a>, kind: &str) -> Option<Node<'a>> {
+    (list.child_count() == 3 && list.named_child_count() == 1)
+        .then(|| list.named_child(0))
+        .flatten()
+        .filter(|child| child.kind() == kind)
 }
 
 /// Whether the loop condition is provably true at entry (literal `true`
@@ -330,6 +395,95 @@ mod tests {
             "class C { void Spin(bool done) { while (true) { if (done) { break; } } } }",
             "class C { int Fact(int n) { if (n <= 1) { return 1; } return Fact(n - 1); } }",
             "class C { int Broken(",
+        ] {
+            let report = analyze_default(source);
+            assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn s2190_double_cast_cannot_recur_into_an_integral_value_parameter() {
+        for integral in [
+            "byte", "sbyte", "short", "ushort", "int", "uint", "long", "ulong",
+        ] {
+            for modifier in ["", "this "] {
+                let source = format!(
+                    "static class C {{ static double Forward({modifier}{integral} value) {{ return Forward((double)value); }} static double Forward(double value) {{ return value; }} }}"
+                );
+                let report = analyze_default(&source);
+                assert!(with_key(&report, KEY).is_empty(), "{source:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn s2190_numeric_proof_preserves_same_type_and_widening_self_recursion() {
+        for source in [
+            "class C { int Loop(int value) { return Loop((int)value); } }",
+            "class C { int Loop(int value) { return Loop(value); } }",
+            "class C { double Loop(double value) { return Loop((int)value); } }",
+            "class C { double Loop(double value) { return Loop((float)value); } }",
+            "class C { double Loop(double value) { return Loop((double)value); } }",
+            "class C { long Loop(long value) { return Loop((int)value); } }",
+            "static class C { static int Loop(this int value) { return Loop((int)value); } }",
+        ] {
+            let report = analyze_default(source);
+            let found = with_key(&report, KEY);
+            assert_eq!(found.len(), 1, "{source:?}");
+            assert_eq!(
+                found[0].message,
+                "Add a way to break out of this method's recursion."
+            );
+            assert!(found[0].fix.is_none());
+            assert!(found[0].alternatives.is_empty());
+            assert!(found[0].flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2190_numeric_proof_refuses_unresolved_types_modifiers_and_arguments() {
+        for source in [
+            "class C { int Loop(int value = 0) { return Loop((double)value); } }",
+            "class C { int Loop([A] int value) { return Loop((double)value); } }",
+            "class C { int Loop(ref int value) { return Loop((double)value); } }",
+            "class C { int Loop(out int value) { return Loop((double)value); } }",
+            "class C { int Loop(in int value) { return Loop((double)value); } }",
+            "class C { int Loop(scoped ref int value) { return Loop((double)value); } }",
+            "static class C { static int Loop(this ref int value) { return Loop((double)value); } }",
+            "class C { int Loop(params int[] value) { return Loop((double)value[0]); } }",
+            "class C { int Loop(int? value) { return Loop((double)value); } }",
+            "class C { int Loop(System.Int32 value) { return Loop((double)value); } }",
+            "using I = System.Int32; class C { int Loop(I value) { return Loop((double)value); } }",
+            "class C { int Loop(dynamic value) { return Loop((double)value); } }",
+            "class C<T> { int Loop(T value) { return Loop((double)value); } }",
+            "class C { int Loop(int value) { return Loop(value: (double)value); } }",
+            "class C { int Loop(int value) { return Loop(in value); } }",
+            "class C { int Loop(int value) { return Loop((System.Double)value); } }",
+            "class C { int Loop(int value) { return Loop((double?)value); } }",
+            "class C { int Loop(int value) { return Loop(((double)value)); } }",
+            "class C { int Loop(int value) { return Loop((long)value); } }",
+            "class C { int Loop(char value) { return Loop((double)value); } }",
+            "class C { int Loop(float value) { return Loop((double)value); } }",
+            "class C { int Loop(int /* parameter */ value) { return Loop((double)value); } }",
+            "class C { int Loop(int value) { return Loop(/* argument */ (double)value); } }",
+            "class C { int Loop(int value) { return Loop((/* cast */ double)value); } }",
+            "class C { int Loop(int value, int extra) { return Loop((double)value, extra); } }",
+        ] {
+            let report = analyze_default(source);
+            assert_eq!(with_key(&report, KEY).len(), 1, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn s2190_numeric_proof_keeps_loop_ownership_base_cases_and_malformed_sources() {
+        let report = analyze_default(
+            "class C { void Spin() { while (true) { void Local() { return; } Local(); } } int Guarded(int value) { if (value <= 0) { return 0; } return Guarded((int)value); } }",
+        );
+        assert_eq!(with_key(&report, KEY).len(), 1);
+        for source in [
+            "class C { int Broken(",
+            "class C { int Broken(int value) { return Broken((double)); } }",
+            "class C { void Escapes(bool done) { while (true) { if (done) { break; } } } }",
         ] {
             let report = analyze_default(source);
             assert!(with_key(&report, KEY).is_empty(), "{source:?}");
