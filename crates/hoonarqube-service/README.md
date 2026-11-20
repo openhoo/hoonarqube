@@ -38,13 +38,26 @@ before creating a project or writing any rows.
 
 ## Database startup and recovery
 
-Use a dedicated SQLite file for each instance. On startup the service creates
-schema version 1 only in an empty, unversioned database. It creates the tables,
-indexes, and version marker in one transaction. Existing version 1 databases
-from release 0.11.1 open in place; missing service indexes are recreated.
-A nonempty unversioned database, a version 1
-database missing a required table, or an unsupported version stops startup.
-A refusal does not rewrite the database version or switch its journal mode.
+Use a dedicated SQLite file for each instance. The service initializes empty
+unversioned files and upgrades existing version 1 databases to version 2 in one
+transaction. The upgrade adds a marker to distinguish reports written with
+exact float parsing from older reports. It does not rewrite existing reports,
+hashes, or reviews. Missing service indexes are recreated on startup. A
+nonempty unversioned database, a database missing a required table, or an
+unsupported version stops startup without switching its journal mode.
+
+Reports ingested after the upgrade retain the CLI's floating-point percentages
+through reads, exports, and restores. Replaying an original request for a legacy
+row still resolves to its original analysis. An older row may already contain
+rounded values; the service preserves those values.
+
+Take a consistent SQLite backup before upgrading, including any committed
+state in the WAL. The project backup schema stays at version 1. The new service
+can restore valid older backups. An old binary cannot open a version 2 database.
+It can restore a new project backup into a version 1 database only when the old
+decoder reproduces every analysis hash and metric in that backup; a backup with
+an affected precise value can be rejected. Keep the pre-upgrade SQLite backup
+for rollback.
 
 On refusal, preserve the database and its WAL files; inspect a backup before
 choosing a compatible binary or restoring a known-good copy. Do not reset

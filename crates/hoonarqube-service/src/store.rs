@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::{
     BackupEnvelope, DeletionRecord, FindingKind, FindingRecordInput, IngestData, ReviewRequest,
-    ReviewState, ValidatedRestore,
+    ReviewState, ValidatedRestore, wire_json,
 };
 
 #[derive(Debug)]
@@ -61,16 +61,12 @@ fn from_sqlite_u64(value: i64, column: usize) -> rusqlite::Result<u64> {
         )
     })
 }
-type ExistingAnalysis = (
-    i64,
-    String,
-    Option<String>,
-    u32,
-    bool,
-    String,
-    Option<String>,
-    Option<String>,
-);
+struct ExistingAnalysis {
+    id: i64,
+    content_hash: String,
+    deleted_at: Option<String>,
+    exact_floats: bool,
+}
 type StoredHistory = (
     i64,
     String,
@@ -224,15 +220,19 @@ pub(crate) struct BackupAnalysis {
     pub analyzed_epoch: i64,
     pub report_schema_version: u32,
     pub complete: bool,
+    #[serde(deserialize_with = "wire_json::deserialize")]
     pub metrics: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire_json::deserialize_optional")]
     pub duplication: Option<Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire_json::deserialize_optional")]
     pub gate: Option<Value>,
+    #[serde(deserialize_with = "wire_json::deserialize")]
     pub report: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire_json::deserialize_optional")]
     pub assessment: Option<Value>,
     pub content_hash: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub exact_floats: bool,
     #[serde(default)]
     pub deleted_at: Option<String>,
 }
@@ -477,7 +477,11 @@ impl Store {
         Ok(rows)
     }
 
-    pub(crate) fn insert_analysis(&self, input: &IngestData) -> Result<IngestResult, StoreError> {
+    pub(crate) fn insert_analysis(
+        &self,
+        input: &IngestData,
+        legacy_content_hash: impl FnOnce() -> Option<String>,
+    ) -> Result<IngestResult, StoreError> {
         let mut connection = self.lock()?;
         // The project tombstone gates both ingest branches: an idempotent
         // replay must not acknowledge data into a deleted project.
@@ -495,13 +499,21 @@ impl Store {
             ));
         }
         let existing = Self::existing_analysis(&connection, input)?;
-        if let Some((id, content_hash, deleted_at, _, _, _, _, _)) = existing {
+        if let Some(ExistingAnalysis {
+            id,
+            content_hash,
+            deleted_at,
+            exact_floats,
+        }) = existing
+        {
             if deleted_at.is_some() {
                 return Err(StoreError::Conflict(
                     "the commit has been explicitly deleted and cannot be replaced".to_string(),
                 ));
             }
-            if content_hash == input.content_hash {
+            if content_hash == input.content_hash
+                || (!exact_floats && legacy_content_hash().as_deref() == Some(&content_hash))
+            {
                 let summary = connection.query_row(
                     "SELECT id, project, branch, commit_sha, analyzed_at, report_schema_version,
                             complete, metrics_json, duplication_json, gate_json
@@ -652,21 +664,16 @@ impl Store {
     ) -> Result<Option<ExistingAnalysis>, StoreError> {
         connection
             .query_row(
-                "SELECT id, content_hash, deleted_at,
-                    report_schema_version, complete, metrics_json, duplication_json, gate_json
-             FROM analyses WHERE project = ?1 AND branch = ?2 AND commit_sha = ?3",
+                "SELECT id, content_hash, deleted_at, exact_floats
+                 FROM analyses WHERE project = ?1 AND branch = ?2 AND commit_sha = ?3",
                 params![input.project, input.branch, input.commit],
                 |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, u32>(3)?,
-                        row.get::<_, i64>(4)? != 0,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                    ))
+                    Ok(ExistingAnalysis {
+                        id: row.get(0)?,
+                        content_hash: row.get(1)?,
+                        deleted_at: row.get(2)?,
+                        exact_floats: row.get(3)?,
+                    })
                 },
             )
             .optional()
@@ -686,8 +693,8 @@ impl Store {
             project, branch, commit_sha, analyzed_at, analyzed_epoch,
             report_schema_version, complete,
             metrics_json, duplication_json, gate_json, report_json, assessment_json,
-            content_hash
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            content_hash, exact_floats
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1)",
             params![
                 input.project,
                 input.branch,
@@ -961,7 +968,7 @@ impl Store {
         let mut analyses_statement = connection.prepare(
             "SELECT id, branch, commit_sha, analyzed_at, analyzed_epoch, report_schema_version, complete,
                     metrics_json, duplication_json, gate_json, report_json, assessment_json,
-                    content_hash, deleted_at
+                    content_hash, deleted_at, exact_floats
              FROM analyses WHERE project = ?1 ORDER BY id ASC",
         )?;
         let analyses = analyses_statement
@@ -1122,8 +1129,8 @@ fn restore_analysis(
             project, branch, commit_sha, analyzed_at, analyzed_epoch,
             report_schema_version, complete,
             metrics_json, duplication_json, gate_json, report_json, assessment_json,
-            content_hash, deleted_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            content_hash, deleted_at, exact_floats
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             backup.project,
             analysis.branch,
@@ -1156,6 +1163,7 @@ fn restore_analysis(
                 .map_err(|error| StoreError::Invalid(error.to_string()))?,
             analysis.content_hash,
             analysis.deleted_at,
+            i64::from(analysis.exact_floats),
         ],
     )?;
     Ok((transaction.last_insert_rowid(), true))
@@ -1514,7 +1522,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisSummary
         analyzed_at: row.get(4)?,
         report_schema_version: row.get(5)?,
         complete: row.get::<_, i64>(6)? != 0,
-        metrics: serde_json::from_str(&row.get::<_, String>(7)?).map_err(|error| {
+        metrics: wire_json::parse(&row.get::<_, String>(7)?).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 7,
                 rusqlite::types::Type::Text,
@@ -1523,7 +1531,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisSummary
         })?,
         duplication: row
             .get::<_, Option<String>>(8)?
-            .map(|text| serde_json::from_str(&text))
+            .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1534,7 +1542,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisSummary
             })?,
         gate: row
             .get::<_, Option<String>>(9)?
-            .map(|text| serde_json::from_str(&text))
+            .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1549,7 +1557,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisSummary
 fn detail_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisDetail> {
     Ok(AnalysisDetail {
         summary: summary_from_row(row)?,
-        report: serde_json::from_str(&row.get::<_, String>(10)?).map_err(|error| {
+        report: wire_json::parse(&row.get::<_, String>(10)?).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 10,
                 rusqlite::types::Type::Text,
@@ -1558,7 +1566,7 @@ fn detail_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisDetail> 
         })?,
         assessment: row
             .get::<_, Option<String>>(11)?
-            .map(|text| serde_json::from_str(&text))
+            .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1623,7 +1631,7 @@ fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupA
         analyzed_epoch: row.get(4)?,
         report_schema_version: row.get(5)?,
         complete: row.get::<_, i64>(6)? != 0,
-        metrics: serde_json::from_str(&row.get::<_, String>(7)?).map_err(|error| {
+        metrics: wire_json::parse(&row.get::<_, String>(7)?).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 7,
                 rusqlite::types::Type::Text,
@@ -1632,7 +1640,7 @@ fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupA
         })?,
         duplication: row
             .get::<_, Option<String>>(8)?
-            .map(|text| serde_json::from_str(&text))
+            .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1643,7 +1651,7 @@ fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupA
             })?,
         gate: row
             .get::<_, Option<String>>(9)?
-            .map(|text| serde_json::from_str(&text))
+            .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1652,7 +1660,7 @@ fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupA
                     Box::new(error),
                 )
             })?,
-        report: serde_json::from_str(&row.get::<_, String>(10)?).map_err(|error| {
+        report: wire_json::parse(&row.get::<_, String>(10)?).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 10,
                 rusqlite::types::Type::Text,
@@ -1661,7 +1669,7 @@ fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupA
         })?,
         assessment: row
             .get::<_, Option<String>>(11)?
-            .map(|text| serde_json::from_str(&text))
+            .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
@@ -1672,6 +1680,7 @@ fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupA
             })?,
         content_hash: row.get(12)?,
         deleted_at: row.get(13)?,
+        exact_floats: row.get(14)?,
     })
 }
 
