@@ -27,13 +27,34 @@ struct Binding {
 pub(crate) struct ErrorGuardFacts {
     bindings: HashMap<usize, HashMap<String, Vec<Binding>>>,
     functions: HashMap<String, Vec<bool>>,
-    methods: HashMap<(String, String), Vec<bool>>,
+    callable_members: HashMap<(String, String), Vec<bool>>,
     aliases: HashMap<String, TypeFact>,
-    regexp_alias: Option<String>,
-    url_alias: Option<String>,
+    standard_second_error: HashMap<&'static str, String>,
     error_type_shadowed: bool,
     project_functions: HashMap<String, Vec<bool>>,
     project_variables: HashMap<String, Vec<bool>>,
+}
+
+// Each imported function listed here returns the builtin error in position two.
+fn standard_second_error(imports: &GoImports) -> HashMap<&'static str, String> {
+    [
+        ("regexp", "Compile"),
+        ("net/url", "QueryUnescape"),
+        ("strconv", "ParseBool"),
+        ("os", "Stat"),
+    ]
+    .into_iter()
+    .filter_map(|(path, member)| {
+        let alias = imports.alias(path)?;
+        (imports
+            .aliases
+            .values()
+            .filter(|other| other.as_str() == alias)
+            .count()
+            == 1)
+            .then(|| (member, alias.to_owned()))
+    })
+    .collect()
 }
 
 impl ErrorGuardFacts {
@@ -46,10 +67,9 @@ impl ErrorGuardFacts {
         let mut facts = Self {
             bindings: HashMap::new(),
             functions: HashMap::new(),
-            methods: HashMap::new(),
+            callable_members: HashMap::new(),
             aliases: HashMap::new(),
-            regexp_alias: imports.alias("regexp").map(str::to_owned),
-            url_alias: imports.alias("net/url").map(str::to_owned),
+            standard_second_error: standard_second_error(imports),
             error_type_shadowed: false,
             project_functions: project.map_or_else(HashMap::new, |p| {
                 p.functions
@@ -74,22 +94,8 @@ impl ErrorGuardFacts {
         let mut declarations = Vec::new();
         let mut shadowed_aliases = HashSet::new();
         walk(root, &mut |node| {
-            if node.kind() == "type_spec"
-                && let Some(name) = node.child_by_field_name("name")
-            {
-                facts.error_type_shadowed |= text(name, source) == "error";
-                if ancestors(node).any(crate::is_function) {
-                    shadowed_aliases.insert(text(name, source).to_owned());
-                }
-                if let Some(kind) = node.child_by_field_name("type")
-                    && kind.kind() == "function_type"
-                    && !ancestors(node).any(crate::is_function)
-                {
-                    facts.aliases.insert(
-                        text(name, source).to_owned(),
-                        Self::function_type(kind, source),
-                    );
-                }
+            if matches!(node.kind(), "type_spec" | "type_alias") {
+                facts.collect_type_declaration(node, source, &mut shadowed_aliases);
             }
             if node.kind() == "function_declaration"
                 && let Some(name) = node.child_by_field_name("name")
@@ -110,7 +116,7 @@ impl ErrorGuardFacts {
                     .and_then(|kind| Self::receiver_name(kind, source))
             {
                 facts
-                    .methods
+                    .callable_members
                     .entry((receiver.to_owned(), text(name, source).to_owned()))
                     .and_modify(Vec::clear)
                     .or_insert_with(|| Self::function_type(node, source).returns);
@@ -126,13 +132,71 @@ impl ErrorGuardFacts {
             .aliases
             .retain(|name, _| !shadowed_aliases.contains(name));
         facts
-            .methods
+            .callable_members
             .retain(|(receiver, _), _| !shadowed_aliases.contains(receiver));
         declarations.sort_by_key(Node::start_byte);
         for declaration in declarations {
             facts.collect_binding(declaration, source);
         }
         facts
+    }
+
+    fn collect_type_declaration(
+        &mut self,
+        node: Node<'_>,
+        source: &str,
+        shadowed_aliases: &mut HashSet<String>,
+    ) {
+        let Some(name) = node.child_by_field_name("name") else {
+            return;
+        };
+        let name = text(name, source);
+        self.error_type_shadowed |= name == "error";
+        if ancestors(node).any(crate::is_function) {
+            shadowed_aliases.insert(name.to_owned());
+            return;
+        }
+        if node.kind() != "type_spec" {
+            return;
+        }
+        let Some(kind) = node.child_by_field_name("type") else {
+            return;
+        };
+        match kind.kind() {
+            "function_type" => {
+                self.aliases
+                    .insert(name.to_owned(), Self::function_type(kind, source));
+            }
+            "struct_type" if node.child_by_field_name("type_parameters").is_none() => {
+                self.collect_struct_callbacks(kind, name, source);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_struct_callbacks(&mut self, kind: Node<'_>, receiver: &str, source: &str) {
+        let Some(fields) = named_children(kind)
+            .into_iter()
+            .find(|n| n.kind() == "field_declaration_list")
+        else {
+            return;
+        };
+        // Only direct, explicitly typed fields belong to this receiver.
+        for field in named_children(fields) {
+            let Some(signature) = field
+                .child_by_field_name("type")
+                .filter(|n| n.kind() == "function_type")
+            else {
+                continue;
+            };
+            let mut cursor = field.walk();
+            for name in field.children_by_field_name("name", &mut cursor) {
+                self.callable_members
+                    .entry((receiver.to_owned(), text(name, source).to_owned()))
+                    .and_modify(Vec::clear)
+                    .or_insert_with(|| Self::function_type(signature, source).returns);
+            }
+        }
     }
 
     pub(crate) fn is_error_guard(&self, node: Node<'_>, source: &str) -> bool {
@@ -233,7 +297,11 @@ impl ErrorGuardFacts {
                 .cloned()
                 .unwrap_or_else(|| TypeFact {
                     receiver: Self::receiver_name(kind, source)
-                        .filter(|name| self.methods.keys().any(|(receiver, _)| receiver == name))
+                        .filter(|name| {
+                            self.callable_members
+                                .keys()
+                                .any(|(receiver, _)| receiver == name)
+                        })
                         .map(str::to_owned),
                     ..TypeFact::default()
                 })
@@ -391,8 +459,10 @@ impl ErrorGuardFacts {
             return false;
         };
         if index == 1
-            && ((method == "Compile" && self.regexp_alias.as_deref() == Some(receiver))
-                || (method == "QueryUnescape" && self.url_alias.as_deref() == Some(receiver)))
+            && self
+                .standard_second_error
+                .get(method)
+                .is_some_and(|alias| alias == receiver)
             && !crate::identifier_is_locally_bound(function, receiver, source)
         {
             return true;
@@ -406,7 +476,10 @@ impl ErrorGuardFacts {
         };
         self.lookup(operand, text(operand, source), source)
             .and_then(|fact| fact.receiver.as_ref())
-            .and_then(|receiver| self.methods.get(&(receiver.clone(), method.to_owned())))
+            .and_then(|receiver| {
+                self.callable_members
+                    .get(&(receiver.clone(), method.to_owned()))
+            })
             .and_then(|returns| returns.get(index))
             .copied()
             .unwrap_or(false)

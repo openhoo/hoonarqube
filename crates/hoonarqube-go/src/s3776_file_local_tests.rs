@@ -209,3 +209,53 @@ fn s3776_file_local_malformed_source_keeps_the_parsing_finding() {
             .any(|issue| issue.rule_key == "go:S3776")
     );
 }
+
+#[test]
+fn s3776_named_struct_callback_uses_its_declared_error_result_position() {
+    let declarations = "package p\ntype Callbacks struct /* callback declarations */ { Run func() error; Pair func() (int,error) }\n";
+    for (params, call) in [
+        ("c *Callbacks", "problem := c.Run()"),
+        ("c Callbacks", "_, problem := c.Pair()"),
+    ] {
+        assert_score(
+            &format!(
+                "{declarations}func check({params}) {{ if {call}; problem != nil {{ println(problem) }} }}\n"
+            ),
+            0,
+        );
+    }
+}
+
+#[test]
+fn s3776_callback_receiver_and_result_type_must_match() {
+    for source in [
+        "package p\ntype Real struct { Run func() error }; type Other struct { Run func() *int }; func check(c Other) { if problem := c.Run(); problem != nil { println(problem) } }\n",
+        "package p\ntype Holder struct { Nested struct { Run func() error }; Run func() *int }; func check(c Holder) { if problem := c.Run(); problem != nil { println(problem) } }\n",
+        "package p\ntype Holder struct { Pair func() (*int,error) }; func check(c Holder) { if problem, _ := c.Pair(); problem != nil { println(problem) } }\n",
+        "package p\ntype Holder struct { Run func() error }; func check() { type Holder struct { Run func() *int }; var c Holder; if problem := c.Run(); problem != nil { println(problem) } }\n",
+    ] {
+        assert_score(source, 1);
+    }
+}
+
+#[test]
+fn s3776_stat_and_parse_bool_recognize_only_the_standard_error_result() {
+    for (import, call) in [
+        ("fs \"os\"", "fs.Stat(\".\")"),
+        ("conv \"strconv\"", "conv.ParseBool(\"true\")"),
+    ] {
+        assert_score(
+            &format!(
+                "package p\nimport {import}\nfunc check() {{ if _, problem := {call}; problem != nil {{ println(problem) }} }}\n"
+            ),
+            0,
+        );
+    }
+    for source in [
+        "package p\nimport fs \"os\"\nfunc check() { if info, _ := fs.Stat(\".\"); info != nil { println(info) } }\n",
+        "package p\nimport conv \"strconv\"\nvar _ = conv.ParseBool\nfunc check(conv interface{ ParseBool(string)(bool,*int) }) { if _, p := conv.ParseBool(\"true\"); p != nil { println(p) } }\n",
+        "package p\nimport fs \"example.org/os\"\nfunc check() { if _, p := fs.Stat(\".\"); p != nil { println(p) } }\n",
+    ] {
+        assert_score(source, 1);
+    }
+}
