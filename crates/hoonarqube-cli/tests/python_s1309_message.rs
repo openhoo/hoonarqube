@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 // Requests, Werkzeug, and Click findings. S1309 tracks suppressions for review.
 const S1309_MESSAGE: &str =
     "Is 'noqa' used to exclude false-positive or to hide real quality flaw?";
+const NOSEC_MESSAGE: &str =
+    "Is 'nosec' used to exclude false-positive or to hide real security issue?";
 const NOSONAR_MESSAGE: &str =
     "Is #NOSONAR used to exclude false-positive or to hide real quality flaw?";
 const S7632_MESSAGE: &str = "Fix the syntax of this issue suppression comment.";
@@ -79,8 +81,13 @@ fn suppression_cases() -> Vec<Case> {
             findings: vec![
                 ("python:NoSonar", NOSONAR_MESSAGE, 2, 22),
                 ("python:S1309", S1309_MESSAGE, 2, 22),
-                ("python:S1309", S1309_MESSAGE, 3, 19),
+                ("python:S1309", NOSEC_MESSAGE, 3, 19),
             ],
+        },
+        Case {
+            name: "nosec_only.py",
+            source: "\"\"\"Existing nosec boundary.\"\"\"\n# nosec B101\n",
+            findings: vec![("python:S1309", NOSEC_MESSAGE, 2, 12)],
         },
         Case {
             name: "malformed_suppressions.py",
@@ -162,7 +169,7 @@ fn python_s1309_generic_sonar_export_matches_reference_message_and_preserves_sup
 }
 
 #[test]
-fn python_s1309_clean_literals_and_existing_nosec_boundary_remain_clean() {
+fn python_s1309_clean_literals_remain_clean() {
     let cases = [
         (
             "clean.py",
@@ -171,10 +178,6 @@ fn python_s1309_clean_literals_and_existing_nosec_boundary_remain_clean() {
         (
             "literal.py",
             "\"\"\"A literal string containing # noqa and # NOSONAR.\"\"\"\n",
-        ),
-        (
-            "nosec_only.py",
-            "\"\"\"Existing nosec boundary.\"\"\"\n# nosec B101\n",
         ),
     ];
     for (name, source) in cases {
