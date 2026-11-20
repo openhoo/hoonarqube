@@ -1,15 +1,17 @@
 #![forbid(unsafe_code)]
 
+mod auth;
 mod store;
 mod wire_json;
 
+use auth::Principal;
+pub use auth::{AuthConfig, Credential, Role};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Display, Formatter};
 #[cfg(test)]
 use std::path::PathBuf;
 use std::path::{Component, Path as FsPath};
-use std::sync::Arc;
 
 use crate::store::{
     AnalysisDetail, AnalysisSummary, BackupAnalysis, BackupFinding, BackupHistory, BackupReview,
@@ -32,7 +34,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 const API_PREFIX: &str = "/api/v1";
@@ -124,169 +125,6 @@ where
             .await
             .map(|Json(value)| Self(value))
             .map_err(|rejection| api_body_error(rejection.status()))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Role {
-    Reader,
-    Reviewer,
-    Admin,
-}
-
-impl Role {
-    fn permits(self, required: Self) -> bool {
-        matches!(
-            (self, required),
-            (Role::Admin, _)
-                | (Role::Reviewer, Role::Reader | Role::Reviewer)
-                | (Role::Reader, Role::Reader)
-        )
-    }
-}
-
-#[derive(Clone)]
-pub struct Credential {
-    pub user_id: String,
-    token: String,
-    pub projects: BTreeMap<String, Role>,
-    pub global_admin: bool,
-}
-
-impl Credential {
-    #[must_use]
-    pub fn new(
-        user_id: impl Into<String>,
-        token: impl Into<String>,
-        projects: impl IntoIterator<Item = (String, Role)>,
-    ) -> Self {
-        Self {
-            user_id: user_id.into(),
-            token: token.into(),
-            projects: projects.into_iter().collect(),
-            global_admin: false,
-        }
-    }
-
-    #[must_use]
-    pub fn global_admin(mut self, global_admin: bool) -> Self {
-        self.global_admin = global_admin;
-        self
-    }
-}
-
-#[derive(Clone)]
-pub struct AuthConfig {
-    credentials: Arc<Vec<Credential>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CredentialConfig {
-    user_id: String,
-    token: String,
-    #[serde(default)]
-    projects: BTreeMap<String, Role>,
-    #[serde(default)]
-    global_admin: bool,
-}
-
-impl AuthConfig {
-    /// Builds an authentication configuration after validating all credentials.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InitError::Config` if credentials are empty, invalid, or duplicated.
-    pub fn new(credentials: Vec<Credential>) -> Result<Self, InitError> {
-        if credentials.is_empty() {
-            return Err(InitError::Config(
-                "at least one explicit service credential is required".to_string(),
-            ));
-        }
-        let mut users = BTreeSet::new();
-        let mut tokens = BTreeSet::new();
-        for credential in &credentials {
-            validate_identity_component(&credential.user_id, MAX_PROJECT_BYTES, "user_id")
-                .map_err(InitError::Config)?;
-            if credential.token.is_empty() {
-                return Err(InitError::Config(
-                    "credential token must not be empty".to_string(),
-                ));
-            }
-            if !tokens.insert(&credential.token) {
-                return Err(InitError::Config(
-                    "credential token must be unique".to_string(),
-                ));
-            }
-            if !users.insert(credential.user_id.clone()) {
-                return Err(InitError::Config(
-                    "credential user_id must be unique".to_string(),
-                ));
-            }
-            for project in credential.projects.keys() {
-                validate_identity_component(project, MAX_PROJECT_BYTES, "project")
-                    .map_err(InitError::Config)?;
-            }
-        }
-        Ok(Self {
-            credentials: Arc::new(credentials),
-        })
-    }
-
-    /// Parses authentication credentials from `JSON`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `InitError::Config` if the text is invalid or parsed credentials fail validation.
-    pub fn from_json(text: &str) -> Result<Self, InitError> {
-        let entries: Vec<CredentialConfig> = serde_json::from_str(text)
-            .map_err(|error| InitError::Config(format!("invalid credentials JSON: {error}")))?;
-        Self::new(
-            entries
-                .into_iter()
-                .map(|entry| Credential {
-                    user_id: entry.user_id,
-                    token: entry.token,
-                    projects: entry.projects,
-                    global_admin: entry.global_admin,
-                })
-                .collect(),
-        )
-    }
-
-    fn authenticate(&self, token: &str) -> Option<Principal> {
-        self.credentials.iter().find_map(|credential| {
-            if token
-                .as_bytes()
-                .ct_eq(credential.token.as_bytes())
-                .unwrap_u8()
-                != 1
-            {
-                return None;
-            }
-            Some(Principal {
-                user_id: credential.user_id.clone(),
-                projects: credential.projects.clone(),
-                global_admin: credential.global_admin,
-            })
-        })
-    }
-}
-
-#[derive(Clone)]
-struct Principal {
-    user_id: String,
-    projects: BTreeMap<String, Role>,
-    global_admin: bool,
-}
-
-impl Principal {
-    fn permits(&self, project: &str, required: Role) -> bool {
-        self.global_admin
-            || self
-                .projects
-                .get(project)
-                .is_some_and(|role| role.permits(required))
     }
 }
 
