@@ -1,0 +1,494 @@
+{
+  "baseline_commit": "1884c8bca3f62fa83964914ce972392ad21af383",
+  "candidate_binary_sha256": "752a53d13e257f36f17abcdf6b8da0a7ad7332591f75f28c55dd68e73e1fd08c",
+  "parser_version": "tree-sitter-ruby 0.23.1",
+  "upstream_scanner_revision": "ad907a69da0c8a4f7a943a7fe012712208da6dee",
+  "ruby_syntax_reference": "MRI 3.4.9 --disable-gems -c (no project code executed)",
+  "upstream_corpus": {
+    "cases": 291,
+    "same_named_tree": 290,
+    "changed_case": "expressions.txt: method call with block argument",
+    "reason": "The case includes foo(&, 1), rejected by MRI. Removing just that line produces an identical named tree for the rest of the case."
+  },
+  "projects": [
+    {
+      "project": "bkeepers/dotenv",
+      "commit": "34156bf400cd67387fa6ed9f146778f6a2f5f743",
+      "files": 18,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "ddd2b8c96bb222cda2958520786d3d1da6a0e1f45a0111e45b7aba6147ac018d"
+    },
+    {
+      "project": "dry-rb/dry-core",
+      "commit": "ba7a61d56d6ee5eee67b6f33c528994cfa95f496",
+      "files": 28,
+      "old_exit": 2,
+      "new_exit": 0,
+      "identical_stdout": false,
+      "fixed_paths": [
+        "lib/dry/core/container/mixin.rb"
+      ],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "7fad271ab48aa627f10535b0ecd34fb85e5895b8ee312f02f12b8981e127ee90",
+      "reference_input_equal": true,
+      "shared_reference_files": 28,
+      "native_only_files": 0,
+      "mri_checked": 28,
+      "old_full_repo": {
+        "complete": false,
+        "exit_code": 2,
+        "failed": [
+          "./lib/dry/core/container/mixin.rb"
+        ],
+        "statuses": {
+          "complete": 53,
+          "failed": 1
+        }
+      },
+      "new_full_repo": {
+        "complete": true,
+        "exit_code": 0,
+        "failed": [],
+        "statuses": {
+          "complete": 54
+        }
+      }
+    },
+    {
+      "project": "heartcombo/devise",
+      "commit": "05811fb8366edd08874111d0f6fb44543e1c91ef",
+      "files": 68,
+      "old_exit": 2,
+      "new_exit": 2,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "7552516faad6734469f6169956372e8d73672f6ac1f654a10b43b27fd9995bf3"
+    },
+    {
+      "project": "jekyll/jekyll",
+      "commit": "1f319fb273b6cdf876bc6edd38d7477935cdda8c",
+      "files": 90,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib/jekyll",
+        "lib/jekyll.rb",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "input_manifest_sha256": "50e547f99dfbc21ff0b8ad450603e45dc0ca17ef37e0aa1a9802cfcec3a8e6b4"
+    },
+    {
+      "project": "jnunemaker/httparty",
+      "commit": "591b9f68d1cd9a1f08e554370f40e1c169bc78cd",
+      "files": 24,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "f9350424b66ccce55147bfdaf0ec147945de27a732575528b4d1bf47fed7bcb5"
+    },
+    {
+      "project": "lostisland/faraday",
+      "commit": "18e51beaa98677a33466801a86e6199fb820c83f",
+      "files": 35,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "003b7c1bff57d9bdaa997ffe69bed9c619e50ce221290a1e29c7a9a32426d783"
+    },
+    {
+      "project": "rack/rack",
+      "commit": "0eabeb73b3fb590e187dacfd9a890fbb7ffb9477",
+      "files": 50,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "input_manifest_sha256": "5e9334b3c77a729893ce99a97050b054d45956567d682ab1ca57c3107eafafe5"
+    },
+    {
+      "project": "rack/rack-test",
+      "commit": "b3bfdbc79e6e69eb4e63994ec7d1e15130680054",
+      "files": 1,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "acc544ce46be08b226d451c354137b851dbfbe75a3edba0d7f481256e3849c3a"
+    },
+    {
+      "project": "rails/rails",
+      "commit": "3235827585d87661942c91bc81f64f56d710f0b2",
+      "files": 281,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "activesupport/lib/active_support",
+        "activesupport/lib/active_support.rb",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "input_manifest_sha256": "22a23af915c1e84e548037e01667059b9c78813c8792a93d45587c0946e175e4"
+    },
+    {
+      "project": "redis/redis-rb",
+      "commit": "9d3a2625ccbb0cdc55d305be07e18c1df1317874",
+      "files": 48,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "ca24e7a0918dc75c21f10e4002cd5455d0e56f579105a40e5a51ac6256e58aa6"
+    },
+    {
+      "project": "rspec/rspec-support",
+      "commit": "393117fb4c8874918044d9ed5d3ff3c482fd41ec",
+      "files": 23,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "c91b4ace42f66e3abf2831f107560b2c10f5550e2139c61646cdc8826fc8ec4a"
+    },
+    {
+      "project": "rubocop/rubocop-ast",
+      "commit": "711bbbdef5e1c719fd46f0f9dacfab7a8a1108a0",
+      "files": 139,
+      "old_exit": 2,
+      "new_exit": 0,
+      "identical_stdout": false,
+      "fixed_paths": [
+        "lib/rubocop/ast/builder_extensions.rb",
+        "lib/rubocop/ast/node_layout.rb"
+      ],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "8fa8c0991716de33037639120977d75553f12cb856bd7751f50b7678f0a4d585",
+      "reference_input_equal": false,
+      "shared_reference_files": 107,
+      "native_only_files": 32,
+      "mri_checked": 139,
+      "old_full_repo": {
+        "complete": false,
+        "exit_code": 2,
+        "failed": [
+          "./lib/rubocop/ast/builder_extensions.rb",
+          "./lib/rubocop/ast/node_layout.rb",
+          "./spec/rubocop/ast/fixtures/code_examples.rb"
+        ],
+        "statuses": {
+          "complete": 219,
+          "failed": 3
+        }
+      },
+      "new_full_repo": {
+        "complete": false,
+        "exit_code": 2,
+        "failed": [
+          "./spec/rubocop/ast/fixtures/code_examples.rb"
+        ],
+        "statuses": {
+          "complete": 221,
+          "failed": 1
+        }
+      },
+      "whole_repo_remaining_fixture_mri": "rejected"
+    },
+    {
+      "project": "rubocop/rubocop-performance",
+      "commit": "22a6f2175b4d564fdb3a3d0840e7cdb604e18092",
+      "files": 61,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "8436246172271dc7107464fd28b712a0b4dbc99a26111afdc46bfcddcd161ccd"
+    },
+    {
+      "project": "ruby/json",
+      "commit": "5a75bc26e8a5af06586708915a5935db2b614852",
+      "files": 6,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "f340bc3b44de7e6c0a61b39a2f313113d647776067093fa0200b2e0c776e39d8"
+    },
+    {
+      "project": "ruby/optparse",
+      "commit": "9041a0aab5a3cacb61c816e4cfe5e0dcefc25e83",
+      "files": 9,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "a1ff49ade6b5cce887db39977055bde3cd6955bf8e619dec1670018c38c6b05d"
+    },
+    {
+      "project": "ruby/rake",
+      "commit": "0fdacef47aa9a4140e472b0ce302a2dd09423a75",
+      "files": 43,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "input_manifest_sha256": "23054e430d24d857474e385e2095f4dcb79463582e50caf3a9ee4d1e120992d9"
+    },
+    {
+      "project": "ruby/uri",
+      "commit": "bd620b2f324cd2efacc77411c6717283bf199a85",
+      "files": 15,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "eae836e3efc9c8041df0b4a1dc0bc20c8c02bd645946f96c5a74fb8efaa70158"
+    },
+    {
+      "project": "sinatra/sinatra",
+      "commit": "7b50a1bbb5324838908dfaa00ec53ad322673a29",
+      "files": 7,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "input_manifest_sha256": "d78443235e71ca2dc180e349719966ade511b45b4064274ad21cd38beed88c31"
+    },
+    {
+      "project": "teamcapybara/capybara",
+      "commit": "265d2d175f4be3ddf785d7597bdfd19b231f844a",
+      "files": 127,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "30445825d2712342f6927dac6315110298ca942b1bb3a9313464086a400e3e7b"
+    },
+    {
+      "project": "varvet/pundit",
+      "commit": "ea9e31a2d7993f038ee52b94ccc9c7411637ba89",
+      "files": 16,
+      "old_exit": 0,
+      "new_exit": 0,
+      "identical_stdout": true,
+      "fixed_paths": [],
+      "argv": [
+        "analyze",
+        "lib",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/test/**",
+        "--exclude",
+        "**/spec/**"
+      ],
+      "input_manifest_sha256": "a9d0356e93f2171479cc9a5b8c7ac1e4642032342203b6814d6cc5cc2a6976d7"
+    }
+  ]
+}
