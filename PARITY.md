@@ -2,11 +2,11 @@
 
 ## Claim boundary
 
-Hoonarqube ships the frozen 2,706-rule catalog:
+Hoonarqube ships the frozen 2,710-rule catalog:
 
 - C#: 468.
-- JavaScript: 445.
-- TypeScript: 455.
+- JavaScript: 447.
+- TypeScript: 457.
 - Python: 442.
 - Go: 36.
 - Rust: 85.
@@ -28,6 +28,20 @@ commercial license. They are never counted as Community passes.
 The remaining rule records carry `community-base`. Development and Community
 oracle runs need no commercial license. Full SonarQube parity cannot be claimed
 without valid Enterprise oracle evidence for the 17 commercial rules.
+
+## Emitted JS/TS catalog keys — 2026-10-13
+
+The adds-only Community supplement for `javascript:S7734`,
+`javascript:S7743`, `typescript:S7734`, and `typescript:S7743` registers four
+already implemented detector keys. Their factual metadata comes from a raw
+MQR-mode Community Build `26.9.0.129388` capture with digest
+`877bdeb48a5593ee73fe8092d4f59b599f85c43767ebf28c94a95b25da7f756b`.
+The verified importer preserves every existing rule row and its original
+provenance. The frozen base remains `2025.4.4.119049`; other live-reference
+metadata and default-parameter differences retain their version boundaries.
+This addition does not implement new detectors or establish broader finding
+parity. Embedded-catalog regressions require all four emitted keys to resolve
+to their recorded Community supplement.
 
 ## Current coverage audit and real-project campaign — 2026-10-07
 
@@ -127,17 +141,17 @@ this contract; it never upgrades a claim by itself.
   when a complete compiler context covered every analyzed JS/TS-family file
   (an explicit `--typescript-project` or complete auto-discovered
   `tsconfig.json` coverage); `csharp` is `supplied` only when a complete
-  `--csharp-project` context was loaded. `missing` is the explicit
-  diagnostic for context-requiring rules that ran without their context; it
-  is recorded, not hidden, and does not by itself change `completeness`.
+  `--csharp-project` context was loaded. A missing required context sets
+  `parity.completeness` to `incomplete`, even when native project analysis
+  completed. Matching a reference cannot upgrade that result.
 - `rule_set_violations` lists emitted rule keys outside the recorded active
   set. It is always empty in a correct run; any entry is a defect signal and
   forces `completeness` to `incomplete`.
 - `completeness` is `reference_parity_verified` only when a
   `--parity-reference` comparison matched while every prerequisite held;
-  `complete_native_analysis` when the analysis completed without violations
-  but no comparison was requested; and `incomplete` when the analysis is
-  incomplete, rule-set violations exist, or a requested comparison diverged.
+  `complete_native_analysis` when the analysis completed with all required
+  contexts, no rule-set violations and no reference comparison; and
+  `incomplete` when a prerequisite failed or a requested comparison diverged.
 
 `--parity-reference PATH` requires `--profile sonar-parity` and compares the
 run's findings against a pinned Generic Issue Import report — the same
@@ -146,6 +160,9 @@ document `--format sonar` emits — by rule id, file path, and text range
 `divergences`). A diverged comparison prints diagnostics to stderr and exits
 non-zero, consistent with the existing fail-closed incomplete handling. An
 unreadable or malformed reference is an input error and also exits non-zero.
+File-level findings omit `textRange`. A present range must be an object with
+a positive `startLine`; omitted end lines or columns remain absent in the
+identity comparison. Invalid coordinates and reversed ranges are input errors.
 
 Profiles other than `sonar-parity` emit no `parity` block and require no
 SonarQube server or proprietary analyzer.

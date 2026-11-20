@@ -6,6 +6,9 @@
 //! in-memory source snapshot shared by issue and source-facts analysis.
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
+mod csharp_index;
+use csharp_index::with_csharp_project_index;
+
 use std::fs;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -343,8 +346,8 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     normalized
 }
 
-/// Runs the project measurement path. Each readable source is loaded once and
-/// the same in-memory snapshot is passed to the core project facade.
+/// Runs project analysis. Retained snapshots feed both project context and
+/// individual findings; streaming C# scans use a preliminary index pass.
 pub(crate) fn analyze_project_paths(
     paths: &[PathBuf],
     catalog: &Catalog,
@@ -407,48 +410,6 @@ pub(crate) fn analyze_project_paths(
         semantic.as_ref(),
     );
     Ok(report)
-}
-
-/// Builds one immutable C# project type index per scan and attaches it to
-/// the analyzer options, so project-scope C# rules (`csharpsquid:S4019`)
-/// resolve hidden base methods and the GitHub Code Quality shadow checks
-/// resolve members across accepted source files, including partial
-/// declarations split over several files. Runs without a project index keep
-/// the strictly per-file behavior.
-fn with_csharp_project_index(
-    options: &AnalyzerOptionsBundle,
-    collected: &CollectedProjectInputs,
-) -> AnalyzerOptionsBundle {
-    let csharp_inputs: Vec<&ProjectInput> = collected
-        .pending
-        .iter()
-        .filter(|input| {
-            hoonarqube_core::language_for_path(&input.path) == Some(Language::CSharp)
-                && !hoonarqube_core::is_razor_path(&input.path)
-        })
-        .collect();
-    if csharp_inputs.len() < 2 {
-        return options.clone();
-    }
-    let mut snapshots = Vec::with_capacity(csharp_inputs.len());
-    for input in &csharp_inputs {
-        if let ProjectSourceRead::Source(source) =
-            read_project_source(&input.path, input.classification)
-        {
-            snapshots.push(hoonarqube_csharp::SourceSnapshot::new(
-                input.path.clone(),
-                source,
-            ));
-        }
-    }
-    if snapshots.len() < 2 {
-        return options.clone();
-    }
-    let mut options = options.clone();
-    options.csharp.project_type_index = Some(std::sync::Arc::new(
-        hoonarqube_csharp::ProjectTypeIndex::build(&snapshots),
-    ));
-    options
 }
 
 fn append_unsupported_inventory(
@@ -2120,6 +2081,52 @@ mod tests {
             warnings,
         )
         .expect("project report")
+    }
+
+    #[test]
+    fn csharp_index_and_findings_use_the_same_retained_sources() {
+        let fix = TempDir::new("csharp-index-snapshot");
+        let base = fix.write("Base.cs", "public class Base { public void Run() {} }\n");
+        let derived = fix.write(
+            "Derived.cs",
+            "public class Derived : Base { public void Run() {} }\n",
+        );
+        let paths = [base.clone(), derived.clone()];
+        let options = AnalyzerOptionsBundle::default();
+
+        for retained in [true, false] {
+            let mut project = project_options();
+            project.features.assessment = retained;
+            let mut warnings = Vec::new();
+            let collected =
+                collect_project_inputs(&paths, &project, options.profile, &mut warnings);
+            assert!(warnings.is_empty(), "{warnings:?}");
+            assert_eq!(
+                collected.source_inventory.len(),
+                if retained { 2 } else { 0 }
+            );
+            if retained {
+                // Change the base after the assessment captured both files.
+                // A fresh streaming scan below must see this edit instead.
+                fs::write(&base, "public class Base { }\n").unwrap();
+            }
+            let indexed = with_csharp_project_index(&options, &collected);
+            let input = collected
+                .pending
+                .iter()
+                .find(|file| file.path == derived)
+                .unwrap();
+            let result =
+                read_and_analyze_project(input, &collected.source_inventory, &indexed, None, None);
+            assert!(result.error.is_none(), "{:?}", result.error);
+            let hides_base = result
+                .report
+                .unwrap()
+                .issues
+                .into_iter()
+                .any(|issue| issue.rule_key == "csharpsquid:S4019");
+            assert_eq!(hides_base, retained, "retained = {retained}");
+        }
     }
 
     #[test]
