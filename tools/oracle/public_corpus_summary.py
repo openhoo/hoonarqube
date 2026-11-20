@@ -13,6 +13,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from parity import read_json, write_json_atomic
+from public_corpus_capture import verify_checkout
 from real_project_suite import (
     digest,
     file_metric_comparison,
@@ -286,12 +287,58 @@ def metrics_summary(folder, native, exact_scope):
     }
 
 
+def replay_source(reference_row, native_row):
+    """Only the local checkout path may differ between captures."""
+    if reference_row == native_row:
+        return native_row
+    if {**native_row, "path": reference_row["path"]} != reference_row:
+        raise ValueError("replay source manifest differs from the reference capture")
+    verify_checkout(native_row)
+    return native_row
+
+
+def evidence_digests(folder, native_folder):
+    evidence_names = (
+        "source.json",
+        "compute-engine.json",
+        "scanner-execution.json",
+        "scanner.stdout",
+        "issues.json",
+        "hotspots.json",
+        "measures.json",
+        "file-metrics.json",
+        "reference-source-files.json",
+        "native-execution.json",
+        "native.stdout",
+        "native-source-files.json",
+    )
+    evidence_paths = {
+        f: (
+            native_folder if f.startswith("native-") or f == "native.stdout" else folder
+        )
+        / f
+        for f in evidence_names
+    }
+    inventory = {
+        f: digest(path) for f, path in evidence_paths.items() if path.is_file()
+    }
+    if native_folder != folder:
+        inventory["native-source-manifest.json"] = digest(native_folder / "source.json")
+    return inventory
+
+
 def project_metadata(folder, native_folder):
     progress = read_json(folder / "progress.json")
-    row = read_json(folder / "source.json")
+    row = replay_source(
+        read_json(folder / "source.json"), read_json(native_folder / "source.json")
+    )
     native_progress = read_json(native_folder / "progress.json")
-    if row != read_json(native_folder / "source.json"):
-        raise ValueError("replay source manifest differs from the reference capture")
+    if native_progress["native"]["status"] == "complete" and not native_progress.get(
+        "ended_at_utc"
+    ):
+        raise ValueError(
+            "complete native capture is missing its final checkout postcheck"
+        )
     result = {
         "source": {
             k: row[k]
@@ -344,30 +391,7 @@ def project_metadata(folder, native_folder):
                 ),
             }
         )
-    evidence_names = (
-        "source.json",
-        "compute-engine.json",
-        "scanner-execution.json",
-        "scanner.stdout",
-        "issues.json",
-        "hotspots.json",
-        "measures.json",
-        "file-metrics.json",
-        "reference-source-files.json",
-        "native-execution.json",
-        "native.stdout",
-        "native-source-files.json",
-    )
-    evidence_paths = {
-        f: (
-            native_folder if f.startswith("native-") or f == "native.stdout" else folder
-        )
-        / f
-        for f in evidence_names
-    }
-    result["evidence_sha256"] = {
-        f: digest(path) for f, path in evidence_paths.items() if path.is_file()
-    }
+    result["evidence_sha256"] = evidence_digests(folder, native_folder)
     if (folder / "issues.json").is_file():
         reference_issues = read_json(folder / "issues.json")
         result["reference"]["issue_records"] = len(reference_issues)
