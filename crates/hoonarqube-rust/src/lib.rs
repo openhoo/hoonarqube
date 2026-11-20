@@ -14,6 +14,7 @@ use hoonarqube_ir::{
 use regex::Regex;
 use tree_sitter::{Node, Parser, Point};
 
+mod redundant_method_closure;
 mod sonar_contract;
 
 #[cfg(test)]
@@ -1156,7 +1157,7 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
     // These frozen oracle contracts need semantic evidence unavailable to the
     // tolerant source-only pass. Preserve their exact fixture ranges without
     // turning broad textual guesses into production false positives.
-    let fallback = ["rust:S1612", "rust:S2437", "rust:S7414", "rust:S7418"];
+    let fallback = ["rust:S2437", "rust:S7414", "rust:S7418"];
     let matched: Vec<_> = sonar_contract::FINDINGS
         .iter()
         .filter_map(|contract| {
@@ -1390,6 +1391,7 @@ fn check_node(
     }
     match node.kind() {
         "function_item" => check_function(node, source, options, issues),
+        "closure_expression" => redundant_method_closure::check(node, source, issues),
         "empty_statement" => check_empty_statement(node, source, issues),
         "assignment_expression" => check_assignment(node, source, issues),
         "binary_expression" => check_binary(node, source, issues),
@@ -6987,6 +6989,9 @@ regex_fn!(
 );
 
 #[cfg(test)]
+mod s1612_tests;
+
+#[cfg(test)]
 mod s7411_tests;
 
 #[cfg(test)]
@@ -7809,7 +7814,7 @@ mod tests {
     }
 
     #[test]
-    fn issue_213_fixture_anchor_remains_the_only_coverage_contract() {
+    fn issue_213_preserves_the_verified_method_range_and_ownership_refusals() {
         let anchor = keys(
             "fn main() {\n    let result = Some('a').map(|s| s.to_uppercase());\n    drop(result);\n}\n",
         );

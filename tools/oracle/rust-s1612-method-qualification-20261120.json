@@ -1,0 +1,368 @@
+{
+  "date": "2026-11-20",
+  "rule": "rust:S1612",
+  "contract_version": 2,
+  "columns": "Zero-based half-open offsets; lines are one-based. The non-ASCII BMP fixture also has identical UTF-16 and scalar-value offsets.",
+  "baseline": {
+    "merged_source": "b83377aab61ee1489df5100ba15081226f869dd3",
+    "binary_source": "a9ef51457e8f49089c24d32299b5444f35aa80a0",
+    "binary_sha256": "483644e9b1e392d96e644772c9d65efa6bcd199e6bccc354a11a39c0bfeaca52",
+    "analyzer_lib_rs_sha256_at_both_revisions": "6aa5f3e5f1ff940a92736285d1d78226a75d47b8a535fe1ed7f39e7b526d3d5c",
+    "positive_rows": 1
+  },
+  "oracle": {
+    "server": "26.9.0.129388",
+    "image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+    "scanner": "SonarScanner CLI 8.0.1.6346",
+    "toolchain": "clippy 0.1.96 (ac68faa20c 2026-05-25)",
+    "quality_profile": "Dedicated nondefault Rust profile; rust:S1612 was its only active rule.",
+    "project": "Dependency-free authored Cargo project. main.rs and two bin targets; no supplied Clippy report. The scanner ran its own Clippy sensor.",
+    "ce_report_status": "SUCCESS",
+    "native_driver": "hoonarqube_rust::analyze with default Rust analyzer options, one complete file per call",
+    "native_driver_sha256": "f895a31fbd16eeb708937b575da5532cc448ec78814d272f24e98a755713c74d",
+    "source_project_commit": "494d39c8710dbe017612289dec288ee6af51eb37",
+    "rule_message": "Replace this closure with a method reference.",
+    "builtin_reference_count": 24,
+    "exact_primary_rows": 24,
+    "external_count": 0,
+    "captures_sha256": {
+      "issues.json": "20770c3d1b6fd53d1f974a71d5e4740fe888badda0e18242d4ed7bcc3ba7e818",
+      "quality-profile.json": "d576b675491bea9550806ff2647d63d23a1a260ca01bac4bad58893683c915f8",
+      "compute-engine.json": "69e639604b2ff908367eab22739a84961332dcf57284493491ddb20d81b4ef4c",
+      "scanner.stdout": "31487c248812c03d88f7e8bbee0f38ee31eb497382b4300e29e9579b5fba584f",
+      "scanner.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "fixtures": [
+      {
+        "file": "crates/hoonarqube-rust/fixtures/s1612_char_methods.rs",
+        "oracle_path": "src/bin/chars.rs",
+        "sha256": "b0ac285d26b693c100779fbeef3d181224ca0238482bb48ffc734329b6a9ea64",
+        "baseline_native_count": 0,
+        "exact_primary_ranges": [
+          [
+            3,
+            31,
+            3,
+            51
+          ],
+          [
+            6,
+            31,
+            6,
+            51
+          ],
+          [
+            9,
+            31,
+            9,
+            52
+          ],
+          [
+            12,
+            31,
+            12,
+            54
+          ],
+          [
+            15,
+            31,
+            15,
+            49
+          ],
+          [
+            18,
+            31,
+            18,
+            51
+          ],
+          [
+            21,
+            31,
+            21,
+            49
+          ],
+          [
+            24,
+            31,
+            24,
+            51
+          ],
+          [
+            27,
+            31,
+            27,
+            52
+          ],
+          [
+            30,
+            31,
+            30,
+            47
+          ],
+          [
+            33,
+            31,
+            33,
+            48
+          ],
+          [
+            36,
+            31,
+            36,
+            51
+          ],
+          [
+            39,
+            31,
+            39,
+            53
+          ],
+          [
+            42,
+            31,
+            42,
+            53
+          ]
+        ]
+      },
+      {
+        "file": "crates/hoonarqube-rust/fixtures/s1612_methods.rs",
+        "oracle_path": "src/main.rs",
+        "sha256": "a58e94b951d3800223cbcbd6411a74c243394e757be50e7527dc2236b81e1afb",
+        "baseline_native_count": 1,
+        "exact_primary_ranges": [
+          [
+            5,
+            31,
+            5,
+            51
+          ],
+          [
+            9,
+            31,
+            9,
+            51
+          ],
+          [
+            13,
+            35,
+            13,
+            55
+          ],
+          [
+            18,
+            13,
+            20,
+            31
+          ],
+          [
+            24,
+            18,
+            24,
+            43
+          ],
+          [
+            30,
+            14,
+            30,
+            34
+          ],
+          [
+            33,
+            51,
+            33,
+            62
+          ],
+          [
+            36,
+            14,
+            36,
+            25
+          ]
+        ]
+      },
+      {
+        "file": "crates/hoonarqube-rust/fixtures/s1612_project_expressions.rs",
+        "oracle_path": "src/bin/projects.rs",
+        "sha256": "a6074efe7c9e8ec425589adb9fa41a4e2bb6a208b707f1b56d5e12e4703962a5",
+        "baseline_native_count": 0,
+        "exact_primary_ranges": [
+          [
+            3,
+            51,
+            3,
+            62
+          ],
+          [
+            7,
+            13,
+            7,
+            24
+          ]
+        ]
+      }
+    ]
+  },
+  "controls": {
+    "ordinary_sonar_way": "Rule inactive in the ordinary Rust Sonar way profile. Zero built-in rows here do not certify the rule.",
+    "external_report": "A separate import of the eight-case Clippy report produced eight external_clippy:redundant_closure_for_method_calls rows, not built-in rows.",
+    "missing_toolchain": "The container without Cargo logged a Clippy prerequisite failure. Its zero findings are excluded.",
+    "rustc": "Compiled and executed all three authored fixtures with Rust 1.96.0; each exited zero. The eight-case fixture includes original, renamed, reindented, multiline and pointer-result assertions. The char matrix compiles all 14 method-pointer substitutions and compares results.",
+    "clippy": "The eight-case fixture emitted the same eight primary spans with Clippy 1.93 and 1.96; the char matrix emitted fourteen with 1.96."
+  },
+  "public_sources": {
+    "method": "Checked pinned Git revisions and hashes of every file in the seven retained reference inventories. Ran the full Rust frontend on 252 scoped Rust files and two further full files. Confirmed the same S1612 census by invoking its production rule in isolation. No third-party crate build scripts or dependencies were executed.",
+    "reference_scope": "S1612 was inactive in all seven public reference profiles. The two extra files have no same-file Sonar capture; their expressions were included in the separately compiled, active oracle fixture.",
+    "scopes": [
+      {
+        "name": "anyhow",
+        "repository": "dtolnay/anyhow",
+        "commit": "dd0c0a655a214add8fc986df34ea3823468fa4fb",
+        "files": 12,
+        "reference_active": false,
+        "reference_inventory_sha256": "6c802e7ec617d6dff6f2a8ad6999dd33d3a3af2c6633ee6805f266c0c516dc22",
+        "trees": [
+          "src"
+        ],
+        "observations": []
+      },
+      {
+        "name": "bytes",
+        "repository": "tokio-rs/bytes",
+        "commit": "67edc2b999d669eb4f471aff576e213dbcb58871",
+        "files": 19,
+        "reference_active": false,
+        "reference_inventory_sha256": "e70bb2fdff29e991ade1a36fa60597daf8611beaabac0cb43c49ebbf6dd3a49b",
+        "trees": [
+          "src"
+        ],
+        "observations": []
+      },
+      {
+        "name": "clap",
+        "repository": "clap-rs/clap",
+        "commit": "8e3d03639756241aa2b7dd624a7f5852bef76f31",
+        "files": 56,
+        "reference_active": false,
+        "reference_inventory_sha256": "d4abd4bd3b1e0a566812b852edfa0a1112ee548687d33e019e364595498b2034",
+        "trees": [
+          "clap_builder/src"
+        ],
+        "observations": []
+      },
+      {
+        "name": "log",
+        "repository": "rust-lang/log",
+        "commit": "75fcb86da1cce3b9476c58c911482ec43ec235f4",
+        "files": 9,
+        "reference_active": false,
+        "reference_inventory_sha256": "6f67b57e3688157c27bc63b2c87b8b0b34ddb56ccf8e1988b64f555366f41ddf",
+        "trees": [
+          "src"
+        ],
+        "observations": []
+      },
+      {
+        "name": "rayon",
+        "repository": "rayon-rs/rayon",
+        "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+        "files": 99,
+        "reference_active": false,
+        "reference_inventory_sha256": "556af3bee6927796d82d67947291ec4b95908ebee9877d19e9563e65a6858c07",
+        "trees": [
+          "src"
+        ],
+        "observations": []
+      },
+      {
+        "name": "rayon-additional-file",
+        "repository": "rayon-rs/rayon",
+        "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+        "files": 1,
+        "reference_active": null,
+        "source_sha256": "a676ef6f6be60212bf98b4a795e2cbd819650cb49ebd1f219093c73cf37085a5",
+        "trees": [
+          "rayon-core/src/lib.rs"
+        ],
+        "observations": [
+          {
+            "path": "rayon-core/src/lib.rs",
+            "range": "460:25-460:36"
+          }
+        ]
+      },
+      {
+        "name": "ripgrep",
+        "repository": "BurntSushi/ripgrep",
+        "commit": "43fc97d43a4c61d65e7d74d4110c8480fe42ea5b",
+        "files": 20,
+        "reference_active": false,
+        "reference_inventory_sha256": "3c35ff35ce36bf8f2f2b3f0a421c0b527155b53ae1ff3d53b5d59120bd7cdd1f",
+        "trees": [
+          "crates/core"
+        ],
+        "observations": [
+          {
+            "path": "crates/core/flags/hiargs.rs",
+            "range": "173:59-173:70"
+          }
+        ]
+      },
+      {
+        "name": "ripgrep-additional-file",
+        "repository": "BurntSushi/ripgrep",
+        "commit": "43fc97d43a4c61d65e7d74d4110c8480fe42ea5b",
+        "files": 1,
+        "reference_active": null,
+        "source_sha256": "97d6613e3081b4bc7e24e1c8193f64c4e02d830bc7bf50744af0f7ab8b920ad8",
+        "trees": [
+          "crates/ignore/src/walk.rs"
+        ],
+        "observations": [
+          {
+            "path": "crates/ignore/src/walk.rs",
+            "range": "1541:59-1541:70"
+          }
+        ]
+      },
+      {
+        "name": "serde-json",
+        "repository": "serde-rs/json",
+        "commit": "762783414e6c4f8d670c9d87eb04913efb80d3be",
+        "files": 37,
+        "reference_active": false,
+        "reference_inventory_sha256": "c1182091714e1bb36197477de1c8b28575ab0fd40040a3cf04279eeb7b58679b",
+        "trees": [
+          "src"
+        ],
+        "observations": []
+      }
+    ]
+  },
+  "historical_issue_213": {
+    "commit": "3fce3b5bb0236da2df6d99672afb8a719642eca7",
+    "inventory_method": "Tracked crates/**/*.rs excluding examples, benches, and tests directory components (reconstructed independently).",
+    "inventory_sha256": "8ccb699c2ef42d9d9fbd36f27595786cabdc916ec238c3203914f80ea91417eb",
+    "inventory_digest_format": "sha256 of sorted path + space + sha256 lines, with a final newline",
+    "files": 86,
+    "reference": "The issue documents 19 historical mapped Clippy rows and explicitly names hiargs.rs:183. The original row-by-row reference inventory was not supplied in this verification.",
+    "native": "Ran the production rule in isolation on the reconstructed 86-file scope; confirmed both positive rows through the full Rust frontend.",
+    "native_ranges": [
+      [
+        "crates/core/flags/hiargs.rs",
+        "183:59-183:70"
+      ],
+      [
+        "crates/ignore/src/walk.rs",
+        "1539:59-1539:70"
+      ]
+    ],
+    "disposition": "The named source opportunity is recognized. The complete 19-row historical comparison remains unverified."
+  },
+  "reproduce": [
+    "Run cargo test -p hoonarqube-rust s1612 to exercise the committed regressions.",
+    "Create an empty dependency-free edition-2024 Cargo binary crate. Copy each committed fixture into the oracle_path listed above. Compile and run the three bin targets with Rust 1.96.0.",
+    "For a fresh reference, associate that project with a nondefault Rust profile with exactly rust:S1612 active on the recorded Community Build. Put cargo/clippy 1.96.0 on the scanner process PATH. Scan sonar.sources=src with sonar.rust.clippy.enabled=true and no Clippy report path; do not inject a generated report.",
+    "Check the compute-engine task status, the effective project profile and actual Clippy sensor logs, then compare the built-in rule keys, input paths, exact ranges and messages from api/issues/search. An empty external-report import alone cannot validate a run."
+  ]
+}
