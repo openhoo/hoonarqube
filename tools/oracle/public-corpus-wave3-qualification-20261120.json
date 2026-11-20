@@ -124,31 +124,22 @@
     "reference_missing": 0,
     "native_missing": 0,
     "comparison_states": {
-      "same_scope": 46,
+      "same_scope": 45,
+      "not_compared_reference_sensor_scope": 1,
       "not_compared_incomplete_or_unavailable": 4,
       "shared_files_only": 2
     },
-    "identical_files": 659,
+    "identical_files": 658,
     "primary_findings_on_identical_scopes": {
       "matched": 749,
-      "native_only": 631,
+      "native_only": 405,
       "reference_only": 109
     },
     "file_metrics_on_identical_scopes": {
-      "compared_cells": 1975,
-      "matched_cells": 1668
+      "compared_cells": 1974,
+      "matched_cells": 1667
     }
   },
-  "reference_values_not_returned_on_identical_scopes": [
-    {
-      "project": "papaparse",
-      "path": "papaparse.js",
-      "not_returned_by_reference": [
-        "comment_lines",
-        "ncloc"
-      ]
-    }
-  ],
   "cases": {
     "httpx": {
       "comparison_state": "same_scope",
@@ -919,7 +910,7 @@
       }
     },
     "papaparse": {
-      "comparison_state": "same_scope",
+      "comparison_state": "not_compared_reference_sensor_scope",
       "reference": {
         "state": "complete",
         "scanner_exit": 0,
@@ -927,7 +918,15 @@
         "ce_task_id": "805437fc-c73f-4307-b2e2-5ec687a7b3d0",
         "analysis_id": "f9cfeb28-e11b-4d14-9321-c603bcf84d67",
         "file_count": 1,
-        "source_index_sha256": "2f7a090067ddd3367beae7cf913ffd3039cd12f770523608f734d3ded3f9f32e"
+        "source_index_sha256": "2f7a090067ddd3367beae7cf913ffd3039cd12f770523608f734d3ded3f9f32e",
+        "javascript_bundle_detection": {
+          "files_analyzed": 0,
+          "cache_hits": 0
+        },
+        "scanner_stdout_sha256": "a1c88dcce5f05f9a1274dac5b34b5fd4e3e29d9aac87867c3294ec6e41be6024",
+        "file_metrics_returned": [
+          "lines"
+        ]
       },
       "native": {
         "state": "complete",
@@ -935,19 +934,31 @@
         "exit": 0,
         "returned_file_count": 1,
         "source_index_sha256": "2f7a090067ddd3367beae7cf913ffd3039cd12f770523608f734d3ded3f9f32e",
-        "raw_report_sha256": "87f56749a4e6e2a63413237df6df477c522a88e51319a49e2a55b6ef0f7ad4d3"
+        "raw_report_sha256": "87f56749a4e6e2a63413237df6df477c522a88e51319a49e2a55b6ef0f7ad4d3",
+        "raw_issue_records": 754
       },
-      "identical_files": 1,
-      "file_metrics": {
-        "files": 1,
-        "compared_cells": 1,
-        "matched_cells": 1,
-        "different_files": 0
+      "scope_difference": {
+        "indexed_shared_files": 1,
+        "shared_files": 0,
+        "reference_sensor_skipped": [
+          "papaparse.js"
+        ],
+        "native_only_primary_findings_outside_common_scope": 226,
+        "native_s3504_findings_outside_common_scope": 146
       },
-      "primary_findings": {
-        "matched": 0,
-        "native_only": 226,
-        "reference_only": 0
+      "reference_bundle_detection_control": {
+        "same_source_index_sha256": "2f7a090067ddd3367beae7cf913ffd3039cd12f770523608f734d3ded3f9f32e",
+        "scanner_setting": "sonar.javascript.detectBundles=false",
+        "ce_status": "SUCCESS",
+        "files_analyzed": 1,
+        "file_metrics_returned": [
+          "comment_lines",
+          "lines",
+          "ncloc"
+        ],
+        "javascript_issue_records": 66,
+        "javascript_s3504_issues": 0,
+        "scanner_stdout_sha256": "6379617cceac2a704a62b0bedb45f85ef83516de92ae967845d8df53eca42d36"
       }
     },
     "express": {
