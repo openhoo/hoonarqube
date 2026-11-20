@@ -2298,8 +2298,14 @@ mod tests {
                 .iter()
                 .find(|file| file.path == derived)
                 .unwrap();
-            let result =
-                read_and_analyze_project(input, &collected.source_inventory, &indexed, None, None);
+            let result = read_and_analyze_project(
+                input,
+                &collected.source_inventory,
+                &indexed,
+                None,
+                None,
+                None,
+            );
             assert!(result.error.is_none(), "{:?}", result.error);
             let hides_base = result
                 .report
