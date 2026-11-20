@@ -1,0 +1,2310 @@
+{
+  "by_language": {
+    "go": {
+      "attempted": 10,
+      "compared_cells": 489,
+      "equal": 10,
+      "files": 163,
+      "matched": 94,
+      "matched_cells": 481,
+      "native_only": 8,
+      "reference_only": 7
+    },
+    "java": {
+      "attempted": 9,
+      "compared_cells": 1221,
+      "equal": 7,
+      "files": 407,
+      "matched": 123,
+      "matched_cells": 814,
+      "native_only": 175,
+      "reference_only": 4
+    },
+    "js": {
+      "attempted": 10,
+      "compared_cells": 1287,
+      "equal": 8,
+      "files": 429,
+      "matched": 794,
+      "matched_cells": 1287,
+      "native_only": 703,
+      "reference_only": 210
+    },
+    "py": {
+      "attempted": 13,
+      "compared_cells": 1011,
+      "equal": 13,
+      "files": 337,
+      "matched": 1309,
+      "matched_cells": 1011,
+      "native_only": 262,
+      "reference_only": 413
+    },
+    "ruby": {
+      "attempted": 11,
+      "compared_cells": 2108,
+      "equal": 10,
+      "files": 704,
+      "matched": 132,
+      "matched_cells": 1422,
+      "native_only": 334,
+      "reference_only": 18
+    },
+    "rust": {
+      "attempted": 7,
+      "compared_cells": 720,
+      "equal": 6,
+      "files": 240,
+      "matched": 40,
+      "matched_cells": 533,
+      "native_only": 195,
+      "reference_only": 0
+    },
+    "ts": {
+      "attempted": 10,
+      "compared_cells": 855,
+      "equal": 5,
+      "files": 285,
+      "matched": 734,
+      "matched_cells": 855,
+      "native_only": 120,
+      "reference_only": 153
+    }
+  },
+  "comparison_contract": "Counts include only complete equal-byte, identical inventories and common implemented rule keys with equal declared parameters. Primary identity: repository-qualified rule, relative file, UTF-16 range. A one-sided result is not adjudicated as an analyzer defect.",
+  "comparison_states": {
+    "not_compared_incomplete_or_unavailable": 9,
+    "same_scope": 59,
+    "shared_files_only": 2
+  },
+  "native": {
+    "binary_sha256": "746a2e2ba44d9669e231ecff77090a9a072caa9a5287af51f8c22e60fb6f5510",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "command": "cargo build --locked --offline --release -p hoonarqube-cli --bin hoonarqube",
+    "commit": "1884c8bca3f62fa83964914ce972392ad21af383",
+    "log_sha256": "5705eabd837560cdd64ed7fc3e80394acadd770b3761446cd91fb04a3a707f04",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-apple-darwin\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "target": "aarch64-apple-darwin",
+    "tree": "1923e2181b9fa4302b6d78a2cc4c9aca369f5c2a"
+  },
+  "public_project_scopes": {
+    "corpus": {
+      "ajv": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "0334764868264cbe048f0445e09e67aeadfde7319897fa20378fde5a92748c73",
+        "file_metric_cells": {
+          "compared_cells": 318,
+          "different_files": 0,
+          "files": 106,
+          "matched_cells": 318
+        },
+        "files": 106,
+        "native_output_sha256": "6277a8946bd183d737e79c97485faca3b247984de29720518d9764baa2f8ede4",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 157,
+          "native_only": 53,
+          "reference_only": 29
+        },
+        "primary": {
+          "matched": 157,
+          "native_only": 53,
+          "reference_only": 29
+        },
+        "reference_state": "complete",
+        "repository": "ajv-validator/ajv",
+        "source_commit": "9050ba1359fb87cd7c143f3c79513ea7624ea443",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "97327f3e4bdbab48e38f3eebe698148d61537e53"
+      },
+      "attrs": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "95e8f7c2d87b832992f2dd6d2912a450f4950283fe3520cfd86654f000dc976f",
+        "file_metric_cells": {
+          "compared_cells": 57,
+          "different_files": 0,
+          "files": 19,
+          "matched_cells": 57
+        },
+        "files": 19,
+        "native_output_sha256": "c704be489e67723691f688df19cb972522310d25ed4d9eaa84f00faab48236a4",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 29,
+          "native_only": 3,
+          "reference_only": 2
+        },
+        "primary": {
+          "matched": 30,
+          "native_only": 2,
+          "reference_only": 1
+        },
+        "reference_state": "complete",
+        "repository": "python-attrs/attrs",
+        "source_commit": "3dca08ce5bbe673d7df25f44f3dda92505d1043d",
+        "sources": [
+          "src/attr",
+          "src/attrs"
+        ],
+        "state": "same_scope",
+        "tree": "2f143c350d12dc394f3320a2d4e259dda86874d7"
+      },
+      "axios": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "1a1f0ff9b32cbe1d7b30c3eccc346f359662ce9264852124b00a21c57545407e",
+        "file_metric_cells": {
+          "compared_cells": 186,
+          "different_files": 0,
+          "files": 62,
+          "matched_cells": 186
+        },
+        "files": 62,
+        "native_output_sha256": "56041233e3c599a0088fc6adeb56e5354eaa06fb8e061bbfc5b3f9a922dbb5a3",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 116,
+          "native_only": 111,
+          "reference_only": 22
+        },
+        "primary": {
+          "matched": 117,
+          "native_only": 54,
+          "reference_only": 22
+        },
+        "reference_state": "complete",
+        "repository": "axios/axios",
+        "source_commit": "e5a33366d75b65f88052b230b103731eb7dcb793",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "ae737fcd70971e8be70657c0ac0c87d603b4a117"
+      },
+      "chalk": {
+        "exclude": [],
+        "native_state": "complete",
+        "reference_state": "complete",
+        "repository": "chalk/chalk",
+        "source_commit": "5dbc1e2633f3874f43c144fa4919934bc934c495",
+        "sources": [
+          "source"
+        ],
+        "state": "shared_files_only",
+        "tree": "8fc5ee60aefbf8cd90742d2781521533071e595b"
+      },
+      "chalk-aligned": {
+        "exclude": [
+          "source/index.d.ts",
+          "source/vendor/**"
+        ],
+        "expected_source_inventory_sha256": "578fa04de0d0ec5e379d04474b48ab84dede60f08af02d6cee02a6ba26990845",
+        "file_metric_cells": {
+          "compared_cells": 9,
+          "different_files": 0,
+          "files": 3,
+          "matched_cells": 9
+        },
+        "files": 3,
+        "native_output_sha256": "f0a0cda1beca3d9d7c1219070d635fa4b3cb55483d620799154c151cc3e6f4a0",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 5,
+          "native_only": 2,
+          "reference_only": 2
+        },
+        "primary": {
+          "matched": 5,
+          "native_only": 2,
+          "reference_only": 2
+        },
+        "reference_state": "complete",
+        "repository": "chalk/chalk",
+        "source_commit": "5dbc1e2633f3874f43c144fa4919934bc934c495",
+        "sources": [
+          "source"
+        ],
+        "state": "same_scope",
+        "tree": "8fc5ee60aefbf8cd90742d2781521533071e595b"
+      },
+      "chi": {
+        "exclude": [
+          "**/*_test.go",
+          "_examples/**"
+        ],
+        "expected_source_inventory_sha256": "cec23d72ba3ae02f9037bb8ee1a18a52e69a33115bccb70448128df9eb8fc656",
+        "file_metric_cells": {
+          "compared_cells": 105,
+          "different_files": 0,
+          "files": 35,
+          "matched_cells": 105
+        },
+        "files": 35,
+        "native_output_sha256": "1b83137b7a7f9dc3d667722b8cd0c8e1b5022b3b63042dd540c2e7ca32eeb2e9",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 14,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 14,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "go-chi/chi",
+        "source_commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+        "sources": [
+          "."
+        ],
+        "state": "same_scope",
+        "tree": "78ea402444f50acbf2de96c413503d75ef8b6e54"
+      },
+      "clap": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "d4abd4bd3b1e0a566812b852edfa0a1112ee548687d33e019e364595498b2034",
+        "file_metric_cells": {
+          "compared_cells": 168,
+          "different_files": 36,
+          "files": 56,
+          "matched_cells": 131
+        },
+        "files": 56,
+        "native_output_sha256": "1b50bbd8f78139038f1a44e7b5494bf1906ae70c5347dc969185e3d8fb38ae0b",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 24,
+          "native_only": 19,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 24,
+          "native_only": 17,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "clap-rs/clap",
+        "source_commit": "8e3d03639756241aa2b7dd624a7f5852bef76f31",
+        "sources": [
+          "clap_builder/src"
+        ],
+        "state": "same_scope",
+        "tree": "b395c3a2c598fc6fb760fc8ff6799ceb89cf4332"
+      },
+      "click": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "f926b6d58c619172b506bd7c098f8287c09b4826dce3d928c78eb7d06c8c34ed",
+        "file_metric_cells": {
+          "compared_cells": 48,
+          "different_files": 0,
+          "files": 16,
+          "matched_cells": 48
+        },
+        "files": 16,
+        "native_output_sha256": "83b40ea1fd713e2ba414c3e00d27fb2feafa164f07996a13e8043d7202f93a30",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 80,
+          "native_only": 13,
+          "reference_only": 4
+        },
+        "primary": {
+          "matched": 81,
+          "native_only": 10,
+          "reference_only": 3
+        },
+        "reference_state": "complete",
+        "repository": "pallets/click",
+        "source_commit": "fd183b2ced1cb5857784fe7fb22f4982f671f098",
+        "sources": [
+          "src/click"
+        ],
+        "state": "same_scope",
+        "tree": "9d603ea306b13bd10ef094a845b3bbb16f520bc7"
+      },
+      "commander": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "01dee50e645ad52b6a6470d9fe0bc3a0bda436781ce40cbbf25af8cde293cdc0",
+        "file_metric_cells": {
+          "compared_cells": 21,
+          "different_files": 0,
+          "files": 7,
+          "matched_cells": 21
+        },
+        "files": 7,
+        "native_output_sha256": "b6fd37043f4561465af1632e39a3a780c69c131ba7dff44acbb150e59fcd08c9",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 29,
+          "native_only": 9,
+          "reference_only": 7
+        },
+        "primary": {
+          "matched": 29,
+          "native_only": 8,
+          "reference_only": 7
+        },
+        "reference_state": "complete",
+        "repository": "tj/commander.js",
+        "source_commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+        "sources": [
+          "index.js",
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "ea7f757f861aba3926265ffc2b0955dd73a9684b"
+      },
+      "commons-cli": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "e24cc7a29124cc6c23ad3be86c7a56d7b9b2746f86b51762380a41412536a057",
+        "file_metric_cells": {
+          "compared_cells": 81,
+          "different_files": 27,
+          "files": 27,
+          "matched_cells": 54
+        },
+        "files": 27,
+        "native_output_sha256": "1d8bcefc3145ea3e95725a261bd5c6e387e582822e6d6502b48f073c5e82ae18",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 9,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "apache/commons-cli",
+        "source_commit": "698b238276c0e22e97e4aec703a0b00201d29666",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "8382f5f45081b8adec8bc7bd581949271926dfd0"
+      },
+      "commons-lang": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "768569e7b0b3674514051940e205eb6ececf2d84fd4352c2d057011fcdb0aba2",
+        "file_metric_cells": {
+          "compared_cells": 645,
+          "different_files": 215,
+          "files": 215,
+          "matched_cells": 430
+        },
+        "files": 215,
+        "native_output_sha256": "fa0cd95134ab2685d241961fb433a94ce7ae45c5db3193c888dfa088ec872b62",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 14,
+          "native_only": 30,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 61,
+          "native_only": 30,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "apache/commons-lang",
+        "source_commit": "105a350b154eac7c3f3a6bac94ec2cfb0fbe232b",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "8f328615f95cb3c426e52dcc09136506b8cb98da"
+      },
+      "cors": {
+        "exclude": [
+          "**/*_test.go",
+          "_examples/**"
+        ],
+        "expected_source_inventory_sha256": "e76a8db7c67c64754429c3f0d5838de7f2fb46d877d2dd0b84d3b7c0200436a4",
+        "file_metric_cells": {
+          "compared_cells": 9,
+          "different_files": 0,
+          "files": 3,
+          "matched_cells": 9
+        },
+        "files": 3,
+        "native_output_sha256": "e453afa2162deaaffac12c394066fa2212de498a75c8a2e47b1ac2e80559981b",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "go-chi/cors",
+        "source_commit": "3a5381283113550282a3dcfba669a48ba4691d84",
+        "sources": [
+          "."
+        ],
+        "state": "same_scope",
+        "tree": "45d77bbd3fe101bef6076b43f08254c8aac4caee"
+      },
+      "fastapi": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "99a843639c71bf44ba7596e1a1e73f8f8b10ec1961a467969df1330882d5e81c",
+        "file_metric_cells": {
+          "compared_cells": 132,
+          "different_files": 0,
+          "files": 44,
+          "matched_cells": 132
+        },
+        "files": 44,
+        "native_output_sha256": "f741055249edb134490d021fb6ab014d7b3dae988e6a6e7db5a252cf8104ea38",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 261,
+          "native_only": 200,
+          "reference_only": 193
+        },
+        "primary": {
+          "matched": 261,
+          "native_only": 194,
+          "reference_only": 193
+        },
+        "reference_state": "complete",
+        "repository": "fastapi/fastapi",
+        "source_commit": "313723494be79d4b24ccaa60e4f6d1f96c150fed",
+        "sources": [
+          "fastapi"
+        ],
+        "state": "same_scope",
+        "tree": "3d6c45f96703b383450789a78567bfcaec6bb4e9"
+      },
+      "flask": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "693ae2332cbe642d0ab096466f3b64b1e040401728bcd4f4d727287990f825e2",
+        "file_metric_cells": {
+          "compared_cells": 72,
+          "different_files": 0,
+          "files": 24,
+          "matched_cells": 72
+        },
+        "files": 24,
+        "native_output_sha256": "d245f963f34a9a5838513791bd770641d529483975c610aafc950f43da041e91",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 46,
+          "native_only": 3,
+          "reference_only": 14
+        },
+        "primary": {
+          "matched": 46,
+          "native_only": 3,
+          "reference_only": 14
+        },
+        "reference_state": "complete",
+        "repository": "pallets/flask",
+        "source_commit": "2c1b30d0503cfb064f1cb252e6614a06915a362a",
+        "sources": [
+          "src/flask"
+        ],
+        "state": "same_scope",
+        "tree": "1f787a439328e6397cab9f7b79f0f6350031d7d1"
+      },
+      "javapoet": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "5f08b96d259075c46d6f7a4ad6c00e4e206ac5ec60c33255c84bd887dd06fa1f",
+        "file_metric_cells": {
+          "compared_cells": 51,
+          "different_files": 17,
+          "files": 17,
+          "matched_cells": 34
+        },
+        "files": 17,
+        "native_output_sha256": "e463e0510c3d6b7587d86a2c8b8cf6443d49d2ad7a3232aab82e739c3dc0d5d6",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 4,
+          "native_only": 14,
+          "reference_only": 1
+        },
+        "primary": {
+          "matched": 7,
+          "native_only": 14,
+          "reference_only": 1
+        },
+        "reference_state": "complete",
+        "repository": "square/javapoet",
+        "source_commit": "714e05ca60179285746604452324262b126dcb2d",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "34185bdc3331d62cd3ff397ae07776230ec0aa53"
+      },
+      "jekyll": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "df4b85f84cd3b74866fe79e8dbd7adc9d3409025d727b2d0bc2de386c5446da4",
+        "file_metric_cells": {
+          "compared_cells": 270,
+          "different_files": 89,
+          "files": 90,
+          "matched_cells": 167
+        },
+        "files": 90,
+        "native_output_sha256": "cc6f94cb000618762b8ae6f0b7858f89f7a89e1783fd26b478c74f93336ff6d0",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 56,
+          "native_only": 147,
+          "reference_only": 14
+        },
+        "primary": {
+          "matched": 56,
+          "native_only": 147,
+          "reference_only": 14
+        },
+        "reference_state": "complete",
+        "repository": "jekyll/jekyll",
+        "source_commit": "1f319fb273b6cdf876bc6edd38d7477935cdda8c",
+        "sources": [
+          "lib/jekyll",
+          "lib/jekyll.rb"
+        ],
+        "state": "same_scope",
+        "tree": "fe1de4cfb03ea6e36a749a13ea0e3fbec16885e5"
+      },
+      "jinja": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "bc6f74e201f2b84d7511c818c6126d36ac19c13bcbaad067042132191c390cb3",
+        "file_metric_cells": {
+          "compared_cells": 75,
+          "different_files": 0,
+          "files": 25,
+          "matched_cells": 75
+        },
+        "files": 25,
+        "native_output_sha256": "1430a2d0d41f35cea6a49d02332861e8ed961bcd0021dc3ae4c19aea9111ffc3",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 96,
+          "native_only": 7,
+          "reference_only": 131
+        },
+        "primary": {
+          "matched": 97,
+          "native_only": 7,
+          "reference_only": 130
+        },
+        "reference_state": "complete",
+        "repository": "pallets/jinja",
+        "source_commit": "15206881c006c79667fe5154fe80c01c65410679",
+        "sources": [
+          "src/jinja2"
+        ],
+        "state": "same_scope",
+        "tree": "e200557b4756d9367d7a08930480efe5ad867bc5"
+      },
+      "mux": {
+        "exclude": [
+          "**/*_test.go",
+          "**/testdata/**"
+        ],
+        "expected_source_inventory_sha256": "6090c86f35bc2cf49dc681abce54954bf6103b6aa706d73eee5eabf64ecfdccf",
+        "file_metric_cells": {
+          "compared_cells": 18,
+          "different_files": 0,
+          "files": 6,
+          "matched_cells": 18
+        },
+        "files": 6,
+        "native_output_sha256": "922e9798dae2636acef35e13307b09b814accaee5518d8840f1d21301806d963",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 6,
+          "native_only": 2,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 6,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "gorilla/mux",
+        "source_commit": "b4617d0b9670ad14039b2739167fd35a60f557c5",
+        "sources": [
+          "."
+        ],
+        "state": "same_scope",
+        "tree": "c8380e4bc1743c193f5a6c3b2ad6268fac129fb4"
+      },
+      "pflag": {
+        "exclude": [
+          "**/*_test.go",
+          "**/testdata/**"
+        ],
+        "expected_source_inventory_sha256": "a6b0d204de579442dc29d84935f535467bce6cddc1df7c7e4cb7eff877a71757",
+        "file_metric_cells": {
+          "compared_cells": 111,
+          "different_files": 0,
+          "files": 37,
+          "matched_cells": 111
+        },
+        "files": 37,
+        "native_output_sha256": "e551fdce4db57c76e91a56d23c3f12167a8dc01cbf34834f0c103ecf938392d8",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "spf13/pflag",
+        "source_commit": "5ca813443bd2a4d9f46a253ea0407d23b3790713",
+        "sources": [
+          "."
+        ],
+        "state": "same_scope",
+        "tree": "08163a44df887d7beeb7c10a26ea36badf8d7af8"
+      },
+      "rack": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "f619f1262223f60435b5ca9b10733486fb79e2e8b27831c7aed3e61fc8dbd1f1",
+        "file_metric_cells": {
+          "compared_cells": 150,
+          "different_files": 48,
+          "files": 50,
+          "matched_cells": 96
+        },
+        "files": 50,
+        "native_output_sha256": "01e7a0e024124c8bc1aa336a9034a6f24758bb2ca9e001fa0798114ba393ae64",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 18,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 18,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "rack/rack",
+        "source_commit": "0eabeb73b3fb590e187dacfd9a890fbb7ffb9477",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "cd1052296661e4de09b8d9f72acd43d976bec812"
+      },
+      "rails-active-support": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "98d5bfc25b7435d5a3e8ecb61692ef46d928d1e102fb6b68a1e938d2ca1872cf",
+        "file_metric_cells": {
+          "compared_cells": 843,
+          "different_files": 238,
+          "files": 281,
+          "matched_cells": 593
+        },
+        "files": 281,
+        "native_output_sha256": "5f4c37e601796a56a02947f5b129f6093da1e38fa428c5638f703a9281d80d8b",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 15,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 15,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "rails/rails",
+        "source_commit": "3235827585d87661942c91bc81f64f56d710f0b2",
+        "sources": [
+          "activesupport/lib/active_support",
+          "activesupport/lib/active_support.rb"
+        ],
+        "state": "same_scope",
+        "tree": "f3e082edc5c7d8d49d4847ec8c0656ddfc0f649a"
+      },
+      "rake": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "346b7318473ed55c58bae10979845eb87986b6947072f177c5b65af853842a95",
+        "file_metric_cells": {
+          "compared_cells": 129,
+          "different_files": 38,
+          "files": 43,
+          "matched_cells": 89
+        },
+        "files": 43,
+        "native_output_sha256": "638de6cc3b2178afcb1081e68a2ba2a2f22476ea867e39f6e70d923a61320410",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "ruby/rake",
+        "source_commit": "0fdacef47aa9a4140e472b0ce302a2dd09423a75",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "1db8a24705300445357ffb19561349a030c1d5f9"
+      },
+      "redux": {
+        "exclude": [],
+        "native_state": "incomplete",
+        "reference_state": "complete",
+        "repository": "reduxjs/redux",
+        "source_commit": "50b010210df25c470386f7e39a9389a4a77b3842",
+        "sources": [
+          "src"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "47c668c1c25a6d996a01dc03dec7bcb9478585dd"
+      },
+      "redux-without-parser-failure": {
+        "exclude": [
+          "src/types/store.ts"
+        ],
+        "expected_source_inventory_sha256": "5626af002d0151d97d23960cbe66f7eda746f3256b5b4ef57f42b230ae80f302",
+        "file_metric_cells": {
+          "compared_cells": 48,
+          "different_files": 0,
+          "files": 16,
+          "matched_cells": 48
+        },
+        "files": 16,
+        "native_output_sha256": "1c308a83d364c1cb032649dbe5ed92e6a7795a60d8a74ef03564c4b55690d44f",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 24,
+          "native_only": 3,
+          "reference_only": 5
+        },
+        "primary": {
+          "matched": 24,
+          "native_only": 3,
+          "reference_only": 5
+        },
+        "reference_state": "complete",
+        "repository": "reduxjs/redux",
+        "source_commit": "50b010210df25c470386f7e39a9389a4a77b3842",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "47c668c1c25a6d996a01dc03dec7bcb9478585dd"
+      },
+      "requests": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "b22d24f82683b0c477abb9abb288deb3f31859f6fde96a894f09f80662db3538",
+        "file_metric_cells": {
+          "compared_cells": 57,
+          "different_files": 0,
+          "files": 19,
+          "matched_cells": 57
+        },
+        "files": 19,
+        "native_output_sha256": "464d91d0a9057351e3809524595ac3f34ba7ce70e50aa121a8b3cac9465b86f6",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 76,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        "primary": {
+          "matched": 76,
+          "native_only": 0,
+          "reference_only": 1
+        },
+        "reference_state": "complete",
+        "repository": "psf/requests",
+        "source_commit": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+        "sources": [
+          "src/requests"
+        ],
+        "state": "same_scope",
+        "tree": "10caa09e09cd366febe74c2afa345939ffd5691f"
+      },
+      "serde-json": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "c1182091714e1bb36197477de1c8b28575ab0fd40040a3cf04279eeb7b58679b",
+        "file_metric_cells": {
+          "compared_cells": 111,
+          "different_files": 26,
+          "files": 37,
+          "matched_cells": 85
+        },
+        "files": 37,
+        "native_output_sha256": "4b2a3eb0e86426f9ad57185c6e1077135824b7c1ffca7fdacb28e82491b2c051",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 4,
+          "native_only": 38,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 4,
+          "native_only": 38,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "serde-rs/json",
+        "source_commit": "762783414e6c4f8d670c9d87eb04913efb80d3be",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "5ddb43d4f9c54e31e0d0adf98cca47e34920351c"
+      },
+      "sinatra": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "ac6c3da63d4834b5366b8157a35c1412edf24a32d6dab956a6710227a077823d",
+        "file_metric_cells": {
+          "compared_cells": 21,
+          "different_files": 7,
+          "files": 7,
+          "matched_cells": 12
+        },
+        "files": 7,
+        "native_output_sha256": "90906d928609cbcfa74318fdcd706dab15f38ceb482312c5415ca9a086896da9",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 9,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 9,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "sinatra/sinatra",
+        "source_commit": "7b50a1bbb5324838908dfaa00ec53ad322673a29",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "166815c315bb3cb12d9a63aa28ca79a943ee8b53"
+      },
+      "werkzeug": {
+        "exclude": [
+          "**/*.css"
+        ],
+        "expected_source_inventory_sha256": "32f8564ecd96b12a367a4db87dbe880ad43b158f3b1e8e06f26c455cb74c1b85",
+        "file_metric_cells": {
+          "compared_cells": 159,
+          "different_files": 0,
+          "files": 53,
+          "matched_cells": 159
+        },
+        "files": 53,
+        "native_output_sha256": "1fd5c210f636d6da08bd9321ff48a87edc320d4fde7d44ba30e2b82529e30e1a",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 222,
+          "native_only": 0,
+          "reference_only": 16
+        },
+        "primary": {
+          "matched": 222,
+          "native_only": 0,
+          "reference_only": 16
+        },
+        "reference_state": "complete",
+        "repository": "pallets/werkzeug",
+        "source_commit": "6389612fd1ee1bd93579eed5026e8fd471d04abd",
+        "sources": [
+          "src/werkzeug"
+        ],
+        "state": "same_scope",
+        "tree": "307954153426c43960b35906da0a4d82d8eced81"
+      },
+      "zod": {
+        "exclude": [
+          "**/tests/**",
+          "**/benchmarks/**"
+        ],
+        "expected_source_inventory_sha256": "5fc4d28cbd08c5477ba990f6062bb08d53e3b0c98ab8a7853b401c38f16eea1a",
+        "file_metric_cells": {
+          "compared_cells": 375,
+          "different_files": 0,
+          "files": 125,
+          "matched_cells": 375
+        },
+        "files": 125,
+        "native_output_sha256": "4fdd8c1942d29cdaaf71d3b55a2a524f4ab31c16b6d428fe956affd85289c05e",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 496,
+          "native_only": 58,
+          "reference_only": 81
+        },
+        "primary": {
+          "matched": 500,
+          "native_only": 58,
+          "reference_only": 81
+        },
+        "reference_state": "complete",
+        "repository": "colinhacks/zod",
+        "source_commit": "0b216ef674e297ebe41d8bf902262e56f8755822",
+        "sources": [
+          "packages/zod/src"
+        ],
+        "state": "same_scope",
+        "tree": "24b5b50586a05b5f1965c6ee6b2b2b442b6eeffb"
+      }
+    },
+    "wave2": {
+      "acorn": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "native_state": "complete",
+        "reference_state": "complete",
+        "repository": "acornjs/acorn",
+        "source_commit": "e4516ce0f49aea06b98ae1a551644119958ed4e1",
+        "sources": [
+          "acorn/src"
+        ],
+        "state": "shared_files_only",
+        "tree": "a2161f6a406178bf28ce53fe1f3591ba77806b17"
+      },
+      "anyhow": {
+        "exclude": [
+          "**/tests/**",
+          "**/benches/**"
+        ],
+        "native_state": "incomplete",
+        "reference_state": "complete",
+        "repository": "dtolnay/anyhow",
+        "source_commit": "dd0c0a655a214add8fc986df34ea3823468fa4fb",
+        "sources": [
+          "src"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "3619add9ecb0ecd59f0956ae8f2c63bf5ad4c1c7"
+      },
+      "async-lru": {
+        "exclude": [
+          "**/tests/**",
+          "**/_tests/**",
+          "**/test_*.py"
+        ],
+        "expected_source_inventory_sha256": "9208993980440da0a76323b4927b77678402b39eae31700e99427b47a54b70d2",
+        "file_metric_cells": {
+          "compared_cells": 3,
+          "different_files": 0,
+          "files": 1,
+          "matched_cells": 3
+        },
+        "files": 1,
+        "native_output_sha256": "ecd6d62364729c103f573c89667b77021ba3c4f2ac519eea9764c8c51ec4a820",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 10,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 10,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "aio-libs/async-lru",
+        "source_commit": "c43b72733ec64e538584e5f7ec4c8faa4051934a",
+        "sources": [
+          "async_lru"
+        ],
+        "state": "same_scope",
+        "tree": "03c642b52fd2334dd31824cbd936231ee748d73e"
+      },
+      "black": {
+        "exclude": [
+          "**/tests/**",
+          "**/_tests/**",
+          "**/test_*.py"
+        ],
+        "expected_source_inventory_sha256": "1376a8e5bc210583c796b9ef97853da4a35a916c6cfb298621e6b3bf0d8d8b16",
+        "file_metric_cells": {
+          "compared_cells": 75,
+          "different_files": 0,
+          "files": 25,
+          "matched_cells": 75
+        },
+        "files": 25,
+        "native_output_sha256": "184e9acfbb6d28c0924b959cc6f8133a1d59eaecdd187090be806efed8397a26",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 135,
+          "native_only": 3,
+          "reference_only": 10
+        },
+        "primary": {
+          "matched": 135,
+          "native_only": 3,
+          "reference_only": 10
+        },
+        "reference_state": "complete",
+        "repository": "psf/black",
+        "source_commit": "a12e95913f5181f357f210207ea2c37f6b970174",
+        "sources": [
+          "src/black"
+        ],
+        "state": "same_scope",
+        "tree": "6df41a47c622144dc84aad2e5d29e02eb8a6a1b1"
+      },
+      "bytes": {
+        "exclude": [
+          "**/tests/**",
+          "**/benches/**"
+        ],
+        "expected_source_inventory_sha256": "e70bb2fdff29e991ade1a36fa60597daf8611beaabac0cb43c49ebbf6dd3a49b",
+        "file_metric_cells": {
+          "compared_cells": 57,
+          "different_files": 14,
+          "files": 19,
+          "matched_cells": 43
+        },
+        "files": 19,
+        "native_output_sha256": "c8966ed1c34fa2278160cf0fa7671b8d9af46ef8eace3d4c1cff14cf66666c25",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 1,
+          "native_only": 12,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 1,
+          "native_only": 12,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "tokio-rs/bytes",
+        "source_commit": "67edc2b999d669eb4f471aff576e213dbcb58871",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "97d05c1899b3e0370e49e6fa4792f977c27fa1e5"
+      },
+      "capybara": {
+        "exclude": [
+          "**/test/**",
+          "**/spec/**"
+        ],
+        "expected_source_inventory_sha256": "2e4234f1640ea2740a6f553fe258ea80b21ac37e9fbe68dc93ac5df549ba2fe4",
+        "file_metric_cells": {
+          "compared_cells": 377,
+          "different_files": 114,
+          "files": 127,
+          "matched_cells": 243
+        },
+        "files": 127,
+        "native_output_sha256": "8cd18018a86c0dc2d4e5d47f744e5bb12144e17a2627ee79b7c53a48721afc00",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 29,
+          "native_only": 192,
+          "reference_only": 4
+        },
+        "primary": {
+          "matched": 29,
+          "native_only": 187,
+          "reference_only": 4
+        },
+        "reference_state": "complete",
+        "repository": "teamcapybara/capybara",
+        "source_commit": "265d2d175f4be3ddf785d7597bdfd19b231f844a",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "61f3b6709b1c033d02a62c3e937bf911cef167af"
+      },
+      "cobra": {
+        "exclude": [
+          "**/*_test.go"
+        ],
+        "expected_source_inventory_sha256": "527994df4a6dfd4b38beb4c69525694a0097d654421af306ad2f1f0014c0e492",
+        "file_metric_cells": {
+          "compared_cells": 42,
+          "different_files": 8,
+          "files": 14,
+          "matched_cells": 34
+        },
+        "files": 14,
+        "native_output_sha256": "9299432fd3073953cb02f5c4b9d575bd82c92760f3673b308c7a95a6fe055166",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 14,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 14,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "spf13/cobra",
+        "source_commit": "adbc8813901bba65827259daa8e22ff94ec1f30e",
+        "sources": [
+          "active_help.go",
+          "args.go",
+          "bash_completions.go",
+          "bash_completionsV2.go",
+          "cobra.go",
+          "command.go",
+          "command_notwin.go",
+          "command_win.go",
+          "completions.go",
+          "fish_completions.go",
+          "flag_groups.go",
+          "powershell_completions.go",
+          "shell_completions.go",
+          "zsh_completions.go"
+        ],
+        "state": "same_scope",
+        "tree": "5a3b2c8e9af4c74e607a0a55e7910c1edb5d266f"
+      },
+      "commons-codec": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "bc9ff79369aa8fa018fcbeb6d237ac1029d34dac62019869c1789a71ed55e759",
+        "file_metric_cells": {
+          "compared_cells": 240,
+          "different_files": 80,
+          "files": 80,
+          "matched_cells": 160
+        },
+        "files": 80,
+        "native_output_sha256": "3ecad64aa834512bca814643b6df9a8fca5a8ed7276f9e4f31a84275c326fd51",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 5,
+          "native_only": 125,
+          "reference_only": 3
+        },
+        "primary": {
+          "matched": 28,
+          "native_only": 125,
+          "reference_only": 3
+        },
+        "reference_state": "complete",
+        "repository": "apache/commons-codec",
+        "source_commit": "e59fc76531141cb4a36f3031457b9d5f07e5e43f",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "cc86d9a0811cfc2652da3370b6f943e2f91d511b"
+      },
+      "commons-csv": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "d8ddce2808071eeac6d7c0ac23b463f7d4919115326268d78c60caa6a8cf278c",
+        "file_metric_cells": {
+          "compared_cells": 36,
+          "different_files": 12,
+          "files": 12,
+          "matched_cells": 24
+        },
+        "files": 12,
+        "native_output_sha256": "65f1d9aca5c039882ee1e244cef1e4eb6d92e5b4d955c57fc38c4fe7daa6939f",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 2,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 15,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "apache/commons-csv",
+        "source_commit": "660f7c9f853092ec8abf5d6c81d260e3c80c2194",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "d057a16b418ffd1789540aba9c7990566cdfe4e7"
+      },
+      "cron": {
+        "exclude": [
+          "**/*_test.go"
+        ],
+        "expected_source_inventory_sha256": "88f141dbf173f1ab0e41e38867535b2ce4cdebb2c76d047565d7ffca98bc20e4",
+        "file_metric_cells": {
+          "compared_cells": 24,
+          "different_files": 0,
+          "files": 8,
+          "matched_cells": 24
+        },
+        "files": 8,
+        "native_output_sha256": "b3a2722bbe3fd677a7ec982055f50c2c66b7911aae306294369b315cc6fb1935",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 4,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "robfig/cron",
+        "source_commit": "bc59245fe10efaed9d51b56900192527ed733435",
+        "sources": [
+          "chain.go",
+          "constantdelay.go",
+          "cron.go",
+          "doc.go",
+          "logger.go",
+          "option.go",
+          "parser.go",
+          "spec.go"
+        ],
+        "state": "same_scope",
+        "tree": "85dbabf776b485e167eeb2f2957ebf2cd776cee8"
+      },
+      "devise": {
+        "exclude": [
+          "**/test/**",
+          "**/spec/**"
+        ],
+        "native_state": "incomplete",
+        "reference_state": "complete",
+        "repository": "heartcombo/devise",
+        "source_commit": "05811fb8366edd08874111d0f6fb44543e1c91ef",
+        "sources": [
+          "lib"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "233a9c83d6e4761c109d0635b73e1dc71fa28c20"
+      },
+      "dotenv": {
+        "exclude": [
+          "**/test/**",
+          "**/spec/**"
+        ],
+        "expected_source_inventory_sha256": "0392d158290261124a474daa39af0b8e5864703ea4afff9dfb562d32e04aed96",
+        "file_metric_cells": {
+          "compared_cells": 54,
+          "different_files": 11,
+          "files": 18,
+          "matched_cells": 42
+        },
+        "files": 18,
+        "native_output_sha256": "efef554ca1ef5eb0d62cc35be53b886e17263f9b26c6c4efe5b1098fae125d60",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "bkeepers/dotenv",
+        "source_commit": "34156bf400cd67387fa6ed9f146778f6a2f5f743",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "0230b06f75ac45045392ace2ab0f2efd0bcee800"
+      },
+      "eslint": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "904b6af8c2cbb834a2999fb99df408d4b9289ca2f7a5e84c9c49e7599e79c8a9",
+        "file_metric_cells": {
+          "compared_cells": 60,
+          "different_files": 0,
+          "files": 20,
+          "matched_cells": 60
+        },
+        "files": 20,
+        "native_output_sha256": "365db069e2494ba1453ed37ba0e74a122e104a9e8edeafd19d03d9cd3b85f4d0",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 51,
+          "native_only": 27,
+          "reference_only": 9
+        },
+        "primary": {
+          "matched": 51,
+          "native_only": 26,
+          "reference_only": 9
+        },
+        "reference_state": "complete",
+        "repository": "eslint/eslint",
+        "source_commit": "e0148e30da6662318c5643f2230830af8407b2aa",
+        "sources": [
+          "lib/linter"
+        ],
+        "state": "same_scope",
+        "tree": "f6a0e7cc2db3e46696f582f029797678fcfbde1a"
+      },
+      "floating-ui": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "f50db14c948a88e1f9a4ad11a74529538208ce62f34fb7e19dfa33fbad4d4be1",
+        "file_metric_cells": {
+          "compared_cells": 45,
+          "different_files": 0,
+          "files": 15,
+          "matched_cells": 45
+        },
+        "files": 15,
+        "native_output_sha256": "839ecf2164526f4e3c6fa06d944c5ac1034b78ae43c32954eb9fdad2ff4a2fe7",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 11,
+          "native_only": 2,
+          "reference_only": 6
+        },
+        "primary": {
+          "matched": 11,
+          "native_only": 2,
+          "reference_only": 6
+        },
+        "reference_state": "complete",
+        "repository": "floating-ui/floating-ui",
+        "source_commit": "c3042f1f37d96dfadff1d8894daa31e120d89ed4",
+        "sources": [
+          "packages/core/src"
+        ],
+        "state": "same_scope",
+        "tree": "eb02ec521c57e1aa0824d943868c76ae4e4a34fc"
+      },
+      "gson": {
+        "exclude": [],
+        "native_state": "complete",
+        "reference_state": "not_run",
+        "repository": "google/gson",
+        "source_commit": "6a368d89da37917be7714c3072b8378f4120110a",
+        "sources": [
+          "gson/src/main/java"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "4cef9e79cfb690a600cdfa154353fe751e6710ba"
+      },
+      "httparty": {
+        "exclude": [
+          "**/test/**",
+          "**/spec/**"
+        ],
+        "expected_source_inventory_sha256": "179acadfe2dd16a5eabd3907db7d3b69d47aba0ad7285adf997f25300412d6b8",
+        "file_metric_cells": {
+          "compared_cells": 72,
+          "different_files": 16,
+          "files": 24,
+          "matched_cells": 55
+        },
+        "files": 24,
+        "native_output_sha256": "290c4341d2b90f414a25d5bae83587470698c7384605f27670c39cc86945e277",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "jnunemaker/httparty",
+        "source_commit": "591b9f68d1cd9a1f08e554370f40e1c169bc78cd",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "e65d5856561413bc3c2128952769cfcbcbd0d531"
+      },
+      "itsdangerous": {
+        "exclude": [
+          "**/tests/**",
+          "**/_tests/**",
+          "**/test_*.py"
+        ],
+        "expected_source_inventory_sha256": "b2b88e46b7d9fd93c7573b48d7c91c28df73d5e029bd4c65f1194f4ca1e9f3db",
+        "file_metric_cells": {
+          "compared_cells": 24,
+          "different_files": 0,
+          "files": 8,
+          "matched_cells": 24
+        },
+        "files": 8,
+        "native_output_sha256": "7e4c5ad2f7434704ce29fa8d013ee4ddf8fcdf79af066ea637dddd821bd6aebb",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 2
+        },
+        "primary": {
+          "matched": 3,
+          "native_only": 0,
+          "reference_only": 2
+        },
+        "reference_state": "complete",
+        "repository": "pallets/itsdangerous",
+        "source_commit": "672971d66a2ef9f85151e53283113f33d642dabd",
+        "sources": [
+          "src/itsdangerous"
+        ],
+        "state": "same_scope",
+        "tree": "ef4287f82d8234404b58c7b29d38197e1f38e207"
+      },
+      "java-diff-utils": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "3f9e2570eb8a3ef95933cd854f114470a1b6fcc09f6ff514f6767b64531e4f08",
+        "file_metric_cells": {
+          "compared_cells": 90,
+          "different_files": 30,
+          "files": 30,
+          "matched_cells": 60
+        },
+        "files": 30,
+        "native_output_sha256": "3eced46ad698a22675d4ae4ca0f875d3ce51f215aef57029b289850e25ab4e3b",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 0,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 2,
+          "native_only": 1,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "java-diff-utils/java-diff-utils",
+        "source_commit": "71981d8faaff266654964ce3334e7faf64d2b9f2",
+        "sources": [
+          "java-diff-utils/src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "42bccbf4ef6a9e0f2ca50b58475d247d84320aee"
+      },
+      "jquery": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "680333b1f7ce692fb0a3cad7662d6ad239fad496e5aa35ceff56c33f1c232179",
+        "file_metric_cells": {
+          "compared_cells": 414,
+          "different_files": 0,
+          "files": 138,
+          "matched_cells": 414
+        },
+        "files": 138,
+        "native_output_sha256": "e52b458b8979246cc45ba0cd8005371e71daaa473f568abb049fa51a7e818111",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 319,
+          "native_only": 326,
+          "reference_only": 98
+        },
+        "primary": {
+          "matched": 319,
+          "native_only": 326,
+          "reference_only": 98
+        },
+        "reference_state": "complete",
+        "repository": "jquery/jquery",
+        "source_commit": "effd615f0009e927dfd1f41d04fb6073478076d4",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "a756a881143e8395243600f3138cdc44f1757776"
+      },
+      "json-java": {
+        "exclude": [],
+        "expected_source_inventory_sha256": "b3e729abdb2b13da13ee6568d1c7d102001e5570294030ae49a828b62d59bec5",
+        "file_metric_cells": {
+          "compared_cells": 78,
+          "different_files": 26,
+          "files": 26,
+          "matched_cells": 52
+        },
+        "files": 26,
+        "native_output_sha256": "057f7ec2005d5c667384e7d35e546088c817ab675504de4500e54ea7c5ee211d",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 1,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 1,
+          "native_only": 4,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "stleary/JSON-java",
+        "source_commit": "324090a87609d0abfa100f8e1cd5c4dfa97c2ba3",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "same_scope",
+        "tree": "564786401f5255aec33014b19e4f9186e3202d9d"
+      },
+      "jsoup": {
+        "exclude": [],
+        "native_state": "complete",
+        "reference_state": "not_run",
+        "repository": "jhy/jsoup",
+        "source_commit": "db6dc74ccd31ac0f87a2f021d5157ff298f21969",
+        "sources": [
+          "src/main/java"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "69b0ff52d4a614b0f2831cec4e1246157208d50d"
+      },
+      "kong": {
+        "exclude": [
+          "**/*_test.go"
+        ],
+        "expected_source_inventory_sha256": "dced859d09781a0bb91222aa9f2f807e094ce94481e9a7345135ccc13708c89d",
+        "file_metric_cells": {
+          "compared_cells": 75,
+          "different_files": 0,
+          "files": 25,
+          "matched_cells": 75
+        },
+        "files": 25,
+        "native_output_sha256": "7c82d8db8f62b724d98270bfcebaef5de6f7bb8cf8e52c517cbdac125e1a3ea0",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 31,
+          "native_only": 7,
+          "reference_only": 1
+        },
+        "primary": {
+          "matched": 31,
+          "native_only": 7,
+          "reference_only": 1
+        },
+        "reference_state": "complete",
+        "repository": "alecthomas/kong",
+        "source_commit": "af6c65142cbcd8c86b11713721d6581bb9df4e07",
+        "sources": [
+          "build.go",
+          "callbacks.go",
+          "camelcase.go",
+          "context.go",
+          "defaults.go",
+          "doc.go",
+          "error.go",
+          "exit.go",
+          "global.go",
+          "guesswidth.go",
+          "guesswidth_unix.go",
+          "help.go",
+          "hooks.go",
+          "interpolate.go",
+          "kong.go",
+          "levenshtein.go",
+          "mapper.go",
+          "model.go",
+          "negatable.go",
+          "options.go",
+          "resolver.go",
+          "scanner.go",
+          "tag.go",
+          "util.go",
+          "visit.go"
+        ],
+        "state": "same_scope",
+        "tree": "2bec465c89fd6d0d56d55ddabd1e1192777ea3a0"
+      },
+      "log": {
+        "exclude": [
+          "**/tests/**",
+          "**/benches/**"
+        ],
+        "expected_source_inventory_sha256": "6f67b57e3688157c27bc63b2c87b8b0b34ddb56ccf8e1988b64f555366f41ddf",
+        "file_metric_cells": {
+          "compared_cells": 27,
+          "different_files": 6,
+          "files": 9,
+          "matched_cells": 21
+        },
+        "files": 9,
+        "native_output_sha256": "5f4b9d87a5e97deeb5610632733ae15f2efd0c07250b00db3bb6698ae3feae94",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 0,
+          "native_only": 11,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 0,
+          "native_only": 11,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "rust-lang/log",
+        "source_commit": "75fcb86da1cce3b9476c58c911482ec43ec235f4",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "4ad24feff309086eefcbbe50d3fda25d0ceeed34"
+      },
+      "more-itertools": {
+        "exclude": [
+          "**/tests/**",
+          "**/_tests/**",
+          "**/test_*.py"
+        ],
+        "expected_source_inventory_sha256": "d90069addeef2958d06566c164b8a68f689ebd6354911adb62ec229e02558100",
+        "file_metric_cells": {
+          "compared_cells": 9,
+          "different_files": 0,
+          "files": 3,
+          "matched_cells": 9
+        },
+        "files": 3,
+        "native_output_sha256": "ee67a439cbc7d05a0f3acfc97aa289fc2eccab17eab32fc360c2fbb7c77e69dc",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 23,
+          "native_only": 6,
+          "reference_only": 27
+        },
+        "primary": {
+          "matched": 23,
+          "native_only": 6,
+          "reference_only": 27
+        },
+        "reference_state": "complete",
+        "repository": "more-itertools/more-itertools",
+        "source_commit": "e3f79f4fde5f7c107f70a20730b17240a05ba99b",
+        "sources": [
+          "more_itertools"
+        ],
+        "state": "same_scope",
+        "tree": "a85510401293b4ae51969c2f6e34d533a96a1074"
+      },
+      "packaging": {
+        "exclude": [
+          "**/tests/**",
+          "**/_tests/**",
+          "**/test_*.py"
+        ],
+        "expected_source_inventory_sha256": "f25efc668f9aac166f78bdfe50b1ec39b08fc4549deb8336703fda25de539cca",
+        "file_metric_cells": {
+          "compared_cells": 66,
+          "different_files": 0,
+          "files": 22,
+          "matched_cells": 66
+        },
+        "files": 22,
+        "native_output_sha256": "27458ecc481b2e90a1ef0bf0c04beb07ea55a80d94637781d07d9ddcde68d207",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 56,
+          "native_only": 2,
+          "reference_only": 5
+        },
+        "primary": {
+          "matched": 56,
+          "native_only": 2,
+          "reference_only": 5
+        },
+        "reference_state": "complete",
+        "repository": "pypa/packaging",
+        "source_commit": "cf2cdf099375f7e208168cd2d8880699aeef0583",
+        "sources": [
+          "src/packaging"
+        ],
+        "state": "same_scope",
+        "tree": "6868497170116264576b113dae526a83b5d43d1b"
+      },
+      "picomatch": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "76dd9e97ca75f68ae95a98d010d419c35717044a42fb05349b4757b12d6a99c8",
+        "file_metric_cells": {
+          "compared_cells": 18,
+          "different_files": 0,
+          "files": 6,
+          "matched_cells": 18
+        },
+        "files": 6,
+        "native_output_sha256": "f4a9a3a8d4c102e2ced5827c43d26c3192b3a785b693a3a492144529d24c2178",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 38,
+          "native_only": 34,
+          "reference_only": 4
+        },
+        "primary": {
+          "matched": 38,
+          "native_only": 34,
+          "reference_only": 4
+        },
+        "reference_state": "complete",
+        "repository": "micromatch/picomatch",
+        "source_commit": "9fab7bf61913ea334c4203ed321c426cfde44a42",
+        "sources": [
+          "index.js",
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "835c8fb1b4357aaa14c108912f869baf8d093c72"
+      },
+      "pinia": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "native_state": "incomplete",
+        "reference_state": "complete",
+        "repository": "vuejs/pinia",
+        "source_commit": "4023d1233724ae478da09c81a5b65ad815cc1358",
+        "sources": [
+          "packages/pinia/src"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "bf8586718dd7502d164acb13257828c80ff3a467"
+      },
+      "pundit": {
+        "exclude": [
+          "**/test/**",
+          "**/spec/**"
+        ],
+        "expected_source_inventory_sha256": "06cb5ffbf3eb3b71c1d547760af2978162d1eeeb09d832ed13307bf647ea1275",
+        "file_metric_cells": {
+          "compared_cells": 48,
+          "different_files": 16,
+          "files": 16,
+          "matched_cells": 29
+        },
+        "files": 16,
+        "native_output_sha256": "c505876619df8a3f4496c690b308f590136104698bacef3862f5db463420b0b1",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 0,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "varvet/pundit",
+        "source_commit": "ea9e31a2d7993f038ee52b94ccc9c7411637ba89",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "5569ab67771550ffc4fd866911e6c8377b557400"
+      },
+      "rayon": {
+        "exclude": [
+          "**/tests/**",
+          "**/benches/**"
+        ],
+        "expected_source_inventory_sha256": "556af3bee6927796d82d67947291ec4b95908ebee9877d19e9563e65a6858c07",
+        "file_metric_cells": {
+          "compared_cells": 297,
+          "different_files": 79,
+          "files": 99,
+          "matched_cells": 218
+        },
+        "files": 99,
+        "native_output_sha256": "bfde7f988d41422f51da1887fce9396fbd7b8b4d1727a76597b5d064553e7d7f",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 5,
+          "native_only": 117,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 5,
+          "native_only": 117,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "rayon-rs/rayon",
+        "source_commit": "599425d4a4c64714632817f48496dbc53f656a90",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "4f0b756885a1898148017e4a55de8b406bce8f32"
+      },
+      "react-hook-form": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "native_state": "failed",
+        "reference_state": "complete",
+        "repository": "react-hook-form/react-hook-form",
+        "source_commit": "265ecb970fdaa8eea0442896df1243633f563946",
+        "sources": [
+          "src"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "1a97d7bdd19494cf7f3a9ccaf8c60ce0445a03f7"
+      },
+      "redis-rb": {
+        "exclude": [
+          "**/test/**",
+          "**/spec/**"
+        ],
+        "expected_source_inventory_sha256": "ba491e8f348febba26dd570db6d9a4817e60cd3e3a19f94826cd3b97658da900",
+        "file_metric_cells": {
+          "compared_cells": 144,
+          "different_files": 46,
+          "files": 48,
+          "matched_cells": 96
+        },
+        "files": 48,
+        "native_output_sha256": "22eeacefda71792941c617f9aefdcb14c1949eeb4680ea3faded8d7aab50c111",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 2,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "redis/redis-rb",
+        "source_commit": "9d3a2625ccbb0cdc55d305be07e18c1df1317874",
+        "sources": [
+          "lib"
+        ],
+        "state": "same_scope",
+        "tree": "ded4439e0af791b6e6f1f99a0dca6849daa28b89"
+      },
+      "ripgrep": {
+        "exclude": [
+          "**/tests/**",
+          "**/benches/**"
+        ],
+        "expected_source_inventory_sha256": "3c35ff35ce36bf8f2f2b3f0a421c0b527155b53ae1ff3d53b5d59120bd7cdd1f",
+        "file_metric_cells": {
+          "compared_cells": 60,
+          "different_files": 20,
+          "files": 20,
+          "matched_cells": 35
+        },
+        "files": 20,
+        "native_output_sha256": "c4a79ecc2e6fe996ab266aec60f273401a2fa17021b3088992ac8173e87b20f4",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 6,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 6,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "BurntSushi/ripgrep",
+        "source_commit": "43fc97d43a4c61d65e7d74d4110c8480fe42ea5b",
+        "sources": [
+          "crates/core"
+        ],
+        "state": "same_scope",
+        "tree": "67fc82ac84d09d6d1085450d579f70ae77dcfd77"
+      },
+      "swr": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "native_state": "incomplete",
+        "reference_state": "complete",
+        "repository": "vercel/swr",
+        "source_commit": "8148ef012fd5b317d1e8ec2da4b2ca0673f63c0f",
+        "sources": [
+          "src"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "517f666f4c7de18d83384c1e2587bcb40c5df154"
+      },
+      "tanstack-query": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "94aaba1854f7daef19d61f7befb97a1254a1ec87c7ebb489e7397360c057774b",
+        "file_metric_cells": {
+          "compared_cells": 69,
+          "different_files": 0,
+          "files": 23,
+          "matched_cells": 69
+        },
+        "files": 23,
+        "native_output_sha256": "73a6af6ecd138b28b22b887e32ba0174120cb7c94300063355e337af42e55230",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 42,
+          "native_only": 4,
+          "reference_only": 32
+        },
+        "primary": {
+          "matched": 42,
+          "native_only": 4,
+          "reference_only": 32
+        },
+        "reference_state": "complete",
+        "repository": "TanStack/query",
+        "source_commit": "8b2e8af0768c12500e914ac7055f007c65d8316a",
+        "sources": [
+          "packages/query-core/src"
+        ],
+        "state": "same_scope",
+        "tree": "23cf167a788893f2f19c064236deb624e2a37dee"
+      },
+      "testify": {
+        "exclude": [
+          "**/*_test.go"
+        ],
+        "expected_source_inventory_sha256": "dd0921922db8891a584f5daf96a55ac3935892d86eacdc0ec47de1ec3a5b6885",
+        "file_metric_cells": {
+          "compared_cells": 54,
+          "different_files": 0,
+          "files": 18,
+          "matched_cells": 54
+        },
+        "files": 18,
+        "native_output_sha256": "0008743b6c4c2fdd18d957c62fc0fda8978fa517796d550fafdf783d45cf4928",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 9,
+          "native_only": 0,
+          "reference_only": 6
+        },
+        "primary": {
+          "matched": 9,
+          "native_only": 0,
+          "reference_only": 6
+        },
+        "reference_state": "complete",
+        "repository": "stretchr/testify",
+        "source_commit": "87a7b9d57689f6579db2da795ab8deeab29cb724",
+        "sources": [
+          "assert",
+          "require"
+        ],
+        "state": "same_scope",
+        "tree": "473448d071990b3348a9e648fa2ab4384e90be11"
+      },
+      "trio": {
+        "exclude": [
+          "**/tests/**",
+          "**/_tests/**",
+          "**/test_*.py"
+        ],
+        "expected_source_inventory_sha256": "54da58eaf59b0b4b701b647bbe84b1bea1a8f577c52599f6df76f25c42d8b540",
+        "file_metric_cells": {
+          "compared_cells": 234,
+          "different_files": 0,
+          "files": 78,
+          "matched_cells": 234
+        },
+        "files": 78,
+        "native_output_sha256": "11b8a3930b66cab2cd3c84d729e7dc0489f5d47b93fc9016c649b35f2d29ce11",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 269,
+          "native_only": 35,
+          "reference_only": 11
+        },
+        "primary": {
+          "matched": 269,
+          "native_only": 35,
+          "reference_only": 11
+        },
+        "reference_state": "complete",
+        "repository": "python-trio/trio",
+        "source_commit": "c327959a7175c86e1801b4ee8a17920c82b415e5",
+        "sources": [
+          "src/trio"
+        ],
+        "state": "same_scope",
+        "tree": "d504f3c7bc269c5b78d4980ef1703db91ed38a6a"
+      },
+      "underscore": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "d600314234562f6106a8c43b7ce3d7fb53753850bf584cb0cbf355b40bc933bf",
+        "file_metric_cells": {
+          "compared_cells": 483,
+          "different_files": 0,
+          "files": 161,
+          "matched_cells": 483
+        },
+        "files": 161,
+        "native_output_sha256": "a6e40ae63acb354ebe00f47101a4231dacd49ae8018d71c354e074b760b3ed1b",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 81,
+          "native_only": 186,
+          "reference_only": 29
+        },
+        "primary": {
+          "matched": 81,
+          "native_only": 186,
+          "reference_only": 29
+        },
+        "reference_state": "complete",
+        "repository": "jashkenas/underscore",
+        "source_commit": "5c1e5f686f8500af9c9d15614ed60289d6d35d6b",
+        "sources": [
+          "modules"
+        ],
+        "state": "same_scope",
+        "tree": "43d232d08ae836f96d3c355aaa46ea7dcb98975e"
+      },
+      "uuid": {
+        "exclude": [
+          "**/*_test.go"
+        ],
+        "expected_source_inventory_sha256": "67a00571558a98249935d8b2da69adfd3c86fb5cf4c1b114206f7cc0ffd1580e",
+        "file_metric_cells": {
+          "compared_cells": 15,
+          "different_files": 0,
+          "files": 5,
+          "matched_cells": 15
+        },
+        "files": 5,
+        "native_output_sha256": "b83ad2dd97fc52270ccfcacac0657807d26e32ec02fdce63dc477ddfd597707a",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 1,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "gofrs/uuid",
+        "source_commit": "e77e0425f79791b8d7d10d47995cb65b221da492",
+        "sources": [
+          "codec.go",
+          "error.go",
+          "generator.go",
+          "sql.go",
+          "uuid.go"
+        ],
+        "state": "same_scope",
+        "tree": "692eddfcf13c4eb758202b38df212df9e6cfa458"
+      },
+      "websocket": {
+        "exclude": [
+          "**/*_test.go"
+        ],
+        "expected_source_inventory_sha256": "d2cafa5d8a06c3597f42cec105cf27f743f51dd09fb792516328ee5e5d11b26c",
+        "file_metric_cells": {
+          "compared_cells": 36,
+          "different_files": 0,
+          "files": 12,
+          "matched_cells": 36
+        },
+        "files": 12,
+        "native_output_sha256": "127795cfd513cc7067daea30dabf8adda8472dddedfcb7999a3ea9835f8acfba",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 10,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "primary": {
+          "matched": 10,
+          "native_only": 0,
+          "reference_only": 0
+        },
+        "reference_state": "complete",
+        "repository": "gorilla/websocket",
+        "source_commit": "e064f32e3674d9d79a8fd417b5bc06fa5c6cad8f",
+        "sources": [
+          "client.go",
+          "compression.go",
+          "conn.go",
+          "doc.go",
+          "join.go",
+          "json.go",
+          "mask.go",
+          "mask_safe.go",
+          "prepared.go",
+          "proxy.go",
+          "server.go",
+          "util.go"
+        ],
+        "state": "same_scope",
+        "tree": "93a7576e74a8ef0017188fb069696a45204631e4"
+      },
+      "yjs": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "expected_source_inventory_sha256": "39e01b7e23d02619828fa6cbe6655d53eb51459493941818d8b593f9f156893c",
+        "file_metric_cells": {
+          "compared_cells": 96,
+          "different_files": 0,
+          "files": 32,
+          "matched_cells": 96
+        },
+        "files": 32,
+        "native_output_sha256": "60a9053c3a4445a632d70da23b370f4ab176a44ca69df4f721973bdb82ef0598",
+        "native_state": "complete",
+        "previous_primary": {
+          "matched": 154,
+          "native_only": 67,
+          "reference_only": 39
+        },
+        "primary": {
+          "matched": 154,
+          "native_only": 67,
+          "reference_only": 39
+        },
+        "reference_state": "complete",
+        "repository": "yjs/yjs",
+        "source_commit": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+        "sources": [
+          "src"
+        ],
+        "state": "same_scope",
+        "tree": "d07eb7c5b5994055d2054d0d9ddbb2805e7ddda9"
+      },
+      "zustand": {
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ],
+        "native_state": "incomplete",
+        "reference_state": "complete",
+        "repository": "pmndrs/zustand",
+        "source_commit": "9fed2eb2f3af672da9f7bf694b996df3831fc207",
+        "sources": [
+          "src"
+        ],
+        "state": "not_compared_incomplete_or_unavailable",
+        "tree": "8b48c79277761ca8a435f6b88c63610dd42ef6ee"
+      }
+    }
+  },
+  "reference_mode": "Retained live scanner + compute results from pinned SonarQube Community Build; current native release build rerun. No enterprise reference.",
+  "reference_version": "26.9.0.129388",
+  "schema": 1,
+  "totals": {
+    "attempted": 70,
+    "compared_cells": 7691,
+    "equal": 59,
+    "files": 2565,
+    "matched": 3226,
+    "matched_cells": 6403,
+    "native_only": 1797,
+    "reference_only": 805
+  }
+}

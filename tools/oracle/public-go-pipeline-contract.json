@@ -1,0 +1,30 @@
+{
+  "chi": {
+    "files": 35,
+    "inventory_sha256": "8908909c6ec3195cc38bbee9f60737040ad3963b2225a739e0a7d170c7869b05",
+    "primaries": 14,
+    "primaries_sha256": "a6435eefc0b833f7242237e796c903fafbe4dfafe27d97aac81035139f649f20",
+    "no_todo_gate": "fail"
+  },
+  "mux": {
+    "files": 6,
+    "inventory_sha256": "c56448d2540fe853f5fe90745dbe5a7d91c2b2854105cb57328602ba71001b1b",
+    "primaries": 6,
+    "primaries_sha256": "336c684348d24483202562d025b8159071617c2dc1bd02f05f874211e9adfc4a",
+    "no_todo_gate": "pass"
+  },
+  "cors": {
+    "files": 3,
+    "inventory_sha256": "a88ad5fdf635d114291d0cb1865eb4d072bf4f16044cb23b4dcedbe38f6c414c",
+    "primaries": 4,
+    "primaries_sha256": "eda8a3d427d045579a52566cc26b12790983ca85ee1c32f518a4faec4a3baaad",
+    "no_todo_gate": "pass"
+  },
+  "pflag": {
+    "files": 37,
+    "inventory_sha256": "5bc05f19b922fd72c2171eb7c5d64b35dbfff16f9bc16584eee28b2cdb5c69db",
+    "primaries": 1,
+    "primaries_sha256": "03b71b84136ff24198f98b9a968f6b5005fb183a5100730523216f616b1d6d1d",
+    "no_todo_gate": "pass"
+  }
+}
