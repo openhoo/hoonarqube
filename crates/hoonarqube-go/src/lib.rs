@@ -4132,20 +4132,28 @@ fn statement_after(line: &str, separator: usize) -> (usize, usize) {
     (start, end)
 }
 
-fn parameter_count(node: Node<'_>) -> usize {
-    let mut count = 0;
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == "parameter_declaration" {
-            let mut inner = child.walk();
-            let names = child
-                .named_children(&mut inner)
-                .filter(|part| part.kind() == "identifier")
-                .count();
-            count += names.max(1);
+fn parameter_count(parameters: Node<'_>) -> usize {
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .filter_map(parameter_arity)
+        .sum()
+}
+
+fn parameter_arity(declaration: Node<'_>) -> Option<usize> {
+    match declaration.kind() {
+        "variadic_parameter_declaration" => Some(1),
+        "parameter_declaration" => {
+            let mut cursor = declaration.walk();
+            Some(
+                declaration
+                    .children_by_field_name("name", &mut cursor)
+                    .count()
+                    .max(1),
+            )
         }
+        _ => None,
     }
-    count
 }
 
 fn with_excess_parameter_locations(
@@ -4176,29 +4184,43 @@ fn excess_parameter_locations(
         return None;
     }
     let mut cursor = parameters.walk();
-    let groups: Option<Vec<_>> = parameters
-        .named_children(&mut cursor)
-        .filter(|child| child.kind() != "comment")
-        .map(|child| ordinary_parameter_ranges(child, source))
-        .collect();
-    Some(
-        groups?
-            .into_iter()
-            .flatten()
-            .skip(maximum)
-            .map(|range| FlowLocation::in_primary_file("", range))
-            .collect(),
-    )
+    let mut remaining = maximum;
+    let mut locations = Vec::new();
+    for declaration in parameters.named_children(&mut cursor) {
+        if declaration.kind() == "comment" {
+            continue;
+        }
+        let count = parameter_arity(declaration)?;
+        if remaining >= count {
+            remaining -= count;
+            continue;
+        }
+        // A parameter before the threshold needs no supporting location.
+        // Determine ranges only for declarations that actually exceed it.
+        let ranges = measured_parameter_ranges(declaration, source)?;
+        locations.extend(
+            ranges
+                .into_iter()
+                .skip(remaining)
+                .map(|range| FlowLocation::in_primary_file("", range)),
+        );
+        remaining = 0;
+    }
+    Some(locations)
 }
 
-fn ordinary_parameter_ranges(declaration: Node<'_>, source: &str) -> Option<Vec<Range>> {
+fn measured_parameter_ranges(declaration: Node<'_>, source: &str) -> Option<Vec<Range>> {
     let parameter_type = declaration.child_by_field_name("type")?;
-    // Only the qualified ordinary named shape has a measured support policy.
-    // Other shapes retain the existing primary without guessed locations.
-    if declaration.kind() != "parameter_declaration"
+    let measured_type = match declaration.kind() {
+        "parameter_declaration" => matches!(parameter_type.kind(), "type_identifier" | "map_type"),
+        "variadic_parameter_declaration" => {
+            matches!(parameter_type.kind(), "type_identifier" | "interface_type")
+        }
+        _ => false,
+    };
+    if !measured_type
         || declaration.has_error()
         || declaration.is_missing()
-        || parameter_type.kind() != "type_identifier"
         || parameter_type.is_missing()
     {
         return None;
