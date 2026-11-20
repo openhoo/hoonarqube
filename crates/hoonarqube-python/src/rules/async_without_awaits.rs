@@ -23,7 +23,7 @@ pub(crate) fn check_async_without_awaits(
         {
             issues.push(issue_at(
                 "python:S7503",
-                "This async function never awaits; make it synchronous or await something.",
+                "Use asynchronous features in this function or remove the `async` keyword.",
                 function.name.range(),
                 index,
                 source,
@@ -113,7 +113,7 @@ fn for_each_expr_for_async_scope(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
 #[cfg(test)]
 mod tests {
 
-    use crate::test_support::{findings, scan};
+    use crate::test_support::{findings, issue, scan};
 
     #[test]
     fn s7503_flags_async_functions_without_awaits() {
@@ -128,6 +128,15 @@ mod tests {
         let found = findings(&flagged, "python:S7503");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 1);
+        assert_eq!(
+            *found[0],
+            issue(
+                "python:S7503",
+                "Use asynchronous features in this function or remove the `async` keyword.",
+                (1, 10),
+                (1, 14),
+            )
+        );
     }
     #[test]
     fn s7503_preserves_async_generator_contracts() {
