@@ -7,7 +7,8 @@ Issue Import JSON, or GitLab Code Quality JSON. SARIF 2.1.0 output is reserved
 for the isolated `github-code-quality` profile, which requires `--format sarif`.
 
 Start with the [quickstart](docs/quickstart.md) for a first scan, report export,
-fix preview, and exit-code handling.
+fix preview, and exit-code handling. For maintainers resuming development, see the
+[engineering review and pilot criteria](docs/engineering/foundation-review.md).
 
 ## Workspace
 
@@ -16,6 +17,7 @@ fix preview, and exit-code handling.
 | `hoonarqube` | Public facade crate: re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
 | `hoonarqube-core` | Language dispatch, per-file analysis, project measurements, and duplicate-block detection |
 | `hoonarqube-catalog` | Frozen Sonar catalog plus separate native metadata/provenance catalog and cumulative profiles |
+| `hoonarqube-gates` | Evaluates metric gates from a native report; shared by the scanner and report service without importing language parsers |
 | `hoonarqube-ir` | Findings, execution/data-flow locations, and fix IR: `Issue`, `IssueFlow`, `Fix`, reports and metrics |
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
@@ -71,24 +73,24 @@ Invariants:
 Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict] [--allow-infra]`
 against the frozen catalog:
 
-| Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
-| JavaScript | 445 | 445 | 0 | 0 | 445 | 100.0% |
-| TypeScript | 455 | 455 | 0 | 0 | 455 | 100.0% |
+| Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested / frozen |
+|---|---:|---:|---:|---:|---:|---:|
+| JavaScript | 447 | 447 | 0 | 0 | 447 | 100.0% |
+| TypeScript | 457 | 457 | 0 | 0 | 457 | 100.0% |
 | Python | 442 | 442 | 0 | 0 | 442 | 100.0% |
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
-| Java | 0 | 0 | 0 | 733 | 733 | surface-only |
-| Ruby | 0 | 0 | 0 | 42 | 42 | surface-only |
+| Java | 2 | 2 | 0 | 731 | 733 | 0.3% |
+| Ruby | 2 | 2 | 0 | 40 | 42 | 4.8% |
 
-Java and Ruby are explicitly versioned Sonar catalog surfaces. The coverage
-audit classifies their frozen rows as infrastructure boundaries; bounded native
-detectors exist separately, as listed in [PARITY.md](PARITY.md). These audit
-rows do not certify complete detector coverage.
+Java and Ruby detect TODO and FIXME in parsed comments (S1135 and S1134).
+The audit lists 731 other frozen Java keys and 40 Ruby keys as gaps.
+[PARITY.md](PARITY.md) records the tested behavior and separate native rules.
 Their rule rows were derived from one verified Community Build 26.8.0.126808
 capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
-receipt provenance recorded in `catalog/snapshot.toml`; every key is classified
-as a documented skip in `catalog/infra-boundaries.json`. Historical pinned
+receipt provenance recorded in `catalog/snapshot.toml`. The remaining gaps are
+listed in `catalog/infra-boundaries.json`. Historical pinned
 complete-source qualifications — Gson
 `8b4b5505` (86 files) and Rake `8b4e8eb` (44 files) — ran the `sonar-parity`
 profile to completion with zero findings; the recorded server-side reference
@@ -103,6 +105,12 @@ supplement per capture digest is recorded per language receipt (in the same
 provenance shape as `import-selected`), pre-existing rows stay byte-stable,
 and the closure audit must pass afterwards. Supplemented keys are implemented
 detectors, so they are never listed in `catalog/infra-boundaries.json`.
+
+The October 13, 2026 supplement registers the already emitted S7734 and S7743
+keys for JavaScript and TypeScript. Its verified Community Build
+`26.9.0.129388` capture, selected-row hashes, and adds-only receipts are recorded
+in the snapshot. The catalog now has 2,710 rows; the four added metadata rows
+preserve the earlier catalog and do not establish broader SonarQube parity.
 
 ### Bounded semantic and context contracts
 
@@ -263,10 +271,9 @@ contexts were supplied (`semantic_context.typescript`/`csharp` are
 `complete_native_analysis`, or `incomplete`. A run is `incomplete` when the
 analysis itself is incomplete, when emitted rule keys escape the recorded
 active set (`parity.rule_set_violations`), or when a requested reference
-comparison diverged. Missing semantic context is recorded explicitly in
-`semantic_context` — it is never hidden — but does not by itself change
-`completeness`. An incomplete parity result is reported explicitly; it is
-never presented as verified parity.
+comparison diverged. A missing required semantic context also makes parity
+incomplete, even if the native project analysis completed and all finding
+identities matched the supplied reference.
 
 `--parity-reference PATH` (requires `--profile sonar-parity`) compares the
 run's findings against a pinned Generic Issue Import report — the same
@@ -341,8 +348,8 @@ Project/compiler contexts use these existing flags:
 - `--csharp-project PATH` selects a C# project or solution. Pair it with
   `--allow-project-build` to explicitly trust project evaluation and the
   bounded `dotnet build --no-restore` used for project references and Razor
-  generated sources. An installed .NET SDK capable of the bundled `net10.0`
-  helper is required; `HOONARQUBE_DOTNET` can select its executable. Without
+  generated sources. The bundled helper selects an installed stable .NET 10 SDK
+  even when newer major versions are installed; `HOONARQUBE_DOTNET` can select its executable. Without
   this flag the project is not executed and compiler-backed C# facts are
   unavailable, while native analysis remains.
 - `--csharp-context-source PATH` supplies an additional compiler-only snapshot
@@ -393,8 +400,8 @@ Standalone release binaries embed the TypeScript CJS helper and the C# helper
 project/program, `QuickFixPlanner`, and `RazorSourceFacts`, then materialize those
 sources at runtime. A Hoonarqube checkout is not needed. The helpers do not bundle
 external runtimes or packages: TypeScript still needs Node.js and the project-local
-TypeScript **6.0.3** package, while C# still needs a .NET SDK capable of the
-bundled `net10.0` helper. Keep `--allow-project-build` as an explicit trust
+TypeScript **6.0.3** package, while C# needs a stable .NET 10 SDK for the
+bundled helper. Keep `--allow-project-build` as an explicit trust
 boundary and use it only with trusted project inputs.
 
 ### Incremental analysis cache

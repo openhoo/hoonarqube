@@ -43,13 +43,17 @@ mod tests {
     #[test]
     fn s7743_reports_parenthesized_iife_arrow_with_exact_message_and_span() {
         let source = "export const objectIife = (() => ({ value: 1 }))();";
-        for report in [js(source), ts(source)] {
+        for (report, key) in [
+            (js(source), "javascript:S7743"),
+            (ts(source), "typescript:S7743"),
+        ] {
             let issues: Vec<_> = report
                 .issues
                 .iter()
                 .filter(|i| i.rule_key.ends_with(":S7743"))
                 .collect();
             assert_eq!(issues.len(), 1);
+            assert_eq!(issues[0].rule_key, key);
             assert_eq!(
                 issues[0].message,
                 "IIFE with parenthesized arrow function body is considered unreadable."

@@ -1,0 +1,330 @@
+{
+  "captured_on": "2026-11-20",
+  "base": "108877fa702b02f5c50a5dc37308a75de3b031ef",
+  "verified_code": "df61eb877cac218108a297384ff118de9c20f5b6",
+  "toolchain": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "dotnet_sdk": "10.0.111",
+  "typescript": "6.0.3",
+  "host": {
+    "model": "Apple M4 Max",
+    "logical_cpus": 16,
+    "ram_gib": 48,
+    "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O"
+  },
+  "binaries_sha256": {
+    "main_debug": "c10f7f6a583973b6ca5e5fe80a8935bf987a33ee554e18634eea9a7f473f2a5a",
+    "candidate_release": "1e5c6cf442f8dd4cf833da6140560a9d609e1978ee25812dbd0ad9d2e67f5e16",
+    "published_linux_x86_64_v0.11.1_archive": "edd3d6cf871ce4cff04fec879010f8b6945437e9fb5714330bae24beaed74793"
+  },
+  "checks": {
+    "rust_workspace": {
+      "passed": 5364,
+      "failed": 0,
+      "ignored": 0
+    },
+    "python_oracle_harness": 179,
+    "python_repository_scripts_linux": 49,
+    "python_action_tests_linux": 3,
+    "node_dashboard_and_issue_forms": 19,
+    "fmt": "pass",
+    "clippy_all_targets_features_deny_warnings": "pass",
+    "rustdoc_deny_warnings": "pass",
+    "catalog_audit_strict_allow_infra": "pass",
+    "release_version_sync": "pass",
+    "actionlint": "pass",
+    "pinned_v0.3.1_dogfood_rust_S3776": 0,
+    "hoolicy_findings": 0,
+    "cargo_deny_before_advisory_findings": 9,
+    "cargo_deny_after": "advisories ok, bans ok, licenses ok, sources ok; duplicate-version warnings retained",
+    "http_roundtrip": "real CLI report; authenticated ingestion; restart; exact report and finding present; idempotent replay. Passed locally and with the previously released Linux archive."
+  },
+  "sqlite_legacy_on_disk": {
+    "refused_version_0": {
+      "exit": 1,
+      "database_bytes_unchanged": true,
+      "no_wal_created": true
+    },
+    "refused_version_1": {
+      "exit": 1,
+      "database_bytes_unchanged": true,
+      "no_wal_created": true
+    },
+    "refused_version_2": {
+      "exit": 1,
+      "database_bytes_unchanged": true,
+      "no_wal_created": true
+    },
+    "old_schema_boot_1": {
+      "status": 200,
+      "project": "legacy"
+    },
+    "old_schema_boot_2": {
+      "status": 200,
+      "project": "legacy"
+    }
+  },
+  "service_normal_dependency_packages": {
+    "before": 219,
+    "after": 84,
+    "target": "aarch64-apple-darwin",
+    "method": "cargo tree --locked -p hoonarqube-service -e normal --prefix none -f '{p}'; count unique package entries excluding repeated (*) marker"
+  },
+  "comparison_method": "Same input, paths and working directory on both builds. Compare exit, stdout bytes, stderr bytes. Report hashes can depend on absolute tool or project paths. Historical Sonar receipts use a different active rule scope.",
+  "fixture_paths": {
+    "complete": [
+      ".oracle/sonar/projects/oracle-cs/s1067_bad.cs",
+      ".oracle/sonar/projects/oracle-cs/s1764_bad.cs",
+      ".oracle/sonar/projects/oracle-ts/src/s1764_bad.ts",
+      ".oracle/sonar/projects/oracle-go/src/s1067_bad.go",
+      ".oracle/sonar/projects/oracle-py/src/s1764_bad.py"
+    ],
+    "incomplete": [
+      ".oracle/sonar/projects/oracle-py/src/parsingerror_bad.py",
+      ".oracle/sonar/projects/oracle-py/src/s1764_bad.py"
+    ],
+    "positive_sarif_js": "const marker = '😀'; const value = 1; value = 2;\n"
+  },
+  "comparisons": [
+    {
+      "case": "complete",
+      "format": "text",
+      "exit": 0,
+      "stdout_sha256": "e20a8aed3ae82953204ec92bbf2d518126bcbb2ac6822e48b80cf83b1922647d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 2502,
+      "equals_main": true
+    },
+    {
+      "case": "complete",
+      "format": "json",
+      "exit": 0,
+      "stdout_sha256": "b7f903b47ba8886a02f633361f89faf8a8dec49838ff3ae46d0a617af50fc930",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 112886,
+      "equals_main": true
+    },
+    {
+      "case": "complete",
+      "format": "sonar",
+      "exit": 0,
+      "stdout_sha256": "2daec7711f2df6545e62e6a18810f92cad1a975d3fa20f339189b40eac2ce67c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 114223,
+      "equals_main": true
+    },
+    {
+      "case": "complete",
+      "format": "gitlab-codequality",
+      "exit": 0,
+      "stdout_sha256": "c6e6542715d5f9d5b797766accf6b03fbb981b0cd844c010d9bc3671fc1b318a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 5178,
+      "equals_main": true
+    },
+    {
+      "case": "complete",
+      "format": "sarif",
+      "exit": 0,
+      "stdout_sha256": "abf6cf8e64bbb94e7654864429db90cdc2e4a49a87779b44cd7e42a66f108d32",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 243,
+      "equals_main": true
+    },
+    {
+      "case": "incomplete",
+      "format": "text",
+      "exit": 2,
+      "stdout_sha256": "8cb0eb6a3f1a386cbf5ce8b94f3e34bff53e029630bcbc379af8e7f076224f5e",
+      "stderr_sha256": "af2c5bf9d8321ff25654ba1470d3e9e4c748cd45a96e16b64066f403beed39d5",
+      "bytes": 1148,
+      "equals_main": true
+    },
+    {
+      "case": "incomplete",
+      "format": "json",
+      "exit": 2,
+      "stdout_sha256": "aeae4822918e568c9101f4420ed8a787340559e7bc8d4282443816250b36c55e",
+      "stderr_sha256": "af2c5bf9d8321ff25654ba1470d3e9e4c748cd45a96e16b64066f403beed39d5",
+      "bytes": 35845,
+      "equals_main": true
+    },
+    {
+      "case": "incomplete",
+      "format": "sonar",
+      "exit": 2,
+      "stdout_sha256": "def43d9e395edae82f5fd905765e31f9bc9f27083e5d97df20f41642b84e36cb",
+      "stderr_sha256": "af2c5bf9d8321ff25654ba1470d3e9e4c748cd45a96e16b64066f403beed39d5",
+      "bytes": 36029,
+      "equals_main": true
+    },
+    {
+      "case": "incomplete",
+      "format": "gitlab-codequality",
+      "exit": 2,
+      "stdout_sha256": "1cadf707b08a217ffd54f565641bd385ec71f836bb329f35e08d767a3037f22f",
+      "stderr_sha256": "af2c5bf9d8321ff25654ba1470d3e9e4c748cd45a96e16b64066f403beed39d5",
+      "bytes": 1922,
+      "equals_main": true
+    },
+    {
+      "case": "incomplete",
+      "format": "sarif",
+      "exit": 2,
+      "stdout_sha256": "abf6cf8e64bbb94e7654864429db90cdc2e4a49a87779b44cd7e42a66f108d32",
+      "stderr_sha256": "af2c5bf9d8321ff25654ba1470d3e9e4c748cd45a96e16b64066f403beed39d5",
+      "bytes": 243,
+      "equals_main": true
+    },
+    {
+      "case": "positive SARIF, non-BMP prefix",
+      "format": "sarif",
+      "result_rule_ids": [
+        "js/useless-assignment-to-local",
+        "js/assignment-to-constant",
+        "js/useless-assignment-to-local"
+      ],
+      "exit": 0,
+      "stdout_sha256": "036c07276a7033c7f4f81193c3c5da43aebdcbdeba07304f00f0d7a631addc8b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 1912,
+      "equals_main": true
+    },
+    {
+      "project": "requests",
+      "revision": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+      "format": "json",
+      "complete": true,
+      "metrics": {
+        "files": 19,
+        "lines": 6413,
+        "code_lines": 3564,
+        "comment_lines": 1869
+      },
+      "findings": 194,
+      "exit": 0,
+      "stdout_sha256": "213cea1e16497c1a07f58e2a11dc317e9504a9458d6ab164ab6ed4311891ebde",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 114286,
+      "equals_main": true
+    },
+    {
+      "project": "chi",
+      "revision": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+      "format": "json",
+      "complete": true,
+      "metrics": {
+        "files": 35,
+        "lines": 4435,
+        "code_lines": 2841,
+        "comment_lines": 888
+      },
+      "findings": 35,
+      "exit": 0,
+      "stdout_sha256": "01168959e4208ed910059e8cb675cbcce3d5d58af60f1957e808493dc365a44e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 44269,
+      "equals_main": true
+    },
+    {
+      "project": "zod",
+      "revision": "0b216ef674e297ebe41d8bf902262e56f8755822",
+      "format": "json",
+      "complete": true,
+      "metrics": {
+        "files": 125,
+        "lines": 37850,
+        "code_lines": 30336,
+        "comment_lines": 4057
+      },
+      "findings": 5784,
+      "exit": 0,
+      "stdout_sha256": "40c8632edebca0e8bda8f801f668fae915189883d88d389565bd5e32698d7746",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 1216375,
+      "equals_main": true
+    }
+  ],
+  "cli_arguments": {
+    "requests": [
+      "analyze",
+      "--format",
+      "json",
+      "src/requests",
+      "--python-project",
+      "src"
+    ],
+    "chi": [
+      "analyze",
+      "--format",
+      "json",
+      ".",
+      "--exclude",
+      "**/*_test.go",
+      "--exclude",
+      "_examples/**"
+    ],
+    "zod": [
+      "analyze",
+      "--format",
+      "json",
+      "packages/zod/src",
+      "--typescript-project",
+      "tsconfig.json",
+      "--typescript-module",
+      "<TypeScript 6.0.3 package directory>",
+      "--exclude",
+      "**/tests/**",
+      "--exclude",
+      "**/benchmarks/**"
+    ]
+  },
+  "timing_method": "From a clean checkout of each project revision above, run the listed command once to warm and seven times to measure. Capture stdout/stderr. Wall clock from subprocess start to exit; native release profile, default worker count, no scanner cache. Verify all outputs identical. Shared development machine; no CPU affinity, network ingestion or reference-server time.",
+  "peak_rss": "Not measured; compiler subprocesses were included in wall time.",
+  "timings": [
+    {
+      "project": "requests",
+      "files": 19,
+      "stdout_sha256": "213cea1e16497c1a07f58e2a11dc317e9504a9458d6ab164ab6ed4311891ebde",
+      "wall_ms": [
+        78.72,
+        75.28,
+        76.85,
+        113.06,
+        94.24,
+        91.67,
+        93.12
+      ],
+      "median_ms": 91.67
+    },
+    {
+      "project": "chi",
+      "files": 35,
+      "stdout_sha256": "01168959e4208ed910059e8cb675cbcce3d5d58af60f1957e808493dc365a44e",
+      "wall_ms": [
+        66.09,
+        64.23,
+        62.29,
+        67.65,
+        76.38,
+        79.78,
+        68.21
+      ],
+      "median_ms": 67.65
+    },
+    {
+      "project": "zod",
+      "files": 125,
+      "stdout_sha256": "40c8632edebca0e8bda8f801f668fae915189883d88d389565bd5e32698d7746",
+      "wall_ms": [
+        3316.73,
+        3202.19,
+        3165.61,
+        3212.09,
+        3153.15,
+        3197.22,
+        3216.17
+      ],
+      "median_ms": 3202.19
+    }
+  ]
+}
