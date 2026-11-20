@@ -127,17 +127,17 @@ this contract; it never upgrades a claim by itself.
   when a complete compiler context covered every analyzed JS/TS-family file
   (an explicit `--typescript-project` or complete auto-discovered
   `tsconfig.json` coverage); `csharp` is `supplied` only when a complete
-  `--csharp-project` context was loaded. `missing` is the explicit
-  diagnostic for context-requiring rules that ran without their context; it
-  is recorded, not hidden, and does not by itself change `completeness`.
+  `--csharp-project` context was loaded. A missing required context sets
+  `parity.completeness` to `incomplete`, even when native project analysis
+  completed. Matching a reference cannot upgrade that result.
 - `rule_set_violations` lists emitted rule keys outside the recorded active
   set. It is always empty in a correct run; any entry is a defect signal and
   forces `completeness` to `incomplete`.
 - `completeness` is `reference_parity_verified` only when a
   `--parity-reference` comparison matched while every prerequisite held;
-  `complete_native_analysis` when the analysis completed without violations
-  but no comparison was requested; and `incomplete` when the analysis is
-  incomplete, rule-set violations exist, or a requested comparison diverged.
+  `complete_native_analysis` when the analysis completed with all required
+  contexts, no rule-set violations and no reference comparison; and
+  `incomplete` when a prerequisite failed or a requested comparison diverged.
 
 `--parity-reference PATH` requires `--profile sonar-parity` and compares the
 run's findings against a pinned Generic Issue Import report — the same
@@ -146,6 +146,9 @@ document `--format sonar` emits — by rule id, file path, and text range
 `divergences`). A diverged comparison prints diagnostics to stderr and exits
 non-zero, consistent with the existing fail-closed incomplete handling. An
 unreadable or malformed reference is an input error and also exits non-zero.
+File-level findings omit `textRange`. A present range must be an object with
+a positive `startLine`; omitted end lines or columns remain absent in the
+identity comparison. Invalid coordinates and reversed ranges are input errors.
 
 Profiles other than `sonar-parity` emit no `parity` block and require no
 SonarQube server or proprietary analyzer.
@@ -189,7 +192,8 @@ within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
 Java, Rust, and Ruby. Java/Ruby measurement support is separate from rule
 detection: catalog membership does not imply implemented detectors, and the
 implemented detector surface grows incrementally (Ruby currently implements
-`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, and `ruby:S1764`;
+`ruby:S1067`, `ruby:S1134`, `ruby:S1135`, `ruby:S1192`, `ruby:S126`,
+`ruby:S134`, and `ruby:S1764`;
 Java implements `java:S1117`, `java:S1854`, `java:S2143`, and
 `java:S2211`).
 
@@ -408,10 +412,14 @@ evidence, and optional IDE actions are separate contracts. Java adds
 measurement support plus its first four cataloged sonar-parity detectors
 (`java:S1117`, `java:S1854`, `java:S2143`, `java:S2211`, probe-verified
 against the live SonarQube 26.8 Community reference). Ruby ships
-measurement support plus five cataloged sonar-parity detectors
-(`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, `ruby:S1764`,
-oracle-exact on the pinned `rake` scan); frozen-catalog membership alone
-still implies nothing about implemented detectors.
+measurement support plus seven cataloged sonar-parity detectors. The existing
+five (`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, `ruby:S1764`)
+are oracle-exact on the pinned `rake` scan. Comment tags (`ruby:S1134`,
+`ruby:S1135`) are qualified against the SonarQube 26.9 Community Ruby
+1.25.0.2597 plugin: first eligible ASCII case-insensitive tag per parsed
+comment, Unicode letter and ASCII digit boundaries, exact tag span and
+message, and no automatic action. Frozen-catalog membership alone still
+implies nothing about implemented detectors.
 Reference plugins or profiles do not create local analyzers. Optional rule
 quick fixes are tracked in `QUICKFIX.md`, not inferred from semantic-context
 or metric evidence.

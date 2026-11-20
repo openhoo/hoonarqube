@@ -7,7 +7,8 @@ Issue Import JSON, or GitLab Code Quality JSON. SARIF 2.1.0 output is reserved
 for the isolated `github-code-quality` profile, which requires `--format sarif`.
 
 Start with the [quickstart](docs/quickstart.md) for a first scan, report export,
-fix preview, and exit-code handling.
+fix preview, and exit-code handling. For maintainers resuming development, see the
+[engineering review and pilot criteria](docs/engineering/foundation-review.md).
 
 ## Workspace
 
@@ -16,6 +17,7 @@ fix preview, and exit-code handling.
 | `hoonarqube` | Public facade crate: re-exports `analyze`, `Language`, `AnalyzerOptions`, catalog, IR |
 | `hoonarqube-core` | Language dispatch, per-file analysis, project measurements, and duplicate-block detection |
 | `hoonarqube-catalog` | Frozen Sonar catalog plus separate native metadata/provenance catalog and cumulative profiles |
+| `hoonarqube-gates` | Evaluates metric gates from a native report; shared by the scanner and report service without importing language parsers |
 | `hoonarqube-ir` | Findings, execution/data-flow locations, and fix IR: `Issue`, `IssueFlow`, `Fix`, reports and metrics |
 | `hoonarqube-python` | Python analyzer (ruff parser) |
 | `hoonarqube-jsts` | JavaScript/TypeScript/JSX/TSX analyzer (oxc) |
@@ -71,15 +73,16 @@ Invariants:
 Audited by `cargo run -p xtask -- catalog coverage [--lang <id>] [--strict] [--allow-infra]`
 against the frozen catalog:
 
-| Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested coverage |
+| Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested / frozen |
+|---|---:|---:|---:|---:|---:|---:|
 | JavaScript | 445 | 445 | 0 | 0 | 445 | 100.0% |
 | TypeScript | 455 | 455 | 0 | 0 | 455 | 100.0% |
 | Python | 442 | 442 | 0 | 0 | 442 | 100.0% |
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
-| Java | 0 | 0 | 0 | 733 | 733 | surface-only |
-| Ruby | 0 | 0 | 0 | 42 | 42 | surface-only |
+| Java | 0 | 0 | 0 | 733 | 733 | 0.0% |
+| Ruby | 0 | 0 | 0 | 42 | 42 | 0.0% |
 
 Java and Ruby are explicitly versioned Sonar catalog surfaces. The coverage
 audit classifies their frozen rows as infrastructure boundaries; bounded native
@@ -263,10 +266,9 @@ contexts were supplied (`semantic_context.typescript`/`csharp` are
 `complete_native_analysis`, or `incomplete`. A run is `incomplete` when the
 analysis itself is incomplete, when emitted rule keys escape the recorded
 active set (`parity.rule_set_violations`), or when a requested reference
-comparison diverged. Missing semantic context is recorded explicitly in
-`semantic_context` — it is never hidden — but does not by itself change
-`completeness`. An incomplete parity result is reported explicitly; it is
-never presented as verified parity.
+comparison diverged. A missing required semantic context also makes parity
+incomplete, even if the native project analysis completed and all finding
+identities matched the supplied reference.
 
 `--parity-reference PATH` (requires `--profile sonar-parity`) compares the
 run's findings against a pinned Generic Issue Import report — the same
@@ -341,8 +343,8 @@ Project/compiler contexts use these existing flags:
 - `--csharp-project PATH` selects a C# project or solution. Pair it with
   `--allow-project-build` to explicitly trust project evaluation and the
   bounded `dotnet build --no-restore` used for project references and Razor
-  generated sources. An installed .NET SDK capable of the bundled `net10.0`
-  helper is required; `HOONARQUBE_DOTNET` can select its executable. Without
+  generated sources. The bundled helper selects an installed stable .NET 10 SDK
+  even when newer major versions are installed; `HOONARQUBE_DOTNET` can select its executable. Without
   this flag the project is not executed and compiler-backed C# facts are
   unavailable, while native analysis remains.
 - `--csharp-context-source PATH` supplies an additional compiler-only snapshot
@@ -393,8 +395,8 @@ Standalone release binaries embed the TypeScript CJS helper and the C# helper
 project/program, `QuickFixPlanner`, and `RazorSourceFacts`, then materialize those
 sources at runtime. A Hoonarqube checkout is not needed. The helpers do not bundle
 external runtimes or packages: TypeScript still needs Node.js and the project-local
-TypeScript **6.0.3** package, while C# still needs a .NET SDK capable of the
-bundled `net10.0` helper. Keep `--allow-project-build` as an explicit trust
+TypeScript **6.0.3** package, while C# needs a stable .NET 10 SDK for the
+bundled helper. Keep `--allow-project-build` as an explicit trust
 boundary and use it only with trusted project inputs.
 
 ### Incremental analysis cache
