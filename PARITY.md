@@ -167,36 +167,43 @@ identity comparison. Invalid coordinates and reversed ranges are input errors.
 Profiles other than `sonar-parity` emit no `parity` block and require no
 SonarQube server or proprietary analyzer.
 
-## Rust S1612 coverage contract, version 1
+## Rust S1612 coverage contract, version 2
 
-The Rust analyzer owns `rust:S1612`, but its current executable coverage is
-the frozen `Some('a').map(|s| s.to_uppercase())` fixture anchor only. Registry
-membership and a passing anchor test are not general redundant-method-closure
-support. No automatic rewrite or general detector is enabled by this contract.
+The [Rust detector](crates/hoonarqube-rust/src/redundant_method_closure.rs)
+reports `|x| x.method()` (also `move |x| ...`) when the syntax and visible
+standard-library types establish that the corresponding method pointer accepts
+exactly that item by value. The range covers the closure, including a `move`
+keyword or line breaks. Names, indentation and character literal values do
+not select a finding. There is no automatic rewrite.
 
-Before a general implementation may report a forwarding closure, it must prove:
+| Visible input to `map` or `map_or` | Methods with matching receiver and arity |
+|---|---|
+| `Some(char_literal)` or a local/parameter with type `Option<char>` | `to_uppercase`, `to_lowercase`, `is_alphabetic`, `is_alphanumeric`, `is_control`, `is_lowercase`, `is_numeric`, `is_uppercase`, `is_whitespace`, `len_utf8`, `len_utf16`, `escape_debug`, `escape_default`, `escape_unicode` |
+| `std::thread::available_parallelism()` or a local/parameter with type `Option<std::num::NonZeroUsize>` | `get` |
 
-- The exact method identity and visibility, including inherent versus trait
-  dispatch, from resolved receiver and argument types.
-- The same parameter order, argument evaluation, return type, and coercions
-  when replacing the closure with that method's function item.
-- Equivalent receiver moves, borrows, automatic references/dereferences, and
-  lifetimes; borrowed, owned, and captured values are not interchangeable.
-- A body that only forwards its parameters, without captures, extra work,
-  argument transformation, or changed side effects.
+A local initialized from a recognized constructor is supported as well. The
+closure must be the adapter's mapping argument, forward the same single
+binding and pass no method arguments. The adapter and method are inherent on
+the recognized types. A block, extra expression, unknown adapter/receiver,
+borrowed value requiring adjustment, shadowed name or unresolved glob import
+does not establish that the method pointer can replace the closure. A withheld
+finding does not certify that an opportunity is absent. This source pass does
+not expand macros, resolve arbitrary traits, or implement full Rust type inference.
 
-Missing type, ownership, or method-resolution evidence withholds a general
-finding; it never certifies the source as clean. A future implementation must
-qualify this versioned contract before expanding the fixture-only boundary.
+The [November qualification](tools/oracle/rust-s1612-method-qualification-20261120.json)
+records the matched built-in `rust:S1612` primary ranges and messages for the
+three compiled inputs, including public project expressions. Its dedicated
+SonarQube profile enabled only S1612 and the scanner ran Clippy itself. The
+ordinary Sonar way profile for the seven public captures did not activate
+S1612; native findings in those source trees are reported separately.
 
-The corrected Rust/Clippy 1.96 reference for
-[`ripgrep@3fce3b5bb0236da2df6d99672afb8a719642eca7`](https://github.com/BurntSushi/ripgrep/tree/3fce3b5bb0236da2df6d99672afb8a719642eca7)
-contains 19 mapped `clippy::redundant_closure_for_method_calls` opportunities.
-The complete 86-file source-scope replay is complete but emits no S1612
-findings: all 19 remain documented native coverage gaps, not exact matches or
-clean verdicts. Removed, unknown, unavailable, and unsupported lint mappings
-remain separate unverified evidence. This explicitly documents the present
-coverage alternative in [issue #213](https://github.com/openhoo/hoonarqube/issues/213).
+[Issue #213](https://github.com/openhoo/hoonarqube/issues/213) records 19
+historical opportunities mapped from Clippy for
+[`ripgrep@3fce3b5`](https://github.com/BurntSushi/ripgrep/tree/3fce3b5bb0236da2df6d99672afb8a719642eca7).
+Version 1 reported none across its 86-file scope. Version 2 finds the
+`available_parallelism` idiom on the issue's `hiargs.rs:183` and on
+`ignore/src/walk.rs:1539`. The new source census does not reconstruct the
+individual imported diagnostics or establish coverage of all 19.
 
 ## Project-measurement scope
 

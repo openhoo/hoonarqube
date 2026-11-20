@@ -1,0 +1,45 @@
+#![allow(dead_code)]
+fn main() {
+  let original = Some('é').map(|c| c.to_uppercase());
+  let suggested = Some('é').map(char::to_uppercase);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.to_lowercase());
+  let suggested = Some('é').map(char::to_lowercase);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_alphabetic());
+  let suggested = Some('é').map(char::is_alphabetic);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_alphanumeric());
+  let suggested = Some('é').map(char::is_alphanumeric);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_control());
+  let suggested = Some('é').map(char::is_control);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_lowercase());
+  let suggested = Some('é').map(char::is_lowercase);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_numeric());
+  let suggested = Some('é').map(char::is_numeric);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_uppercase());
+  let suggested = Some('é').map(char::is_uppercase);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.is_whitespace());
+  let suggested = Some('é').map(char::is_whitespace);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.len_utf8());
+  let suggested = Some('é').map(char::len_utf8);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.len_utf16());
+  let suggested = Some('é').map(char::len_utf16);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.escape_debug());
+  let suggested = Some('é').map(char::escape_debug);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.escape_default());
+  let suggested = Some('é').map(char::escape_default);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+  let original = Some('é').map(|c| c.escape_unicode());
+  let suggested = Some('é').map(char::escape_unicode);
+  assert_eq!(format!("{original:?}"), format!("{suggested:?}"));
+}
