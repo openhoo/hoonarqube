@@ -142,7 +142,14 @@ runs:
         temporary_report="$(mktemp "$report_dir/.hoonarqube-analyze.XXXXXX.json")"
         trap 'rm -f -- "$temporary_report"' EXIT
 
-        mapfile -t paths < <(printf '%s\n' "$INPUT_PATHS" | sed '/^[[:space:]]*$/d')
+        paths=()
+        while IFS= read -r path || [[ -n "$path" ]]; do
+          if [[ "$path" == *$'\r' ]]; then
+            path="${path%$'\r'}"
+          fi
+          [[ "$path" =~ ^[[:space:]]*$ ]] && continue
+          paths+=("$path")
+        done <<< "$INPUT_PATHS"
         if [[ "${#paths[@]}" -eq 0 ]]; then
           echo "::error::paths must contain at least one source path."
           exit 2
@@ -163,10 +170,47 @@ runs:
         analysis_status=$?
         set -e
         if ! jq -e -s '
-          length == 1
-          and (.[0] | type == "object")
-          and (.[0].rules | type == "array")
-          and (.[0].issues | type == "array")
+          def positive_integer:
+            type == "number" and . >= 1 and floor == .;
+          def nonnegative_integer:
+            type == "number" and . >= 0 and floor == .;
+          def nonempty_string:
+            type == "string" and length > 0;
+          def range:
+            type == "object"
+            and (.startLine | positive_integer)
+            and (.endLine | positive_integer)
+            and (.startColumn | nonnegative_integer)
+            and (.endColumn | nonnegative_integer)
+            and (.startLine <= .endLine)
+            and ((.startLine < .endLine) or (.startColumn <= .endColumn));
+          def location:
+            type == "object"
+            and (.message | type == "string")
+            and (.filePath | nonempty_string)
+            and ((has("textRange") | not) or (.textRange | range));
+          length == 1 and (.[0] |
+            . as $report
+            | (type == "object")
+            and (.rules | type == "array")
+            and (.issues | type == "array")
+            and all(.rules[];
+              type == "object"
+              and (.id | nonempty_string)
+              and (.severity | . == "INFO" or . == "MINOR" or . == "MAJOR"
+                or . == "CRITICAL" or . == "BLOCKER")
+            )
+            and (([.rules[].id] | unique | length) == (.rules | length))
+            and all(.issues[];
+              type == "object"
+              and (.ruleId | nonempty_string)
+              and (.ruleId as $id | [$report.rules[].id] | index($id) != null)
+              and (.primaryLocation | location)
+              and ((has("secondaryLocations") | not)
+                or (.secondaryLocations | type == "array"))
+              and all(.secondaryLocations[]?; location)
+            )
+          )
         ' "$temporary_report" >/dev/null
         then
           echo "::error::generated report failed validation; no report was published."

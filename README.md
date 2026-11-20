@@ -75,23 +75,22 @@ against the frozen catalog:
 
 | Language | Implemented | Directly tested | Untested | Infra gaps | Total | Tested / frozen |
 |---|---:|---:|---:|---:|---:|---:|
-| JavaScript | 445 | 445 | 0 | 0 | 445 | 100.0% |
-| TypeScript | 455 | 455 | 0 | 0 | 455 | 100.0% |
+| JavaScript | 447 | 447 | 0 | 0 | 447 | 100.0% |
+| TypeScript | 457 | 457 | 0 | 0 | 457 | 100.0% |
 | Python | 442 | 442 | 0 | 0 | 442 | 100.0% |
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
-| Java | 0 | 0 | 0 | 733 | 733 | 0.0% |
-| Ruby | 0 | 0 | 0 | 42 | 42 | 0.0% |
+| Java | 2 | 2 | 0 | 731 | 733 | 0.3% |
+| Ruby | 2 | 2 | 0 | 40 | 42 | 4.8% |
 
-Java and Ruby are explicitly versioned Sonar catalog surfaces. The coverage
-audit classifies their frozen rows as infrastructure boundaries; bounded native
-detectors exist separately, as listed in [PARITY.md](PARITY.md). These audit
-rows do not certify complete detector coverage.
+Java and Ruby detect TODO and FIXME in parsed comments (S1135 and S1134).
+The audit lists 731 other frozen Java keys and 40 Ruby keys as gaps.
+[PARITY.md](PARITY.md) records the tested behavior and separate native rules.
 Their rule rows were derived from one verified Community Build 26.8.0.126808
 capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
-receipt provenance recorded in `catalog/snapshot.toml`; every key is classified
-as a documented skip in `catalog/infra-boundaries.json`. Historical pinned
+receipt provenance recorded in `catalog/snapshot.toml`. The remaining gaps are
+listed in `catalog/infra-boundaries.json`. Historical pinned
 complete-source qualifications — Gson
 `8b4b5505` (86 files) and Rake `8b4e8eb` (44 files) — ran the `sonar-parity`
 profile to completion with zero findings; the recorded server-side reference
@@ -106,6 +105,12 @@ supplement per capture digest is recorded per language receipt (in the same
 provenance shape as `import-selected`), pre-existing rows stay byte-stable,
 and the closure audit must pass afterwards. Supplemented keys are implemented
 detectors, so they are never listed in `catalog/infra-boundaries.json`.
+
+The October 13, 2026 supplement registers the already emitted S7734 and S7743
+keys for JavaScript and TypeScript. Its verified Community Build
+`26.9.0.129388` capture, selected-row hashes, and adds-only receipts are recorded
+in the snapshot. The catalog now has 2,710 rows; the four added metadata rows
+preserve the earlier catalog and do not establish broader SonarQube parity.
 
 ### Bounded semantic and context contracts
 

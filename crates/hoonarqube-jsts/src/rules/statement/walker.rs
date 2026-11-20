@@ -4,7 +4,7 @@ use crate::context::AnalysisContext;
 use crate::support::{
     IssueSink, LineIndex, RuleScope, ScannedComment, source_slice, static_property_name,
 };
-use hoonarqube_ir::Issue;
+use hoonarqube_ir::{FlowLocation, Issue, IssueFlow};
 use oxc_ast::ast::{
     BlockStatement, CallExpression, CatchClause, ContinueStatement, DebuggerStatement,
     DoWhileStatement, EmptyStatement, ExportAllDeclaration, Expression, ExpressionStatement,
@@ -774,13 +774,14 @@ impl StatementCollector<'_, '_> {
     }
 
     /// `S1066`: an `if` whose consequent block holds exactly one `if`
-    /// without an `else` (an inner `else` would be dropped by merging).
+    /// with neither node having an `else`.
     /// `S6660`: an `else` block holding exactly one `if`.
     fn check_collapsible_if(&mut self, it: &IfStatement<'_>) {
         if let Statement::BlockStatement(block) = &it.consequent
             && block.body.len() == 1
             && let Statement::IfStatement(inner) = &block.body[0]
             && inner.alternate.is_none()
+            && it.alternate.is_none()
         {
             self.sink.emit_span(
                 RuleScope::Both,
@@ -788,6 +789,19 @@ impl StatementCollector<'_, '_> {
                 "Merge this if statement with the nested one.",
                 Span::new(it.span.start, it.span.start.saturating_add(2)),
             );
+            if RuleScope::Both.active(self.sink.language)
+                && let Some(issue) = self.sink.issues.last_mut()
+            {
+                issue.flows = vec![IssueFlow {
+                    locations: vec![FlowLocation::in_primary_file(
+                        "Nested \"if\" statement.",
+                        self.sink.index.range(Span::new(
+                            inner.span.start,
+                            inner.span.start.saturating_add(2),
+                        )),
+                    )],
+                }];
+            }
         }
         if let Some(Statement::BlockStatement(block)) = &it.alternate
             && block.body.len() == 1
@@ -1656,5 +1670,168 @@ export { accumulate };
         // An inner if without else still merges.
         let mergeable = js_keys("if (a) {\n  if (b) {\n    f();\n  }\n}\n");
         assert_eq!(count_key(&mergeable, "javascript:S1066"), 1);
+    }
+
+    type IfKeywordPair = ((u32, u32), (u32, u32));
+
+    fn assert_s1066_primaries(source: &str, expected: &[IfKeywordPair]) {
+        let mut actual_reports = Vec::new();
+        let mut expected_reports = Vec::new();
+        for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
+            let key = format!("{language}:S1066");
+            let findings: Vec<_> = report
+                .issues
+                .into_iter()
+                .filter(|finding| finding.rule_key == key)
+                .collect();
+            let expected: Vec<_> = expected
+                .iter()
+                .map(|&((line, column), (inner_line, inner_column))| {
+                    issue(
+                        &key,
+                        "Merge this if statement with the nested one.",
+                        (line, column),
+                        (line, column + 2),
+                    )
+                    .with_flow(vec![
+                        hoonarqube_ir::FlowLocation::in_primary_file(
+                            "Nested \"if\" statement.",
+                            hoonarqube_ir::Range {
+                                start: hoonarqube_ir::Pos {
+                                    line: inner_line,
+                                    column: inner_column,
+                                },
+                                end: hoonarqube_ir::Pos {
+                                    line: inner_line,
+                                    column: inner_column + 2,
+                                },
+                            },
+                        ),
+                    ])
+                })
+                .collect();
+            actual_reports.push((language, findings));
+            expected_reports.push((language, expected));
+        }
+        assert_eq!(actual_reports, expected_reports, "{source}");
+    }
+
+    #[test]
+    fn s1066_outer_else_block_is_not_mergeable() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) { work(); }\n} else {\n  recover();\n}\n",
+            &[],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_else_if_is_not_mergeable() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) { work(); }\n} else if (c) {\n  recover();\n}\n",
+            &[],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_empty_else_is_not_mergeable() {
+        assert_s1066_primaries("if (a) { if (b) { work(); } } else {}\n", &[]);
+    }
+
+    #[test]
+    fn s1066_outer_unbraced_else_is_not_mergeable() {
+        assert_s1066_primaries("if (a) { if (b) { work(); } } else recover();\n", &[]);
+    }
+
+    #[test]
+    fn s1066_mergeable_pair_keeps_exact_issue() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) {\n    work();\n  }\n}\n",
+            &[((1, 0), (2, 2))],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_else_does_not_hide_mergeable_descendant() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) {\n    if (c) { work(); }\n  }\n} else { recover(); }\n",
+            &[((2, 2), (3, 4))],
+        );
+    }
+
+    #[test]
+    fn s1066_final_else_if_arm_keeps_its_own_mergeable_pair() {
+        assert_s1066_primaries(
+            "if (a) { one(); }\nelse if (b) {\n  if (c) { two(); }\n}\n",
+            &[((2, 5), (3, 2))],
+        );
+    }
+
+    #[test]
+    fn s1066_outer_else_preserves_independent_s6660() {
+        let source = "if (a) {\n  if (b) { one(); }\n} else {\n  if (c) { two(); }\n}\n";
+        assert_s1066_primaries(source, &[]);
+        for (language, report) in [("javascript", js(source)), ("typescript", ts(source))] {
+            let key = format!("{language}:S6660");
+            let findings: Vec<_> = report
+                .issues
+                .into_iter()
+                .filter(|finding| finding.rule_key == key)
+                .collect();
+            assert_eq!(
+                findings,
+                [issue(
+                    &key,
+                    "'If' statement should not be the only statement in 'else' block",
+                    (4, 2),
+                    (4, 4),
+                )],
+                "{language}"
+            );
+        }
+    }
+
+    #[test]
+    fn s1066_multiple_consequent_statements_stay_clean() {
+        assert_s1066_primaries("if (a) {\n  prepare();\n  if (b) { work(); }\n}\n", &[]);
+    }
+
+    #[test]
+    fn s1066_non_if_consequent_stays_clean() {
+        assert_s1066_primaries("if (a) { work(); }\n", &[]);
+    }
+
+    #[test]
+    fn s1066_mixed_crlf_unicode_keeps_scalar_primary() {
+        assert_s1066_primaries(
+            "/* 🦉 */ if (a) { if (b) { work(); } } else { recover(); }\r\n/* 🦉 */ if (c) { if (d) { keep(); } }\r\n",
+            &[((2, 8), (2, 17))],
+        );
+    }
+
+    #[test]
+    fn s1066_supporting_locations_point_to_each_immediate_nested_keyword() {
+        assert_s1066_primaries(
+            "if (a) {\n  if (b) {\n    if (c) {\n      if (d) { work(); }\n    }\n  }\n}\n",
+            &[((1, 0), (2, 2)), ((2, 2), (3, 4)), ((3, 4), (4, 6))],
+        );
+    }
+
+    #[test]
+    fn s1066_supporting_locations_preserve_distinct_scalar_columns_and_crlf() {
+        assert_s1066_primaries(
+            "/* 🦉 */ if (skip) { if (guard) { skip(); } } else { recover(); }\r\n/* 🦉 */ if (a) {\r\n  /* 🦉🦉 */ if (b) { work(); }\r\n}\r\n",
+            &[((2, 8), (3, 11))],
+        );
+    }
+
+    #[test]
+    fn s1066_supporting_locations_keep_inner_else_and_empty_controls_clean() {
+        assert_s1066_primaries("if (a) { if (b) { work(); } else { recover(); } }\n", &[]);
+        assert_s1066_primaries("", &[]);
+    }
+
+    #[test]
+    fn s1066_unbraced_consequent_residual_is_unchanged() {
+        assert_s1066_primaries("if (a) if (b) { work(); }\n", &[]);
     }
 }

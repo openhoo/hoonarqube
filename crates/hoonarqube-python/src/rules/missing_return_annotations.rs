@@ -1,7 +1,4 @@
-use std::path::Path;
-
 use crate::engine::file_context::FileContext;
-use crate::support::is_test_scope_file;
 use crate::support::issue_at;
 use hoonarqube_ir::Issue;
 use ruff_source_file::LineIndex;
@@ -20,12 +17,12 @@ use ruff_text_size::Ranged;
 // oracle carries 446 unannotated test defs and reports zero of them), so
 // test-scope sources stay silent here too.
 pub(crate) fn check_missing_return_annotations(
-    path: &Path,
+    test_scope: bool,
     index: &LineIndex,
     source: &str,
     file_ctx: &FileContext,
 ) -> Vec<Issue> {
-    if is_test_scope_file(path) {
+    if test_scope {
         return Vec::new();
     }
     let mut issues = Vec::new();
