@@ -99,6 +99,54 @@ committed, the retry returns its analysis ID with `idempotent: true`. If it
 never committed, the retry creates the analysis. A different report for the
 same project, branch, and commit returns HTTP 409.
 
+### Recover one project above the HTTP limit
+
+Use the operator script from this service revision on Linux or macOS with
+Python 3.11 or later. It reads a schema version 2 service database, including
+committed WAL records, in one read-only SQLite transaction. Only the exact
+project is copied into a new SQLite file. The copy includes report bytes,
+analysis and finding IDs, review revisions and actors, and soft deletions
+and their audit records. The 16 MiB HTTP limit still applies to HTTP routes.
+
+Run the following as an operator with filesystem read access to the service
+database and write access to a private local directory. Use a destination
+directory you control, on a filesystem that supports hard links. Leave each
+destination filename unused, including any SQLite sidecars.
+
+```sh
+python3 scripts/service_project_snapshot.py export --project my-project \
+  /srv/hoonarqube/service.sqlite3 /secure/backups/my-project.sqlite3
+
+# Use the SHA-256 from the export receipt, kept separately from the archive.
+python3 scripts/service_project_snapshot.py restore --project my-project \
+  --sha256 "$project_snapshot_sha256" \
+  /secure/backups/my-project.sqlite3 /secure/recovery/service.sqlite3
+```
+
+Save the export receipt from standard output in a trusted location. It contains
+the project ID, SHA-256, byte size, and row counts. Keep the archive closed;
+opening it as a live service database can change it and invalidate its checksum.
+Restore checks the receipt hash and project ID before publishing the new database.
+Both commands stage and check a private copy before making the destination
+visible. They will refuse any existing destination, even an empty file. If a
+process is forcibly killed, inspect the destination and remove any abandoned
+`.hoonarqube-project-*` staging directory after confirming the process is gone.
+
+Live requests can continue while the SQLite snapshot is read. A long read can
+delay WAL cleanup, so allow disk space for the selected data, rollback journal
+and WAL growth; schedule very large copies during a quiet period. The tool
+copies database rows without going through the HTTP parser or applying
+retention. It does not merge into an existing database or upgrade old schemas.
+
+Configure the restored service separately with `HOONARQUBE_SERVICE_DB` pointing
+to the new file. Supply only the intended project's reader, reviewer, and admin
+assignments from your credential store. Role assignments and bearer tokens
+live in `HOONARQUBE_SERVICE_CREDENTIALS`, not in SQLite, and are absent from the
+snapshot. Keep the same approved `user_id` for people whose review history
+should remain attributable, and issue credentials for the restored instance.
+Start it in isolation until an admin confirms the project, analysis counts,
+finding pages, and reviews and a reader confirms their scoped access.
+
 ### Local operations qualification
 
 Build the service at the intended revision and supply four complete CLI
