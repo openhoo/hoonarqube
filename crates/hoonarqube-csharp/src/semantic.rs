@@ -716,8 +716,30 @@ pub struct SemanticFacts {
     pub quick_fixes: Vec<crate::semantic_quickfix::CompilerQuickFixFact>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct HelperRequest {
+/// Paths used by both sides of the manifest protocol. The .NET helper's
+/// `GetFullPath` normalizes lexical paths but does not resolve directory symlinks.
+#[derive(Serialize)]
+struct HelperSource<'a> {
+    path: PathBuf,
+    source: &'a str,
+    content_digest: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project: Option<PathBuf>,
+}
+
+impl<'a> From<&'a SourceSnapshot> for HelperSource<'a> {
+    fn from(snapshot: &'a SourceSnapshot) -> Self {
+        Self {
+            path: canonical_or_original(&snapshot.path),
+            source: &snapshot.source,
+            content_digest: &snapshot.content_digest,
+            project: snapshot.project.as_deref().map(canonical_or_original),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct HelperRequest<'a> {
     schema_version: u32,
     project: PathBuf,
     target_framework: Option<String>,
@@ -729,7 +751,7 @@ struct HelperRequest {
     include_razor_generated: bool,
     rules: SemanticRuleOptions,
     project_manifest_digest: String,
-    sources: Vec<SourceSnapshot>,
+    sources: &'a [HelperSource<'a>],
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HelperResponse {
@@ -962,7 +984,8 @@ impl ProjectSemanticContext {
             .as_ref()
             .map_or_else(bundled_helper_digest, helper_command_digest);
         let config_digest = digest_serialized(&(config, helper_source_digest));
-        let project_manifest_digest = manifest_digest(sources);
+        let helper_sources: Vec<_> = sources.iter().map(HelperSource::from).collect();
+        let project_manifest_digest = manifest_digest(&helper_sources);
 
         if let Err(diagnostic) = validate_load_inputs(config, sources) {
             return incomplete_context(
@@ -996,18 +1019,22 @@ impl ProjectSemanticContext {
             );
         }
 
-        let response =
-            match invoke_helper_response(config, &helper, &project_manifest_digest, sources) {
-                Ok(response) => response,
-                Err(diagnostic) => {
-                    return incomplete_context(
-                        config,
-                        &config_digest,
-                        &project_manifest_digest,
-                        diagnostic,
-                    );
-                }
-            };
+        let response = match invoke_helper_response(
+            config,
+            &helper,
+            &project_manifest_digest,
+            &helper_sources,
+        ) {
+            Ok(response) => response,
+            Err(diagnostic) => {
+                return incomplete_context(
+                    config,
+                    &config_digest,
+                    &project_manifest_digest,
+                    diagnostic,
+                );
+            }
+        };
         finish_context(
             config,
             &config_digest,
@@ -1191,11 +1218,11 @@ fn invoke_helper_response(
     config: &ProjectSemanticConfig,
     helper: &HelperCommand,
     project_manifest_digest: &str,
-    sources: &[SourceSnapshot],
+    sources: &[HelperSource<'_>],
 ) -> Result<HelperResponse, SemanticDiagnostic> {
     let request = HelperRequest {
         schema_version: SEMANTIC_SCHEMA_VERSION,
-        project: config.project.clone(),
+        project: canonical_or_original(&config.project),
         target_framework: config.target_framework.clone(),
         defines: sorted_strings(&config.defines),
         language_version: config.language_version.clone(),
@@ -1205,7 +1232,7 @@ fn invoke_helper_response(
         include_razor_generated: config.include_razor_generated,
         rules: config.rules.clone(),
         project_manifest_digest: project_manifest_digest.to_string(),
-        sources: sources.to_vec(),
+        sources,
     };
     let request_bytes = serde_json::to_vec(&request).map_err(|error| {
         diag(
@@ -1984,23 +2011,16 @@ pub(crate) fn is_test_scope_file(path: &Path) -> bool {
 fn canonical_or_original(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
-fn manifest_digest(sources: &[SourceSnapshot]) -> String {
+fn manifest_digest(sources: &[HelperSource<'_>]) -> String {
     let mut entries: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = sources
         .iter()
         .map(|source| {
             (
-                canonical_or_original(&source.path)
-                    .to_string_lossy()
-                    .as_bytes()
-                    .to_vec(),
+                source.path.to_string_lossy().as_bytes().to_vec(),
                 source
                     .project
                     .as_ref()
-                    .map(|project| {
-                        canonical_or_original(project)
-                            .to_string_lossy()
-                            .into_owned()
-                    })
+                    .map(|project| project.to_string_lossy().into_owned())
                     .unwrap_or_default()
                     .into_bytes(),
                 source.content_digest.as_bytes().to_vec(),
@@ -2432,6 +2452,62 @@ namespace AliasedGuid
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_project_and_source_paths_share_one_verified_manifest() {
+        use std::os::unix::fs::symlink;
+
+        const SOURCE: &str = "class Program { static void Main() { } }";
+        let fixture = RuntimeQuickFixFixture::new("semantic-path-alias", SOURCE);
+        let workspace = OwnedTempDir::new("semantic-path-link");
+        let alias = workspace.path().join("project");
+        symlink(fixture.project.parent().unwrap(), &alias).unwrap();
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache")).unwrap();
+
+        let load = |project: &Path, sources: &[SourceSnapshot]| {
+            ProjectSemanticContext::load(
+                &ProjectSemanticConfig {
+                    project: project.to_owned(),
+                    helper: Some(helper.clone()),
+                    trusted_evaluation: true,
+                    timeout_ms: 120_000,
+                    ..ProjectSemanticConfig::default()
+                },
+                sources,
+            )
+        };
+        let physical_project = fixture.project.canonicalize().unwrap();
+        let physical = SourceSnapshot::new(fixture.source_path.canonicalize().unwrap(), SOURCE)
+            .with_project(physical_project.clone());
+        let alias_project = alias.join("Case.csproj");
+        let linked = SourceSnapshot::new(alias.join("Program.cs"), SOURCE)
+            .with_project(alias_project.clone());
+
+        let direct = load(&physical_project, std::slice::from_ref(&physical));
+        assert!(direct.is_complete(), "{:?}", direct.diagnostics);
+        let through_link = load(&alias_project, std::slice::from_ref(&linked));
+        assert!(through_link.is_complete(), "{:?}", through_link.diagnostics);
+        assert_eq!(
+            direct.project_manifest_digest,
+            through_link.project_manifest_digest
+        );
+        assert_eq!(
+            direct.facts.source_digests,
+            through_link.facts.source_digests
+        );
+
+        let duplicate = load(&alias_project, &[physical, linked]);
+        assert!(!duplicate.is_complete());
+        assert!(
+            duplicate
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "source_duplicate"),
+            "{:?}",
+            duplicate.diagnostics
+        );
     }
 
     #[test]
