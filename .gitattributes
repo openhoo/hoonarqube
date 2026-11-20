@@ -1,1 +1,3 @@
 .oracle/sonar/projects/** whitespace=-trailing-space
+crates/hoonarqube-java/tests/fixtures/comment_tags/CrLf.java whitespace=-trailing-space
+crates/hoonarqube-java/tests/fixtures/comment_tags/CrOnly.java whitespace=-trailing-space
