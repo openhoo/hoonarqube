@@ -36,7 +36,7 @@ pub(crate) fn check_unused_imports(
         return Vec::new();
     }
     let import_modules = import_module_names(file_ctx);
-    let alias_ranges = from_import_alias_ranges(file_ctx);
+    let from_ranges = from_import_name_ranges(file_ctx);
     let comments: Vec<&str> = comment_tokens(parsed)
         .map(|token| &source[token.range()])
         .collect();
@@ -71,11 +71,19 @@ pub(crate) fn check_unused_imports(
                 .any(|comment| comment.contains(name.as_str()))
             || facts.string_texts.iter().any(|text| text == name);
         if !used {
-            for range in import_ranges {
+            let selected_from = import_ranges
+                .iter()
+                .copied()
+                .rev()
+                .find(|range| from_ranges.contains_key(range));
+            for range in import_ranges
+                .into_iter()
+                .filter(|range| !from_ranges.contains_key(range) || Some(*range) == selected_from)
+            {
                 issues.push(issue_at(
                     "python:S1128",
                     "Remove this unused import.",
-                    alias_ranges.get(&range).copied().unwrap_or(range),
+                    from_ranges.get(&range).copied().unwrap_or(range),
                     index,
                     source,
                 ));
@@ -85,10 +93,10 @@ pub(crate) fn check_unused_imports(
     issues
 }
 
-/// The reference reports the bound alias Name of a `from` import. Keep the
-/// entire definition range for usage exclusions and module exemptions above;
-/// this map only selects the diagnostic's display location.
-fn from_import_alias_ranges(
+/// The reference keeps the last `from` import for each bound name and reports
+/// that Name. Match full definitions against root bindings above, retaining
+/// every definition for usage exclusions and module exemptions.
+fn from_import_name_ranges(
     file_ctx: &crate::engine::file_context::FileContext<'_>,
 ) -> HashMap<TextRange, TextRange> {
     let mut ranges = HashMap::new();
@@ -97,9 +105,11 @@ fn from_import_alias_ranges(
             continue;
         };
         for alias in &import.names {
-            if let Some(name) = &alias.asname {
-                ranges.insert(alias.range(), name.range());
-            }
+            let name = alias
+                .asname
+                .as_ref()
+                .map_or_else(|| alias.name.range(), Ranged::range);
+            ranges.insert(alias.range(), name);
         }
     }
     ranges
@@ -227,5 +237,55 @@ mod tests {
             targets(scan("from typing import Any as TypeAny\n")),
             vec![unused(1, 26, 33)]
         );
+    }
+
+    #[test]
+    fn from_import_selection_keeps_last_candidate_for_each_bound_name() {
+        for (source, expected) in [
+            (
+                "from alpha import item\nfrom beta import item\n",
+                vec![unused(2, 17, 21)],
+            ),
+            (
+                "if available:\n    from alpha import item\nelse:\n    from beta import item\n",
+                vec![unused(4, 21, 25)],
+            ),
+            (
+                "from alpha import first as shared\nfrom beta import second as shared\n",
+                vec![unused(2, 27, 33)],
+            ),
+            (
+                "from alpha import item as first\nfrom beta import item as second\n",
+                vec![unused(1, 26, 31), unused(2, 25, 31)],
+            ),
+            ("from alpha import item, item\n", vec![unused(1, 24, 28)]),
+            (
+                "from os import sep as sep\nfrom os import sep as sep\n",
+                vec![unused(2, 22, 25)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn same_name_from_selection_preserves_each_direct_import() {
+        for (source, expected) in [
+            ("import socket  # noqa: F401\n", vec![unused(1, 7, 13)]),
+            (
+                "import socket\nimport socket\n",
+                vec![unused(1, 7, 13), unused(2, 7, 13)],
+            ),
+            (
+                "import item\nfrom alpha import item\nfrom beta import item\n",
+                vec![unused(1, 7, 11), unused(3, 17, 21)],
+            ),
+            (
+                "from alpha import item\nfrom beta import item\nimport item\n",
+                vec![unused(2, 17, 21), unused(3, 7, 11)],
+            ),
+        ] {
+            assert_eq!(targets(scan(source)), expected, "{source}");
+        }
     }
 }
