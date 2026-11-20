@@ -104,9 +104,8 @@ pub struct ParityScope {
 }
 
 /// Semantic-context availability for the language families whose
-/// parity-relevant rules need compiler/project facts. `missing` is an
-/// explicit diagnostic recorded in the report; it does not by itself make
-/// the run [`ParityCompleteness::Incomplete`].
+/// parity-relevant rules need compiler/project facts. A missing required
+/// context makes the parity verdict [`ParityCompleteness::Incomplete`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParitySemanticContext {
     /// JavaScript/TypeScript compiler context coverage.
@@ -138,8 +137,8 @@ pub enum ParityCompleteness {
     /// satisfied, but no reference comparison was requested.
     CompleteNativeAnalysis,
     /// A parity prerequisite failed: the analysis itself is incomplete,
-    /// emitted rules escaped the recorded active set, or a requested
-    /// reference comparison diverged.
+    /// a required semantic context is missing, emitted rules escaped the
+    /// recorded active set, or a requested reference comparison diverged.
     Incomplete,
 }
 

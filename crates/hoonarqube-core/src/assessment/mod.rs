@@ -6,7 +6,8 @@
 
 pub mod baseline;
 pub mod coverage;
-pub mod gates;
+// Keep the public assessment path for scanner and library consumers.
+pub use hoonarqube_gates as gates;
 
 pub use baseline::{BASELINE_SCHEMA_VERSION, BaselineMode, compare_reports, compare_to_reference};
 pub use coverage::{CoverageFile, CoverageFormat, CoverageSource, import_coverage};

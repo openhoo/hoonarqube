@@ -77,8 +77,19 @@ cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-targets --all-features
 python3 -m unittest discover -s tools/oracle -p 'test_*.py' -v
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
 python3 -m unittest discover -s actions/tests -v
 node --test crates/hoonarqube-service/tests/dashboard.test.cjs
+```
+
+To test the scanner and service together, build both binaries and run the same
+smoke test as CI. It scans one Python file, submits the native JSON report over
+HTTP, restarts the service on the same database, and checks the report, finding
+index, and idempotent retry. It uses an isolated temporary directory and loopback.
+
+```sh
+cargo build --locked -p hoonarqube-cli -p hoonarqube-service
+python3 scripts/smoke_cli_service.py target/debug
 ```
 
 On macOS, use a canonical temporary directory (for example,
