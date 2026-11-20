@@ -2,8 +2,9 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use super::StoreError;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const CREATE_V1: &str = include_str!("schema_v1.sql");
+const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
 const ENSURE_V1_INDEXES: &str = include_str!("indexes_v1.sql");
 
 pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> {
@@ -25,9 +26,8 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> 
                 ));
             }
             tx.execute_batch(CREATE_V1)?;
-            tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         }
-        SCHEMA_VERSION => {
+        1 | SCHEMA_VERSION => {
             // Legacy v1 databases have no application_id. Verify that their
             // service tables exist before changing the persistent journal mode.
             let complete: bool = tx.query_row(
@@ -37,9 +37,9 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> 
                 |row| row.get(0),
             )?;
             if !complete {
-                return Err(StoreError::Invalid(
-                    "expected service tables are missing from schema version 1".into(),
-                ));
+                return Err(StoreError::Invalid(format!(
+                    "expected service tables are missing from schema version {version}"
+                )));
             }
         }
         other => {
@@ -47,6 +47,10 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> 
                 "unsupported database schema version {other}; this binary supports {SCHEMA_VERSION}"
             )));
         }
+    }
+    if version < SCHEMA_VERSION {
+        tx.execute_batch(MIGRATE_V2)?;
+        tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     }
     // Releases through 0.11.1 re-created missing service indexes on open.
     // IF NOT EXISTS keeps an intact schema unchanged on ordinary restarts.
@@ -127,7 +131,7 @@ mod tests {
 
     #[test]
     fn schema_refuses_foreign_partial_and_future_databases_without_changes() {
-        for unsupported in [0, 1, 2] {
+        for unsupported in [0, 1, SCHEMA_VERSION, SCHEMA_VERSION + 1] {
             let mut db = Connection::open_in_memory().unwrap();
             db.execute_batch("CREATE TABLE existing_data (value TEXT); INSERT INTO existing_data VALUES ('keep');").unwrap();
             db.pragma_update(None, "user_version", unsupported).unwrap();
