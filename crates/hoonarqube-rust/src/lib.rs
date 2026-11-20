@@ -4900,7 +4900,19 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
         let root = normalized_candidate.split("::").next().unwrap_or_default();
         return !standard_name_is_shadowed(node, root, source, true);
     }
-    let name = if matches!(node.kind(), "identifier" | "type_identifier") {
+    // An import alias can replace a leading path segment, never its trailing
+    // member. A bare identifier, however, can itself be a renamed import.
+    let bare = matches!(node.kind(), "identifier" | "type_identifier");
+    if !bare
+        && !candidate.rsplit_once("::").is_some_and(|(_, member)| {
+            expected
+                .iter()
+                .any(|path| path.rsplit("::").next() == Some(member))
+        })
+    {
+        return false;
+    }
+    let name = if bare {
         text(node, source).trim()
     } else {
         candidate.split("::").next().unwrap_or_default()
@@ -4912,12 +4924,12 @@ fn standard_import_matches(node: Node<'_>, source: &str, expected: &[&str]) -> b
         .into_iter()
         .any(|(alias, path)| {
             if alias == "*" {
-                return matches!(node.kind(), "identifier" | "type_identifier")
+                return bare
                     && expected
                         .iter()
                         .any(|expected| *expected == format!("{path}::{name}"));
             }
-            if matches!(node.kind(), "identifier" | "type_identifier") && alias == name {
+            if bare && alias == name {
                 return expected.iter().any(|expected| *expected == path);
             }
             candidate
@@ -4941,12 +4953,19 @@ fn standard_parameters_bind_name(parameters: Node<'_>, name: &str, source: &str)
     })
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static SHADOW_QUERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn standard_name_is_shadowed(
     node: Node<'_>,
     name: &str,
     source: &str,
     qualified_path: bool,
 ) -> bool {
+    #[cfg(test)]
+    SHADOW_QUERIES.with(|queries| queries.set(queries.get() + 1));
     let use_start = node.start_byte();
     let mut crossed_function = false;
     let mut scope = node.parent();
@@ -9410,6 +9429,15 @@ mod tests {
             2,
             "values must not shadow qualified modules, but aliases must: {found:?}",
         );
+    }
+
+    #[test]
+    fn unrelated_method_and_scoped_calls_do_not_trigger_standard_name_lookups() {
+        let source = "fn build(arg: Builder) { arg.configure(); Builder::finish(); }";
+        SHADOW_QUERIES.with(|queries| queries.set(0));
+        let found = keys(source);
+        assert!(found.iter().all(|key| key != "rust:S7443"));
+        assert_eq!(SHADOW_QUERIES.with(std::cell::Cell::get), 0);
     }
 
     #[test]
