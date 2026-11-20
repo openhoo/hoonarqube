@@ -33,6 +33,20 @@ impossible file counters, and NUL-containing paths are rejected. Incomplete
 reports and excluded scopes remain supported. Previously stored contradictory
 reports must be corrected before they can be restored.
 
+## Database startup and recovery
+
+Use a dedicated SQLite file for each instance. On startup the service creates
+schema version 1 only in an empty, unversioned database. It creates the tables,
+indexes, and version marker in one transaction. Existing version 1 databases
+from release 0.11.1 open in place; missing service indexes are recreated.
+A nonempty unversioned database, a version 1
+database missing a required table, or an unsupported version stops startup.
+A refusal does not rewrite the database version or switch its journal mode.
+
+On refusal, preserve the database and its WAL files; inspect a backup before
+choosing a compatible binary or restoring a known-good copy. Do not reset
+`PRAGMA user_version` to force an older binary to start.
+
 ## Focused verification
 
 ```sh

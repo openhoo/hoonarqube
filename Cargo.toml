@@ -3,6 +3,7 @@ members = [
     "crates/hoonarqube",
     "crates/hoonarqube-cli",
     "crates/hoonarqube-core",
+    "crates/hoonarqube-gates",
     "crates/hoonarqube-catalog",
     "crates/hoonarqube-ir",
     "crates/hoonarqube-dataflow",

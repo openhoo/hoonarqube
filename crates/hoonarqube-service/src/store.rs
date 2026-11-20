@@ -1,3 +1,5 @@
+mod schema;
+
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -280,114 +282,17 @@ pub(crate) struct BackupHistory {
 
 impl Store {
     pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let connection = Connection::open(path).map_err(StoreError::Sql)?;
-        let store = Self {
+        let mut connection = Connection::open(path)?;
+        schema::initialize(&mut connection)?;
+        Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
-        };
-        store.initialize()?;
-        Ok(store)
+        })
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, StoreError> {
         self.connection
             .lock()
             .map_err(|_| StoreError::Invalid("database lock poisoned".to_string()))
-    }
-
-    fn initialize(&self) -> Result<(), StoreError> {
-        let connection = self.lock()?;
-        connection.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             CREATE TABLE IF NOT EXISTS projects (
-                 project TEXT PRIMARY KEY NOT NULL,
-                 created_at TEXT NOT NULL,
-                 deleted_at TEXT,
-                 deleted_by TEXT,
-                 deletion_reason TEXT
-             );
-             CREATE TABLE IF NOT EXISTS analyses (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 project TEXT NOT NULL REFERENCES projects(project),
-                 branch TEXT NOT NULL,
-                 commit_sha TEXT NOT NULL,
-                 analyzed_at TEXT NOT NULL,
-                 analyzed_epoch INTEGER NOT NULL,
-                 report_schema_version INTEGER NOT NULL,
-                 complete INTEGER NOT NULL CHECK (complete IN (0, 1)),
-                 metrics_json TEXT NOT NULL,
-                 duplication_json TEXT,
-                 gate_json TEXT,
-                 report_json TEXT NOT NULL,
-                 assessment_json TEXT,
-                 content_hash TEXT NOT NULL,
-                 deleted_at TEXT,
-                 deleted_by TEXT,
-                 deletion_reason TEXT,
-                 UNIQUE(project, branch, commit_sha)
-             );
-             CREATE INDEX IF NOT EXISTS analyses_project_branch_time
-                 ON analyses(project, branch, analyzed_epoch DESC, id DESC);
-             CREATE TABLE IF NOT EXISTS findings (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 analysis_id INTEGER NOT NULL REFERENCES analyses(id),
-                 identity TEXT NOT NULL,
-                 occurrence INTEGER NOT NULL CHECK (occurrence >= 0),
-                 kind TEXT NOT NULL,
-                 path TEXT NOT NULL,
-                 rule_key TEXT NOT NULL,
-                 message TEXT NOT NULL,
-                 range_json TEXT NOT NULL,
-                 ambiguous INTEGER NOT NULL CHECK (ambiguous IN (0, 1)),
-                 UNIQUE(analysis_id, identity, kind, occurrence)
-             );
-             CREATE INDEX IF NOT EXISTS findings_analysis ON findings(analysis_id);
-             CREATE TABLE IF NOT EXISTS reviews (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 project TEXT NOT NULL REFERENCES projects(project),
-                 branch TEXT NOT NULL,
-                 analysis_id INTEGER NOT NULL REFERENCES analyses(id),
-                 identity TEXT NOT NULL,
-                 kind TEXT NOT NULL,
-                 state TEXT NOT NULL,
-                 version INTEGER NOT NULL CHECK (version > 0),
-                 updated_by TEXT NOT NULL,
-                 updated_at TEXT NOT NULL,
-                 reason TEXT NOT NULL,
-                 UNIQUE(project, branch, identity, kind)
-             );
-             CREATE INDEX IF NOT EXISTS reviews_project_branch
-                 ON reviews(project, branch, updated_at DESC, id DESC);
-             CREATE TABLE IF NOT EXISTS review_history (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 review_id INTEGER NOT NULL REFERENCES reviews(id),
-                 analysis_id INTEGER NOT NULL REFERENCES analyses(id),
-                 identity TEXT NOT NULL,
-                 kind TEXT NOT NULL,
-                 previous_state TEXT,
-                 new_state TEXT NOT NULL,
-                 actor TEXT NOT NULL,
-                 reason TEXT NOT NULL,
-                 created_at TEXT NOT NULL,
-                 version INTEGER NOT NULL CHECK (version > 0),
-                 UNIQUE(review_id, version)
-             );
-             CREATE INDEX IF NOT EXISTS review_history_review
-                 ON review_history(review_id, version ASC);
-             CREATE TABLE IF NOT EXISTS deletion_audit (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 project TEXT NOT NULL,
-                 resource_type TEXT NOT NULL,
-                 analysis_id INTEGER,
-                 action TEXT NOT NULL,
-                 actor TEXT NOT NULL,
-                 reason TEXT NOT NULL,
-                 created_at TEXT NOT NULL
-             );
-             PRAGMA user_version = 1;",
-        )?;
-        Ok(())
     }
 
     pub(crate) fn list_projects(&self) -> Result<Vec<ProjectSummary>, StoreError> {

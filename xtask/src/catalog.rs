@@ -2112,15 +2112,15 @@ impl LanguageCoverage {
         self.implemented.saturating_sub(self.untested.len())
     }
 
-    /// Coverage percentage over actionable rules; empty catalog = covered.
-    fn percent(&self) -> f64 {
-        let total = self.implemented + self.missing.len();
+    /// Directly tested rules as a share of the entire frozen language catalog.
+    fn tested_catalog_percent(&self) -> Option<f64> {
+        let total = self.total();
         if total == 0 {
-            return 100.0;
+            return None;
         }
         let tested = u32::try_from(self.tested()).unwrap_or(u32::MAX);
         let total = u32::try_from(total).unwrap_or(u32::MAX);
-        f64::from(tested) * 100.0 / f64::from(total)
+        Some(f64::from(tested) * 100.0 / f64::from(total))
     }
 }
 
@@ -2502,13 +2502,13 @@ fn coverage_report(rows: &[LanguageCoverage]) -> String {
     let mut report = String::new();
     writeln!(
         &mut report,
-        "language      implemented  tested  missing  untested  infra  total  coverage"
+        "language      implemented  tested  missing  untested  infra  total  tested/all"
     )
     .expect("writing a String cannot fail");
     for row in &ordered {
         writeln!(
             &mut report,
-            "{:<12} {:>11} {:>7} {:>7} {:>9} {:>5} {:>6} {:>8.1}%",
+            "{:<12} {:>11} {:>7} {:>7} {:>9} {:>5} {:>6} {:>11}",
             row.name,
             row.implemented,
             row.tested(),
@@ -2516,7 +2516,8 @@ fn coverage_report(rows: &[LanguageCoverage]) -> String {
             row.untested.len(),
             row.infra.len(),
             row.total(),
-            row.percent(),
+            row.tested_catalog_percent()
+                .map_or_else(|| "n/a".to_owned(), |percent| format!("{percent:.1}%")),
         )
         .expect("writing a String cannot fail");
     }
@@ -3789,7 +3790,7 @@ mod tests {
     }
 
     #[test]
-    fn percent_counts_empty_catalog_as_complete() {
+    fn empty_catalog_has_no_coverage_percentage() {
         let row = LanguageCoverage {
             name: "python",
             implemented: 0,
@@ -3797,9 +3798,35 @@ mod tests {
             untested: Vec::new(),
             infra: Vec::new(),
         };
-        assert!((row.percent() - 100.0).abs() < 1e-9);
+        assert_eq!(row.tested_catalog_percent(), None);
         assert!(!row.has_gaps(false));
     }
+    #[test]
+    fn report_distinguishes_frozen_catalog_coverage_from_allowed_gaps() {
+        let mut row = LanguageCoverage {
+            name: "java",
+            implemented: 0,
+            missing: Vec::new(),
+            untested: Vec::new(),
+            infra: vec!["java:S100".to_owned()],
+        };
+        let percentage = |row: &LanguageCoverage| {
+            coverage_report(std::slice::from_ref(row))
+                .lines()
+                .nth(1)
+                .unwrap()
+                .split_whitespace()
+                .last()
+                .unwrap()
+                .to_owned()
+        };
+        assert!(!row.has_gaps(true));
+        assert_eq!(percentage(&row), "0.0%");
+        row.implemented = 3;
+        row.untested.push("java:S101".to_owned());
+        assert_eq!(percentage(&row), "50.0%");
+    }
+
     #[test]
     fn multi_language_catalog_keys_keep_coverage_partitioned() {
         let keys: Vec<_> = LANGUAGES
