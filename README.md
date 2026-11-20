@@ -81,12 +81,16 @@ against the frozen catalog:
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
-| Java | 2 | 2 | 0 | 731 | 733 | 0.3% |
-| Ruby | 2 | 2 | 0 | 40 | 42 | 4.8% |
+| Java | 6 | 6 | 0 | 727 | 733 | 0.8% |
+| Ruby | 7 | 7 | 0 | 35 | 42 | 16.7% |
 
-Java and Ruby detect TODO and FIXME in parsed comments (S1135 and S1134).
-The audit lists 731 other frozen Java keys and 40 Ruby keys as gaps.
-[PARITY.md](PARITY.md) records the tested behavior and separate native rules.
+Java and Ruby each implement TODO and FIXME in parsed comments (S1135 and S1134).
+Java also runs S1117, S1854, S2143 and S2211; Ruby also runs S1067, S1192,
+S126, S134 and S1764. The audit counts a tested implementation even where
+its behavior is narrower than SonarQube’s or the reference profile leaves it
+inactive. The [rule-by-rule comparison](tools/oracle/java-ruby-coverage-20261120.md)
+records matched and unmatched findings on 17 pinned public projects.
+[PARITY.md](PARITY.md) describes the detectors and their separate native rules.
 Their rule rows were derived from one verified Community Build 26.8.0.126808
 capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
 receipt provenance recorded in `catalog/snapshot.toml`. The remaining gaps are
@@ -131,8 +135,8 @@ syntax-only matching does not establish complete framework or analyzer parity:
 
 The 2026-10-07 audit records 1,931 catalog implementations with direct repository
 test evidence across a 2,706-rule frozen catalog. The strict implementation
-coverage audit passes with 775 Java and Ruby rows retaining documented
-infrastructure classification. This is implementation
+coverage audit then passed with 775 Java and Ruby rows classified as gaps.
+For the current counts, see [Coverage](#coverage). This is implementation
 coverage, not SonarQube equivalence: compiler prerequisites, reference-sensor
 availability, finding identity, and remaining comparison failures stay separate. See
 [PARITY.md](PARITY.md) for the exact oracle contract and current failures.

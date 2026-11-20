@@ -1,0 +1,178 @@
+{
+  "native_commit": "1884c8bca3f62fa83964914ce972392ad21af383",
+  "native_sha256": "746a2e2ba44d9669e231ecff77090a9a072caa9a5287af51f8c22e60fb6f5510",
+  "reference_community_version": "26.9.0.129388",
+  "same_scope_projects": 17,
+  "same_scope_files": 1111,
+  "excluded_incomplete_or_unavailable": {
+    "devise": {
+      "comparison_state": "not_compared_incomplete_or_unavailable",
+      "native_status": "incomplete",
+      "reference_state": "complete"
+    },
+    "gson": {
+      "comparison_state": "not_compared_incomplete_or_unavailable",
+      "native_status": "complete",
+      "reference_state": "not_run"
+    },
+    "jsoup": {
+      "comparison_state": "not_compared_incomplete_or_unavailable",
+      "native_status": "complete",
+      "reference_state": "not_run"
+    }
+  },
+  "project_observation_columns": [
+    "active_in_reference_profile",
+    "matched",
+    "native_only",
+    "reference_only",
+    "same_primary_and_message"
+  ],
+  "method": "Completed identical-file inventories with matching source hashes. Counts preserve multiplicity at rule/path/UTF-16 start and end positions; identical messages are compared separately. These are all local Java/Ruby rules, not all active reference rules. No selected rule had an invalid native range or an unindexed/project-level reference finding.",
+  "totals": {
+    "java:S1117": {
+      "matched": 10,
+      "native_only": 19,
+      "reference_only": 1,
+      "same_primary_and_message": 10,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "java:S1134": {
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 1,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "java:S1135": {
+      "matched": 92,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 92,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "java:S1854": {
+      "matched": 7,
+      "native_only": 156,
+      "reference_only": 3,
+      "same_primary_and_message": 7,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "java:S2143": {
+      "matched": 13,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 13,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "java:S2211": {
+      "matched": 0,
+      "native_only": 26,
+      "reference_only": 0,
+      "same_primary_and_message": 0,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S1067": {
+      "matched": 0,
+      "native_only": 13,
+      "reference_only": 0,
+      "same_primary_and_message": 0,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S1134": {
+      "matched": 3,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 3,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S1135": {
+      "matched": 19,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 19,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S1192": {
+      "matched": 40,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 40,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S126": {
+      "matched": 0,
+      "native_only": 62,
+      "reference_only": 0,
+      "same_primary_and_message": 0,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S134": {
+      "matched": 0,
+      "native_only": 19,
+      "reference_only": 0,
+      "same_primary_and_message": 0,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    },
+    "ruby:S1764": {
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 0,
+      "same_primary_and_message": 0,
+      "native_invalid_primary": 0,
+      "reference_unindexed": 0,
+      "reference_project_level": 0
+    }
+  },
+  "coverage_positive_controls": {
+    "xtask/tests/fixtures/coverage/java.txt": "9d6e2f80b90991cd0e224d184a15fe9253e2d22dc4f7a29b2d46331a9099b19b",
+    "xtask/tests/fixtures/coverage/ruby.txt": "f69e3a7092b213748210c534754303f1b846ef8e47548a69a5e511f16930c9ed"
+  },
+  "hashes_of_compared_reports": {
+    "corpus": "97c7ebc58fa39ebba702ea9fb14dc065bfaa7e117d78c90842ba66b74af87b50",
+    "wave2": "9d773796d9f3253858d8ee1d50f730c79301279e9f9ec40f2ea5821aad25869c"
+  },
+  "projects": {
+    "commons-cli": {"commit": "698b238276c0e22e97e4aec703a0b00201d29666", "tree": "8382f5f45081b8adec8bc7bd581949271926dfd0", "repo": "apache/commons-cli", "scope": ["src/main/java"], "files": 27, "language": "java", "reference_issues_sha256": "1f32d83a3bc851e47057b306d5e86cf3544ac23ca8a8090a1019bd57748fe55d", "native_stdout_sha256": "1d8bcefc3145ea3e95725a261bd5c6e387e582822e6d6502b48f073c5e82ae18", "source_inventory_sha256": "d8af38ef7e32c1adcf3807dc3d399025ad90884f530b80205b2a29810ebb9d65", "observations": {"java:S1117": [1, 1, 0, 0, 1], "java:S1134": [1, 0, 0, 0, 0], "java:S1135": [1, 5, 0, 0, 5], "java:S1854": [1, 0, 0, 0, 0], "java:S2143": [1, 3, 0, 0, 3], "java:S2211": [0, 0, 1, 0, 0]}},
+    "commons-lang": {"commit": "105a350b154eac7c3f3a6bac94ec2cfb0fbe232b", "tree": "8f328615f95cb3c426e52dcc09136506b8cb98da", "repo": "apache/commons-lang", "scope": ["src/main/java"], "files": 215, "language": "java", "reference_issues_sha256": "a3c47be0b6acce978a4f4ef7a111fe2b062180f0592eaadc3dda7ad49aff49bd", "native_stdout_sha256": "fa0cd95134ab2685d241961fb433a94ce7ae45c5db3193c888dfa088ec872b62", "source_inventory_sha256": "29fd44c8ec1320981f36b9469b7b00fb56820dc34ce214940b440c622e6cfa66", "observations": {"java:S1117": [1, 3, 4, 0, 3], "java:S1134": [1, 1, 0, 0, 1], "java:S1135": [1, 46, 0, 0, 46], "java:S1854": [1, 1, 26, 0, 1], "java:S2143": [1, 10, 0, 0, 10], "java:S2211": [0, 0, 14, 0, 0]}},
+    "javapoet": {"commit": "714e05ca60179285746604452324262b126dcb2d", "tree": "34185bdc3331d62cd3ff397ae07776230ec0aa53", "repo": "square/javapoet", "scope": ["src/main/java"], "files": 17, "language": "java", "reference_issues_sha256": "a24f089d97ca69ab94865cf78e78b7954283ad68e6294bada31014d8654b0ed3", "native_stdout_sha256": "e463e0510c3d6b7587d86a2c8b8cf6443d49d2ad7a3232aab82e739c3dc0d5d6", "source_inventory_sha256": "1100cc9bd27c6b4e806dd3dacd8293b924ea8072913168c90708b220ed4578a0", "observations": {"java:S1117": [1, 4, 11, 1, 4], "java:S1134": [1, 0, 0, 0, 0], "java:S1135": [1, 3, 0, 0, 3], "java:S1854": [1, 0, 3, 0, 0], "java:S2143": [1, 0, 0, 0, 0], "java:S2211": [0, 0, 1, 0, 0]}},
+    "jekyll": {"commit": "1f319fb273b6cdf876bc6edd38d7477935cdda8c", "tree": "fe1de4cfb03ea6e36a749a13ea0e3fbec16885e5", "repo": "jekyll/jekyll", "scope": ["lib/jekyll", "lib/jekyll.rb"], "files": 90, "language": "ruby", "reference_issues_sha256": "f1e96b1404a7d159d86f294432314e9b63064fb42a1c2c5799d00b0087fc62b1", "native_stdout_sha256": "cc6f94cb000618762b8ae6f0b7858f89f7a89e1783fd26b478c74f93336ff6d0", "source_inventory_sha256": "2146bf0b9c611cca6c530a4da51a252e7dcf3e28ec91e5628e0a35d91548ea94", "observations": {"ruby:S1067": [0, 0, 0, 0, 0], "ruby:S1134": [1, 1, 0, 0, 1], "ruby:S1135": [1, 1, 0, 0, 1], "ruby:S1192": [1, 6, 0, 0, 6], "ruby:S126": [0, 0, 4, 0, 0], "ruby:S134": [0, 0, 0, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "rack": {"commit": "0eabeb73b3fb590e187dacfd9a890fbb7ffb9477", "tree": "cd1052296661e4de09b8d9f72acd43d976bec812", "repo": "rack/rack", "scope": ["lib"], "files": 50, "language": "ruby", "reference_issues_sha256": "c5b5aac79f9f54c6817353a743f2eea9e9fcd986f52f4c75b4f7a98a3c9f7d4d", "native_stdout_sha256": "01e7a0e024124c8bc1aa336a9034a6f24758bb2ca9e001fa0798114ba393ae64", "source_inventory_sha256": "8ae1fb7e240252cd706a3a85e16fb419da2b58694cc4db57c60ae55a4bcade3f", "observations": {"ruby:S1067": [0, 0, 3, 0, 0], "ruby:S1134": [1, 1, 0, 0, 1], "ruby:S1135": [1, 0, 0, 0, 0], "ruby:S1192": [1, 17, 0, 0, 17], "ruby:S126": [0, 0, 11, 0, 0], "ruby:S134": [0, 0, 7, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "rails-active-support": {"commit": "3235827585d87661942c91bc81f64f56d710f0b2", "tree": "f3e082edc5c7d8d49d4847ec8c0656ddfc0f649a", "repo": "rails/rails", "scope": ["activesupport/lib/active_support", "activesupport/lib/active_support.rb"], "files": 281, "language": "ruby", "reference_issues_sha256": "0fcf3bf834413c329534b06265ba87e23da8e3be9173ca8ef075cf9f69383b34", "native_stdout_sha256": "5f4c37e601796a56a02947f5b129f6093da1e38fa428c5638f703a9281d80d8b", "source_inventory_sha256": "308165858706439535ab9c3586c42e6332a42f3f3448605fcc3167fc464aae4d", "observations": {"ruby:S1067": [0, 0, 2, 0, 0], "ruby:S1134": [1, 1, 0, 0, 1], "ruby:S1135": [1, 11, 0, 0, 11], "ruby:S1192": [1, 3, 0, 0, 3], "ruby:S126": [0, 0, 17, 0, 0], "ruby:S134": [0, 0, 7, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "rake": {"commit": "0fdacef47aa9a4140e472b0ce302a2dd09423a75", "tree": "1db8a24705300445357ffb19561349a030c1d5f9", "repo": "ruby/rake", "scope": ["lib"], "files": 43, "language": "ruby", "reference_issues_sha256": "d7fb06173fbbd8731df6bee697b959a6789dfe26ec7eff564422883ffd0cfcae", "native_stdout_sha256": "638de6cc3b2178afcb1081e68a2ba2a2f22476ea867e39f6e70d923a61320410", "source_inventory_sha256": "8337b0c7e525348f7154ea5389ff544178144f43f78372dd5415ea798dd42545", "observations": {"ruby:S1067": [0, 0, 2, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 1, 0, 0, 1], "ruby:S1192": [1, 0, 0, 0, 0], "ruby:S126": [0, 0, 2, 0, 0], "ruby:S134": [0, 0, 1, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "sinatra": {"commit": "7b50a1bbb5324838908dfaa00ec53ad322673a29", "tree": "166815c315bb3cb12d9a63aa28ca79a943ee8b53", "repo": "sinatra/sinatra", "scope": ["lib"], "files": 7, "language": "ruby", "reference_issues_sha256": "f6575a5fa93e1ddec49de91a9edbf4ce001432ad0bf9aea36930fe1aef2785c3", "native_stdout_sha256": "90906d928609cbcfa74318fdcd706dab15f38ceb482312c5415ca9a086896da9", "source_inventory_sha256": "3f7cde5db3573bf10a1a1b1e45dc1e78bd21db2b38fec037d576c55d01befc13", "observations": {"ruby:S1067": [0, 0, 1, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 1, 0, 0, 1], "ruby:S1192": [1, 8, 0, 0, 8], "ruby:S126": [0, 0, 7, 0, 0], "ruby:S134": [0, 0, 0, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "capybara": {"commit": "265d2d175f4be3ddf785d7597bdfd19b231f844a", "tree": "61f3b6709b1c033d02a62c3e937bf911cef167af", "repo": "teamcapybara/capybara", "scope": ["lib"], "files": 127, "language": "ruby", "reference_issues_sha256": "f49de64173148fd6e6ce0a321e5798ec662888508bd205b1f510bd0146b52963", "native_stdout_sha256": "8cd18018a86c0dc2d4e5d47f744e5bb12144e17a2627ee79b7c53a48721afc00", "source_inventory_sha256": "8fa6deb4574d5f47f48e0c723e8fdfea9afb68d12b004fbc6157b9335aad4d09", "observations": {"ruby:S1067": [0, 0, 2, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 5, 0, 0, 5], "ruby:S1192": [1, 2, 0, 0, 2], "ruby:S126": [0, 0, 8, 0, 0], "ruby:S134": [0, 0, 0, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "commons-codec": {"commit": "e59fc76531141cb4a36f3031457b9d5f07e5e43f", "tree": "cc86d9a0811cfc2652da3370b6f943e2f91d511b", "repo": "apache/commons-codec", "scope": ["src/main/java"], "files": 80, "language": "java", "reference_issues_sha256": "cbaf314e7d4bf58987987bdb864a143f6dbabf5cef66f034b308c2104281dad3", "native_stdout_sha256": "3ecad64aa834512bca814643b6df9a8fca5a8ed7276f9e4f31a84275c326fd51", "source_inventory_sha256": "bc40665c3ee28f077a6456543fef90e695510e48cf42d560de55268961c4313a", "observations": {"java:S1117": [1, 0, 2, 0, 0], "java:S1134": [1, 0, 0, 0, 0], "java:S1135": [1, 23, 0, 0, 23], "java:S1854": [1, 5, 123, 3, 5], "java:S2143": [1, 0, 0, 0, 0], "java:S2211": [0, 0, 6, 0, 0]}},
+    "commons-csv": {"commit": "660f7c9f853092ec8abf5d6c81d260e3c80c2194", "tree": "d057a16b418ffd1789540aba9c7990566cdfe4e7", "repo": "apache/commons-csv", "scope": ["src/main/java"], "files": 12, "language": "java", "reference_issues_sha256": "7dd1753bf0c3fe5a0e9e0bbaf0a75f9e329407a5891d66b8e5b89f285dc2068d", "native_stdout_sha256": "65f1d9aca5c039882ee1e244cef1e4eb6d92e5b4d955c57fc38c4fe7daa6939f", "source_inventory_sha256": "e6e920498b53ad828181248d56e2fb39dffd1477d327179e7163001e733e9b26", "observations": {"java:S1117": [1, 2, 0, 0, 2], "java:S1134": [1, 0, 0, 0, 0], "java:S1135": [1, 13, 0, 0, 13], "java:S1854": [1, 0, 1, 0, 0], "java:S2143": [1, 0, 0, 0, 0], "java:S2211": [0, 0, 0, 0, 0]}},
+    "dotenv": {"commit": "34156bf400cd67387fa6ed9f146778f6a2f5f743", "tree": "0230b06f75ac45045392ace2ab0f2efd0bcee800", "repo": "bkeepers/dotenv", "scope": ["lib"], "files": 18, "language": "ruby", "reference_issues_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570", "native_stdout_sha256": "efef554ca1ef5eb0d62cc35be53b886e17263f9b26c6c4efe5b1098fae125d60", "source_inventory_sha256": "e07de1a845e5ecd2323740ba8d0a81c8e8f69f456e769c8ab94dbc5a79075870", "observations": {"ruby:S1067": [0, 0, 0, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 0, 0, 0, 0], "ruby:S1192": [1, 0, 0, 0, 0], "ruby:S126": [0, 0, 1, 0, 0], "ruby:S134": [0, 0, 0, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "httparty": {"commit": "591b9f68d1cd9a1f08e554370f40e1c169bc78cd", "tree": "e65d5856561413bc3c2128952769cfcbcbd0d531", "repo": "jnunemaker/httparty", "scope": ["lib"], "files": 24, "language": "ruby", "reference_issues_sha256": "791754b5ef63c7be2d5861a9fc849aaab92306918597d02117478e29a447d314", "native_stdout_sha256": "290c4341d2b90f414a25d5bae83587470698c7384605f27670c39cc86945e277", "source_inventory_sha256": "6dd223dd41950992d8e833ccac32679d861ce16a988d512c100d65c7196fede4", "observations": {"ruby:S1067": [0, 0, 0, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 0, 0, 0, 0], "ruby:S1192": [1, 2, 0, 0, 2], "ruby:S126": [0, 0, 4, 0, 0], "ruby:S134": [0, 0, 0, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "java-diff-utils": {"commit": "71981d8faaff266654964ce3334e7faf64d2b9f2", "tree": "42bccbf4ef6a9e0f2ca50b58475d247d84320aee", "repo": "java-diff-utils/java-diff-utils", "scope": ["java-diff-utils/src/main/java"], "files": 30, "language": "java", "reference_issues_sha256": "60b3494180cd8f719ce3a2cdfc027dae42494099dd3e90f79e620fe18e67478e", "native_stdout_sha256": "3eced46ad698a22675d4ae4ca0f875d3ce51f215aef57029b289850e25ab4e3b", "source_inventory_sha256": "c78e141b4012a78e888d649affd2fd399eefb1b2e2e35e9f398e5ff2c7bc41ef", "observations": {"java:S1117": [1, 0, 0, 0, 0], "java:S1134": [1, 0, 0, 0, 0], "java:S1135": [1, 2, 0, 0, 2], "java:S1854": [1, 0, 1, 0, 0], "java:S2143": [1, 0, 0, 0, 0], "java:S2211": [0, 0, 4, 0, 0]}},
+    "json-java": {"commit": "324090a87609d0abfa100f8e1cd5c4dfa97c2ba3", "tree": "564786401f5255aec33014b19e4f9186e3202d9d", "repo": "stleary/JSON-java", "scope": ["src/main/java"], "files": 26, "language": "java", "reference_issues_sha256": "bbc64e0891d957f0c56ade982d2d7d68b677aaca126a3ba5b5b2280941cf8667", "native_stdout_sha256": "057f7ec2005d5c667384e7d35e546088c817ab675504de4500e54ea7c5ee211d", "source_inventory_sha256": "b92a532bf9bd43b5d35f8e5f206d4a8b0115a807b27ee5aec691c791932c825f", "observations": {"java:S1117": [1, 0, 2, 0, 0], "java:S1134": [1, 0, 0, 0, 0], "java:S1135": [1, 0, 0, 0, 0], "java:S1854": [1, 1, 2, 0, 1], "java:S2143": [1, 0, 0, 0, 0], "java:S2211": [0, 0, 0, 0, 0]}},
+    "pundit": {"commit": "ea9e31a2d7993f038ee52b94ccc9c7411637ba89", "tree": "5569ab67771550ffc4fd866911e6c8377b557400", "repo": "varvet/pundit", "scope": ["lib"], "files": 16, "language": "ruby", "reference_issues_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570", "native_stdout_sha256": "c505876619df8a3f4496c690b308f590136104698bacef3862f5db463420b0b1", "source_inventory_sha256": "7c5786399a0891032932b292dd233aeb631d6c168205f6c4c6a5db8361e90883", "observations": {"ruby:S1067": [0, 0, 0, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 0, 0, 0, 0], "ruby:S1192": [1, 0, 0, 0, 0], "ruby:S126": [0, 0, 0, 0, 0], "ruby:S134": [0, 0, 0, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}},
+    "redis-rb": {"commit": "9d3a2625ccbb0cdc55d305be07e18c1df1317874", "tree": "ded4439e0af791b6e6f1f99a0dca6849daa28b89", "repo": "redis/redis-rb", "scope": ["lib"], "files": 48, "language": "ruby", "reference_issues_sha256": "3c95eabcc773d2c46d21122330a91241c0aefa7cb90f1d26b298e3e9fb3557d8", "native_stdout_sha256": "22eeacefda71792941c617f9aefdcb14c1949eeb4680ea3faded8d7aab50c111", "source_inventory_sha256": "b843aa5eabb12ff5078ae9ad9a10f2801b2d7341609ebdfa50dd00d9ef63d585", "observations": {"ruby:S1067": [0, 0, 3, 0, 0], "ruby:S1134": [1, 0, 0, 0, 0], "ruby:S1135": [1, 0, 0, 0, 0], "ruby:S1192": [1, 2, 0, 0, 2], "ruby:S126": [0, 0, 8, 0, 0], "ruby:S134": [0, 0, 4, 0, 0], "ruby:S1764": [1, 0, 0, 0, 0]}}
+  }
+}

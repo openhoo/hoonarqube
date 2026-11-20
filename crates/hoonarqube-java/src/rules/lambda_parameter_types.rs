@@ -69,7 +69,10 @@ mod tests {
         let lines = LineIndex::new(source);
         check(tree.root_node(), source, &lines)
             .into_iter()
-            .map(|issue| issue.message)
+            .map(|issue| {
+                assert_eq!(issue.rule_key, "java:S2211");
+                issue.message
+            })
             .collect()
     }
 

@@ -118,9 +118,11 @@ mod tests {
     #[test]
     fn reports_local_hiding_field_with_reference_line() {
         let source = "class A {\n  int value;\n  void f() {\n    int value = 1;\n  }\n}";
-        assert_eq!(findings(source).len(), 1);
+        let issues = findings(source);
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].rule_key, "java:S1117");
         assert_eq!(
-            first_message(source),
+            issues[0].message,
             "Rename \"value\" which hides the field declared at line 2."
         );
     }
