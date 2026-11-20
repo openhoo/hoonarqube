@@ -1,0 +1,188 @@
+{
+  "release": {
+    "commit": "b8411407357d1eabf8d2bce59035d7343996e6ec",
+    "tree": "d48d451b823d4a0e76cc4fd7f6ddf712dfe5a2b3",
+    "binary_sha256": "32b67e4ba45dab0b0f6c8b65255f47bc6a6e86a892b36f6874b3912b8e9140b4",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-apple-darwin\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "command": "cargo build --locked --offline --release -p hoonarqube-cli --bin hoonarqube",
+    "target": "aarch64-apple-darwin"
+  },
+  "projects": {
+    "clap": {
+      "wave": "corpus",
+      "language": "rust",
+      "repository": "clap-rs/clap",
+      "commit": "8e3d03639756241aa2b7dd624a7f5852bef76f31",
+      "tree": "b395c3a2c598fc6fb760fc8ff6799ceb89cf4332",
+      "argv": [
+        "analyze",
+        "clap_builder/src",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "inventory_sha256": "f0296f67158d99fb2c363f58453fe9e698e35e94b56ed1b7e5890215742efb06",
+      "source_bytes": 936181,
+      "reference_inventory_sha256": "d4abd4bd3b1e0a566812b852edfa0a1112ee548687d33e019e364595498b2034",
+      "expected_stdout_sha256": "1b50bbd8f78139038f1a44e7b5494bf1906ae70c5347dc969185e3d8fb38ae0b",
+      "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metrics": {
+        "files": 56,
+        "lines": 28701,
+        "code_lines": 15643,
+        "comment_lines": 10836
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "ordinary_findings": 52
+    },
+    "trio": {
+      "wave": "wave2",
+      "language": "py",
+      "repository": "python-trio/trio",
+      "commit": "c327959a7175c86e1801b4ee8a17920c82b415e5",
+      "tree": "d504f3c7bc269c5b78d4980ef1703db91ed38a6a",
+      "argv": [
+        "analyze",
+        "src/trio",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/tests/**",
+        "--exclude",
+        "**/_tests/**",
+        "--exclude",
+        "**/test_*.py"
+      ],
+      "inventory_sha256": "325dae95f2174b1cd5c5aaafd8db174f4de6de93f35d8aed6d426f24c8401674",
+      "source_bytes": 979828,
+      "reference_inventory_sha256": "54da58eaf59b0b4b701b647bbe84b1bea1a8f577c52599f6df76f25c42d8b540",
+      "expected_stdout_sha256": "4e671a5bc254bd349cb7672d840203114c578db6eea8841c45b93a3d81054fbe",
+      "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metrics": {
+        "files": 78,
+        "lines": 25588,
+        "code_lines": 12987,
+        "comment_lines": 9390
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "ordinary_findings": 689
+    },
+    "rails-active-support": {
+      "wave": "corpus",
+      "language": "ruby",
+      "repository": "rails/rails",
+      "commit": "3235827585d87661942c91bc81f64f56d710f0b2",
+      "tree": "f3e082edc5c7d8d49d4847ec8c0656ddfc0f649a",
+      "argv": [
+        "analyze",
+        "activesupport/lib/active_support",
+        "activesupport/lib/active_support.rb",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "inventory_sha256": "308165858706439535ab9c3586c42e6332a42f3f3448605fcc3167fc464aae4d",
+      "source_bytes": 956353,
+      "reference_inventory_sha256": "98d5bfc25b7435d5a3e8ecb61692ef46d928d1e102fb6b68a1e938d2ca1872cf",
+      "expected_stdout_sha256": "5f4c37e601796a56a02947f5b129f6093da1e38fa428c5638f703a9281d80d8b",
+      "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metrics": {
+        "files": 281,
+        "lines": 29681,
+        "code_lines": 15586,
+        "comment_lines": 10262
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "ordinary_findings": 41
+    },
+    "commons-lang": {
+      "wave": "corpus",
+      "language": "java",
+      "repository": "apache/commons-lang",
+      "commit": "105a350b154eac7c3f3a6bac94ec2cfb0fbe232b",
+      "tree": "8f328615f95cb3c426e52dcc09136506b8cb98da",
+      "argv": [
+        "analyze",
+        "src/main/java",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity"
+      ],
+      "inventory_sha256": "29fd44c8ec1320981f36b9469b7b00fb56820dc34ce214940b440c622e6cfa66",
+      "source_bytes": 3329942,
+      "reference_inventory_sha256": "768569e7b0b3674514051940e205eb6ececf2d84fd4352c2d057011fcdb0aba2",
+      "expected_stdout_sha256": "fa0cd95134ab2685d241961fb433a94ce7ae45c5db3193c888dfa088ec872b62",
+      "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metrics": {
+        "files": 215,
+        "lines": 88301,
+        "code_lines": 29745,
+        "comment_lines": 52389
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "ordinary_findings": 105,
+      "sonar_capture_java_release": "8"
+    },
+    "yjs": {
+      "wave": "wave2",
+      "language": "js",
+      "repository": "yjs/yjs",
+      "commit": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+      "tree": "d07eb7c5b5994055d2054d0d9ddbb2805e7ddda9",
+      "argv": [
+        "analyze",
+        "src",
+        "--format",
+        "json",
+        "--profile",
+        "sonar-parity",
+        "--exclude",
+        "**/__tests__/**",
+        "--exclude",
+        "**/__mocks__/**",
+        "--exclude",
+        "**/__fixtures__/**",
+        "--exclude",
+        "**/*.spec.*",
+        "--exclude",
+        "**/*.test.*",
+        "--exclude",
+        "**/*.bench.*"
+      ],
+      "inventory_sha256": "e92b947747d92e65e9645d085432f9eb3c5ff8faab3d5d9b73e1cf1b195e4a92",
+      "source_bytes": 432815,
+      "reference_inventory_sha256": "39e01b7e23d02619828fa6cbe6655d53eb51459493941818d8b593f9f156893c",
+      "expected_stdout_sha256": "60a9053c3a4445a632d70da23b370f4ab176a44ca69df4f721973bdb82ef0598",
+      "expected_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metrics": {
+        "files": 32,
+        "lines": 12818,
+        "code_lines": 6659,
+        "comment_lines": 5683
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "ordinary_findings": 4896
+    }
+  }
+}
