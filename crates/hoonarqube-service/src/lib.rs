@@ -1709,14 +1709,27 @@ fn append_file_findings(
     accumulator: &mut FindingAccumulator<'_>,
 ) -> Result<(), ApiError> {
     let path = path_string(&file.path)?;
+    // The report preserves the spelling supplied to the CLI; assessment identities
+    // use the IR's normalized spelling even for a scan rooted at ".".
+    let assessment_path = hoonarqube_ir::assessment::normalize_path(&file.path)
+        .map_err(|_| ApiError::bad_request())?;
+    let assessment_path = assessment_path.to_str().ok_or_else(ApiError::bad_request)?;
     for (issue_index, issue) in file.issues.iter().enumerate() {
-        append_finding(&path, &file.language, issue_index, issue, accumulator)?;
+        append_finding(
+            &path,
+            assessment_path,
+            &file.language,
+            issue_index,
+            issue,
+            accumulator,
+        )?;
     }
     Ok(())
 }
 
 fn append_finding(
     path: &str,
+    assessment_path: &str,
     language: &str,
     issue_index: usize,
     issue: &Issue,
@@ -1727,7 +1740,9 @@ fn append_finding(
     let duplicate = accumulator.keys.get(&key).copied().unwrap_or_default() > 1;
     let kind = issue_kind(issue)?;
     let (identity, claimed, claim_present) = {
-        let claim = accumulator.claims.get(&(path.to_owned(), issue_index));
+        let claim = accumulator
+            .claims
+            .get(&(assessment_path.to_owned(), issue_index));
         let claim_present = claim.is_some();
         let (identity, claimed) = match claim {
             Some((Some(identity), false)) => match canonical_claim_identity(identity) {
@@ -1745,7 +1760,7 @@ fn append_finding(
     if claim_present {
         accumulator
             .matched_claims
-            .insert((path.to_owned(), issue_index));
+            .insert((assessment_path.to_owned(), issue_index));
     }
     let range = serde_json::to_value(&issue.range).map_err(|_| ApiError::bad_request())?;
     let range_json = serde_json::to_string(&range).map_err(|_| ApiError::bad_request())?;
@@ -3251,6 +3266,91 @@ mod tests {
 
     fn reviewable_report() -> &'static str {
         r#"{"schema_version":1,"files":[{"path":"a.py","language":"python","issues":[{"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":20}}}],"metrics":{"lines":2,"code_lines":1,"comment_lines":1}}],"project":{"metrics":{"files":1,"lines":2,"code_lines":1,"comment_lines":1},"files":[{"path":"a.py","classification":"source","status":"complete","metrics":{"lines":2,"code_lines":1,"comment_lines":1},"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"reason":null}],"duplications":[],"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"complete":true,"warnings":[],"roots":["a.py"]},"assessment":{"schema_version":3,"context":{"analyzer_version":"hoonarqube-cli/0.8.2","catalog_digest":"d9ce2a1a13961a57f4dede498924fd3518312e8de5a4a5bc671952c73c158a84","options_digest":"471a1bbba734ab8a2da6fa62d0d84d5dd967dd2e1476565c78de6881b54b48d1","scope_digest":"dc756006f7d7366908f4cff666986e61f0fbd42c39b18381e745422035d69e36"},"sources":[{"path":"a.py","content_digest":"f89600824c3f62a48dcc441d730d7d43f1923b7b37bccb3a0536d109c1199764","line_digests":["1dd36e4257b84fc35cfcaca20a29fcbbd61530714fcbde191251b7d679dd9a44","e09e09453d48049c48cadbc630a121ed1b033498846be9aba19eafb8ab73f917"],"findings":[{"issue_index":0,"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","source_digest":"2837a0fd9c3732d35586b5be9794e0511049637f586fba20edb81d67b7d237f8","context_digest":"c2d980f6467c3167454753db29f2986ca82af25bd310de58bb297175584b3e30","start_line":1,"end_line":1,"occurrence":0,"content_identity":"7adf5f8ba5eb9ee66cc0e57217b0cf038955673f8f2156e35d664e146042a5ce","identity":"506e1fcd2d2ab0df6909a6d7df84a4c48c623b893175bf1251c636ce01ff2e8b","ambiguous":false,"path":"a.py"}]}]}}"#
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn assessment_claims_follow_the_normalized_report_path() {
+        let (address, server) = spawn_test_service().await;
+        let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+        let claim = report["assessment"]["sources"][0]["findings"][0]["identity"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        for path in ["./a.py", "a.py", "../a.py", "other.py"] {
+            report["files"][0]["path"] = json!(path);
+            report["project"]["files"][0]["path"] = json!(path);
+            let response =
+                ingest_report(address, &format!("case-{}", path.len()), report.clone()).await;
+            if path == "../a.py" || path == "other.py" {
+                assert!(matches!(response.status, 400 | 409));
+                continue;
+            }
+            assert_eq!(response.status, 200, "{path}");
+            let id = json_body(&response)["analysis"]["id"].as_i64().unwrap();
+            let list = api_request(
+                address,
+                "GET",
+                &format!("/api/v1/projects/demo/analyses/{id}/findings"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(list.status, 200);
+            let finding = &json_body(&list)["findings"][0];
+            assert_eq!(finding["identity"], format!("sha256:{claim}"));
+            assert_eq!(finding["ambiguous"], false);
+            assert_eq!(finding["path"], path);
+        }
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn findings_only_inherit_reviews_from_the_same_branch_and_context() {
+        let (address, server) = spawn_test_service().await;
+        let (backup, _) = export_reviewed_backup(address).await;
+        let expected = backup["reviews"][0]["identity"].clone();
+        for (commit, branch, field, inherits) in [
+            ("same", "main", "source_revision", true),
+            ("alternate", "develop", "source_revision", false),
+            ("analyzer", "main", "analyzer_version", false),
+            ("catalog", "main", "catalog_digest", false),
+            ("options", "main", "options_digest", false),
+            ("scope", "main", "scope_digest", false),
+        ] {
+            let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+            report["assessment"]["context"][field] = if field == "source_revision" {
+                json!(commit)
+            } else {
+                json!("a".repeat(64))
+            };
+            let input = json!({"schema_version":1,"branch":branch,"commit":commit,
+                "analyzed_at":"2026-11-19T11:00:00Z","report":report});
+            let ingested = api_request(
+                address,
+                "POST",
+                "/api/v1/projects/demo/analyses",
+                Some("application/json"),
+                &input.to_string(),
+            )
+            .await;
+            assert_eq!(ingested.status, 200, "{commit}");
+            let id = json_body(&ingested)["analysis"]["id"].as_i64().unwrap();
+            let result = api_request(
+                address,
+                "GET",
+                &format!("/api/v1/projects/demo/analyses/{id}/findings"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(result.status, 200);
+            let item = &json_body(&result)["findings"][0];
+            assert_eq!(item["identity"], expected);
+            assert_eq!(item.get("review").is_some(), inherits, "{commit}");
+        }
+        server.abort();
+        let _ = server.await;
     }
 
     async fn export_reviewed_backup(source: SocketAddr) -> (Value, i64) {
