@@ -4,6 +4,10 @@ The latest local qualification compares immutable v0.9.0 (`b93725fd`) with
 the performance candidate described below. Earlier comparisons are retained
 as historical evidence, not current-release claims.
 
+## Public Go pipeline — 2026-11-20
+
+See [elapsed time until a persisted result can be read](tools/oracle/public-go-pipeline-timing-20261120.md) for a same-host comparison against SonarQube Community Build on four pinned projects, including raw samples, the four-rule comparison and resource differences.
+
 ## Qualification — 2026-09-21 (measured implementation ae296153)
 
 Both executables used Rust 1.96.0, the locked dependencies, and the unchanged
