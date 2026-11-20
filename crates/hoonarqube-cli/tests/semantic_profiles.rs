@@ -144,6 +144,61 @@ fn typescript_context_keeps_native_profiles_and_clean_controls() {
     assert!(native_findings(&fixture.analyze("sonar-parity", &context)).is_empty());
 }
 
+fn assert_typescript_scan_does_not_write_helper(explicit: bool) {
+    let Some(package) = std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE") else {
+        eprintln!("requires the pinned TypeScript package (installed in CI)");
+        return;
+    };
+    let fixture = Fixture::new();
+    std::fs::create_dir(fixture.0.join("src/nested")).unwrap();
+    fixture.write(
+        "src/nested/tsconfig.json",
+        r#"{"compilerOptions":{"strict":true,"noEmit":true},"include":["*.ts"]}"#,
+    );
+    fixture.write(
+        "src/nested/cast.ts",
+        "export function cast(text: string) { return text as string; }\n",
+    );
+
+    let explicit_context = [
+        "--typescript-project",
+        "src/nested/tsconfig.json",
+        "--typescript-module",
+        package.to_str().unwrap(),
+    ];
+    let context: &[&str] = if explicit { &explicit_context } else { &[] };
+    let run = || {
+        let report = fixture.analyze("sonar-parity", context);
+        assert!(
+            report["files"][0]["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|issue| issue["rule_key"] == "typescript:S4325"),
+            "expected a compiler-backed finding: {report}"
+        );
+    };
+    let cache = fixture.0.join("src/nested/.hoonarqube");
+    run();
+    assert!(!cache.exists(), "the scan created {}", cache.display());
+
+    // A regular file blocks the old cache path even for a privileged test
+    // runner. Compiler analysis should still work and leave the file intact.
+    std::fs::write(&cache, "existing project file").unwrap();
+    run();
+    assert_eq!(std::fs::read(&cache).unwrap(), b"existing project file");
+}
+
+#[test]
+fn discovered_typescript_project_does_not_write_helper() {
+    assert_typescript_scan_does_not_write_helper(false);
+}
+
+#[test]
+fn explicit_typescript_project_does_not_write_helper() {
+    assert_typescript_scan_does_not_write_helper(true);
+}
+
 #[test]
 fn csharp_context_keeps_cumulative_native_profiles() {
     if Command::new("dotnet").arg("--version").output().is_err() {
