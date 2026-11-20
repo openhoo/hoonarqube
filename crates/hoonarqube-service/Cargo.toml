@@ -23,11 +23,11 @@ hoonarqube-gates = { version = "0.11.1", path = "../hoonarqube-gates" }
 hoonarqube-ir = { version = "0.11.1", path = "../hoonarqube-ir" }
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["raw_value"] }
 sha2 = "0.10.9"
 subtle = "2.6.1"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }
-tokio = { version = "1.53.3", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1.53.3", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
 
 [dev-dependencies]
 hoonarqube-core = { version = "0.11.1", path = "../hoonarqube-core" }

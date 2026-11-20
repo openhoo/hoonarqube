@@ -2,6 +2,8 @@
 
 **Decision, 20 November 2026:** keep the Rust scanner, native report, independent catalog and reference harness. Develop the report service as a separately deployable consumer. Start with a shadow pilot on one production repository. The evidence does not support switching off an existing SonarQube installation.
 
+The [integration and public replay](qualification-2026-11-20.md) records which of the original PRs landed and what the resulting scanner matched on public code. This review below describes the starting revision.
+
 ## What was reviewed
 
 The starting point was GitHub’s default branch, `108877fa702b02f5c50a5dc37308a75de3b031ef` (8 October), one commit after the published `v0.11.1` tag (`56279c1`). The original tree had 16 workspace members and 366,406 lines across 1,454 workspace Rust files, including tests, excluding vendor code and oracle fixtures. The review followed the data from source discovery and compiler context through findings, metrics, gates, exports, ingestion, persistence and human review. It also covered the lockfile, release archive, CI rules and outstanding changes. It was not a line-by-line verification of every detector.

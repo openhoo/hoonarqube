@@ -1,0 +1,1796 @@
+{
+  "tools": {
+    "scanner_package_version": "11.2.1",
+    "scanner_package_sha256": "cb4ac16d417b9092783cf58f2881b59c0b2538bf3435579667269101e0dc65c4",
+    "scanner_dll_sha256": "574b7a322e283bb82fee76c966c63340935594925e6799774b7d6869636a51ec",
+    "dotnet_sdk": "10.0.111",
+    "dotnet_host_sha256": "2ff302a3c5cecc4a371fd6482d2f5547c57d93eff9fe19919ef729a54f69ce04",
+    "csharp_compiler_sha256": "35856ccef0f8f468700c012ec4e519c0cf9789c1a3280a21734c5a6b686db41d",
+    "java": "openjdk version \"21.0.13.1\" 2026-11-17",
+    "native_sha256": "e719261d0fe6db1f53d362da0ec55b3da152d4a9ec7034474b56018124552021",
+    "native_at_verified_main": "e43dc65805fdba7c4cd27c1cbfc6f285c717f87d",
+    "community_build": "26.9.0.129388",
+    "server_image": {
+      "image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+      "platform_fingerprint": "arm64 linux sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+    },
+    "csharp_plugin": {
+      "version": "10.33 (build 1635)",
+      "hash": "2d1be3c8439ee574a479781a3d8ad30d",
+      "implementationBuild": "ea106bc601532a89b0ef80a86ec5b7b1ff3b7239"
+    },
+    "sonar_roslyn_analyzer_sha256": "461b82be21a9e8f57c1312ff877f8276789eeec5e64678344e961a0a3edfd957"
+  },
+  "projects": {
+    "fast-member": {
+      "repository": "mgravell/fast-member",
+      "ref": "1.5.0",
+      "commit": "03e27fc74f50f220650d284e11a8d6e1665bbf93",
+      "tree": "7322c09cfebe375f2f82ff4c13d7bee9bf1a099d",
+      "compile_source_root": "FastMember",
+      "defines": [
+        "NETSTANDARD",
+        "NETSTANDARD2_0",
+        "COREFX"
+      ],
+      "minimal_project_sha256": "247a1206fed9353badd0f0e1a97624d1a6a6f8b44460e871763fb52e780074d8",
+      "compile_files": [
+        {
+          "path": "FastMember/CallSiteCache.cs",
+          "blob": "73fc031667c7546583abac5762f07cd35ca23b51",
+          "sha256": "d1cba2e8872a79ea3ff030d78b378857d5ed62042a21adec9495086e190ea2cb"
+        },
+        {
+          "path": "FastMember/MemberSet.cs",
+          "blob": "08ae2202e6f046f6ca70d22dfda2c829753a38d9",
+          "sha256": "21413241277dc049e6e21b23a7b282af02b27915163d8bd013b6a115e928f1bf"
+        },
+        {
+          "path": "FastMember/ObjectAccessor.cs",
+          "blob": "b8c201bdff3f1739681679888b236cdbdf1d42d9",
+          "sha256": "72221299903785efdb444e2504abb659818ba6ea33b6e1321da0b3deae354eda"
+        },
+        {
+          "path": "FastMember/ObjectReader.cs",
+          "blob": "61e9e9631af6def17ba35ec0f3d1819f1f1ef631",
+          "sha256": "e3b3bfad6b1427c3b1934ef2599e61ccf687400cfcfd4a6c1c03cb977d705854"
+        },
+        {
+          "path": "FastMember/OrdinalAttribute.cs",
+          "blob": "76cc794e31808fc01218f6543710378b7c618a7b",
+          "sha256": "4e41ba77951b37d82b231117562260e824b23276a19243970ec0d1355512bbaa"
+        },
+        {
+          "path": "FastMember/TypeAccessor.cs",
+          "blob": "67c8518907dc7958fd1bfaafa4e255f332e70ea7",
+          "sha256": "7a5a53e08e7b6d9eea69715c6ff7df6c4f9f3216622fbb2b373a71edabf45215"
+        },
+        {
+          "path": "FastMember/TypeHelpers.cs",
+          "blob": "dc7c7804678ecdd22cd6a929a1b59c242169d87f",
+          "sha256": "2c48323259e0c276450c996a39642a1ec2fd3e3604bc4186db49bf1cb5f0c524"
+        }
+      ],
+      "sonarqube": {
+        "status": "complete",
+        "scanner": "11.2.1",
+        "compute_task": "bab65b7e-da54-45f1-bbf5-3ca9db803c9e",
+        "analysis_id": "314a6fd9-a60c-46e7-a015-97f29eecddc8",
+        "indexed_files": 7,
+        "byte_exact_from_server": 0,
+        "issues": 43,
+        "hotspots": 0
+      },
+      "native_files": 7,
+      "native_compiler_context": "missing",
+      "raw_source_readback": {
+        "bom_removed": 7,
+        "cr_normalized": 5,
+        "one_final_lf_added": 7,
+        "one_final_lf_removed": 0,
+        "verbatim": 0
+      },
+      "indexed_file_bytes": {
+        "FastMember/CallSiteCache.cs": {
+          "git_input_sha256": "d1cba2e8872a79ea3ff030d78b378857d5ed62042a21adec9495086e190ea2cb",
+          "server_raw_sha256": "5105ed4c7cfac70951401d20714998cfd996495b9badcb2a6bdc4f2ca5d43361",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "FastMember/MemberSet.cs": {
+          "git_input_sha256": "21413241277dc049e6e21b23a7b282af02b27915163d8bd013b6a115e928f1bf",
+          "server_raw_sha256": "4c86fa3a0bfc2acfb243809fa01fbc75291b68e8b43f9d13d2b3b5102f3b9767",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "FastMember/ObjectAccessor.cs": {
+          "git_input_sha256": "72221299903785efdb444e2504abb659818ba6ea33b6e1321da0b3deae354eda",
+          "server_raw_sha256": "a18ac3ac5597b741894ef6e9521a9feb9a7626e0932077f16f4863511c33106a",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "FastMember/ObjectReader.cs": {
+          "git_input_sha256": "e3b3bfad6b1427c3b1934ef2599e61ccf687400cfcfd4a6c1c03cb977d705854",
+          "server_raw_sha256": "d502279ac70d364fa8c15acca2feb305b3dfbbe8862bae3d80d13208b8be1b5d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "FastMember/OrdinalAttribute.cs": {
+          "git_input_sha256": "4e41ba77951b37d82b231117562260e824b23276a19243970ec0d1355512bbaa",
+          "server_raw_sha256": "fd07223041659d45a0353ddf902ecc20fdabd0ea78a1c82e0c5154c4aec9eb76",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "FastMember/TypeAccessor.cs": {
+          "git_input_sha256": "7a5a53e08e7b6d9eea69715c6ff7df6c4f9f3216622fbb2b373a71edabf45215",
+          "server_raw_sha256": "0b34a0f089a50cca1fec3bbda3e3fb39c6ed5e88029c2b179221f64770b0f5b9",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "FastMember/TypeHelpers.cs": {
+          "git_input_sha256": "2c48323259e0c276450c996a39642a1ec2fd3e3604bc4186db49bf1cb5f0c524",
+          "server_raw_sha256": "976000d470eb898756655ee2529292445e0734460fa7eb9e701fe74f7a6fb276",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        }
+      },
+      "not_indexed_by_sonarqube": [],
+      "comparison": "same_source_files",
+      "shared_parameters_primary_findings": {
+        "matched": 11,
+        "native_only": 19,
+        "reference_only": 31
+      }
+    },
+    "guardclauses": {
+      "repository": "ardalis/GuardClauses",
+      "ref": "v5.0",
+      "commit": "ad43aa02babf3bc8aee8efc2258f5ad3571c8ec5",
+      "tree": "d09ff9b13fe0f78ddbd77b736c097c206252d2d0",
+      "compile_source_root": "src/GuardClauses",
+      "defines": [
+        "NET",
+        "NET8_0_OR_GREATER"
+      ],
+      "minimal_project_sha256": "72e6a3c1426f74df1a236c9d62435dcdf19d6454d28d9eb4e67efe25fa726001",
+      "compile_files": [
+        {
+          "path": "src/GuardClauses/CompilerFixes/CallerArgumentExpressionAttribute.cs",
+          "blob": "8d15180fe2cd9ac13e8ee7724923e325375a5833",
+          "sha256": "9c42f13e62b4396c3d3a2aef113006c0362091afe76ea9e1bc661375e00c2615"
+        },
+        {
+          "path": "src/GuardClauses/Exceptions/NotFoundException.cs",
+          "blob": "e31af0c0f542d4882fbbbe9298ce02d56f4642dc",
+          "sha256": "e68e3a62da6b81bf0b7a99b3d72cfccfe3caefcc4d467975dd70f01b0907ec3b"
+        },
+        {
+          "path": "src/GuardClauses/Guard.cs",
+          "blob": "4e0f5e78df73326d8665328a4b94abf936817715",
+          "sha256": "f6fd04b201d1f55ca056df4a2939dcfb183a064144901b42942a5765e0760596"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstEmptyOrWhiteSpaceExtensions.cs",
+          "blob": "e0932246237152f636dc29e6d1a536c1a6f26bfd",
+          "sha256": "02571fea8c559c8aadae995eedd637fe0a585c3898729bf14f7ecb9ffcbd654e"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstExpressionExtensions.cs",
+          "blob": "7b770d3a20c5c832b6c94b49477b0bd794958536",
+          "sha256": "a04514c0101a52efcadbcca98bca92301659f4aa0e902cd511dbcbbbb0281bfb"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstExpressionExtensionsDeprecated.cs",
+          "blob": "a8c0b32e27b4afec1684269fef594484c2611b9e",
+          "sha256": "dcd6b563a1c602b30d94ea3b7c967e3970bd5213395e185d40f89f70075abd4a"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstInvalidFormatExtensions.cs",
+          "blob": "28bfd44cd0bab2a6f9e94f56bb9085198ea82bed",
+          "sha256": "d6ed4a87ca1d356b8fba6df8c458d31e2a37c51505c69d10928019d58654b8b6"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstNegativeExtensions.cs",
+          "blob": "7086fbd26a1480b23bb9c9883996e113c03d7bfe",
+          "sha256": "127128ba62c210b96319858f255d32519606ce75012302d7ec84532aff544ddc"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstNotFoundExtensions.cs",
+          "blob": "bdd38d9164e90f195fffd57588e21c256c528eb3",
+          "sha256": "23639b8ff2488d340ab8de96ccc61f226cf227be21fe59523419c70d537e0856"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstNullExtensions.cs",
+          "blob": "0fda06fa53ca053e45f35d52de304b7ec6b355f5",
+          "sha256": "6b36cb33c652be6afc23a303606fd0d6aefe23b9d2666a7328f9e432e70fe875"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstOutOfRangeExtensions.cs",
+          "blob": "ef7429347d7239a3bb27f6a454ced7875bc72cf6",
+          "sha256": "c63150fa793a330d8070221e9d2361a66d7c3c3dc807a0ecd48e7cecbe48af1b"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstStringLengthExtensions.cs",
+          "blob": "e31bbbcf5042f382d31840d3e994f0a46d2141bf",
+          "sha256": "053e5d96882cc143b769dd00a9be4a47c5703461e5ccb7b6919afac336ec8f9f"
+        },
+        {
+          "path": "src/GuardClauses/GuardAgainstZeroExtensions.cs",
+          "blob": "bcc0beade7351fc480529dbc0e4cd84edced2ff8",
+          "sha256": "82942bb0024065f3c0332e48074a846cee5f47fbf0be87d5095165a2758208ee"
+        },
+        {
+          "path": "src/GuardClauses/ThirdParty/JetBrains.Annotations.cs",
+          "blob": "2d8cafa000961e025db3501c0cb8b5890fe11e2d",
+          "sha256": "064c03ffa9ae789c720513866bb4523999445bf39585ddba539057f256c97c7a"
+        },
+        {
+          "path": "src/GuardClauses/ValidatedNotNullAttribute.cs",
+          "blob": "2f1c1476cf2905997aa4a57193eb5929b6fa780e",
+          "sha256": "b28e475206e73e21fec7e083c7740b37b546e7ba9b7a703cb0a96b3516d7483a"
+        }
+      ],
+      "sonarqube": {
+        "status": "complete",
+        "scanner": "11.2.1",
+        "compute_task": "b665264f-ee65-455d-98ce-b1399f23ae59",
+        "analysis_id": "61663240-085c-4e85-ba2e-4c3c36766ce6",
+        "indexed_files": 15,
+        "byte_exact_from_server": 0,
+        "issues": 240,
+        "hotspots": 0
+      },
+      "native_files": 15,
+      "native_compiler_context": "missing",
+      "raw_source_readback": {
+        "bom_removed": 15,
+        "cr_normalized": 0,
+        "one_final_lf_added": 15,
+        "one_final_lf_removed": 0,
+        "verbatim": 0
+      },
+      "indexed_file_bytes": {
+        "src/GuardClauses/CompilerFixes/CallerArgumentExpressionAttribute.cs": {
+          "git_input_sha256": "9c42f13e62b4396c3d3a2aef113006c0362091afe76ea9e1bc661375e00c2615",
+          "server_raw_sha256": "a2624355f95a1a9d164f91b68aa8ff5f38ed72bbc41c429b66c3dcce0a399f27",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/Guard.cs": {
+          "git_input_sha256": "f6fd04b201d1f55ca056df4a2939dcfb183a064144901b42942a5765e0760596",
+          "server_raw_sha256": "efa06acf2bc41bb159bdaee8a19083ac5d1ac5db9e2951014dc69190eb426e6a",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstEmptyOrWhiteSpaceExtensions.cs": {
+          "git_input_sha256": "02571fea8c559c8aadae995eedd637fe0a585c3898729bf14f7ecb9ffcbd654e",
+          "server_raw_sha256": "a657780624250dfb9763ccc3e4391f2eeac02d60a4467ff3933de145ca706be0",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstExpressionExtensions.cs": {
+          "git_input_sha256": "a04514c0101a52efcadbcca98bca92301659f4aa0e902cd511dbcbbbb0281bfb",
+          "server_raw_sha256": "f586eb2757426a873068d2eeb276d4fe8043ccb7b8420d7018a47c857ab6771d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstExpressionExtensionsDeprecated.cs": {
+          "git_input_sha256": "dcd6b563a1c602b30d94ea3b7c967e3970bd5213395e185d40f89f70075abd4a",
+          "server_raw_sha256": "42b357b523d302d7ac4941a99711e785a0e3eaba24d242d980698fbc3945bb83",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstInvalidFormatExtensions.cs": {
+          "git_input_sha256": "d6ed4a87ca1d356b8fba6df8c458d31e2a37c51505c69d10928019d58654b8b6",
+          "server_raw_sha256": "e9e439ad3ba66017c7bea8c3efc9a27e746737b68911afcd857dab05ced49a36",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstNegativeExtensions.cs": {
+          "git_input_sha256": "127128ba62c210b96319858f255d32519606ce75012302d7ec84532aff544ddc",
+          "server_raw_sha256": "939f98082bca1fce7a65a90ee1202d70c68997f6ec527ff0498e02f99ef8f88c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstNotFoundExtensions.cs": {
+          "git_input_sha256": "23639b8ff2488d340ab8de96ccc61f226cf227be21fe59523419c70d537e0856",
+          "server_raw_sha256": "967048f7d647b0dd00a3386923dd41f4d4e0b5a432eaa162ee64a20b76a3afff",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstNullExtensions.cs": {
+          "git_input_sha256": "6b36cb33c652be6afc23a303606fd0d6aefe23b9d2666a7328f9e432e70fe875",
+          "server_raw_sha256": "1b5bfccd427573a7b3c92dff8017cb654cd10b2b76b1c675ff205af22c194d67",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstOutOfRangeExtensions.cs": {
+          "git_input_sha256": "c63150fa793a330d8070221e9d2361a66d7c3c3dc807a0ecd48e7cecbe48af1b",
+          "server_raw_sha256": "40b386d981cda55204c716848496f68484f70221dc609eeb8e6dc6b9bb9575bb",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstStringLengthExtensions.cs": {
+          "git_input_sha256": "053e5d96882cc143b769dd00a9be4a47c5703461e5ccb7b6919afac336ec8f9f",
+          "server_raw_sha256": "21b8137e0ab9fb4da42d26600d76cc14b3ab7c43f827b00ef68c5ccec91ac334",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/GuardAgainstZeroExtensions.cs": {
+          "git_input_sha256": "82942bb0024065f3c0332e48074a846cee5f47fbf0be87d5095165a2758208ee",
+          "server_raw_sha256": "f6b8491eb62e34158a75318fe78e0e58bbc86f67d9b9a6bf2212e8f7b2f6b2d1",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/ThirdParty/JetBrains.Annotations.cs": {
+          "git_input_sha256": "064c03ffa9ae789c720513866bb4523999445bf39585ddba539057f256c97c7a",
+          "server_raw_sha256": "a90338c8ee9a51d0904e4bf00080abd8aa8594ea5eebdf8a6a4f6e037cfbbd11",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/Exceptions/NotFoundException.cs": {
+          "git_input_sha256": "e68e3a62da6b81bf0b7a99b3d72cfccfe3caefcc4d467975dd70f01b0907ec3b",
+          "server_raw_sha256": "32bec55a005b3213b121aa27b135b4a54cdf125bfcbd6dbe12eda9adfd13c019",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/GuardClauses/ValidatedNotNullAttribute.cs": {
+          "git_input_sha256": "b28e475206e73e21fec7e083c7740b37b546e7ba9b7a703cb0a96b3516d7483a",
+          "server_raw_sha256": "546da57c43452e1631f480f0161235a641179277d138ec8af6a5e41ef7d7ad92",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        }
+      },
+      "not_indexed_by_sonarqube": [],
+      "comparison": "same_source_files",
+      "shared_parameters_primary_findings": {
+        "matched": 12,
+        "native_only": 10,
+        "reference_only": 56
+      }
+    },
+    "sharpziplib": {
+      "repository": "icsharpcode/SharpZipLib",
+      "ref": "v1.4.2",
+      "commit": "33f64eb0f28cdd2b084cb822fcc224c7c5aba553",
+      "tree": "eb09590edcc2a40055c9c885299a4f43aff67ed5",
+      "compile_source_root": "src/ICSharpCode.SharpZipLib",
+      "defines": [
+        "NET",
+        "NET6_0_OR_GREATER"
+      ],
+      "minimal_project_sha256": "a92c6d3253e91320776c5523c8c1151ff09c0e8f344c59d62e0d5ad863f27b9c",
+      "compile_files": [
+        {
+          "path": "src/ICSharpCode.SharpZipLib/AssemblyInfo.cs",
+          "blob": "8f8e620164ac21e93e1ccaa9067951d2e3f4bc43",
+          "sha256": "0a854aa9fff0314891ee9142e0ab22401649331742d742a3af2f5c36b3c81914"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/BZip2/BZip2.cs",
+          "blob": "4bd48b0357c3b28f8abdbbabcbbf1765058ad197",
+          "sha256": "e7f4e9043c646a7ecbb1b99a7665540b8ade2e89f7a23ae925893e968604f30c"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/BZip2/BZip2Constants.cs",
+          "blob": "52fb8ad20f16487dcb1ac503cdd10715da289057",
+          "sha256": "ebd1e0a78f63289281be4e3f3a78b62fb23e73b76bd960165465f25108180a2b"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/BZip2/BZip2Exception.cs",
+          "blob": "111d21cdcde05798dd2884d6ba052d00036b5ae5",
+          "sha256": "8343ff7ca12131525bc5180d3304436d253518d62937613dd22e1ee1d69f799f"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/BZip2/BZip2InputStream.cs",
+          "blob": "3948b4e4cc1540dc3f6b69368d5e90970db55e2c",
+          "sha256": "0928a144a7ab3a6e82032924c755f5ec81696bd9272a03d77d678f7cef9c5a43"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/BZip2/BZip2OutputStream.cs",
+          "blob": "f331ec6574104e149fb592adafe1fc3f1482761b",
+          "sha256": "d3b16dd5fe53894b5f14bd049d38c581e3d49d9d5362a0cd4f6995b864921435"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Checksum/Adler32.cs",
+          "blob": "b2a0f151a12c26dc90fea101087ab5325f4dc1fc",
+          "sha256": "659c93673e5d13e1f17db211b5dad1b953f16b3c4552df465ad2e7b290bf4ccc"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Checksum/BZip2Crc.cs",
+          "blob": "be76da11eb1649accb425d83e646d9188b766a40",
+          "sha256": "f443ae2a2c61c14fb822349101e2fd4dd022c964c1164e92d2acf36efff518e9"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Checksum/Crc32.cs",
+          "blob": "740aff566835f60d6c607442931d0a294f9a5121",
+          "sha256": "e6232ddacfae775c68fb21ca0819cfe8e4d09f86b26a0266a6ee166aa3da2ecf"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Checksum/CrcUtilities.cs",
+          "blob": "575abe08b5c3bb13c0e445b425b44d236731fd4a",
+          "sha256": "b2702630c60632fbfa9f60a565fec79abbac60beb5d619c903ceaabeb593e841"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Checksum/IChecksum.cs",
+          "blob": "db74a5a5d20a76b8340efabad88f4df0e53c48be",
+          "sha256": "32b3d05de60dcf3764142885206200b258be847ca4fd488e32e6dfe068d9270b"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/ByteOrderUtils.cs",
+          "blob": "14b096207d5ed602a4a6636c2e141c23460f902c",
+          "sha256": "96027c5332ffa8f37cb5b3cb6d3958ac69f536eb822e03bddcc4e3d3388c78cb"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/EmptyRefs.cs",
+          "blob": "feb7a8e17cb97e770b3bed3de8d80983cbb0e9e6",
+          "sha256": "a8f9b91b0fe5e79831abfe9aa82f8e4461bbc42f21cb3e131eafb8afc081b597"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/ExactMemoryPool.cs",
+          "blob": "d03ca2ecf1b00f410c4ecdb90697563407ef943c",
+          "sha256": "3d3ae5dba9f039b8390dd1134fd0116c7c4cf12a2f892de6df5530a7991da99b"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/Exceptions/SharpZipBaseException.cs",
+          "blob": "eb14e2d49f9aef92e483e4a6180656423762080b",
+          "sha256": "1824f4fb34890a1cb4a8c292f78a910cf8199ab6aa3bdf850aed9292a119a38e"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/Exceptions/StreamDecodingException.cs",
+          "blob": "e22b11b0d164da18564233ca9cfa8b76d079bbc0",
+          "sha256": "8f62c5cfd77d9ed6295f362ad950f71b94d501285fd83fa5b3a581d1403f6f46"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/Exceptions/StreamUnsupportedException.cs",
+          "blob": "5827e559d0b1658deffc6351369181ad83795689",
+          "sha256": "fc632022e5c44c7524a8cc900e77938373c161d15b094832c28c99edf1ac77fa"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/Exceptions/UnexpectedEndOfStreamException.cs",
+          "blob": "a35c49f0379e97c9d38192b1200de4543369f62d",
+          "sha256": "fa3c4aa88f887ea66b2c2f47228b56f8440862913da9f5de17f424ff7d7d7b47"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/Exceptions/ValueOutOfRangeException.cs",
+          "blob": "d41cf988275043a10d7f605b8bb83d3bdef2b5ca",
+          "sha256": "ba3938db192c344ca9a383969ee856de254306c195fbd46ec4a2526b01964384"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/FileSystemScanner.cs",
+          "blob": "427e7d895c3bcf4ab73d2acf213775e7abcafc82",
+          "sha256": "d0fac3f42ee16dd816419f713b1d22d9e8db6fc2ec4bd651c59bbe394857ee21"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/INameTransform.cs",
+          "blob": "492e2a9e6f064597c07806f60742d2f96dc7fe46",
+          "sha256": "347399ad3060b3fc71c1eb77e6fed80262254eae4ca4055a4d2bf518066acfa3"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/IScanFilter.cs",
+          "blob": "ac07fd1741495993c51b43795530e21c40daec70",
+          "sha256": "2c5c97d6c893b49863bc835d91a2e8365394fc87d78b169b1d09229d3c1cb6ce"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/InvalidNameException.cs",
+          "blob": "6647631bdd792be3678017f9ce07c9c6276e0999",
+          "sha256": "4c28ab4c3a023b146c09beb54ddc3b289d543b3e142dec482dc8db7127e4c4dd"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/NameFilter.cs",
+          "blob": "57751891c6570fefa6a3f6429b5b152781dcd078",
+          "sha256": "889ac0e835219127c62be71143e7677b4fdde60b8ee2f8383a3216509a09ef93"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/PathFilter.cs",
+          "blob": "e70109c2c99cdccaea4c72e94672808db46c03b4",
+          "sha256": "dffd1f2256db3d23d67468bf779890647ed621dbe500f4a0259de08fc78a8327"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/PathUtils.cs",
+          "blob": "b8d0dd409f9f71e5f0569a44dc41855c279b70e8",
+          "sha256": "caa45e9f93c1770f0b9295693334fc7dfade6c8d5efca48fcc092a0073c76f87"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/StreamUtils.cs",
+          "blob": "58ffa2070d8c021cc240c8818a93c400351928b6",
+          "sha256": "d563398350e4c3deafa6a669ae87a01b3ad9c1f888545c64adb57c72f6aaced7"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Core/StringBuilderPool.cs",
+          "blob": "a1121f0cc754430eab00881f8069e1e7d9ab924d",
+          "sha256": "2c490d4915f4663632806ef50d95ef997339b2fdf428b2ed3865ac679031b384"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Encryption/PkzipClassic.cs",
+          "blob": "1c7bd1f287d514f7cfdd5f1c5f88a3d523fadf01",
+          "sha256": "aefa10eb5863ca10e1aad98b646a45a01def6ab262e98185fb8955008edc304a"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Encryption/ZipAESStream.cs",
+          "blob": "346b5484b665a5dcb923bc97397ba6fb7817b996",
+          "sha256": "54939a321a9a211e6620c2296491d75fc0bc98be9d7dae89cec1d52cad79644c"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Encryption/ZipAESTransform.cs",
+          "blob": "32c7b8156fca292f854b54810394ff4372f990e0",
+          "sha256": "4f84c0d69e86ba394d2a80b0599268ede9bbaa8b0ff374520b9ec3269f80a9f6"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/GZip/GZip.cs",
+          "blob": "e7e4763daea84fe444237fe90fbbd688403d5ed6",
+          "sha256": "0e687276b4751dd3ab29085d258a3ddaf2302c2bf634b914d724ca14c1a29136"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/GZip/GZipConstants.cs",
+          "blob": "a59799278a99e001bc91ae1891f1570248ff129c",
+          "sha256": "7dd78d37675ff2732ea025bcc5b3c6989124ef21cf2685cbafa1581888aeaf44"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/GZip/GZipException.cs",
+          "blob": "a0ec6bb51c7a2d71386b0b6e83d25c9c1062cc3b",
+          "sha256": "4439b3a4761f0ebfb96c0e343e6537855b06c09961d61c8565a5f649267d3ee8"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/GZip/GzipInputStream.cs",
+          "blob": "db5aef2da70816aaf298e9c113e4cee475ad88fb",
+          "sha256": "99815e8a96a1f88c2d3120997f53ef8cd8a2ce59e40d3c410b4a53c2cca3e04e"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/GZip/GzipOutputStream.cs",
+          "blob": "d4f1aa4c301b6d4c3caa790d74843cd50058fbb7",
+          "sha256": "c711462fba30380618eb2d2f59a0404b2e71cf5c19efa6592635ba17b14b55ad"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Lzw/LzwConstants.cs",
+          "blob": "88934830fda38c4441509c196deb99015aa5b10f",
+          "sha256": "e63f321d7772445254bc2d15f1b758faaeba553c11c428a0adc061fe7b0cfce8"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Lzw/LzwException.cs",
+          "blob": "1d5c44c3c9b1112f986728310f088387e7d464ea",
+          "sha256": "032c87fcc0c25f47e014f5e6eacaa61c0eead5143f60cb73929a5d1e5fb7d6b3"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Lzw/LzwInputStream.cs",
+          "blob": "1045ef77875f9ce79f613ab2755a3ca335e0eabf",
+          "sha256": "b5402be61ce361963917828e1b87e330e1e1586a5460cd851a8702f78d12e33c"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/InvalidHeaderException.cs",
+          "blob": "9f385e425ab04735e0646a37d7817edd3e01e8e2",
+          "sha256": "6d5fca610dc60ec8b5dbb6ce0a3a45baa1600d5e18117b3fa68d2bcb907ca6be"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarArchive.cs",
+          "blob": "878649017bbfdae3e9ca335a888e59a4684970f2",
+          "sha256": "05dac4ee946b326d20b7bf4e683bff38ec5e76400fff2540b43213b3c9f5013b"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarBuffer.cs",
+          "blob": "a0f9bab80b8b5de2dada2ae9d797d90ff0dffb22",
+          "sha256": "321d6ee51b141920d3bc9a210be4fdcb6ca25c281ff3691de6c9f9066a034040"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarEntry.cs",
+          "blob": "82c81336751bb8b098a3c6b8c66203bc5966cf25",
+          "sha256": "9af0cffc10fcedbd636c580531e95c82568db8349db905a169660489543534f2"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarException.cs",
+          "blob": "9d448ca7d636e82d2d91bccc611110c733b851d1",
+          "sha256": "141e3df6dd4d547ba12320942136507faf29b90c595ee4a3da1d526cca714bcd"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarExtendedHeaderReader.cs",
+          "blob": "b711e6d544aa7a6ceda8229ac2c31141cefe99e7",
+          "sha256": "3029edca8f04d1e90c0e81e71583a9bdb7ddd4dccff980812d91c5fe97bc8e43"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarHeader.cs",
+          "blob": "2ef3777aafc9dce464aa960a8719f81f66dd720e",
+          "sha256": "9bb0833abd2ecd1cbc15217d284e75a56dd715afc747a398ba579987e0f2c0e1"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarInputStream.cs",
+          "blob": "2cd646ae94ad8f0be9aa64773f56b1db2d335c99",
+          "sha256": "e9e4e2c3dad5ea29363e075f4b8dfa843ce81f8de9dc530ef760e4df8ff9428e"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarOutputStream.cs",
+          "blob": "be4f6cc79dd5c013adc6f60d8485a73eddc3168a",
+          "sha256": "167be23d4e5ff6a5cbfce00ac05383b435935e8fc3f34cdffbd2c6cbd7d81243"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Tar/TarStringExtension.cs",
+          "blob": "433c6a424e5a7321fcc8d3b67d2e1434503a0eb8",
+          "sha256": "4d87b12b2cc27e1ec45b609c6b23fa08c92d7f6b6b837ae5b6e77e3f6ec677d4"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/Deflater.cs",
+          "blob": "3dbe98c8d9bdc00fb73d90a75241545ed859ed79",
+          "sha256": "35f7e8dfc6534951279a18ffbe6f08bd60960ebb69414654de57fc306c6338c4"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterConstants.cs",
+          "blob": "b7c7d2a6994bd421d2b9d24d09e5b4a93b401a7c",
+          "sha256": "99386bd2339eb6a45c9c11f1096a038d71f5fd403d8806f7d028711f5d78d983"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterEngine.cs",
+          "blob": "556911c4033cae8cc26fc758131b39d4bc403722",
+          "sha256": "5fbff1bbb0668c50cc9cf78a6757e071eb2b932d395beb0538fad78f786a9e0b"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterHuffman.cs",
+          "blob": "2f71366fca724a2b1f3f69b7dd942d306d733b82",
+          "sha256": "318219fbb9b6dd56b6443024b88c04fa1ed69eb9c952d2a69118559998f45d12"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterPending.cs",
+          "blob": "80d3e2142e34300d07d54ab82579a5c7c21ac62a",
+          "sha256": "a8815ccc4e203b32bf7a2785b6b1b6d204b4e0621ebfb5f8e3cb7d9f29c8e10a"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/Inflater.cs",
+          "blob": "439b4c6010eb548ad995fbd00327ad962de1f87a",
+          "sha256": "03d71ba116df441a962ae11473af40725a0273f6bbec9e14073e84f88f517e44"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/InflaterDynHeader.cs",
+          "blob": "8e0196b11f71a9bb0e8141f6c08f24e28978fc01",
+          "sha256": "6c0e651185f27f4e92d02fa74df2fd4c2fd4b7edcb49781089f9a11c7f808eb2"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/InflaterHuffmanTree.cs",
+          "blob": "ed318824ffe33ee67a18b942b8cf24e55045881b",
+          "sha256": "3529df0ca4eff9a43017e08d89f8295ce052d77086a9f29618e35da88dd522d7"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/PendingBuffer.cs",
+          "blob": "6ed7e4ab8a72c2a2e9f264792620a42d03dcc307",
+          "sha256": "1e3a8d5d1b81ddf24fe05a51644213b259c1dd9d0473f90804ae71fd28f7f5a1"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/DeflaterOutputStream.cs",
+          "blob": "be63c7cfbccb47fa2cc7e6f08f5546e374d05e43",
+          "sha256": "0716809ccb85ddd355aa4d87decef4f322199d824a20602982368c1a3b648c63"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/InflaterInputStream.cs",
+          "blob": "7790474d24a64eaecf6d173da5b5619756b058c2",
+          "sha256": "d5d9b01c88268e9c446955c62d2e622378ccbb7576b5e2e58031ea8cc53215a7"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/OutputWindow.cs",
+          "blob": "d8241c18c20062e32464ebfe4ffc2dd817f6d0b3",
+          "sha256": "88fce20b006a38a7e4b90a227c95988c46ada3d2ae96f6b53e917da9de52e856"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/StreamManipulator.cs",
+          "blob": "aff6a9c6c52529dd7c152acdb5623161c50eb618",
+          "sha256": "5d6dbd9dee806e34a853ab8c6f68d6a1a2cb33148f28c1ad23857f960bd47e94"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/FastZip.cs",
+          "blob": "baa1771cb24efbf3bbbf2a3927e4f6064819997d",
+          "sha256": "920fafbc844c330364d76414c7480754ff8f0e6ff949eb93ced267d7b7e91a49"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/IEntryFactory.cs",
+          "blob": "d7ec181405efbbaedd9226381c6d47942024e8ea",
+          "sha256": "8e71763a08398a185d51be33938d5702900f03eeebf5fd602f15dc1bc20341b7"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/WindowsNameTransform.cs",
+          "blob": "43aa61403634674e7734381a77f09805860ccba5",
+          "sha256": "1824cb5de88a5e59de245b3b770d53e6089b0d182742ba36bd50ea1b4d6bd22f"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipConstants.cs",
+          "blob": "b16fdefdf46d07f88a2afc12454c751b3b22a2fe",
+          "sha256": "b5b14b2be34954c66efff61c9786e7b0aa97dd966ef0cdbd4f2515fa13266ae5"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipEncryptionMethod.cs",
+          "blob": "ed51559cdf6b4717eed84ba28f6bfae7f4bb11c1",
+          "sha256": "3706e136ef95e72ef3bf6a95ac3593e8112468eedb185a54646f3184368c5892"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipEntry.cs",
+          "blob": "b0bf15821bd8fbac9261db2620616025a0668f8c",
+          "sha256": "7d7bb2abf77c57c3d21fbef10f51b8ac633cee701f5705f23fc836d9d023500f"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipEntryExtensions.cs",
+          "blob": "927e94cfe5391fdf4c0b2c4675fa872964230605",
+          "sha256": "d295cb045ba64eb748bbad143149715b8d02123edb44c28fe4e78c59fa8b7472"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipEntryFactory.cs",
+          "blob": "ccbb2696865444836afd624876be13c0d4013547",
+          "sha256": "ed4c3c7fe866dfff9e0a5d3649ea376c1f8ac2abbc43e840ffddbdcdc6132774"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipException.cs",
+          "blob": "ef8142b6543cf59ff9372e397120c41a52ee1b5a",
+          "sha256": "45c59f756a98ffd0cfd10a5a9caf336f565aa34d662b4d1a43d5d7171c4d4b43"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipExtraData.cs",
+          "blob": "cc2e74490fe0c02c711d2d8c54cc109f25ee2fba",
+          "sha256": "7f33d9b6fad578254b0c65e26e54d417a21cf99ab01fb01716b099cf8060bb21"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipFile.cs",
+          "blob": "69bb9f6a90c2c88d00e693dbec3fa90236ead7e4",
+          "sha256": "d2804204259d1018f76ed0fd86ad7e73c0d4e890634b4371d245805df761f823"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipFormat.cs",
+          "blob": "ec63d7943924ed37096d5cc618b0b0471a1d75e0",
+          "sha256": "8bac154a5deb77f0746c53acfea8ca43116c73e4fc257cd8d40582d2e064219e"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipHelperStream.cs",
+          "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipInputStream.cs",
+          "blob": "4d258afc83168531b440ec1a98e4e78be3b522e9",
+          "sha256": "73d45180dc2c23b717303d1bed16b2300b9cb9f89fe6cf61f27f9a62972a88d7"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipNameTransform.cs",
+          "blob": "f91b20c3df6760445e3c339fa26c2fac2f57f0ac",
+          "sha256": "4c83f9a9d878efc1540d96c18c1de3f5219ae6abcf836f834c24442927c89d9a"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipOutputStream.cs",
+          "blob": "2cc36df222e9a1bbf17f4d5987cf7f095c29eac8",
+          "sha256": "51bca38d4f9b905158cff65470c67d9f3b352f377a696eec8f76f471a685f898"
+        },
+        {
+          "path": "src/ICSharpCode.SharpZipLib/Zip/ZipStrings.cs",
+          "blob": "3eab416ef7edc70e883f690fc387546e9af4f807",
+          "sha256": "344b5648d0e5a2f1b75f1468f04216ac0fb03628ff2631e043dd7ee9f1abb488"
+        }
+      ],
+      "sonarqube": {
+        "status": "complete",
+        "scanner": "11.2.1",
+        "compute_task": "c4bd20ee-eb6c-4519-82e8-6c85c8660a34",
+        "analysis_id": "7946123c-2b79-4a11-ae76-faab705d15c8",
+        "indexed_files": 79,
+        "byte_exact_from_server": 0,
+        "issues": 621,
+        "hotspots": 0
+      },
+      "native_files": 79,
+      "native_compiler_context": "missing",
+      "raw_source_readback": {
+        "bom_removed": 18,
+        "cr_normalized": 0,
+        "one_final_lf_added": 79,
+        "one_final_lf_removed": 0,
+        "verbatim": 0
+      },
+      "indexed_file_bytes": {
+        "src/ICSharpCode.SharpZipLib/Checksum/Adler32.cs": {
+          "git_input_sha256": "659c93673e5d13e1f17db211b5dad1b953f16b3c4552df465ad2e7b290bf4ccc",
+          "server_raw_sha256": "046fed6d0c389c4ff7ca975fb7f830be8ebeb3f0a546ad48b138c510102943f6",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/AssemblyInfo.cs": {
+          "git_input_sha256": "0a854aa9fff0314891ee9142e0ab22401649331742d742a3af2f5c36b3c81914",
+          "server_raw_sha256": "1f2bee22e2b670595622c4591e5e8880403e53e64a79118b9631d81d1c1fb5fb",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/ByteOrderUtils.cs": {
+          "git_input_sha256": "96027c5332ffa8f37cb5b3cb6d3958ac69f536eb822e03bddcc4e3d3388c78cb",
+          "server_raw_sha256": "fbbfdda7cae96b21b508a49a177cd83e6294c8f5cf0cc7b9a588410460cb6e45",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/BZip2/BZip2.cs": {
+          "git_input_sha256": "e7f4e9043c646a7ecbb1b99a7665540b8ade2e89f7a23ae925893e968604f30c",
+          "server_raw_sha256": "e192cc74f49917381bb6b7c94d2ddd60c415eef48d7f7f1fff4d61dae3a94ff3",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/BZip2/BZip2Constants.cs": {
+          "git_input_sha256": "ebd1e0a78f63289281be4e3f3a78b62fb23e73b76bd960165465f25108180a2b",
+          "server_raw_sha256": "e1bca8654a71df8d34a8ecf57cc9a7530cd1466cf8ac513fa80646ab3dff01f9",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Checksum/BZip2Crc.cs": {
+          "git_input_sha256": "f443ae2a2c61c14fb822349101e2fd4dd022c964c1164e92d2acf36efff518e9",
+          "server_raw_sha256": "b154bb6b3fe5f3231aff66020f8e33eb61043393523cad2cf6fdd5f18ec237f7",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/BZip2/BZip2Exception.cs": {
+          "git_input_sha256": "8343ff7ca12131525bc5180d3304436d253518d62937613dd22e1ee1d69f799f",
+          "server_raw_sha256": "ad91a938b2d9b3699160a4ef148ea12e9eb3567a9e230a681f77fef935628805",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/BZip2/BZip2InputStream.cs": {
+          "git_input_sha256": "0928a144a7ab3a6e82032924c755f5ec81696bd9272a03d77d678f7cef9c5a43",
+          "server_raw_sha256": "1eb30edd20a882c9df76fbe776037a5cb11674dafcb5b958428b08d368f3373a",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/BZip2/BZip2OutputStream.cs": {
+          "git_input_sha256": "d3b16dd5fe53894b5f14bd049d38c581e3d49d9d5362a0cd4f6995b864921435",
+          "server_raw_sha256": "fe83766dae404281597f267b147232adf94581977070e221418263a49d0769a8",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Checksum/Crc32.cs": {
+          "git_input_sha256": "e6232ddacfae775c68fb21ca0819cfe8e4d09f86b26a0266a6ee166aa3da2ecf",
+          "server_raw_sha256": "1dd7401eefaf79b41d3f9907208fcb3465562b3b1fd605b4afc709c9b5262a22",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Checksum/CrcUtilities.cs": {
+          "git_input_sha256": "b2702630c60632fbfa9f60a565fec79abbac60beb5d619c903ceaabeb593e841",
+          "server_raw_sha256": "8ec860a3cc426536b02b26b2d79edc174b5dc185af7735ca8b9f3e463987855a",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/Deflater.cs": {
+          "git_input_sha256": "35f7e8dfc6534951279a18ffbe6f08bd60960ebb69414654de57fc306c6338c4",
+          "server_raw_sha256": "72373a51694bfd6da21ad0fbc3a3df4d13ce190d5a5676327621e9b39dfd1dbe",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterConstants.cs": {
+          "git_input_sha256": "99386bd2339eb6a45c9c11f1096a038d71f5fd403d8806f7d028711f5d78d983",
+          "server_raw_sha256": "3f35bbda8c7f6ca7057daa976e9cf5ae1a9802f61f5459d8ce0e86daed20144b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterEngine.cs": {
+          "git_input_sha256": "5fbff1bbb0668c50cc9cf78a6757e071eb2b932d395beb0538fad78f786a9e0b",
+          "server_raw_sha256": "7ea474419491ced9649eea5676e44c0b1262540567b7264ad09ce1a166fd379d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterHuffman.cs": {
+          "git_input_sha256": "318219fbb9b6dd56b6443024b88c04fa1ed69eb9c952d2a69118559998f45d12",
+          "server_raw_sha256": "7ad4337fbda36b41203663748e67f87a6344aa84627c427a499e167e210aeacc",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/DeflaterOutputStream.cs": {
+          "git_input_sha256": "0716809ccb85ddd355aa4d87decef4f322199d824a20602982368c1a3b648c63",
+          "server_raw_sha256": "0046a04d6278814bd296024e2f907d004fcfa992a4c38876e42e7fc08ab8a39d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/DeflaterPending.cs": {
+          "git_input_sha256": "a8815ccc4e203b32bf7a2785b6b1b6d204b4e0621ebfb5f8e3cb7d9f29c8e10a",
+          "server_raw_sha256": "01646ab0fa7408cdfa19e5adcd2223833ab5c941e6c4111af6115c2774cb2681",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/EmptyRefs.cs": {
+          "git_input_sha256": "a8f9b91b0fe5e79831abfe9aa82f8e4461bbc42f21cb3e131eafb8afc081b597",
+          "server_raw_sha256": "9cc5af7d7e1b3568ecd4aa0906ca6f8cf5b182a2374e3d319d9f0783de47b2e2",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/ExactMemoryPool.cs": {
+          "git_input_sha256": "3d3ae5dba9f039b8390dd1134fd0116c7c4cf12a2f892de6df5530a7991da99b",
+          "server_raw_sha256": "a9c2b5fedd67cbb9316f8164bc9380f689b374bf6028c297097869529da84660",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/FastZip.cs": {
+          "git_input_sha256": "920fafbc844c330364d76414c7480754ff8f0e6ff949eb93ced267d7b7e91a49",
+          "server_raw_sha256": "b44c939f18e8aee62dbc0dc76dcd5d425303213fdfdfd56ca1e8d7a66b6c1bb4",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/FileSystemScanner.cs": {
+          "git_input_sha256": "d0fac3f42ee16dd816419f713b1d22d9e8db6fc2ec4bd651c59bbe394857ee21",
+          "server_raw_sha256": "f1f4074779e3ebdc89a5b0c3d8b84248410e21cbfb340383a606fe59d8d70e99",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/GZip/GZip.cs": {
+          "git_input_sha256": "0e687276b4751dd3ab29085d258a3ddaf2302c2bf634b914d724ca14c1a29136",
+          "server_raw_sha256": "62dc03886757c1dbe7b5280bd68920793791c9cd01d2a9dad1e8e9beefe34c4b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/GZip/GZipConstants.cs": {
+          "git_input_sha256": "7dd78d37675ff2732ea025bcc5b3c6989124ef21cf2685cbafa1581888aeaf44",
+          "server_raw_sha256": "3ddd84848efb5db2db8df7f1fdc3e4304e053ee53fa10d84793dcfbe3932a3ee",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/GZip/GZipException.cs": {
+          "git_input_sha256": "4439b3a4761f0ebfb96c0e343e6537855b06c09961d61c8565a5f649267d3ee8",
+          "server_raw_sha256": "d7bf1196749ca71fadc542bfca357ef3b6710da3ffa5441029620761ae27ac4d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/GZip/GzipInputStream.cs": {
+          "git_input_sha256": "99815e8a96a1f88c2d3120997f53ef8cd8a2ce59e40d3c410b4a53c2cca3e04e",
+          "server_raw_sha256": "77d1d885750284bf5bb20e020e4ab796000feb87706ac452735d8eacd3cd0b2b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/GZip/GzipOutputStream.cs": {
+          "git_input_sha256": "c711462fba30380618eb2d2f59a0404b2e71cf5c19efa6592635ba17b14b55ad",
+          "server_raw_sha256": "8b4360c47b9b3ffee14bba8668a90c6d8945160b5997d5f506ec63ed5a81bf0b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Checksum/IChecksum.cs": {
+          "git_input_sha256": "32b3d05de60dcf3764142885206200b258be847ca4fd488e32e6dfe068d9270b",
+          "server_raw_sha256": "f9ce71c2bacf97846f2fa853095e6adf870426c145fdac45e68ad665c8c920b0",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/IEntryFactory.cs": {
+          "git_input_sha256": "8e71763a08398a185d51be33938d5702900f03eeebf5fd602f15dc1bc20341b7",
+          "server_raw_sha256": "575032204eac4bfbf7b312948ed7f485df09c470588407373d83918cfb61d6ed",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/INameTransform.cs": {
+          "git_input_sha256": "347399ad3060b3fc71c1eb77e6fed80262254eae4ca4055a4d2bf518066acfa3",
+          "server_raw_sha256": "db411b667e6497c184e579b9934341e6043c440f17bff2da4227a678faa7ebef",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/Inflater.cs": {
+          "git_input_sha256": "03d71ba116df441a962ae11473af40725a0273f6bbec9e14073e84f88f517e44",
+          "server_raw_sha256": "d91026398729a338f8c6f12400098a51e1686555d36738bca6a9fed3f971294b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/InflaterDynHeader.cs": {
+          "git_input_sha256": "6c0e651185f27f4e92d02fa74df2fd4c2fd4b7edcb49781089f9a11c7f808eb2",
+          "server_raw_sha256": "1a9db0f671ba15b0eed7beb1ff9b74890f7b8622aeb516aa15d7416a043f33b1",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/InflaterHuffmanTree.cs": {
+          "git_input_sha256": "3529df0ca4eff9a43017e08d89f8295ce052d77086a9f29618e35da88dd522d7",
+          "server_raw_sha256": "14fd192ff8efed21f42658e73b04a9c325c3aec986e6c91ab2f2e6d10222cdef",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/InflaterInputStream.cs": {
+          "git_input_sha256": "d5d9b01c88268e9c446955c62d2e622378ccbb7576b5e2e58031ea8cc53215a7",
+          "server_raw_sha256": "fe6ab6f340d2ee73a759c0bd7b7625802fb78b6bcd34793bd6896e1a1f94de90",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/InvalidHeaderException.cs": {
+          "git_input_sha256": "6d5fca610dc60ec8b5dbb6ce0a3a45baa1600d5e18117b3fa68d2bcb907ca6be",
+          "server_raw_sha256": "d2d6caa120ae935bfde5a66f8d11868679b4b638cb7247c10dc6cfbb03df503b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/InvalidNameException.cs": {
+          "git_input_sha256": "4c28ab4c3a023b146c09beb54ddc3b289d543b3e142dec482dc8db7127e4c4dd",
+          "server_raw_sha256": "2638ac9494633b9834af35f161521f347ffee3160abf38e6985e20da8a1765c8",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/IScanFilter.cs": {
+          "git_input_sha256": "2c5c97d6c893b49863bc835d91a2e8365394fc87d78b169b1d09229d3c1cb6ce",
+          "server_raw_sha256": "1c4200549c885eb505512deaf9de633815143fb4249741055f2bd8b8f8f063a0",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Lzw/LzwConstants.cs": {
+          "git_input_sha256": "e63f321d7772445254bc2d15f1b758faaeba553c11c428a0adc061fe7b0cfce8",
+          "server_raw_sha256": "4cf5337a032396bfdf47605c0fa90da68858ab4b5ff55a3f3b7b61ad44ebcf93",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Lzw/LzwException.cs": {
+          "git_input_sha256": "032c87fcc0c25f47e014f5e6eacaa61c0eead5143f60cb73929a5d1e5fb7d6b3",
+          "server_raw_sha256": "8096e90b3f5ec8913c4c114f0e5ce0a7e1bcabee83627b788f2f266802265ef2",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Lzw/LzwInputStream.cs": {
+          "git_input_sha256": "b5402be61ce361963917828e1b87e330e1e1586a5460cd851a8702f78d12e33c",
+          "server_raw_sha256": "3cdd5ac5cd2da26ce87e0b5100b04da9f186ce310aa191ab1ad1bb51879d62d0",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/NameFilter.cs": {
+          "git_input_sha256": "889ac0e835219127c62be71143e7677b4fdde60b8ee2f8383a3216509a09ef93",
+          "server_raw_sha256": "e23bab4f7b5b193dd93ff036743cd1bd38f1cd55a4707a33fd3d465844ed3e59",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/OutputWindow.cs": {
+          "git_input_sha256": "88fce20b006a38a7e4b90a227c95988c46ada3d2ae96f6b53e917da9de52e856",
+          "server_raw_sha256": "c4423e38e9b20af521db499ca816cb80f25f976e8aa86ee50caabb482dc3b495",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/PathFilter.cs": {
+          "git_input_sha256": "dffd1f2256db3d23d67468bf779890647ed621dbe500f4a0259de08fc78a8327",
+          "server_raw_sha256": "1042be74dbb67da6848d2d3c8f4ea7d6ce4aab76ffbff050ea9bd20269148444",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/PathUtils.cs": {
+          "git_input_sha256": "caa45e9f93c1770f0b9295693334fc7dfade6c8d5efca48fcc092a0073c76f87",
+          "server_raw_sha256": "fd01fe37374faa902e923d95bf9b708529f16e17679a8712b5b0937775070fda",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/PendingBuffer.cs": {
+          "git_input_sha256": "1e3a8d5d1b81ddf24fe05a51644213b259c1dd9d0473f90804ae71fd28f7f5a1",
+          "server_raw_sha256": "e979475e099bab72518fa2baaae34d9a9f3f12978c3271b3100e666ade41c99e",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Encryption/PkzipClassic.cs": {
+          "git_input_sha256": "aefa10eb5863ca10e1aad98b646a45a01def6ab262e98185fb8955008edc304a",
+          "server_raw_sha256": "e8c81f9640d22de7f25933c8d686238b1fae8b5e21da65c0f1ad3f853f0bf5ba",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/Exceptions/SharpZipBaseException.cs": {
+          "git_input_sha256": "1824f4fb34890a1cb4a8c292f78a910cf8199ab6aa3bdf850aed9292a119a38e",
+          "server_raw_sha256": "db5edcafb7884b5552ee5051c962a9cffe090b2b854ce6251a057c349a86610c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/Exceptions/StreamDecodingException.cs": {
+          "git_input_sha256": "8f62c5cfd77d9ed6295f362ad950f71b94d501285fd83fa5b3a581d1403f6f46",
+          "server_raw_sha256": "c673cc4aa78fd92d1c78a1af1368ecd9246fdb7f2d60acc30294216c860c4dfc",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/Compression/Streams/StreamManipulator.cs": {
+          "git_input_sha256": "5d6dbd9dee806e34a853ab8c6f68d6a1a2cb33148f28c1ad23857f960bd47e94",
+          "server_raw_sha256": "d25f755c6ab38b9c559e36ae09d90e4e5e02950adf328ba8db457976e99e5a66",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/Exceptions/StreamUnsupportedException.cs": {
+          "git_input_sha256": "fc632022e5c44c7524a8cc900e77938373c161d15b094832c28c99edf1ac77fa",
+          "server_raw_sha256": "e7984e1a77d23f2383ef376c066d06f052c280f733ea0b913a720e84883dd6a5",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/StreamUtils.cs": {
+          "git_input_sha256": "d563398350e4c3deafa6a669ae87a01b3ad9c1f888545c64adb57c72f6aaced7",
+          "server_raw_sha256": "eb29b17052708b2af84982731b268a702faf38fd02ea69b50079883f650a68cd",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/StringBuilderPool.cs": {
+          "git_input_sha256": "2c490d4915f4663632806ef50d95ef997339b2fdf428b2ed3865ac679031b384",
+          "server_raw_sha256": "4bceaa5a88d2babfd31137e7385864b6a36b5c45ceaaad62163af710ccb5079e",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarArchive.cs": {
+          "git_input_sha256": "05dac4ee946b326d20b7bf4e683bff38ec5e76400fff2540b43213b3c9f5013b",
+          "server_raw_sha256": "9cdb55b5d5930c84a0a5c9efab9290025f43169b32e6d098e4c9ba9414b310a5",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarBuffer.cs": {
+          "git_input_sha256": "321d6ee51b141920d3bc9a210be4fdcb6ca25c281ff3691de6c9f9066a034040",
+          "server_raw_sha256": "ec259bf690b22fd827afa6fbb1fb4567e980010ac2bfc49b20c6995b3a840f4e",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarEntry.cs": {
+          "git_input_sha256": "9af0cffc10fcedbd636c580531e95c82568db8349db905a169660489543534f2",
+          "server_raw_sha256": "dcdda32659ef2271fa35fc03c3e3987678cbed7f1b26699087a6d389bfed67d6",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarException.cs": {
+          "git_input_sha256": "141e3df6dd4d547ba12320942136507faf29b90c595ee4a3da1d526cca714bcd",
+          "server_raw_sha256": "23b1cb178d5a0799c6c870ed45bb068fa1feb7f5972c5aa7a1324a8031f11777",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarExtendedHeaderReader.cs": {
+          "git_input_sha256": "3029edca8f04d1e90c0e81e71583a9bdb7ddd4dccff980812d91c5fe97bc8e43",
+          "server_raw_sha256": "f027d13007aa42460a5c2154f685e268014b0ceb624dd462f962adae05847124",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarHeader.cs": {
+          "git_input_sha256": "9bb0833abd2ecd1cbc15217d284e75a56dd715afc747a398ba579987e0f2c0e1",
+          "server_raw_sha256": "e082b8bd27e5200c1abf1caa3eb9026b1828635cce8e5a178f31a7ba21f4ca1c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarInputStream.cs": {
+          "git_input_sha256": "e9e4e2c3dad5ea29363e075f4b8dfa843ce81f8de9dc530ef760e4df8ff9428e",
+          "server_raw_sha256": "a5c8678713392d903385d1f90e32cec81dae0ab965be980850ca249eb08b3629",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarOutputStream.cs": {
+          "git_input_sha256": "167be23d4e5ff6a5cbfce00ac05383b435935e8fc3f34cdffbd2c6cbd7d81243",
+          "server_raw_sha256": "a4799069f4dfc05a95ceabe9006166662542a8833986c96816ed7ab4a07f04bd",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Tar/TarStringExtension.cs": {
+          "git_input_sha256": "4d87b12b2cc27e1ec45b609c6b23fa08c92d7f6b6b837ae5b6e77e3f6ec677d4",
+          "server_raw_sha256": "5fb743a1985e33d6b268d732028730c3c265e80a47a4f9b18495bde4be35d569",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/Exceptions/UnexpectedEndOfStreamException.cs": {
+          "git_input_sha256": "fa3c4aa88f887ea66b2c2f47228b56f8440862913da9f5de17f424ff7d7d7b47",
+          "server_raw_sha256": "ac0cb005db22536945a08e826f54e4676765e21d02ac9cfc5f8509d6e0d08604",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Core/Exceptions/ValueOutOfRangeException.cs": {
+          "git_input_sha256": "ba3938db192c344ca9a383969ee856de254306c195fbd46ec4a2526b01964384",
+          "server_raw_sha256": "5d76dc891f8efea726cd5ede4344c4a3603bca816cf42645d601e960691d19ca",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/WindowsNameTransform.cs": {
+          "git_input_sha256": "1824cb5de88a5e59de245b3b770d53e6089b0d182742ba36bd50ea1b4d6bd22f",
+          "server_raw_sha256": "a375a4ace844e7d888852016458bb6ad176ec6087eb7124bd43d7da3b28b00aa",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Encryption/ZipAESStream.cs": {
+          "git_input_sha256": "54939a321a9a211e6620c2296491d75fc0bc98be9d7dae89cec1d52cad79644c",
+          "server_raw_sha256": "012a8dd753dc88164b64e1a728ee63cabd1d2a1df9b65d305f8c4a2c31152dbb",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Encryption/ZipAESTransform.cs": {
+          "git_input_sha256": "4f84c0d69e86ba394d2a80b0599268ede9bbaa8b0ff374520b9ec3269f80a9f6",
+          "server_raw_sha256": "a5d62660d81eeba4f1d63210605b932482e4ed96c2b8a7bb5d59fd33f60227b7",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipConstants.cs": {
+          "git_input_sha256": "b5b14b2be34954c66efff61c9786e7b0aa97dd966ef0cdbd4f2515fa13266ae5",
+          "server_raw_sha256": "b5671aff4ce7cb6830ba57f9aca49600445685c3b3c77e23b477e681ae823e94",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipEncryptionMethod.cs": {
+          "git_input_sha256": "3706e136ef95e72ef3bf6a95ac3593e8112468eedb185a54646f3184368c5892",
+          "server_raw_sha256": "ccd485f729de398104778553c5a4ba6b4723e251f850771f7c3604a9130f5dec",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipEntry.cs": {
+          "git_input_sha256": "7d7bb2abf77c57c3d21fbef10f51b8ac633cee701f5705f23fc836d9d023500f",
+          "server_raw_sha256": "04e92dea43673555407f728623866f195df608efb40c1ee1195f5458c81e98cd",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipEntryExtensions.cs": {
+          "git_input_sha256": "d295cb045ba64eb748bbad143149715b8d02123edb44c28fe4e78c59fa8b7472",
+          "server_raw_sha256": "1c9887d4b3569bc813f16a75f2f74e20f8c8d7e33db92098e1f641dc5bf4ceee",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipEntryFactory.cs": {
+          "git_input_sha256": "ed4c3c7fe866dfff9e0a5d3649ea376c1f8ac2abbc43e840ffddbdcdc6132774",
+          "server_raw_sha256": "b597b209315e480b911465d42499607872fd1b30129ce1a803fb83b7f7f77a3c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipException.cs": {
+          "git_input_sha256": "45c59f756a98ffd0cfd10a5a9caf336f565aa34d662b4d1a43d5d7171c4d4b43",
+          "server_raw_sha256": "d55f4f8977acb55fa05de8e4bdfed6476d080b496476bbc6f9f47f2392c2d248",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipExtraData.cs": {
+          "git_input_sha256": "7f33d9b6fad578254b0c65e26e54d417a21cf99ab01fb01716b099cf8060bb21",
+          "server_raw_sha256": "fdcb2097d6a9b573a988eb016937fce769878b5456b691e1519004af96b2587b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipFile.cs": {
+          "git_input_sha256": "d2804204259d1018f76ed0fd86ad7e73c0d4e890634b4371d245805df761f823",
+          "server_raw_sha256": "66a20ba810a9a3dd28bf4e44f09ca4b13dfb098bd60ddfbf50885a3ae3dc2f01",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipFormat.cs": {
+          "git_input_sha256": "8bac154a5deb77f0746c53acfea8ca43116c73e4fc257cd8d40582d2e064219e",
+          "server_raw_sha256": "64e39ed9b560f5cff004a35c6384c5de49268ea987e0c46c2e7caeaf377f1da9",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipHelperStream.cs": {
+          "git_input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "server_raw_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipInputStream.cs": {
+          "git_input_sha256": "73d45180dc2c23b717303d1bed16b2300b9cb9f89fe6cf61f27f9a62972a88d7",
+          "server_raw_sha256": "7430b48eeea15e8f5d1df5164c5548d58efac5102a98081744396aa8dadd26df",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipNameTransform.cs": {
+          "git_input_sha256": "4c83f9a9d878efc1540d96c18c1de3f5219ae6abcf836f834c24442927c89d9a",
+          "server_raw_sha256": "fa1039857edc7a41a51b63fa19bc629d2fcb429c0004f4689e9f39b185a9875d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipOutputStream.cs": {
+          "git_input_sha256": "51bca38d4f9b905158cff65470c67d9f3b352f377a696eec8f76f471a685f898",
+          "server_raw_sha256": "428d0fd737c18de9aa6d05caae4535521b232e48269004ef775950e5cb8eb692",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/ICSharpCode.SharpZipLib/Zip/ZipStrings.cs": {
+          "git_input_sha256": "344b5648d0e5a2f1b75f1468f04216ac0fb03628ff2631e043dd7ee9f1abb488",
+          "server_raw_sha256": "c2c27ddf4e5c00e7ce0351d6f25feb38f38092e581dded4b1e4107303c3bc083",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        }
+      },
+      "not_indexed_by_sonarqube": [],
+      "comparison": "same_source_files",
+      "shared_parameters_primary_findings": {
+        "matched": 451,
+        "native_only": 271,
+        "reference_only": 167
+      }
+    },
+    "stateless": {
+      "repository": "dotnet-state-machine/stateless",
+      "ref": "v5.20.1",
+      "commit": "523efd6225cf60b0eb85f0862cdd006a47962da8",
+      "tree": "fa7b11a261e48e2988f3dc016926867108a541f7",
+      "compile_source_root": "src/Stateless",
+      "defines": [
+        "TASKS",
+        "NET",
+        "NET10_0",
+        "NET10_0_OR_GREATER"
+      ],
+      "minimal_project_sha256": "1f8782be21da2b7fda74025741dd8be86f44e5e83cc438517ce6c02011bf408e",
+      "compile_files": [
+        {
+          "path": "src/Stateless/ActivateActionBehaviour.cs",
+          "blob": "af012496fe6fd6aa1926dbd94c76fba0a4febd5c",
+          "sha256": "1213d9ff93406379371b869457c59c91d3a40d54174a0fa467b39ee0d90dbd42"
+        },
+        {
+          "path": "src/Stateless/DeactivateActionBehaviour.cs",
+          "blob": "6f2bd5886866758e62c3636a95582226935010e8",
+          "sha256": "09765a2b5a5c1be40837ced23e8be0834767cd7b98d4582730a8268e19a3239b"
+        },
+        {
+          "path": "src/Stateless/DynamicTriggerBehaviour.Async.cs",
+          "blob": "6f3ad8dcf35bd17f034a7e27782a3eb813132012",
+          "sha256": "66fea160ea619bab0ddad8291e0234a20cc67cf5ffb382765ebe2d0c20464e4c"
+        },
+        {
+          "path": "src/Stateless/DynamicTriggerBehaviour.cs",
+          "blob": "ed694f9ef3cfc124825b367af5b0464dd1242e9b",
+          "sha256": "cf73303ce7172c18adbcf808c8e99a04c16c5e0c14657d5aa16e1b67b1b1b503"
+        },
+        {
+          "path": "src/Stateless/EntryActionBehaviour.cs",
+          "blob": "8023cebc9b6e152acd0dbf5e21e37f71d1cbfb9b",
+          "sha256": "1e22b0c1f3d3de648312d83315cf18c9d7217e910de82f2910cb8908359c11d9"
+        },
+        {
+          "path": "src/Stateless/ExitActionBehaviour.cs",
+          "blob": "71f58764c2503be07e193836a3792cb5b2034b9b",
+          "sha256": "9fd9a0ea801c3ac7298bf4b242bcebd534fefdcdea6285766c5c33e1124b6443"
+        },
+        {
+          "path": "src/Stateless/Graph/Decision.cs",
+          "blob": "c55e96bdd2737479dc05d2adc485c68c3f7788ab",
+          "sha256": "8a9d5f1336f362c749043ef6bcc1ab236898ffb568903049f4bd17898d668e9d"
+        },
+        {
+          "path": "src/Stateless/Graph/GraphStyleBase.cs",
+          "blob": "881a5d36b9d2007f85772e60a9e94ee6527db7ef",
+          "sha256": "935086c964ecac14673a3e271041d79fbe90f36b2cbe0c265c08f367d2685f73"
+        },
+        {
+          "path": "src/Stateless/Graph/MermaidGraph.cs",
+          "blob": "c3d99fff7954cd1450f75375b84e68af57822de9",
+          "sha256": "d436df4e964bfe6ab02322b795e3fde9131ae3fb17e604f5f6fe91ab94e41201"
+        },
+        {
+          "path": "src/Stateless/Graph/MermaidGraphDirection.cs",
+          "blob": "344d681084602eeea17697256d709caf78af66d7",
+          "sha256": "b75b59b23966c8a2f35c10d39699b36928b591c4629462b1f6383babe79cf75a"
+        },
+        {
+          "path": "src/Stateless/Graph/MermaidGraphStyle.cs",
+          "blob": "90eefe1849fc92c75b32878c61cce9fbdb18d0fd",
+          "sha256": "e28f1de446b7672aa21b1f4b96d10d7f90ccd012ede80d6030e13fe75611d24a"
+        },
+        {
+          "path": "src/Stateless/Graph/State.cs",
+          "blob": "01e52474037e3876bc75806ecef1ddf4600ad800",
+          "sha256": "2f72752c55c39615f74966a4f3b5c1200b9918db37907cd50a5e34d7b5c194dc"
+        },
+        {
+          "path": "src/Stateless/Graph/StateGraph.cs",
+          "blob": "29884e2c83953b649cfb41988dd45254743ba3a7",
+          "sha256": "f42ceefc5fcc76fedae0135938019134b00a0e19f673b777f434e42cd8a9c955"
+        },
+        {
+          "path": "src/Stateless/Graph/SuperState.cs",
+          "blob": "5f4a59325e802f0ad9a37e46db6ef862e41bd152",
+          "sha256": "54b68e79a70eb1c4e17bf4a52f22f9d7f8aa8e90fa811ec6d2d6c3f4231c7f09"
+        },
+        {
+          "path": "src/Stateless/Graph/Transition.cs",
+          "blob": "45794075135baf967145e8beafe1a2330a5db586",
+          "sha256": "9383468cc4bd1e88ac8b1792ddb86a7ba2465ffcf1e7de022ca115074db825d8"
+        },
+        {
+          "path": "src/Stateless/Graph/UmlDotGraph.cs",
+          "blob": "5b3b11e1a68741d7526c2f79bd3b8c1f9d58f7cc",
+          "sha256": "0eb4f0110ea84e1f787763f83d7f4edbc83ce4a8287fefc185415a98a77470bd"
+        },
+        {
+          "path": "src/Stateless/Graph/UmlDotGraphStyle.cs",
+          "blob": "5a9d36145c737a36a40ffbb23fb438f9e2c684d5",
+          "sha256": "57268a4c7b5fafec97fff9f8dce29af9352e7caec965e55119396e321ccb59d8"
+        },
+        {
+          "path": "src/Stateless/GuardCondition.cs",
+          "blob": "1a4b23207c4a2db82fb8053783bf2c6b2bb60018",
+          "sha256": "36c82ed73af367347f25ae04b993552af08271ecaff7d71ab07ef0c3eb5d7f25"
+        },
+        {
+          "path": "src/Stateless/GuardConditionAsync.cs",
+          "blob": "a4767cadc5124c5bb7d3feecd8e6b64d41fe6cff",
+          "sha256": "b2f4d4be5221eac0f83b261484909d1f1ab5565a371be46b6bd6ea5f78788244"
+        },
+        {
+          "path": "src/Stateless/IgnoredTriggerBehaviour.cs",
+          "blob": "cb396f1ec6ab46f385b3e7426ddd08a3400aabcd",
+          "sha256": "f1de3a499a5dfc9dbdb6dd18f1793ed558fd30016a1bdcbc997dd5cf8b6e7baf"
+        },
+        {
+          "path": "src/Stateless/InternalActionBehaviour.cs",
+          "blob": "11e6d5e0913602915189ef8648ca063355c7ace1",
+          "sha256": "22f513ef158cf6ed473efffd224fcc7576ab8211c0e3bede8cea723619288e83"
+        },
+        {
+          "path": "src/Stateless/InternalTriggerBehaviour.cs",
+          "blob": "328ef769970e650dcdfbb76bd91f798044e8713b",
+          "sha256": "0523d16330c73de4705ca0ef6fe0bcede5b4cc0c7e7b0741a3494f0cc26cc0ab"
+        },
+        {
+          "path": "src/Stateless/OnTransitionedEvent.cs",
+          "blob": "4faea346250ecf3f025528f734b55b33e8a4c807",
+          "sha256": "9308bb869bafc1f37b26d3248a81cd17287a86e47958fd652f5ddce21e458246"
+        },
+        {
+          "path": "src/Stateless/ParameterConversion.cs",
+          "blob": "631390dbefd56a2f5a95c6c287d782346fb95d5e",
+          "sha256": "e9d5ee41165dcc2dc8fe423721cc2464d0b0f2edec02e0dd360b531d1ca1191a"
+        },
+        {
+          "path": "src/Stateless/ParameterConversionResources.Designer.cs",
+          "blob": "4d39085f04b2b60488d37897a12c18159fc6e8f9",
+          "sha256": "4ec58e4739d6c3fc62d316e7890759928c9cc95fdcc5e01bed35cacea65e446a"
+        },
+        {
+          "path": "src/Stateless/Properties/AssemblyInfo.cs",
+          "blob": "6bc66e010a22c94ae510da77bfb7bbdf3639953e",
+          "sha256": "703920ef4ce88dbd4646442b349432801b56696eb0896b1010fa8de819eed6b1"
+        },
+        {
+          "path": "src/Stateless/ReentryTriggerBehaviour.async.cs",
+          "blob": "c7848e3505cf2ee167117ff9bad9eb3a5eff190e",
+          "sha256": "aa152402f773e104acbd3f88f9f0211c3622052ffead78f6cd47a8afe85af2a7"
+        },
+        {
+          "path": "src/Stateless/ReentryTriggerBehaviour.cs",
+          "blob": "95df24e97c06fb8b574c6d52fdfdc29b724fb879",
+          "sha256": "69f86783123eac5dc5d6a8d1df9f05480a190391d64db8dcdb9855924ec59fb8"
+        },
+        {
+          "path": "src/Stateless/Reflection/ActionInfo.cs",
+          "blob": "cf0391a959f1830aa9c473bad776f14154c6a3ef",
+          "sha256": "850e36edd51b53d1c4acd7ef1a2ec153817bb24d0f11bbee1221b9cbace13946"
+        },
+        {
+          "path": "src/Stateless/Reflection/DynamicTransitionInfo.cs",
+          "blob": "ca12090ab95bc02f55d78fe5802c5d5e73dc803d",
+          "sha256": "7c68b6a97a90f6130f5de32e35ab826903b4800045503eacaa0aec2dbbfa2909"
+        },
+        {
+          "path": "src/Stateless/Reflection/FixedTransitionInfo.cs",
+          "blob": "acd468969467848fd637b5490bec551acca99eef",
+          "sha256": "c9313334d8cd76680b5096d3d48acacaf44568f3db38fb5ebad7206023271983"
+        },
+        {
+          "path": "src/Stateless/Reflection/IgnoredTransitionInfo.cs",
+          "blob": "476078814ad376b9b42d3cc0d7c542540e77c242",
+          "sha256": "04b3a7158bcad39d5b17b7262412554985c10ee790d39e95f24ebff21ad725b4"
+        },
+        {
+          "path": "src/Stateless/Reflection/InvocationInfo.cs",
+          "blob": "3dfb62d9272eb1c896f701380ec7be8f46d60bb2",
+          "sha256": "1a591467368796f1111ce1c673f74a6515319ceb2bd1d61eac846ebc2e51d268"
+        },
+        {
+          "path": "src/Stateless/Reflection/StateInfo.cs",
+          "blob": "0f1c1ed8ed399d291fe9a518d49d8f6699c619d9",
+          "sha256": "cbd3c6f48d63d608f40241d5116409e37cba52f89b491dd945a9476f06c035e8"
+        },
+        {
+          "path": "src/Stateless/Reflection/StateMachineInfo.cs",
+          "blob": "ff4a1f44e56b4e6a63423a30af8704af3ecb540d",
+          "sha256": "76fd13cf44277e2f52b1ce5076400a675156370215cecf324abac0c082a0ade5"
+        },
+        {
+          "path": "src/Stateless/Reflection/TransitionInfo.cs",
+          "blob": "75ef13676285c31d3d1950dd583bc19125ec2a53",
+          "sha256": "784d14385667d2fb4e6f4f6fe8586f8a364969f1155b0ddd499090f8e6f37145"
+        },
+        {
+          "path": "src/Stateless/Reflection/TriggerInfo.cs",
+          "blob": "74b9334db1c6202c09fbf845293b807fb2dc30cb",
+          "sha256": "6efe8fb50bf7073ff97496b099d858e6fd34978cd63a5871054c430a07423656"
+        },
+        {
+          "path": "src/Stateless/SpecialConstants.cs",
+          "blob": "7b7a37b722d29eb06fbf84bfad099c66d640fdb5",
+          "sha256": "f0efee5cd31c6e89fb248063e155d54fb40e4f1bcf52c98a3a70de600de7cd7c"
+        },
+        {
+          "path": "src/Stateless/StateConfiguration.Async.cs",
+          "blob": "8cc3950f93d8c2f6298daa8fd26982e7aa126410",
+          "sha256": "5dc6795e60e7caac393b1b7068232d9315b08f8ba3648786b2db35e64b2c2678"
+        },
+        {
+          "path": "src/Stateless/StateConfiguration.cs",
+          "blob": "cb35f4bec974f110254cea73d55be5d410613a29",
+          "sha256": "dead00af0fe63cb2ae67385f4c17eac73399b71e2b9a51645be02b368c96d0e0"
+        },
+        {
+          "path": "src/Stateless/StateConfigurationResources.Designer.cs",
+          "blob": "2eb924f55426db652a2cad964c4382b435b98155",
+          "sha256": "6be1b6daaf0a1a9fae2f54fc5c4e698707a2ddfca8e587d10c6364572de17c67"
+        },
+        {
+          "path": "src/Stateless/StateMachine.Async.cs",
+          "blob": "685c751ef44f5323820b33e935e9c54e6eb5cc03",
+          "sha256": "f5ab465fd67a425f22b1143ea45c6c0e5d56baaab375cdc5a3ab6f82ca3a3e99"
+        },
+        {
+          "path": "src/Stateless/StateMachine.cs",
+          "blob": "999297e2c055f15c68de6c651618c0bbb4161257",
+          "sha256": "56940cdeb16d86b093577fec65a37c7fd2c2199ea94eb6fdbeabe666394f4bd7"
+        },
+        {
+          "path": "src/Stateless/StateMachineResources.Designer.cs",
+          "blob": "4fb031959f1eba0a5aed9743203ae54ea0840eca",
+          "sha256": "401bd8987d62436194c7004f4b773c1f026dfa1e6b93296e9ba69610112872e4"
+        },
+        {
+          "path": "src/Stateless/StateReference.cs",
+          "blob": "b9aa35b0ca9956c55834d3db626b5a5b79bc6dcc",
+          "sha256": "e3257684a25eff6a76dd8b179b8a4312295d007ca9b700216fef11f017132fff"
+        },
+        {
+          "path": "src/Stateless/StateRepresentation.Async.cs",
+          "blob": "e46bc5446966864ba996f823fb55dbf604490f8c",
+          "sha256": "5b428c05bbe79593fe514fc48f6a7ea85211c51afb16d80d190491615b3bde34"
+        },
+        {
+          "path": "src/Stateless/StateRepresentation.cs",
+          "blob": "dafc2b17c3945e98a0969ac8b5e1f980d6805f2a",
+          "sha256": "3e7156d202bc1bf1a1031871072220826c99d63a192e29e0bfbcca04e249f42c"
+        },
+        {
+          "path": "src/Stateless/StateRepresentationResources.Designer.cs",
+          "blob": "f3fdb295ccc2a486682e0921f6f8a79bb6a17a58",
+          "sha256": "763bda40678a758af75bfc69f938d556972b351f518eed033fcbf23c56f423bf"
+        },
+        {
+          "path": "src/Stateless/TaskResult.cs",
+          "blob": "aa201f527a56bd80b119c54d94c8721d47513ab9",
+          "sha256": "2460de161dfd7eec2bdc6dc5a2b7f7bfc2391b2575e6e75c1939d7081c50d73b"
+        },
+        {
+          "path": "src/Stateless/Transition.cs",
+          "blob": "c9a8a42a6dbc9476d7b9ad3ae59e93c7e3403f5a",
+          "sha256": "47d59b98fcd2f6c850672e8f454a486d5d630b403540efece1d94466607a7d34"
+        },
+        {
+          "path": "src/Stateless/TransitionGuard.async.cs",
+          "blob": "8defa1aaf69aaa5810fcd075cf41dfb5b37d7de0",
+          "sha256": "61add4b54b9badd0b4293ce7918d6a70498b9ca8126801dbe935b52f4d3fa1e5"
+        },
+        {
+          "path": "src/Stateless/TransitionGuard.cs",
+          "blob": "2b9dbf2b0af391309134f9780936667f66f239ca",
+          "sha256": "be2397fb289b2037a86f0c3958daa3d4687b2fd85072a0243ee4291230ff1890"
+        },
+        {
+          "path": "src/Stateless/TransitioningTriggerBehaviour.async.cs",
+          "blob": "634eedd2bb6ca037f9848433a67f9ba6bcad27fd",
+          "sha256": "2245287f8b668eba767db8c0b597c4b4d260586dbc6c9ee2da65b1579f8b68ac"
+        },
+        {
+          "path": "src/Stateless/TransitioningTriggerBehaviour.cs",
+          "blob": "417a8cf20ac53b02d175a18ac49a6102435bdb71",
+          "sha256": "9fda4dadc52fd8ae0376f280f803bd19d534444574c2c4b690fc6f7972e094ab"
+        },
+        {
+          "path": "src/Stateless/TriggerBehaviour.async.cs",
+          "blob": "ceaebf232bd10ef7bf250d247acb1ad765ab3b54",
+          "sha256": "492865884512f53c0e456ebbf0fc1866d24ca52dcf4cb27c7c29d9610e42685e"
+        },
+        {
+          "path": "src/Stateless/TriggerBehaviour.cs",
+          "blob": "fe05e7eedbc32542ec477f9028345119f6491749",
+          "sha256": "2d6940784413053f00f62f8d7cd139875f9a6d2129f4bb8406e7592d4388dd7a"
+        },
+        {
+          "path": "src/Stateless/TriggerBehaviourResult.cs",
+          "blob": "35cd9a389f1d8dc5c01778d0163be1e399967ad7",
+          "sha256": "a235d62176a39725883ebdeb5d2e3eeca47f5407ddede09c7c46e3cc9d6fc768"
+        },
+        {
+          "path": "src/Stateless/TriggerDetails.cs",
+          "blob": "af7b41757eff37531ed50876971fd16f39d8141e",
+          "sha256": "7dd158d6b6a7969d6ef0457007a27df03ab4c35a8254d9a8149d4f9f2ef52bff"
+        },
+        {
+          "path": "src/Stateless/TriggerWithParameters.cs",
+          "blob": "5bffcc3b9ee323b1fb9e6bc1eccdd878c3f59f18",
+          "sha256": "bbc8d323a99307c43ef83fc999d2b64916bc89618415b8f3577787b5b088b13e"
+        },
+        {
+          "path": "src/Stateless/UnhandledTriggerAction.cs",
+          "blob": "52a40d9006ea55443e9ca2bc0cd57cf7dd0c2a42",
+          "sha256": "79ccfc794ecee1d80ddd1f5f99949a95a29fec2b6828beef0c1e6189d3d0767e"
+        }
+      ],
+      "sonarqube": {
+        "status": "complete",
+        "scanner": "11.2.1",
+        "compute_task": "aa372166-5152-4a18-8001-b9fa6ee74347",
+        "analysis_id": "bba2e8ac-c3a9-45e2-8ae8-d35b62625302",
+        "indexed_files": 56,
+        "byte_exact_from_server": 0,
+        "issues": 58,
+        "hotspots": 0
+      },
+      "native_files": 60,
+      "native_compiler_context": "missing",
+      "raw_source_readback": {
+        "bom_removed": 51,
+        "cr_normalized": 0,
+        "one_final_lf_added": 56,
+        "one_final_lf_removed": 0,
+        "verbatim": 0
+      },
+      "indexed_file_bytes": {
+        "src/Stateless/Reflection/ActionInfo.cs": {
+          "git_input_sha256": "850e36edd51b53d1c4acd7ef1a2ec153817bb24d0f11bbee1221b9cbace13946",
+          "server_raw_sha256": "3633405c71cabc0da0b585ffb83086bc53e1b5d062c9b981f44ea3e3ba2c66c1",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/ActivateActionBehaviour.cs": {
+          "git_input_sha256": "1213d9ff93406379371b869457c59c91d3a40d54174a0fa467b39ee0d90dbd42",
+          "server_raw_sha256": "86bec77bf72fb228c3340a84bc00edf220b4fc357fd9d4037621b63187b6c05c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Properties/AssemblyInfo.cs": {
+          "git_input_sha256": "703920ef4ce88dbd4646442b349432801b56696eb0896b1010fa8de819eed6b1",
+          "server_raw_sha256": "a9a68b572a467cb46c65f81f1a4850ccf85d90e2647c21763d6610e5e4463305",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/DeactivateActionBehaviour.cs": {
+          "git_input_sha256": "09765a2b5a5c1be40837ced23e8be0834767cd7b98d4582730a8268e19a3239b",
+          "server_raw_sha256": "43737bfa4c518cdf0179b84f3102b4e24b297a29e74d576f0bb3bdce21ccce93",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/Decision.cs": {
+          "git_input_sha256": "8a9d5f1336f362c749043ef6bcc1ab236898ffb568903049f4bd17898d668e9d",
+          "server_raw_sha256": "87712104cca977c5ef1622a4747a427d0c9540289b1ea7a5b8b4ad1b278cf589",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/DynamicTransitionInfo.cs": {
+          "git_input_sha256": "7c68b6a97a90f6130f5de32e35ab826903b4800045503eacaa0aec2dbbfa2909",
+          "server_raw_sha256": "acb42ff30bba2d05c92a1bd4a8b386aef0735e3ad93b7fd28848c660315fda63",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/DynamicTriggerBehaviour.Async.cs": {
+          "git_input_sha256": "66fea160ea619bab0ddad8291e0234a20cc67cf5ffb382765ebe2d0c20464e4c",
+          "server_raw_sha256": "bde6697ce7cccb3fe0c20651a946fd22f7ed5d4da6f3fb16a37f48e352432a59",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/DynamicTriggerBehaviour.cs": {
+          "git_input_sha256": "cf73303ce7172c18adbcf808c8e99a04c16c5e0c14657d5aa16e1b67b1b1b503",
+          "server_raw_sha256": "30254f43f64eec113ee4861fa82acb271e4de0b85b25cedd42cfdf1ad5915628",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/EntryActionBehaviour.cs": {
+          "git_input_sha256": "1e22b0c1f3d3de648312d83315cf18c9d7217e910de82f2910cb8908359c11d9",
+          "server_raw_sha256": "fed43ee7cd19bd5f6468fcfb000438f0c3f22da97d23325aa75f44f952ddfd90",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/ExitActionBehaviour.cs": {
+          "git_input_sha256": "9fd9a0ea801c3ac7298bf4b242bcebd534fefdcdea6285766c5c33e1124b6443",
+          "server_raw_sha256": "bc20dc13a2c4c63702ea5a718c7877f6764d9d16473b31f3996c72160c52c8dc",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/FixedTransitionInfo.cs": {
+          "git_input_sha256": "c9313334d8cd76680b5096d3d48acacaf44568f3db38fb5ebad7206023271983",
+          "server_raw_sha256": "b33d7b174fa260e5abbea8628d7f5a978cd9a531e7554000129b34024555e3cc",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/GraphStyleBase.cs": {
+          "git_input_sha256": "935086c964ecac14673a3e271041d79fbe90f36b2cbe0c265c08f367d2685f73",
+          "server_raw_sha256": "738629cada384e63d2b6b074c6f75c97dfb469b8c6a4261ef40332b6b8370873",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/GuardCondition.cs": {
+          "git_input_sha256": "36c82ed73af367347f25ae04b993552af08271ecaff7d71ab07ef0c3eb5d7f25",
+          "server_raw_sha256": "460fc332ecf61729e9305e833d4dc30775272a06ce0dab91dd4375210fdf7fb6",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/GuardConditionAsync.cs": {
+          "git_input_sha256": "b2f4d4be5221eac0f83b261484909d1f1ab5565a371be46b6bd6ea5f78788244",
+          "server_raw_sha256": "6732e4456d46b2e98f56cac2e7fa377b4d3ddbe840bd39eb25b29fd43b92233d",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/IgnoredTransitionInfo.cs": {
+          "git_input_sha256": "04b3a7158bcad39d5b17b7262412554985c10ee790d39e95f24ebff21ad725b4",
+          "server_raw_sha256": "105ee069939a339ebb1541bb0496affc9add58c61be38be8c5bc222d9b8cf2e5",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/IgnoredTriggerBehaviour.cs": {
+          "git_input_sha256": "f1de3a499a5dfc9dbdb6dd18f1793ed558fd30016a1bdcbc997dd5cf8b6e7baf",
+          "server_raw_sha256": "f50869f53d20ae0ad0026824b8a31d12b8e96b0163c836d06e804f2030654df9",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/InternalActionBehaviour.cs": {
+          "git_input_sha256": "22f513ef158cf6ed473efffd224fcc7576ab8211c0e3bede8cea723619288e83",
+          "server_raw_sha256": "32a2d785c0539850a15d28d7cfa030e987604b565fe9e592ef0e4cb7955a0800",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/InternalTriggerBehaviour.cs": {
+          "git_input_sha256": "0523d16330c73de4705ca0ef6fe0bcede5b4cc0c7e7b0741a3494f0cc26cc0ab",
+          "server_raw_sha256": "b7b73b14ef6fd82b0abfce19c8313b3db3517502b7b30a3b275f10a3d7e5b31b",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/InvocationInfo.cs": {
+          "git_input_sha256": "1a591467368796f1111ce1c673f74a6515319ceb2bd1d61eac846ebc2e51d268",
+          "server_raw_sha256": "256a627835fefcd84352526e265cb3ac42a22fd52c2166aa442deaff49d374e4",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/MermaidGraph.cs": {
+          "git_input_sha256": "d436df4e964bfe6ab02322b795e3fde9131ae3fb17e604f5f6fe91ab94e41201",
+          "server_raw_sha256": "526f8cc04fc8fdd03dc61661e5d7d7b2419bcde4b1e3741252e06391daeec11c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/MermaidGraphDirection.cs": {
+          "git_input_sha256": "b75b59b23966c8a2f35c10d39699b36928b591c4629462b1f6383babe79cf75a",
+          "server_raw_sha256": "9be178c6b789b42a1404f1addd9a0908150f019da5c2fcb5819a5d2f36a9cec1",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/MermaidGraphStyle.cs": {
+          "git_input_sha256": "e28f1de446b7672aa21b1f4b96d10d7f90ccd012ede80d6030e13fe75611d24a",
+          "server_raw_sha256": "5aa75e72e608858d5d8b46c5b037e2547cdd51fbd4b877a0c686f610ba761516",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/OnTransitionedEvent.cs": {
+          "git_input_sha256": "9308bb869bafc1f37b26d3248a81cd17287a86e47958fd652f5ddce21e458246",
+          "server_raw_sha256": "312d03c0ccf9ed8e8f9294c15aee790243f22b999ab674bf2bf7226c8fb71a84",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/ParameterConversion.cs": {
+          "git_input_sha256": "e9d5ee41165dcc2dc8fe423721cc2464d0b0f2edec02e0dd360b531d1ca1191a",
+          "server_raw_sha256": "7a7f215b65bee737ae813c8e105805afb474656cb99f5179a2a897e7852cd8a2",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/ReentryTriggerBehaviour.async.cs": {
+          "git_input_sha256": "aa152402f773e104acbd3f88f9f0211c3622052ffead78f6cd47a8afe85af2a7",
+          "server_raw_sha256": "f40104d08fd7045939f8e1316ec444d7080cfbbf1c0af0d99911ffa790c1b871",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/ReentryTriggerBehaviour.cs": {
+          "git_input_sha256": "69f86783123eac5dc5d6a8d1df9f05480a190391d64db8dcdb9855924ec59fb8",
+          "server_raw_sha256": "41cf094f3fa50e6e2f7565184ef025d4f5b451b4f3a14e32a4c33888584f1f50",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/SpecialConstants.cs": {
+          "git_input_sha256": "f0efee5cd31c6e89fb248063e155d54fb40e4f1bcf52c98a3a70de600de7cd7c",
+          "server_raw_sha256": "e6d8b74f07a03d49b26a1c8b1aef0acee823d800c0aa009ffc151e8cc7730abf",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/State.cs": {
+          "git_input_sha256": "2f72752c55c39615f74966a4f3b5c1200b9918db37907cd50a5e34d7b5c194dc",
+          "server_raw_sha256": "a313d38d0abc8f28ac4606fce5ca5906cf3c224041a5f997cf592ca888d2f6f7",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateConfiguration.Async.cs": {
+          "git_input_sha256": "5dc6795e60e7caac393b1b7068232d9315b08f8ba3648786b2db35e64b2c2678",
+          "server_raw_sha256": "4b07885148848dee2b14a9b83fc31f532f0b08085a0aead28b2aac39b4c637a9",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateConfiguration.cs": {
+          "git_input_sha256": "dead00af0fe63cb2ae67385f4c17eac73399b71e2b9a51645be02b368c96d0e0",
+          "server_raw_sha256": "f837062df3c73e5abc00f69e1c83d19341059e0df749521ccc31d89d88fd8a14",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/StateGraph.cs": {
+          "git_input_sha256": "f42ceefc5fcc76fedae0135938019134b00a0e19f673b777f434e42cd8a9c955",
+          "server_raw_sha256": "bf0a2e823a16bef89ae756f5ba10e9ed64e6a66cf3a6de2039945c1bfdca387a",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/StateInfo.cs": {
+          "git_input_sha256": "cbd3c6f48d63d608f40241d5116409e37cba52f89b491dd945a9476f06c035e8",
+          "server_raw_sha256": "3fbe820090bc79bd61dc3eb1bc136b733c290f13047c1a78f1d2238a60224529",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateMachine.Async.cs": {
+          "git_input_sha256": "f5ab465fd67a425f22b1143ea45c6c0e5d56baaab375cdc5a3ab6f82ca3a3e99",
+          "server_raw_sha256": "7141e07f2f499a61b43f4796eb123a6440ae4a230eadc87930d2ff0def1ab14f",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateMachine.cs": {
+          "git_input_sha256": "56940cdeb16d86b093577fec65a37c7fd2c2199ea94eb6fdbeabe666394f4bd7",
+          "server_raw_sha256": "8b8161d5d95b76e28a38bf5f9305f2fd013e43d1467f44bde93e9fa50d30e114",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/StateMachineInfo.cs": {
+          "git_input_sha256": "76fd13cf44277e2f52b1ce5076400a675156370215cecf324abac0c082a0ade5",
+          "server_raw_sha256": "31de094d833a85fff5e6fe49c2803c469a783ef4c11f8824c96dc08c937c3724",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateReference.cs": {
+          "git_input_sha256": "e3257684a25eff6a76dd8b179b8a4312295d007ca9b700216fef11f017132fff",
+          "server_raw_sha256": "0f43f9f1808b30029d9bf35e2c6d4d41f26d0418fbb6187bc315b17e1c7e800f",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateRepresentation.Async.cs": {
+          "git_input_sha256": "5b428c05bbe79593fe514fc48f6a7ea85211c51afb16d80d190491615b3bde34",
+          "server_raw_sha256": "9135feff8a99319f96e2fd113b49101461009c3f43a114fd9d06db45032e1d29",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/StateRepresentation.cs": {
+          "git_input_sha256": "3e7156d202bc1bf1a1031871072220826c99d63a192e29e0bfbcca04e249f42c",
+          "server_raw_sha256": "cd6b5de2ed20eef7e5790a283bc938a58e021440e0aa05c25c0045f67fa22363",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/SuperState.cs": {
+          "git_input_sha256": "54b68e79a70eb1c4e17bf4a52f22f9d7f8aa8e90fa811ec6d2d6c3f4231c7f09",
+          "server_raw_sha256": "5d66d9b15b2f372e43890203d909c88f39afc0e6c4b5c74ab803bce6008e96b8",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TaskResult.cs": {
+          "git_input_sha256": "2460de161dfd7eec2bdc6dc5a2b7f7bfc2391b2575e6e75c1939d7081c50d73b",
+          "server_raw_sha256": "aa9343bdd2abd110ca272695660d97f4fb69a3bd8a1e12d8b91747b7b3889784",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/Transition.cs": {
+          "git_input_sha256": "9383468cc4bd1e88ac8b1792ddb86a7ba2465ffcf1e7de022ca115074db825d8",
+          "server_raw_sha256": "b5f6d68904bad34eb3d14ebab45a700b4992db8fd259ad7ab4a4628f78919b8e",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Transition.cs": {
+          "git_input_sha256": "47d59b98fcd2f6c850672e8f454a486d5d630b403540efece1d94466607a7d34",
+          "server_raw_sha256": "f01c5a1998208ef65f92f679c4958dec36e2978bc27a1ef08db40accfb52edea",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TransitionGuard.async.cs": {
+          "git_input_sha256": "61add4b54b9badd0b4293ce7918d6a70498b9ca8126801dbe935b52f4d3fa1e5",
+          "server_raw_sha256": "d01c1199d649a6ae973c6bb1ce0256053c22760a50660cc3b373132c4ba5f96f",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TransitionGuard.cs": {
+          "git_input_sha256": "be2397fb289b2037a86f0c3958daa3d4687b2fd85072a0243ee4291230ff1890",
+          "server_raw_sha256": "6d069991ab85dbf1677ad552674bfd1a5860e234b1644706aebf8c38b2c5c447",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/TransitionInfo.cs": {
+          "git_input_sha256": "784d14385667d2fb4e6f4f6fe8586f8a364969f1155b0ddd499090f8e6f37145",
+          "server_raw_sha256": "54bc6f55d37b29b0817c5291b63783a7cf7a1afa46823783ea8e29be33c1c266",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TransitioningTriggerBehaviour.async.cs": {
+          "git_input_sha256": "2245287f8b668eba767db8c0b597c4b4d260586dbc6c9ee2da65b1579f8b68ac",
+          "server_raw_sha256": "8064ea3e0c3a82045ad1158eed4b3eeea17e71b756dc73f012cd7e4bf24b345c",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TransitioningTriggerBehaviour.cs": {
+          "git_input_sha256": "9fda4dadc52fd8ae0376f280f803bd19d534444574c2c4b690fc6f7972e094ab",
+          "server_raw_sha256": "ea99bc635cbd432f821cf3a53a470b7a5ae3e97f6fcf255d613691809d14f105",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TriggerBehaviour.async.cs": {
+          "git_input_sha256": "492865884512f53c0e456ebbf0fc1866d24ca52dcf4cb27c7c29d9610e42685e",
+          "server_raw_sha256": "9117c59b5caf104c9b12bff7e5131a3a4afcde143d47a040314133ca66f27d0e",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TriggerBehaviour.cs": {
+          "git_input_sha256": "2d6940784413053f00f62f8d7cd139875f9a6d2129f4bb8406e7592d4388dd7a",
+          "server_raw_sha256": "8f6555a965aa7ce0b3c0d82d86feab925d40f67e77c03bba1c90c4409e7da1c5",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TriggerBehaviourResult.cs": {
+          "git_input_sha256": "a235d62176a39725883ebdeb5d2e3eeca47f5407ddede09c7c46e3cc9d6fc768",
+          "server_raw_sha256": "90394b675d54707cf587a678850fdfe78233afbc1f5728d74e8ad9be17dc3764",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TriggerDetails.cs": {
+          "git_input_sha256": "7dd158d6b6a7969d6ef0457007a27df03ab4c35a8254d9a8149d4f9f2ef52bff",
+          "server_raw_sha256": "63ee27a0ea91f6bc0b505d57dc9b7c2ea3bb1347eff38962bcb7283a4a67a5c9",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Reflection/TriggerInfo.cs": {
+          "git_input_sha256": "6efe8fb50bf7073ff97496b099d858e6fd34978cd63a5871054c430a07423656",
+          "server_raw_sha256": "1f6f2e189213cba4000c0b2f20c108df6ebdfff194d2ac04c34a5d06a8c49fc5",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/TriggerWithParameters.cs": {
+          "git_input_sha256": "bbc8d323a99307c43ef83fc999d2b64916bc89618415b8f3577787b5b088b13e",
+          "server_raw_sha256": "672d2d50baa53eb207b29851b9e9202f406ddeeb445b876b13445f986a81c363",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/UmlDotGraph.cs": {
+          "git_input_sha256": "0eb4f0110ea84e1f787763f83d7f4edbc83ce4a8287fefc185415a98a77470bd",
+          "server_raw_sha256": "cf0b3f0d775d32ef74ff015484cdeba4cbc5c3bc3123f40c35331552fb2cc1be",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/Graph/UmlDotGraphStyle.cs": {
+          "git_input_sha256": "57268a4c7b5fafec97fff9f8dce29af9352e7caec965e55119396e321ccb59d8",
+          "server_raw_sha256": "244716058a0381b4d5772037dc371de41f01ed347ec414ef81b30f117c547ca6",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        },
+        "src/Stateless/UnhandledTriggerAction.cs": {
+          "git_input_sha256": "79ccfc794ecee1d80ddd1f5f99949a95a29fec2b6828beef0c1e6189d3d0767e",
+          "server_raw_sha256": "c618a5d864b1b8ca14dd9dc22e03a46c4bc85653b5e39e40fbf80e5ecd52565f",
+          "raw_equivalence": "text_equal_after_bom_or_line_ending_normalization"
+        }
+      },
+      "not_indexed_by_sonarqube": [
+        "src/Stateless/ParameterConversionResources.Designer.cs",
+        "src/Stateless/StateConfigurationResources.Designer.cs",
+        "src/Stateless/StateMachineResources.Designer.cs",
+        "src/Stateless/StateRepresentationResources.Designer.cs"
+      ],
+      "comparison": "excluded"
+    }
+  },
+  "scopes_with_same_sources": 3,
+  "same_scope_files": 101,
+  "source_scan_comparison_shared_parameters": {
+    "matched": 474,
+    "native_only": 300,
+    "reference_only": 254
+  },
+  "compiler_parity_qualified": false,
+  "enterprise_parity_qualified": false
+}
