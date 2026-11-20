@@ -171,24 +171,10 @@ fn binding_item(site: Node<'_>, source: &str) -> Option<Item> {
     let name = text(site, source);
     let mut child = site;
     while let Some(parent) = child.parent() {
-        if parent.kind() == "block" {
-            let mut prev = child.prev_named_sibling();
-            while let Some(sibling) = prev {
-                if sibling.kind() == "let_declaration"
-                    && let Some(pattern) = sibling.child_by_field_name("pattern")
-                    && pattern_binds_name(pattern, name, source)
-                {
-                    if pattern.kind() != "identifier" {
-                        return None;
-                    }
-                    return if let Some(ty) = sibling.child_by_field_name("type") {
-                        option_item(ty, source)
-                    } else {
-                        constructor_item(sibling.child_by_field_name("value")?, source)
-                    };
-                }
-                prev = sibling.prev_named_sibling();
-            }
+        if parent.kind() == "block"
+            && let Some(decl) = previous_binding(child, name, source)
+        {
+            return declared_item(decl, source);
         }
         if parent.kind() == "function_item" {
             let params = parent.child_by_field_name("parameters")?;
@@ -206,6 +192,28 @@ fn binding_item(site: Node<'_>, source: &str) -> Option<Item> {
         child = parent;
     }
     None
+}
+
+// A matching pattern stops lookup even when its type is unknown. Falling
+// through would pick up a shadowed binding from an outer scope.
+fn previous_binding<'a>(child: Node<'a>, name: &str, source: &str) -> Option<Node<'a>> {
+    std::iter::successors(child.prev_named_sibling(), Node::prev_named_sibling).find(|sibling| {
+        sibling.kind() == "let_declaration"
+            && sibling
+                .child_by_field_name("pattern")
+                .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+    })
+}
+
+fn declared_item(decl: Node<'_>, source: &str) -> Option<Item> {
+    if decl.child_by_field_name("pattern")?.kind() != "identifier" {
+        return None;
+    }
+    if let Some(ty) = decl.child_by_field_name("type") {
+        option_item(ty, source)
+    } else {
+        constructor_item(decl.child_by_field_name("value")?, source)
+    }
 }
 
 fn known_path(node: Node<'_>, source: &str, paths: &[&str], prelude: Option<&str>) -> bool {

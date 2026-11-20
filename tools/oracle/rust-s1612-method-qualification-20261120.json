@@ -364,5 +364,16 @@
     "Create an empty dependency-free edition-2024 Cargo binary crate. Copy each committed fixture into the oracle_path listed above. Compile and run the three bin targets with Rust 1.96.0.",
     "For a fresh reference, associate that project with a nondefault Rust profile with exactly rust:S1612 active on the recorded Community Build. Put cargo/clippy 1.96.0 on the scanner process PATH. Scan sonar.sources=src with sonar.rust.clippy.enabled=true and no Clippy report path; do not inject a generated report.",
     "Check the compute-engine task status, the effective project profile and actual Clippy sensor logs, then compare the built-in rule keys, input paths, exact ranges and messages from api/issues/search. An empty external-report import alone cannot validate a run."
-  ]
+  ],
+  "post_refactor_verification": {
+    "native_driver_sha256": "f6a8dd238c03cc951e8f4d1da91d4dff52056ee570f693fffbf6ec3cfcf65749",
+    "implementation_sha256": "433e5106066d05cdb4b450e89858e82ca925e2abfd08504d3e973f1322aaa4ee",
+    "matching_fixture_rows": 24,
+    "pinned_gate_version": "0.3.1",
+    "pinned_complexity_before": 24,
+    "pinned_complexity_threshold": 15,
+    "pinned_complexity_findings_after": 0,
+    "replayed_public_files": 254,
+    "public_result_sha256": "ca6c3ad96f782de54965f0e10eefb293db39cbd779908fa160d326223551fc2c"
+  }
 }
