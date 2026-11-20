@@ -48,12 +48,13 @@ pub struct TypeScriptProjectConfig {
     pub typescript_package: Option<PathBuf>,
     /// Executable used to run the helper, normally `node`.
     pub helper_program: PathBuf,
-    /// Optional explicit helper script.  If absent, the pinned source is
-    /// materialised under `helper_cache_dir` before invocation.
+    /// Optional explicit helper script. If absent, the embedded helper runs.
+    /// [`ProjectSemanticContext::load`] also publishes a copy to `helper_cache_dir`.
     pub helper_script: Option<PathBuf>,
     /// Arguments inserted between `helper_program` and the helper script.
     pub helper_args: Vec<OsString>,
-    /// Owned deterministic location for the embedded helper source.
+    /// Owned deterministic location for the embedded helper source published by
+    /// [`ProjectSemanticContext::load`].
     pub helper_cache_dir: PathBuf,
     /// Exact compiler version accepted by this context.  Only the pinned
     /// version is exercised by the test suite, so the helper deliberately
@@ -781,7 +782,8 @@ fn helper_fingerprint(
 }
 
 impl ProjectSemanticContext {
-    /// Runs exactly one bounded compiler helper invocation for `sources`.
+    /// Runs one bounded compiler helper invocation for `sources`. When using
+    /// the embedded helper, publishes a copy under `config.helper_cache_dir`.
     ///
     /// # Errors
     ///
@@ -790,6 +792,29 @@ impl ProjectSemanticContext {
     pub fn load(
         config: &TypeScriptProjectConfig,
         sources: &ProjectSemanticSources,
+    ) -> Result<Self, ProjectContextError> {
+        Self::load_with_cache(config, sources, HelperCache::Publish)
+    }
+
+    /// Runs one bounded compiler helper invocation for `sources` without
+    /// reading or writing the embedded helper cache. An explicitly configured
+    /// helper script is invoked as in [`Self::load`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectContextError`] when the helper cannot be invoked, or
+    /// when its request or response cannot be encoded or decoded.
+    pub fn load_read_only(
+        config: &TypeScriptProjectConfig,
+        sources: &ProjectSemanticSources,
+    ) -> Result<Self, ProjectContextError> {
+        Self::load_with_cache(config, sources, HelperCache::ReadOnly)
+    }
+
+    fn load_with_cache(
+        config: &TypeScriptProjectConfig,
+        sources: &ProjectSemanticSources,
+        cache: HelperCache,
     ) -> Result<Self, ProjectContextError> {
         let (snapshots, mut diagnostics) = collect_source_snapshots(sources);
         if diagnostics.iter().any(|item| item.category == "error") {
@@ -800,17 +825,15 @@ impl ProjectSemanticContext {
             ));
         }
 
-        let materialized = materialize_helper(config).map_err(|error| ProjectContextError {
+        let helper = prepare_helper(config, cache).map_err(|error| ProjectContextError {
             code: "JS_CONTEXT_HELPER_PREPARE".to_owned(),
             message: error.to_string(),
             diagnostics: Vec::new(),
         })?;
-        let script = &materialized.path;
         let tsconfig = config.tsconfig.as_ref().map(|path| canonical_path(path));
         let tsconfig_digest = tsconfig
             .as_ref()
             .and_then(|path| fs::read(path).ok().map(|content| digest_bytes(&content)));
-        let helper_digest = materialized.digest;
         let request = HelperRequest {
             schema_version: HELPER_PROTOCOL_VERSION,
             root: canonical_path(&config.root),
@@ -821,7 +844,7 @@ impl ProjectSemanticContext {
                 .clone()
                 .map(|path| canonical_path(&path)),
             expected_compiler_version: config.expected_compiler_version.clone(),
-            helper_digest,
+            helper_digest: helper.digest,
             dependency_whitelist: config.dependency_whitelist.clone(),
             files: snapshots
                 .iter()
@@ -837,7 +860,7 @@ impl ProjectSemanticContext {
             message: error.to_string(),
             diagnostics: Vec::new(),
         })?;
-        let output = invoke_helper(config, script, &input)?;
+        let output = invoke_helper(config, &helper.path, &input)?;
         if output.len() > config.max_output_bytes {
             return Err(ProjectContextError {
                 code: "JS_CONTEXT_OUTPUT_LIMIT".to_owned(),
@@ -1111,30 +1134,53 @@ struct HelperResponse {
     fingerprint: String,
 }
 
+#[derive(Clone, Copy)]
+enum HelperCache {
+    Publish,
+    ReadOnly,
+}
+
 #[derive(Debug)]
-struct MaterializedHelper {
+struct PreparedHelper {
     path: PathBuf,
     digest: String,
 }
 
-fn materialize_helper(
+fn prepare_helper(
     config: &TypeScriptProjectConfig,
-) -> Result<MaterializedHelper, std::io::Error> {
+    cache: HelperCache,
+) -> Result<PreparedHelper, std::io::Error> {
     if let Some(path) = &config.helper_script {
         let path = canonical_path(path);
         let digest = fs::read(&path).map_or_else(
             |_| digest_bytes(EMBEDDED_HELPER.as_bytes()),
             |content| digest_bytes(&content),
         );
-        return Ok(MaterializedHelper { path, digest });
+        return Ok(PreparedHelper { path, digest });
     }
-    publish_embedded_helper(config)
+    match cache {
+        HelperCache::Publish => publish_embedded_helper(config),
+        // Node compiles the embedded bytes in memory. The path is only the
+        // logical filename for the module, just as when a copy is published.
+        HelperCache::ReadOnly => Ok(PreparedHelper {
+            path: embedded_helper_path(config),
+            digest: digest_bytes(EMBEDDED_HELPER.as_bytes()),
+        }),
+    }
+}
+
+fn helper_file_name() -> String {
+    format!("semantic-helper-v{HELPER_PROTOCOL_VERSION}.cjs")
+}
+
+fn embedded_helper_path(config: &TypeScriptProjectConfig) -> PathBuf {
+    config.helper_cache_dir.join(helper_file_name())
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn publish_embedded_helper(
     _config: &TypeScriptProjectConfig,
-) -> Result<MaterializedHelper, std::io::Error> {
+) -> Result<PreparedHelper, std::io::Error> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "secure compiler-helper materialization is unsupported on this platform",
@@ -1144,18 +1190,16 @@ fn publish_embedded_helper(
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn publish_embedded_helper(
     config: &TypeScriptProjectConfig,
-) -> Result<MaterializedHelper, std::io::Error> {
-    let display_path = config
-        .helper_cache_dir
-        .join(secure_cache::helper_file_name());
+) -> Result<PreparedHelper, std::io::Error> {
+    let display_path = embedded_helper_path(config);
     let dir = secure_cache::open_cache_dir_anchored(&config.root, &config.helper_cache_dir)?;
     let (path, digest) = secure_cache::publish_helper_into(&dir, &display_path)?;
-    Ok(MaterializedHelper { path, digest })
+    Ok(PreparedHelper { path, digest })
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod secure_cache {
-    use super::{EMBEDDED_HELPER, HELPER_PROTOCOL_VERSION, digest_bytes};
+    use super::{EMBEDDED_HELPER, digest_bytes, helper_file_name};
     use rustix::fs::{
         AtFlags, FileType, Mode, OFlags, fstat, fsync, mkdirat, openat, renameat, statat, unlinkat,
     };
@@ -1172,10 +1216,6 @@ mod secure_cache {
             "refusing to materialize the TypeScript helper through symbolic link {}",
             path.to_string_lossy().escape_debug()
         ))
-    }
-
-    pub(super) fn helper_file_name() -> String {
-        format!("semantic-helper-v{HELPER_PROTOCOL_VERSION}.cjs")
     }
 
     fn dir_flags() -> OFlags {
@@ -1906,6 +1946,40 @@ mod compiler_version_tests {
             "export const value: number = 1;\n".to_owned(),
         )]);
         (TypeScriptProjectConfig::new(&root), sources)
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn read_only_matches_cached_context_with_project_local_compiler() {
+        let Some(package) = std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE") else {
+            eprintln!("requires the pinned TypeScript package (installed in CI)");
+            return;
+        };
+        let scenario = Scenario::new("read-only-context");
+        let (config, sources) = project(&scenario);
+        let local_modules = config.root.join("node_modules");
+        fs::create_dir(&local_modules).unwrap();
+        let package = fs::canonicalize(package).unwrap();
+        std::os::unix::fs::symlink(&package, local_modules.join("typescript")).unwrap();
+
+        let read_only = ProjectSemanticContext::load_read_only(&config, &sources).unwrap();
+        assert!(read_only.is_complete(), "{:?}", read_only.diagnostics());
+        assert!(!config.helper_cache_dir.exists());
+        assert_eq!(read_only.compiler_version(), Some(DEFAULT_COMPILER_VERSION));
+        assert_eq!(
+            read_only.compiler_path(),
+            Some(package.join("lib/typescript.js").as_path())
+        );
+
+        let cached = ProjectSemanticContext::load(&config, &sources).unwrap();
+        assert!(cached.is_complete(), "{:?}", cached.diagnostics());
+        assert!(embedded_helper_path(&config).is_file());
+        assert_eq!(read_only.compiler_path(), cached.compiler_path());
+        assert_eq!(read_only.fingerprint(), cached.fingerprint());
+        assert_eq!(read_only.dependencies(), cached.dependencies());
+        let path = &sources.files[0].path;
+        assert!(read_only.file_facts(path).is_some());
+        assert_eq!(read_only.file_facts(path), cached.file_facts(path));
     }
 
     fn fake_typescript_package(scenario: &Scenario, version: &str, index: &str) -> PathBuf {
