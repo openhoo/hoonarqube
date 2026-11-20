@@ -25,7 +25,7 @@
 {"key": "java:S1113", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1114", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1116", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "java:S1117", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "java:S1117", "infra": "implemented for local declarations shadowing fields; same-file scope analysis does not establish full Java binding parity"}
 {"key": "java:S1118", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1119", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S112", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
@@ -163,7 +163,7 @@
 {"key": "java:S1844", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1845", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1849", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "java:S1854", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "java:S1854", "infra": "implemented for local dead stores using a per-method control-flow graph; exception and alias handling remain bounded"}
 {"key": "java:S1858", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1860", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S1862", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
@@ -222,7 +222,7 @@
 {"key": "java:S2140", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2141", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2142", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "java:S2143", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "java:S2143", "infra": "implemented for recognized legacy date/time type uses; the frontend does not provide full classpath type resolution"}
 {"key": "java:S2147", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2148", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2151", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
@@ -258,7 +258,7 @@
 {"key": "java:S2206", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2208", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2209", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "java:S2211", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "java:S2211", "infra": "implemented for implicitly typed lambda parameters from the parsed syntax; the Community 26.9 default profile did not activate this rule"}
 {"key": "java:S2221", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2222", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "java:S2225", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
