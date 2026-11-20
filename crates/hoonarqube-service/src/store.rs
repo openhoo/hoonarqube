@@ -1,3 +1,4 @@
+mod findings;
 mod schema;
 
 use std::collections::HashMap;
@@ -70,7 +71,6 @@ type ExistingAnalysis = (
     Option<String>,
     Option<String>,
 );
-type RawFinding = (String, u32, String, String, String, String, String, bool);
 type StoredHistory = (
     i64,
     String,
@@ -424,70 +424,6 @@ impl Store {
             )
             .optional()?
             .ok_or(StoreError::NotFound)
-    }
-
-    pub(crate) fn findings(
-        &self,
-        project: &str,
-        analysis_id: i64,
-    ) -> Result<Vec<FindingRecord>, StoreError> {
-        let connection = self.lock()?;
-        ensure_active_project(&connection, project)?;
-        let branch: String = connection
-            .query_row(
-                "SELECT branch FROM analyses
-                 WHERE id = ?1 AND project = ?2 AND deleted_at IS NULL",
-                params![analysis_id, project],
-                |row| row.get(0),
-            )
-            .optional()?
-            .ok_or(StoreError::NotFound)?;
-        let mut statement = connection.prepare(
-            "SELECT identity, occurrence, kind, path, rule_key, message, range_json, ambiguous
-             FROM findings WHERE analysis_id = ?1 ORDER BY path, rule_key, identity, occurrence",
-        )?;
-        let raw_findings: Vec<RawFinding> = statement
-            .query_map([analysis_id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get::<_, i64>(7)? != 0,
-                ))
-            })?
-            .collect::<Result<_, _>>()?;
-        drop(statement);
-        let mut findings = Vec::with_capacity(raw_findings.len());
-        for (identity, occurrence, kind_text, path, rule_key, message, range_text, ambiguous) in
-            raw_findings
-        {
-            let kind = FindingKind::parse(&kind_text)
-                .ok_or_else(|| StoreError::Invalid("invalid persisted finding kind".to_string()))?;
-            let range = parse_json(&range_text)?;
-
-            let review = if ambiguous {
-                None
-            } else {
-                Self::review_for_key(&connection, project, &branch, analysis_id, &identity, kind)?
-            };
-            findings.push(FindingRecord {
-                identity,
-                occurrence,
-                kind,
-                path,
-                rule_key,
-                message,
-                range,
-                status: "open".to_string(),
-                ambiguous,
-                review,
-            });
-        }
-        Ok(findings)
     }
 
     pub(crate) fn list_reviews(
@@ -1098,37 +1034,6 @@ impl Store {
             history: history_count,
         })
     }
-
-    fn review_for_key(
-        connection: &Connection,
-        project: &str,
-        branch: &str,
-        current_analysis_id: i64,
-        identity: &str,
-        kind: FindingKind,
-    ) -> Result<Option<ReviewRecord>, StoreError> {
-        let review = connection
-            .query_row(
-                "SELECT id, project, branch, analysis_id, identity, kind, state, version,
-                        updated_by, updated_at, reason
-                 FROM reviews WHERE project = ?1 AND branch = ?2
-                   AND identity = ?3 AND kind = ?4",
-                params![project, branch, identity, kind.as_str()],
-                review_from_row,
-            )
-            .optional()
-            .map_err(StoreError::Sql)?;
-        let Some(review) = review else {
-            return Ok(None);
-        };
-        if review.analysis_id == current_analysis_id
-            || analysis_context_compatible(connection, current_analysis_id, review.analysis_id)?
-        {
-            Ok(Some(review))
-        } else {
-            Ok(None)
-        }
-    }
 }
 fn restore_project(
     transaction: &rusqlite::Transaction<'_>,
@@ -1567,57 +1472,6 @@ fn restore_deletions(
         }
     }
     Ok(())
-}
-
-fn analysis_context_compatible(
-    connection: &Connection,
-    current_analysis_id: i64,
-    reviewed_analysis_id: i64,
-) -> Result<bool, StoreError> {
-    let current: Option<String> = connection
-        .query_row(
-            "SELECT assessment_json FROM analyses
-             WHERE id = ?1 AND deleted_at IS NULL",
-            [current_analysis_id],
-            |row| row.get(0),
-        )
-        .optional()?
-        .flatten();
-    // Retention pruning soft-deletes the reviewed analysis while its review
-    // stays persisted and listed, so the context comparison must not require
-    // the reviewed analysis to still be live.
-    let reviewed: Option<String> = connection
-        .query_row(
-            "SELECT assessment_json FROM analyses
-             WHERE id = ?1",
-            [reviewed_analysis_id],
-            |row| row.get(0),
-        )
-        .optional()?
-        .flatten();
-    let (Some(current), Some(reviewed)) = (current, reviewed) else {
-        return Ok(false);
-    };
-    let current: Value =
-        serde_json::from_str(&current).map_err(|error| StoreError::Invalid(error.to_string()))?;
-    let reviewed: Value =
-        serde_json::from_str(&reviewed).map_err(|error| StoreError::Invalid(error.to_string()))?;
-    let current = current.get("context").and_then(Value::as_object);
-    let reviewed = reviewed.get("context").and_then(Value::as_object);
-    let (Some(current), Some(reviewed)) = (current, reviewed) else {
-        return Ok(false);
-    };
-    for field in [
-        "analyzer_version",
-        "catalog_digest",
-        "options_digest",
-        "scope_digest",
-    ] {
-        if current.get(field) != reviewed.get(field) {
-            return Ok(false);
-        }
-    }
-    Ok(true)
 }
 
 #[derive(Debug, Clone, Serialize)]
