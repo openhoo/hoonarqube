@@ -1,0 +1,272 @@
+{
+  "AsciiCase.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 13,
+      "end_codepoints": 13
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 13,
+      "end_codepoints": 13
+    }
+  ],
+  "AstralLetters.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 21,
+      "end_codepoints": 17
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 21,
+      "end_codepoints": 17
+    }
+  ],
+  "BlockLines.java": [
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 7,
+      "end_codepoints": 7
+    },
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 2,
+      "end_utf16": 13,
+      "end_codepoints": 13
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 2,
+      "end_utf16": 13,
+      "end_codepoints": 13
+    },
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 3,
+      "end_utf16": 8,
+      "end_codepoints": 8
+    }
+  ],
+  "BmpLetters.java": [],
+  "BothTags.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 24,
+      "end_codepoints": 24
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 24,
+      "end_codepoints": 24
+    }
+  ],
+  "Clean.java": [],
+  "CombiningMarks.java": [
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 17,
+      "end_codepoints": 17
+    },
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 17,
+      "end_codepoints": 17
+    }
+  ],
+  "CrLf.java": [
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 7,
+      "end_codepoints": 7
+    },
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 2,
+      "end_utf16": 8,
+      "end_codepoints": 8
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 3,
+      "end_utf16": 7,
+      "end_codepoints": 7
+    }
+  ],
+  "CrOnly.java": [
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 7,
+      "end_codepoints": 7
+    },
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 2,
+      "end_utf16": 8,
+      "end_codepoints": 8
+    }
+  ],
+  "Digits.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 17,
+      "end_codepoints": 17
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 17,
+      "end_codepoints": 17
+    }
+  ],
+  "EscapedBoundary.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 25,
+      "end_codepoints": 25
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 25,
+      "end_codepoints": 25
+    }
+  ],
+  "EscapedTag.java": [],
+  "EscapedTrivia.java": [],
+  "FirstEmbedded.java": [],
+  "Javadoc.java": [
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 8,
+      "end_codepoints": 8
+    },
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 2,
+      "end_utf16": 8,
+      "end_codepoints": 8
+    }
+  ],
+  "Letters.java": [],
+  "Literals.java": [],
+  "MultipleTrivia.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 30,
+      "end_codepoints": 30
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 30,
+      "end_codepoints": 30
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 30,
+      "end_codepoints": 30
+    }
+  ],
+  "SimpleFixme.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 15,
+      "end_codepoints": 15
+    }
+  ],
+  "SimpleTodo.java": [
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 14,
+      "end_codepoints": 14
+    }
+  ],
+  "Trailing.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 38,
+      "end_codepoints": 38
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 38,
+      "end_codepoints": 38
+    }
+  ],
+  "TurkishCase.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 14,
+      "end_codepoints": 14
+    }
+  ],
+  "Underscore.java": [
+    {
+      "key": "java:S1134",
+      "message": "Take the required action to fix the issue indicated by this comment.",
+      "line": 1,
+      "end_utf16": 17,
+      "end_codepoints": 17
+    },
+    {
+      "key": "java:S1135",
+      "message": "Complete the task associated to this TODO comment.",
+      "line": 1,
+      "end_utf16": 17,
+      "end_codepoints": 17
+    }
+  ]
+}

@@ -71,6 +71,8 @@ fn line_length_honors_option_with_exact_boundary_clean() {
 fn broken_source_neither_panics_nor_emits_issues() {
     let options = AnalyzerOptions {
         maximum_line_length: 1,
+        maximum_file_loc_threshold: 0,
+        header_format: "// Required header".to_string(),
         ..AnalyzerOptions::default()
     };
     // This contains unrecoverable declaration syntax, plus text that would
@@ -83,7 +85,7 @@ fn broken_source_neither_panics_nor_emits_issues() {
 }
 
 #[test]
-fn s104_flags_files_over_the_loc_threshold() {
+fn s104_file_level_flags_files_over_the_loc_threshold() {
     let options = AnalyzerOptions {
         maximum_file_loc_threshold: 3,
         ..Default::default()
@@ -91,15 +93,37 @@ fn s104_flags_files_over_the_loc_threshold() {
     let over = analyze_options("class A\n{\n}\nint b;\n", &options);
     let flagged = with_key(&over, "csharpsquid:S104");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(flagged[0].range.start.line, 1);
-    assert_eq!(flagged[0].range.end, flagged[0].range.start);
+    assert!(flagged[0].range.is_file_level());
     assert_eq!(
         flagged[0].message,
         "This file has 4 lines, which is greater than 3 authorized. Split it into smaller files."
     );
 
-    let at_limit = analyze_options("class A\n{\n}\nint b;\n", &AnalyzerOptions::default());
+    let at_limit = analyze_options("class A\n{\n}\n", &options);
+    assert_eq!(at_limit.metrics.code_lines, 3);
     assert!(with_key(&at_limit, "csharpsquid:S104").is_empty());
+}
+
+#[test]
+fn s104_file_level_threshold_counts_code_without_comments_or_blank_lines() {
+    let options = AnalyzerOptions {
+        maximum_file_loc_threshold: 3,
+        ..Default::default()
+    };
+    let compliant = analyze_options("// Header\n\nclass A\n{\n    // Body note\n}\n\n", &options);
+    assert_eq!(compliant.metrics.code_lines, 3);
+    assert_eq!(compliant.metrics.comment_lines, 2);
+    assert!(with_key(&compliant, "csharpsquid:S104").is_empty());
+
+    let flagged = analyze_options("// Header\n\nclass A\n{\n    int field;\n}\n\n", &options);
+    assert_eq!(flagged.metrics.code_lines, 4);
+    let issues = with_key(&flagged, "csharpsquid:S104");
+    assert_eq!(issues.len(), 1);
+    assert!(issues[0].range.is_file_level());
+    assert_eq!(
+        issues[0].message,
+        "This file has 4 lines, which is greater than 3 authorized. Split it into smaller files."
+    );
 }
 
 #[test]
@@ -255,7 +279,7 @@ fn s2148_boundary_separators_and_radixes() {
 }
 
 #[test]
-fn s1451_header_modes() {
+fn s1451_file_level_header_modes() {
     let options = AnalyzerOptions {
         header_format: "/// MIT Licensed".to_string(),
         ..Default::default()
@@ -266,11 +290,7 @@ fn s1451_header_modes() {
     let missing = analyze_options("class A {}\n", &options);
     let flagged = with_key(&missing, "csharpsquid:S1451");
     assert_eq!(flagged.len(), 1);
-    assert_eq!(
-        flagged[0].range.start,
-        hoonarqube_ir::Pos { line: 1, column: 0 }
-    );
-    assert_eq!(flagged[0].range.end, flagged[0].range.start);
+    assert!(flagged[0].range.is_file_level());
     assert_eq!(flagged[0].message, "Add or update the header of this file.");
 
     let regex_mode = AnalyzerOptions {

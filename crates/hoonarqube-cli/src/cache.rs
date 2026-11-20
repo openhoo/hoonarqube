@@ -63,6 +63,23 @@ pub(crate) struct CacheFingerprints {
     pub(crate) dependency: String,
 }
 
+impl CacheFingerprints {
+    /// Bind native Go package facts to the existing context key without
+    /// changing compiler, configuration, reference, or dependency identity.
+    pub(crate) fn compose_go_context(&mut self, go_digest: &str) {
+        let mut hasher = Sha256::new();
+        for value in [
+            "hoonarqube-go-project-cache-v1",
+            self.context.as_str(),
+            go_digest,
+        ] {
+            hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_le_bytes());
+            hasher.update(value.as_bytes());
+        }
+        self.context = digest_hex(&hasher.finalize());
+    }
+}
+
 /// A successful cached analysis, ready to become a current `ProjectFile`.
 pub(crate) struct CacheEntry {
     pub(crate) report: FileReport,
@@ -1167,6 +1184,112 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn go_context_digest(helper: Option<&str>) -> String {
+        let caller = Path::new("/virtual/cache/consumer.go");
+        let helper_path = Path::new("/virtual/cache/helper.go");
+        let sources = [
+            (
+                caller,
+                Some(
+                    "package sample\nfunc inspect() { _, problem := supply(); if problem != nil { println(problem) } }\n",
+                ),
+            ),
+            (helper_path, helper),
+        ];
+        let selected: Vec<_> = sources
+            .iter()
+            .map(|(path, source)| hoonarqube_core::GoProjectSourceSnapshot {
+                identity: hoonarqube_core::GoProjectSourceIdentity {
+                    normalized_path: path,
+                    physical_path: Some(path),
+                    classification: FileClassification::Source,
+                },
+                source: *source,
+            })
+            .collect();
+        hoonarqube_core::GoProjectErrorIndex::build(&selected)
+            .digest()
+            .to_owned()
+    }
+
+    fn assert_go_cache_change(old_go: &str, new_go: &str) {
+        let fixture = Fixture::new();
+        let options = AnalyzerOptions::default();
+        let path = Path::new("consumer.go");
+        let source = "package sample\nfunc inspect() { _, problem := supply(); if problem != nil { println(problem) } }\n";
+        let digest = Cache::source_digest(source.as_bytes());
+        let base = CacheFingerprints {
+            context: "semantic-context".to_owned(),
+            helper: "compiler".to_owned(),
+            config: "configuration".to_owned(),
+            reference: "reference".to_owned(),
+            dependency: "dependency".to_owned(),
+        };
+        let mut old = base.clone();
+        old.compose_go_context(old_go);
+        assert_ne!(old.context, base.context);
+        assert_eq!(
+            (&old.helper, &old.config, &old.reference, &old.dependency),
+            (
+                &base.helper,
+                &base.config,
+                &base.reference,
+                &base.dependency
+            )
+        );
+        let cache = Cache::new_with_fingerprints(Some(&fixture.0), &options, &old).unwrap();
+        let analyzed =
+            analyze_project_file(path, source, &options, FileClassification::Source, false);
+        cache.store(path, digest, &analyzed);
+        let hit = cache
+            .load(path, source.len(), digest, FileClassification::Source)
+            .expect("actual accepted-context cache hit before change");
+        assert_eq!(Some(hit.report), analyzed.report);
+        let same = Cache::new_with_fingerprints(Some(&fixture.0), &options, &old).unwrap();
+        assert!(
+            same.load(path, source.len(), digest, FileClassification::Source)
+                .is_some()
+        );
+        let mut new = base;
+        new.compose_go_context(new_go);
+        assert_ne!(old.context, new.context);
+        let changed = Cache::new_with_fingerprints(Some(&fixture.0), &options, &new).unwrap();
+        assert!(
+            changed
+                .load(path, source.len(), digest, FileClassification::Source)
+                .is_none(),
+            "unchanged caller must miss after sibling context change"
+        );
+    }
+
+    #[test]
+    fn go_context_fingerprint_invalidates_stable_caller() {
+        assert_go_cache_change(
+            &go_context_digest(Some(
+                "package sample\nfunc supply() (int,error) { return 0,nil }\n",
+            )),
+            &go_context_digest(Some(
+                "package sample\nfunc supply() (int,*int) { return 0,nil }\n",
+            )),
+        );
+    }
+
+    #[test]
+    fn go_context_refusal_cannot_reuse_accepted_entry() {
+        let accepted = go_context_digest(Some(
+            "package sample\nfunc supply() (int,error) { return 0,nil }\n",
+        ));
+        for refused in [
+            go_context_digest(None),
+            go_context_digest(Some("package sample\nfunc broken( {")),
+            go_context_digest(Some(
+                "//go:build linux\n\npackage sample\nfunc supply() (int,error) { return 0,nil }\n",
+            )),
+        ] {
+            assert_go_cache_change(&accepted, &refused);
         }
     }
 

@@ -81,11 +81,11 @@ against the frozen catalog:
 | C# | 468 | 468 | 0 | 0 | 468 | 100.0% |
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
-| Java | 0 | 0 | 0 | 733 | 733 | 0.0% |
+| Java | 2 | 2 | 0 | 731 | 733 | 0.3% |
 | Ruby | 2 | 2 | 0 | 40 | 42 | 4.8% |
 
-Ruby detects TODO and FIXME in parsed comments (S1135 and S1134). The other
-40 frozen Ruby keys and all 733 frozen Java keys remain documented gaps.
+Java and Ruby detect TODO and FIXME in parsed comments (S1135 and S1134).
+The audit lists 731 other frozen Java keys and 40 Ruby keys as gaps.
 [PARITY.md](PARITY.md) records the tested behavior and separate native rules.
 Their rule rows were derived from one verified Community Build 26.8.0.126808
 capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full

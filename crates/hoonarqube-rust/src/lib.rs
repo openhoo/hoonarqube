@@ -16,6 +16,9 @@ use tree_sitter::{Node, Parser, Point};
 
 mod sonar_contract;
 
+#[cfg(test)]
+mod complexity_tests;
+
 /// Computes file metrics without running rules or creating source masks.
 ///
 /// # Panics
@@ -1157,6 +1160,11 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
     let matched: Vec<_> = sonar_contract::FINDINGS
         .iter()
         .filter_map(|contract| {
+            // These rules derive complete syntax ranges independently of frozen
+            // source anchors and must not add a second calibrated identity.
+            if matches!(contract.key, "rust:S2479" | "rust:S920" | "rust:S2193") {
+                return None;
+            }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
                 return None;
             }
@@ -1331,7 +1339,7 @@ fn check_whole_file(
     root: Node<'_>,
     issues: &mut Vec<Issue>,
 ) {
-    check_invisible_unicode(source, issues);
+    check_invisible_unicode(root, source, issues);
     check_regex_literals(source, code, uncommented, root, issues);
     check_vector_pushes(root, source, issues);
     check_getters(root, source, code, issues);
@@ -1348,7 +1356,7 @@ fn check_whole_file(
     check_raw_pointer_functions(root, source, issues);
     check_infinite_iterators(root, source, issues);
     check_mutable_return(source, code, issues);
-    check_float_loop_counter(source, code, issues);
+    check_float_loop_counter(root, source, code, issues);
     check_redundant_casts(root, source, code, issues);
     check_numeric_suffixes(source, code, issues);
     check_unit_sort_closure(source, code, issues);
@@ -1842,16 +1850,20 @@ fn check_function(
     }
     if let Some(body) = node.child_by_field_name("body") {
         let complexity = cognitive_complexity(body, source);
-        if complexity > options.maximum_cognitive_complexity {
-            issues.push(node_issue(
+        if complexity.total > options.maximum_cognitive_complexity {
+            let mut issue = node_issue(
                 "rust:S3776",
                 format!(
-                    "Refactor this function to reduce its Cognitive Complexity from {complexity} to the {} allowed.",
-                    options.maximum_cognitive_complexity
+                    "Refactor this function to reduce its Cognitive Complexity from {} to the {} allowed.",
+                    complexity.total, options.maximum_cognitive_complexity
                 ),
                 node.child_by_field_name("name").unwrap_or(node),
                 source,
-            ));
+            );
+            for increment in complexity.increments {
+                issue = issue.with_flow(vec![increment]);
+            }
+            issues.push(issue);
         }
     }
 }
@@ -2024,12 +2036,7 @@ fn check_if(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
         ));
     }
     if branches.len() > 1 && has_duplicate(&branches) {
-        issues.push(node_issue(
-            "rust:S7411",
-            "Extract the code shared by all branches.",
-            node,
-            source,
-        ));
+        issues.push(shared_branch_issue(node, source));
     }
 }
 
@@ -2107,34 +2114,212 @@ fn check_no_effect(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
 }
 
 fn check_boolean_match(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
-    if let Some(value) = node
-        .child_by_field_name("value")
-        .or_else(|| node.named_child(0))
-    {
-        let condition = text(value, source).trim();
-        let boolean_parameter = value.kind() == "identifier"
-            && enclosing_function(node).is_some_and(|function| {
-                function
-                    .child_by_field_name("parameters")
-                    .is_some_and(|parameters| parameter_is_bool(parameters, condition, source))
-            });
-        let boolean_expression = match value.kind() {
-            "boolean_literal" => true,
-            "unary_expression" => text(value, source).trim_start().starts_with('!'),
-            "binary_expression" => value
-                .child_by_field_name("operator")
-                .is_some_and(|operator| matches!(text(operator, source), "==" | "!=")),
-            _ => false,
+    let Some(body) = node.child_by_field_name("body") else {
+        return;
+    };
+    let mut cursor = body.walk();
+    let arms: Vec<_> = body
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "match_arm")
+        .collect();
+    if arms.len() != 2 {
+        return;
+    }
+    let mut boolean_pattern = false;
+    for arm in arms {
+        let Some(pattern) = arm.child_by_field_name("pattern").and_then(|pattern| {
+            (0..pattern.child_count())
+                .filter_map(|index| pattern.child(index))
+                .find(|child| !matches!(child.kind(), "line_comment" | "block_comment"))
+        }) else {
+            return;
         };
-        if boolean_expression || boolean_parameter {
-            issues.push(node_issue(
-                "rust:S920",
-                "Replace this match on a Boolean value with an if expression.",
-                value,
-                source,
-            ));
+        let Some(proves_boolean) = s920_pattern_shape(pattern) else {
+            return;
+        };
+        boolean_pattern |= proves_boolean;
+    }
+    let Some(value) = node.child_by_field_name("value") else {
+        return;
+    };
+    if boolean_pattern || s920_boolean_expression(value, source, 0) {
+        issues.push(node_issue(
+            "rust:S920",
+            "Replace this match on a Boolean value with an if expression.",
+            node,
+            source,
+        ));
+    }
+}
+
+// Unqualified identifier patterns may bind a variable or name a constant. The
+// source-only pass cannot distinguish those, so it only admits Boolean literal
+// and wildcard patterns, including their alternatives. Guards are separate.
+fn s920_pattern_shape(pattern: Node<'_>) -> Option<bool> {
+    let mut pending = vec![pattern];
+    let mut boolean = false;
+    while let Some(pattern) = pending.pop() {
+        match pattern.kind() {
+            "boolean_literal" => boolean = true,
+            "_" | "line_comment" | "block_comment" => {}
+            "or_pattern" => {
+                let mut cursor = pattern.walk();
+                pending.extend(pattern.named_children(&mut cursor));
+            }
+            _ => return None,
         }
     }
+    Some(boolean)
+}
+
+fn s920_boolean_expression(value: Node<'_>, source: &str, depth: usize) -> bool {
+    if depth >= 32 {
+        return false;
+    }
+    let value = unwrap_parenthesized(value);
+    match value.kind() {
+        "boolean_literal" => true,
+        "binary_expression" => value
+            .child_by_field_name("operator")
+            .is_some_and(|operator| {
+                matches!(
+                    text(operator, source),
+                    "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||"
+                )
+            }),
+        "unary_expression" if text(value, source).trim_start().starts_with('!') => value
+            .named_child(0)
+            .is_some_and(|operand| s920_boolean_expression(operand, source, depth + 1)),
+        "identifier" => s920_identifier_is_bool(value, source, depth + 1),
+        _ => false,
+    }
+}
+
+fn s920_identifier_is_bool(value: Node<'_>, source: &str, depth: usize) -> bool {
+    let Some(function) = enclosing_function(value) else {
+        return false;
+    };
+    let name = text(value, source);
+    if ancestors_until(value, function).any(|ancestor| {
+        ancestor.kind() == "closure_expression"
+            || s920_context_binds_name(ancestor, value, name, source)
+    }) {
+        return false;
+    }
+    let mut scope = enclosing_block(value);
+    while let Some(block) = scope {
+        if enclosing_function(block) != Some(function)
+            || s920_has_prior_assignment(block, value, name, function, source)
+        {
+            return false;
+        }
+        if let Some(proof) = s920_block_boolean_proof(block, value, name, source, depth) {
+            return proof;
+        }
+        if function.child_by_field_name("body") == Some(block) {
+            break;
+        }
+        scope = block.parent().and_then(enclosing_block);
+    }
+    function
+        .child_by_field_name("parameters")
+        .is_some_and(|parameters| parameter_is_bool(parameters, name, source))
+}
+
+fn s920_block_boolean_proof(
+    block: Node<'_>,
+    value: Node<'_>,
+    name: &str,
+    source: &str,
+    depth: usize,
+) -> Option<bool> {
+    let mut cursor = block.walk();
+    let mut declaration = None;
+    for child in block.named_children(&mut cursor) {
+        if child.kind() == "let_declaration"
+            && child.end_byte() <= value.start_byte()
+            && child
+                .child_by_field_name("pattern")
+                .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+        {
+            declaration = Some(child);
+        } else if child.kind() != "let_declaration"
+            && (child
+                .child_by_field_name("name")
+                .is_some_and(|item| text(item, source) == name)
+                || child.kind() == "use_declaration"
+                    && use_declaration_shadows_name(child, name, source))
+        {
+            return Some(false);
+        }
+    }
+    declaration.map(|declaration| s920_declaration_is_bool(declaration, name, source, depth))
+}
+
+fn s920_declaration_is_bool(declaration: Node<'_>, name: &str, source: &str, depth: usize) -> bool {
+    if !declaration
+        .child_by_field_name("pattern")
+        .is_some_and(|pattern| pattern.kind() == "identifier" && text(pattern, source) == name)
+    {
+        return false;
+    }
+    if let Some(kind) = declaration.child_by_field_name("type") {
+        return text(kind, source) == "bool";
+    }
+    declaration
+        .child_by_field_name("value")
+        .is_some_and(|initializer| s920_boolean_expression(initializer, source, depth))
+}
+
+fn s920_context_binds_name(context: Node<'_>, value: Node<'_>, name: &str, source: &str) -> bool {
+    if matches!(context.kind(), "match_arm" | "for_expression") {
+        return context
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| pattern_binds_name(pattern, name, source));
+    }
+    if matches!(context.kind(), "if_expression" | "while_expression")
+        && let Some(condition) = context.child_by_field_name("condition")
+        && value.start_byte() >= condition.end_byte()
+    {
+        let mut bound = false;
+        walk(condition, &mut |candidate| {
+            if candidate.kind() == "let_condition"
+                && candidate
+                    .child_by_field_name("pattern")
+                    .is_some_and(|pattern| pattern_binds_name(pattern, name, source))
+            {
+                bound = true;
+            }
+        });
+        return bound;
+    }
+    false
+}
+
+fn s920_has_prior_assignment(
+    block: Node<'_>,
+    value: Node<'_>,
+    name: &str,
+    function: Node<'_>,
+    source: &str,
+) -> bool {
+    let mut assigned = false;
+    walk_valid(block, &mut |candidate| {
+        if matches!(
+            candidate.kind(),
+            "assignment_expression" | "compound_assignment_expr"
+        ) && candidate.end_byte() <= value.start_byte()
+            && enclosing_function(candidate) == Some(function)
+            && !ancestors_until(candidate, block)
+                .any(|ancestor| ancestor.kind() == "closure_expression")
+            && candidate
+                .child_by_field_name("left")
+                .is_some_and(|left| left.kind() == "identifier" && text(left, source) == name)
+        {
+            assigned = true;
+        }
+    });
+    assigned
 }
 
 fn enclosing_function(mut node: Node<'_>) -> Option<Node<'_>> {
@@ -2172,21 +2357,31 @@ fn check_large_number(node: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_invisible_unicode(source: &str, issues: &mut Vec<Issue>) {
-    for (offset, character) in source.char_indices() {
-        if matches!(
-            character,
-            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+fn check_invisible_unicode(root: Node<'_>, source: &str, issues: &mut Vec<Issue>) {
+    walk_valid(root, &mut |node| {
+        if !matches!(
+            node.kind(),
+            "string_literal" | "raw_string_literal" | "char_literal"
         ) {
-            issues.push(offset_issue(
+            return;
+        }
+        let literal = text(node, source);
+        // Clippy checks Rust string and character literals, excluding byte/C strings.
+        let rust_literal =
+            literal.starts_with('"') || literal.starts_with('\'') || literal.starts_with('r');
+        if rust_literal
+            && literal
+                .chars()
+                .any(|character| matches!(character, '\u{200B}' | '\u{00AD}' | '\u{2060}'))
+        {
+            issues.push(node_issue(
                 "rust:S2479",
-                "Remove this invisible Unicode character.",
+                "Remove this invisible character from this literal.",
+                node,
                 source,
-                offset,
-                offset + character.len_utf8(),
             ));
         }
-    }
+    });
 }
 
 fn check_regex_literals(
@@ -2375,12 +2570,9 @@ fn check_returned_locals(root: Node<'_>, source: &str, scan: &str, issues: &mut 
         let Some(pattern) = declaration.child_by_field_name("pattern") else {
             return;
         };
-        let Some(value) = declaration.child_by_field_name("value") else {
+        let Some(_) = declaration.child_by_field_name("value") else {
             return;
         };
-        if length_cast_regex().is_match(text(value, scan)) {
-            return;
-        }
         let returned = returned_expression(*returned);
         if returned.is_some_and(|returned| {
             returned.kind() == "identifier"
@@ -3294,27 +3486,71 @@ fn check_mutable_return(source: &str, scan: &str, issues: &mut Vec<Issue>) {
     }
 }
 
-fn check_float_loop_counter(source: &str, scan: &str, issues: &mut Vec<Issue>) {
+fn check_float_loop_counter(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
     for captures in float_counter_regex().captures_iter(scan) {
         let Some(name) = captures.name("name") else {
             continue;
         };
-        let tail = &scan[captures.get(0).expect("whole regex capture").end()..];
-        if tail
-            .lines()
-            .take(4)
-            .any(|line| line.contains("while ") && line.contains(name.as_str()))
-        {
-            let full = captures.get(0).expect("whole regex capture");
-            issues.push(offset_issue(
+        let full = captures.get(0).expect("whole regex capture");
+        if let Some(condition) = float_counter_condition(root, scan, full.end(), name.as_str()) {
+            issues.push(node_issue(
                 "rust:S2193",
                 "Use an integer type for this while-loop counter.",
+                condition,
                 source,
-                full.start(),
-                full.end(),
             ));
         }
     }
+}
+
+fn float_counter_condition<'tree>(
+    root: Node<'tree>,
+    scan: &str,
+    start: usize,
+    name: &str,
+) -> Option<Node<'tree>> {
+    // Preserve the detector's existing four-line eligibility window while
+    // projecting the accepted loop onto its complete syntax condition.
+    let mut line_start = start;
+    for line in scan[start..].split_inclusive('\n').take(4) {
+        let line_end = line_start + line.len();
+        if line.contains("while ") && line.contains(name) {
+            let mut condition = None;
+            walk_valid(root, &mut |node| {
+                if condition.is_none()
+                    && node.kind() == "while_expression"
+                    && while_keyword_start(node)
+                        .is_some_and(|offset| (line_start..line_end).contains(&offset))
+                {
+                    condition = node
+                        .child_by_field_name("condition")
+                        .filter(|candidate| float_condition_uses_counter(*candidate, scan, name));
+                }
+            });
+            if let Some(condition) = condition {
+                return Some(condition);
+            }
+        }
+        line_start = line_end;
+    }
+    None
+}
+
+fn while_keyword_start(node: Node<'_>) -> Option<usize> {
+    (0..node.child_count())
+        .filter_map(|index| node.child(index))
+        .find(|child| child.kind() == "while")
+        .map(|keyword| keyword.start_byte())
+}
+
+fn float_condition_uses_counter(condition: Node<'_>, scan: &str, name: &str) -> bool {
+    let mut uses_counter = false;
+    walk_valid(condition, &mut |node| {
+        if node.kind() == "identifier" && text(node, scan) == name {
+            uses_counter = true;
+        }
+    });
+    uses_counter
 }
 
 fn check_redundant_casts(root: Node<'_>, source: &str, scan: &str, issues: &mut Vec<Issue>) {
@@ -3739,15 +3975,80 @@ fn check_shared_branch_prefix(root: Node<'_>, source: &str, issues: &mut Vec<Iss
                     && !branch_suffix_uses_local_binding(a, b, source)
             });
         if same_prefix || same_suffix {
-            issues.push(node_issue(
-                "rust:S7411",
-                "Extract the code shared by all branches.",
-                node,
-                source,
-            ));
+            issues.push(shared_branch_issue(node, source));
         }
     });
 }
+
+fn shared_branch_issue(node: Node<'_>, source: &str) -> Issue {
+    let (start, end) =
+        shared_branch_primary_range(node, source).unwrap_or((node.start_byte(), node.end_byte()));
+    offset_issue(
+        "rust:S7411",
+        "Extract the code shared by all branches.",
+        source,
+        start,
+        end,
+    )
+}
+
+/// Project an existing two-block finding onto the shared statements. Chains
+/// keep their current range until their complete branch relation is qualified.
+fn shared_branch_primary_range(node: Node<'_>, source: &str) -> Option<(usize, usize)> {
+    if node
+        .parent()
+        .is_some_and(|parent| parent.kind() == "else_clause")
+    {
+        return None;
+    }
+    let first = node.child_by_field_name("consequence")?;
+    let alternative = node.child_by_field_name("alternative")?;
+    let last = if alternative.kind() == "else_clause" {
+        alternative.named_child(0)?
+    } else {
+        alternative
+    };
+    if first.kind() != "block" || last.kind() != "block" {
+        return None;
+    }
+    let first_statements = branch_statements(first);
+    let last_statements = branch_statements(last);
+    let shared_prefix = first_statements
+        .iter()
+        .zip(&last_statements)
+        .take_while(|(a, b)| normalized_node(**a, source) == normalized_node(**b, source))
+        .count();
+    if shared_prefix > 0 {
+        return Some((
+            node.start_byte(),
+            first_statements[shared_prefix - 1].end_byte(),
+        ));
+    }
+    let shared_suffix = first_statements
+        .iter()
+        .rev()
+        .zip(last_statements.iter().rev())
+        .take_while(|(a, b)| normalized_node(**a, source) == normalized_node(**b, source))
+        .count();
+    if shared_suffix == 0 {
+        return None;
+    }
+    let mut start = last_statements[last_statements.len() - shared_suffix].start_byte();
+    // Clippy includes four immediately preceding spaces in a suffix span.
+    if start >= 4 && source.get(start - 4..start) == Some("    ") {
+        start -= 4;
+    }
+    Some((start, last.end_byte()))
+}
+
+fn branch_statements(branch: Node<'_>) -> Vec<Node<'_>> {
+    let mut cursor = branch.walk();
+    branch
+        .named_children(&mut cursor)
+        .filter(|statement| !matches!(statement.kind(), "line_comment" | "block_comment"))
+        .collect()
+}
+
 fn branch_suffix_uses_local_binding(a: Node<'_>, b: Node<'_>, source: &str) -> bool {
     let mut names = HashSet::new();
     for statement in [a, b] {
@@ -6145,20 +6446,40 @@ fn covered_rows(node: Node<'_>) -> std::ops::RangeInclusive<usize> {
     start..=end
 }
 
-/// Scores cognitive complexity per the published Sonar model: +1 per
-/// control-flow structure scaled by its nesting depth, a flat +1 for
-/// `else` and `else if` links, +1 per run of the same logical operator,
-/// and one extra nesting level inside every counted structure.
-fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
-    let mut total = 0;
+struct CognitiveComplexity {
+    total: usize,
+    increments: Vec<FlowLocation>,
+}
+
+/// Scores cognitive complexity while retaining each source-backed increment.
+/// Structures score one plus their nesting depth; else links and logical
+/// operator runs add one, and nested callables add one level of nesting.
+fn cognitive_complexity(node: Node<'_>, source: &str) -> CognitiveComplexity {
+    let mut complexity = CognitiveComplexity {
+        total: 0,
+        increments: Vec::new(),
+    };
     let mut pending = vec![(node, 0_usize, false)];
     while let Some((current, nesting, else_if)) = pending.pop() {
         match current.kind() {
             "if_expression" => {
-                score_if(current, nesting, else_if, &mut pending, &mut total);
+                score_if(
+                    current,
+                    nesting,
+                    else_if,
+                    &mut pending,
+                    &mut complexity,
+                    source,
+                );
             }
             "for_expression" | "while_expression" | "loop_expression" | "match_expression" => {
-                total += nesting + 1;
+                let keyword = current.kind().trim_end_matches("_expression");
+                record_complexity_increment(
+                    &mut complexity,
+                    keyword_token(current, keyword),
+                    nesting,
+                    source,
+                );
                 push_pending(&mut pending, current, nesting + 1, false);
             }
             // Lambdas and nested functions add a nesting level for their
@@ -6168,14 +6489,50 @@ fn cognitive_complexity(node: Node<'_>, source: &str) -> usize {
             }
             "binary_expression" => {
                 if logical_sequence_starts(current, source) {
-                    total += 1;
+                    record_complexity_increment(
+                        &mut complexity,
+                        current.child_by_field_name("operator"),
+                        0,
+                        source,
+                    );
                 }
                 push_pending(&mut pending, current, nesting, false);
             }
             _ => push_pending(&mut pending, current, nesting, false),
         }
     }
-    total
+    complexity
+        .increments
+        .sort_by_key(|location| (location.range.start, location.range.end));
+    complexity
+}
+
+fn keyword_token<'tree>(node: Node<'tree>, keyword: &str) -> Option<Node<'tree>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() == keyword)
+}
+
+/// Preserves the score even on a tolerant tree without the expected token;
+/// supporting locations are attached only to actual source-backed tokens.
+fn record_complexity_increment(
+    complexity: &mut CognitiveComplexity,
+    token: Option<Node<'_>>,
+    nesting: usize,
+    source: &str,
+) {
+    complexity.total += nesting + 1;
+    if let Some(token) = token {
+        let message = if nesting == 0 {
+            "+1".to_owned()
+        } else {
+            format!("+{} (incl {nesting} for nesting)", nesting + 1)
+        };
+        complexity.increments.push(FlowLocation::in_primary_file(
+            message,
+            node_range(token, source),
+        ));
+    }
 }
 
 fn push_pending<'tree>(
@@ -6199,9 +6556,17 @@ fn score_if<'tree>(
     nesting: usize,
     else_if: bool,
     pending: &mut Vec<(Node<'tree>, usize, bool)>,
-    total: &mut usize,
+    complexity: &mut CognitiveComplexity,
+    source: &str,
 ) {
-    *total += if else_if { 1 } else { nesting + 1 };
+    let token = if else_if {
+        current
+            .parent()
+            .and_then(|parent| keyword_token(parent, "else"))
+    } else {
+        keyword_token(current, "if")
+    };
+    record_complexity_increment(complexity, token, if else_if { 0 } else { nesting }, source);
     let nested = nesting + 1;
     let alternative = current.child_by_field_name("alternative");
     for index in (0..current.named_child_count()).rev() {
@@ -6213,13 +6578,16 @@ fn score_if<'tree>(
         }
         pending.push((child, nested, false));
     }
-    let Some(branch) = alternative.and_then(|alternative| alternative.named_child(0)) else {
+    let Some(alternative) = alternative else {
+        return;
+    };
+    let Some(branch) = alternative.named_child(0) else {
         return;
     };
     if branch.kind() == "if_expression" {
         pending.push((branch, nesting, true));
     } else {
-        *total += 1;
+        record_complexity_increment(complexity, keyword_token(alternative, "else"), 0, source);
         pending.push((branch, nested, false));
     }
 }
@@ -6559,7 +6927,6 @@ regex_fn!(
     repeated_cast_regex,
     r"\([^\n;]+\s+as\s+(?P<first>[ui](?:8|16|32|64|128|size)|f(?:32|64))\)\s+as\s+(?P<second>[ui](?:8|16|32|64|128|size)|f(?:32|64))"
 );
-regex_fn!(length_cast_regex, r"\.len\(\)\s+as\s+usize");
 regex_fn!(
     string_variable_regex,
     r"let\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*String::from\("
@@ -6620,8 +6987,313 @@ regex_fn!(
 );
 
 #[cfg(test)]
+mod s7411_tests;
+
+#[cfg(test)]
+mod s2193_condition_location_tests {
+    use super::*;
+
+    const MESSAGE: &str = "Avoid using floating-point numbers as loop counters.";
+    const ORIGINAL: &str =
+        include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_bad.rs");
+
+    fn report(source: &str) -> FileReport {
+        analyze(
+            PathBuf::from("counter.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        )
+    }
+
+    fn selected(source: &str) -> Vec<Issue> {
+        report(source)
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "rust:S2193")
+            .collect()
+    }
+
+    fn expected(sl: u32, sc: u32, el: u32, ec: u32) -> Issue {
+        Issue::new(
+            "rust:S2193",
+            MESSAGE,
+            Range {
+                start: Pos {
+                    line: sl,
+                    column: sc,
+                },
+                end: Pos {
+                    line: el,
+                    column: ec,
+                },
+            },
+        )
+    }
+
+    #[test]
+    fn s2193_condition_location_matches_reference_and_preserves_unrelated_finding() {
+        assert_eq!(
+            report(ORIGINAL).issues,
+            [
+                expected(4, 10, 4, 24),
+                Issue::new(
+                    "rust:S106",
+                    "Use a logging framework to log this message to the console.",
+                    Range {
+                        start: Pos { line: 5, column: 8 },
+                        end: Pos {
+                            line: 5,
+                            column: 40,
+                        },
+                    },
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn s2193_condition_location_is_independent_of_names_and_multiline_layout() {
+        for (source, range) in [
+            (
+                "fn main() {\n    let mut counter = 0.0;\n    while counter < 10.0 {\n        counter += 1.0;\n    }\n}\n",
+                (3, 10, 3, 24),
+            ),
+            (
+                "fn main() {\n    let mut progress = 0.0;\n    while progress < 10.0 {\n        progress += 1.0;\n    }\n}\n",
+                (3, 10, 3, 25),
+            ),
+            (
+                "fn main() {\n    let mut progress = 0.0;\n    while progress\n        < 10.0\n    {\n        progress += 1.0;\n    }\n}\n",
+                (3, 10, 4, 14),
+            ),
+            (
+                "fn main() { let mut count: f32 = 0.0; while count < 2.0 { count += 1.0; } }\n",
+                (1, 44, 1, 55),
+            ),
+        ] {
+            assert_eq!(
+                selected(source),
+                [expected(range.0, range.1, range.2, range.3)],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_keeps_separate_loop_multiplicity() {
+        let source = concat!(
+            "fn main() {\n",
+            "    let mut counter = 0.0;\n",
+            "    while counter < 10.0 {\n",
+            "        counter += 1.0;\n",
+            "    }\n",
+            "    let mut counter = 0.0;\n",
+            "    while counter < 10.0 {\n",
+            "        counter += 1.0;\n",
+            "    }\n",
+            "}\n",
+        );
+        assert_eq!(
+            report(source).issues,
+            [expected(3, 10, 3, 24), expected(7, 10, 7, 24)]
+        );
+    }
+
+    #[test]
+    fn s2193_condition_location_preserves_scalar_columns_and_crlf() {
+        let source = concat!(
+            "fn main() {\n",
+            "    let mut progress = 0.0;\n",
+            "    let _label = \"é😀\"; while progress < 10.0 {\n",
+            "        progress += 1.0;\n",
+            "    }\n",
+            "}\n",
+        );
+        for source in [source.to_string(), source.replace('\n', "\r\n")] {
+            assert_eq!(selected(&source), [expected(3, 29, 3, 44)]);
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_skips_unrelated_earlier_loop_on_same_line() {
+        let source = "fn main() { let mut counter = 0.0; while false {} while counter < 2.0 { counter += 1.0; } }\n";
+        assert_eq!(selected(source), [expected(1, 56, 1, 69)]);
+    }
+
+    #[test]
+    fn s2193_condition_location_selects_one_matching_condition_per_declaration() {
+        let distinct = "fn main() { let mut first = 0.0; let mut second = 0.0; while first < 2.0 { first += 1.0; } while second < 2.0 { second += 1.0; } }\n";
+        assert_eq!(
+            selected(distinct),
+            [expected(1, 61, 1, 72), expected(1, 97, 1, 109)]
+        );
+        let reused = "fn main() { let mut counter = 0.0; while counter < 2.0 { counter += 1.0; } while counter < 4.0 { counter += 1.0; } }\n";
+        assert_eq!(selected(reused), [expected(1, 41, 1, 54)]);
+        let later_line = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(later_line), [expected(4, 7, 4, 20)]);
+        let last_eligible_line = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(last_eligible_line), [expected(5, 7, 5, 20)]);
+        let outside_window = "fn main() {\n let mut counter = 0.0;\n while false { counter += 1.0; }\n\n\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        assert!(selected(outside_window).is_empty());
+    }
+
+    #[test]
+    fn s2193_condition_location_uses_while_keyword_after_a_preceding_label() {
+        let substring = "fn main() { let mut count = 0.0; let mut counter = 0; while counter < 2 { counter += 1; } std::hint::black_box(count); }\n";
+        assert!(selected(substring).is_empty());
+        let labeled = "fn main() {\n let mut counter = 0.0;\n 'outer:\n while counter < 2.0 { counter += 1.0; }\n}\n";
+        for source in [labeled.to_string(), labeled.replace('\n', "\r\n")] {
+            assert_eq!(selected(&source), [expected(4, 7, 4, 20)]);
+        }
+    }
+
+    #[test]
+    fn s2193_condition_location_keeps_clean_controls_and_existing_window() {
+        for source in [
+            include_str!("../../../.oracle/sonar/projects/oracle-rust/src/s2193_good.rs"),
+            "fn main() { let mut counter = 0; while counter < 10 { counter += 1; } }\n",
+            "fn main() { let mut counter = 0.0; counter += 1.0; std::hint::black_box(counter); }\n",
+            "fn value(mut counter: f64) { while counter < 10.0 { counter += 1.0; } }\n",
+            "fn main() { let mut counter = -1.0; while counter < 10.0 { counter += 1.0; } }\n",
+            "fn main() {\n    let mut counter = 0.0;\n\n\n\n    while counter < 10.0 { counter += 1.0; }\n}\n",
+            "// let mut counter = 0.0; while counter < 10.0 {}\nfn main() { let _text = \"let mut counter = 0.0; while counter < 10.0 {}\"; }\n",
+        ] {
+            assert!(selected(source).is_empty(), "{source}");
+        }
+        let within_window = "fn main() {\n    let mut counter = 0.0;\n\n\n    while counter < 10.0 { counter += 1.0; }\n}\n";
+        assert_eq!(selected(within_window), [expected(5, 10, 5, 24)]);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    fn s2479_findings(source: &str) -> Vec<Issue> {
+        analyze(
+            PathBuf::from("literals.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        )
+        .issues
+        .into_iter()
+        .filter(|issue| issue.rule_key == "rust:S2479")
+        .collect()
+    }
+
+    #[test]
+    fn s2479_reports_one_whole_literal_for_selected_unicode_characters() {
+        for literal in [
+            "\"a\u{200b}b\u{2060}c\"",
+            "\"a\u{ad}b\"",
+            "r#\"a\u{200b}b\"#",
+            "'\u{200b}'",
+        ] {
+            let source = format!("fn value() {{ let _value = {literal}; }}\n");
+            let findings = s2479_findings(&source);
+            assert_eq!(findings.len(), 1, "{literal:?}: {findings:?}");
+            assert_eq!(
+                findings[0].range.start,
+                Pos {
+                    line: 1,
+                    column: 26
+                }
+            );
+            assert_eq!(
+                findings[0].range.end,
+                Pos {
+                    line: 1,
+                    column: 26 + u32::try_from(literal.chars().count()).unwrap()
+                }
+            );
+            assert_eq!(
+                findings[0].message,
+                "Remove this invisible character from this literal."
+            );
+            assert!(findings[0].fix.is_none());
+            assert!(findings[0].alternatives.is_empty());
+        }
+    }
+
+    #[test]
+    fn s2479_ignores_comments_c_strings_joiners_and_explicit_escapes() {
+        let source = concat!(
+            "// Comment \u{200b}\u{2060}\u{ad}\n",
+            "/* Block \u{200b} */\n",
+            "fn clean() { let _joiners = \"\u{200c}\u{200d}\u{feff}\"; ",
+            "let _escaped = \"a\\u{200b}b\"; let _c = c\"a\u{200b}b\"; }\n",
+        );
+        assert!(s2479_findings(source).is_empty());
+    }
+
+    #[test]
+    fn s2479_literal_identity_is_independent_of_layout_and_oracle_anchor_text() {
+        let original = "fn hidden() { let value = \"a\u{200b}b\"; drop(value); }\n";
+        let formatted =
+            "fn renamed()\n{\n    let value\n        = \"a\u{200b}b\";\n    drop(value);\n}\n";
+        for (source, expected) in [
+            (
+                original,
+                Range {
+                    start: Pos {
+                        line: 1,
+                        column: 26,
+                    },
+                    end: Pos {
+                        line: 1,
+                        column: 31,
+                    },
+                },
+            ),
+            (
+                formatted,
+                Range {
+                    start: Pos {
+                        line: 4,
+                        column: 10,
+                    },
+                    end: Pos {
+                        line: 4,
+                        column: 15,
+                    },
+                },
+            ),
+        ] {
+            let findings = s2479_findings(source);
+            assert_eq!(findings.len(), 1, "{findings:?}");
+            assert_eq!(findings[0].range, expected);
+        }
+    }
+
+    #[test]
+    fn s2479_preserves_separate_repeated_literals_and_multiline_spans() {
+        let source = "fn repeated() {\n    let _first = \"a\u{200b}\u{2060}b\";\n    let _second = r#\"a\n\u{ad}b\"#;\n}\n";
+        let findings = s2479_findings(source);
+        assert_eq!(findings.len(), 2, "{findings:?}");
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos {
+                    line: 2,
+                    column: 17
+                },
+                end: Pos {
+                    line: 2,
+                    column: 23
+                }
+            }
+        );
+        assert_eq!(
+            findings[1].range,
+            Range {
+                start: Pos {
+                    line: 3,
+                    column: 18
+                },
+                end: Pos { line: 4, column: 4 }
+            }
+        );
+    }
 
     #[test]
     fn array_macro_index_tracks_each_binding_until_its_next_shadow() {
@@ -7535,6 +8207,72 @@ mod tests {
     }
 
     #[test]
+    fn s920_whole_expression_range_does_not_duplicate_the_frozen_anchor() {
+        let report = analyze(
+            PathBuf::from("boolean.rs"),
+            "fn choose(value: bool) {\n    match value {\n        true => (),\n        false => (),\n    };\n}\n",
+            &AnalyzerOptions::default(),
+        );
+        let findings: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "rust:S920")
+            .collect();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(
+            findings[0].range,
+            Range {
+                start: Pos { line: 2, column: 4 },
+                end: Pos { line: 5, column: 5 },
+            }
+        );
+        assert_eq!(
+            findings[0].message,
+            "Replace this `match` expression with an `if-else` expression."
+        );
+        assert!(findings[0].flows.is_empty());
+        assert!(findings[0].fix.is_none());
+        assert!(findings[0].alternatives.is_empty());
+    }
+
+    #[test]
+    fn s920_two_arms_and_no_binding_are_required() {
+        for source in [
+            "fn f(flag: bool) { match flag { _ => () } }\n",
+            "fn f(flag: bool) { match flag { true => (), other => drop(other) } }\n",
+            "fn f(flag: bool, gate: bool) { match flag { true if gate => (), false => (), _ => () } }\n",
+            "fn f(flag: bool) { match flag { bound @ true => drop(bound), _ => () } }\n",
+            "fn f(value: u8) { match !value { 0 => (), _ => () } }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S920"), "{source}");
+        }
+        assert!(has_rule(
+            "fn f(flag: bool, gate: bool) { match flag { true if gate => (), _ => () } }\n",
+            "rust:S920"
+        ));
+    }
+
+    #[test]
+    fn s920_local_boolean_proof_respects_type_and_shadow_boundaries() {
+        for source in [
+            "fn f(gate: bool) { let flag = true; match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool) { let flag: bool = unknown(); match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, x: u8) { match x < 2 { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, x: bool) { match x && gate { _ if gate => (), _ => () }; }\n",
+        ] {
+            assert!(has_rule(source, "rust:S920"), "{source}");
+        }
+        for source in [
+            "fn f(flag: bool, gate: bool) { let flag = 1u8; match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(flag: bool, gate: bool) { let flag = unknown(); match flag { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool, value: u8) { match !value { _ if gate => (), _ => () }; }\n",
+            "fn f(gate: bool) { match !unknown() { _ if gate => (), _ => () }; }\n",
+        ] {
+            assert!(!has_rule(source, "rust:S920"), "{source}");
+        }
+    }
+
+    #[test]
     fn boolean_match_parameters_are_resolved_within_their_function() {
         let unrelated = keys(concat!(
             "fn accepts(flag: bool) { let _ = flag; }\n",
@@ -7694,14 +8432,48 @@ mod tests {
     }
 
     #[test]
-    fn returned_local_rule_uses_direct_tail_and_avoids_redundant_cast_overlap() {
-        let clean = keys(concat!(
+    fn returned_local_rule_uses_direct_tail_and_keeps_redundant_cast_overlap() {
+        let overlap = concat!(
             "fn length(value: &str) -> usize {\n",
             "    let length = value.len() as usize;\n",
             "    length\n",
             "}\n",
-        ));
-        assert!(clean.iter().all(|key| key != "rust:S1488"), "{clean:?}");
+        );
+        let report = analyze(
+            PathBuf::from("fixture.rs"),
+            overlap,
+            &AnalyzerOptions::default(),
+        );
+        assert_eq!(
+            report.issues,
+            vec![
+                Issue::new(
+                    "rust:S1488",
+                    "Remove the `let` statement and return the expression directly.",
+                    Range {
+                        start: Pos { line: 2, column: 4 },
+                        end: Pos {
+                            line: 2,
+                            column: 38
+                        },
+                    },
+                ),
+                Issue::new(
+                    "rust:S4325",
+                    "Remove this unnecessary cast.",
+                    Range {
+                        start: Pos {
+                            line: 2,
+                            column: 17
+                        },
+                        end: Pos {
+                            line: 2,
+                            column: 37
+                        },
+                    },
+                ),
+            ],
+        );
 
         let source = concat!(
             "fn duration(value: u32) -> u32 {\n",
@@ -7714,13 +8486,97 @@ mod tests {
             source,
             &AnalyzerOptions::default(),
         );
-        let issue = report
-            .issues
-            .iter()
-            .find(|issue| issue.rule_key == "rust:S1488")
-            .expect("direct returned local");
-        assert_eq!(issue.range.start.line, 2);
-        assert_eq!(issue.range.end.line, 2);
+        assert_eq!(
+            report.issues,
+            vec![Issue::new(
+                "rust:S1488",
+                "Remove the `let` statement and return the expression directly.",
+                Range {
+                    start: Pos { line: 2, column: 4 },
+                    end: Pos {
+                        line: 2,
+                        column: 32
+                    },
+                },
+            )],
+        );
+    }
+
+    #[test]
+    fn returned_local_overlap_keeps_substantive_direct_and_non_tail_controls() {
+        for (source, returned_count, cast_count) in [
+            (
+                "fn direct(value: &str) -> usize { value.len() as usize }\n",
+                0,
+                1,
+            ),
+            ("fn direct(value: &str) -> usize { value.len() }\n", 0, 0),
+            (
+                "fn ordinary(value: &str) -> usize { let length = value.len(); length }\n",
+                1,
+                0,
+            ),
+            (
+                "fn used(value: &str) -> usize {\n    let length = value.len() as usize;\n    consume(length);\n    length\n}\nfn consume(_: usize) {}\n",
+                0,
+                1,
+            ),
+            (
+                "fn adjusted(value: &str) -> usize {\n    let length = value.len() as usize;\n    length + 1\n}\n",
+                0,
+                1,
+            ),
+            (
+                "fn capacity(value: std::fs::Metadata) -> usize { value.len() as usize }\n",
+                0,
+                0,
+            ),
+        ] {
+            let found = keys(source);
+            assert_eq!(
+                found
+                    .iter()
+                    .filter(|key| key.as_str() == "rust:S1488")
+                    .count(),
+                returned_count,
+                "{source}: {found:?}",
+            );
+            assert_eq!(
+                found
+                    .iter()
+                    .filter(|key| key.as_str() == "rust:S4325")
+                    .count(),
+                cast_count,
+                "{source}: {found:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn returned_local_overlap_preserves_masked_decoys_and_invalid_blocks() {
+        let source = concat!(
+            "// fn example(v: &str) -> usize { let length = v.len() as usize; length }\n",
+            "fn decoy() -> usize {\n",
+            "    let text = \"let length = value.len() as usize; length\";\n",
+            "    text.len()\n",
+            "}\n",
+        );
+        let found = keys(source);
+        assert!(
+            found
+                .iter()
+                .all(|key| !matches!(key.as_str(), "rust:S1488" | "rust:S4325")),
+            "{found:?}",
+        );
+        let malformed = keys("fn broken(");
+        assert!(
+            malformed.iter().any(|key| key == "rust:S2260"),
+            "{malformed:?}"
+        );
+        assert!(
+            malformed.iter().all(|key| key != "rust:S1488"),
+            "{malformed:?}"
+        );
     }
 
     #[test]
@@ -7842,7 +8698,7 @@ mod tests {
                 body = node.child_by_field_name("body");
             }
         });
-        cognitive_complexity(body.expect("source contains a function"), source)
+        cognitive_complexity(body.expect("source contains a function"), source).total
     }
 
     #[test]
