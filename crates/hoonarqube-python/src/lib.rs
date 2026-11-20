@@ -276,6 +276,8 @@ pub struct AnalyzerOptions {
     /// Project orchestration sets this for configurable test-source patterns.
     pub test_scope: Option<bool>,
     pub maximum_line_length: u32,
+    /// Physical file-line limit for `python:S104`, retaining the reference's
+    /// `maximumLinesOfCode` parameter name.
     pub maximum_lines_of_code: u32,
     pub maximum_function_parameters: u32,
     pub maximum_return_statements: u32,
@@ -409,7 +411,7 @@ fn run_tier_batteries(ctx: &BatteryContext<'_>, issues: &mut Vec<Issue>) {
         parsed, index, source, file_ctx,
     ));
     issues.extend(check_size_metric_battery(
-        parsed, index, source, options, metrics,
+        parsed, index, source, options, metrics, path,
     ));
     issues.extend(check_tier_b_battery(
         parsed, index, source, options, file_ctx, path, test_scope,

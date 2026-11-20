@@ -1,5 +1,6 @@
 use crate::engine::file_context::FileContext;
 use crate::support::child_exprs;
+use crate::support::flow_location;
 use crate::support::for_each_stmt_in_scope;
 use crate::support::issue_at;
 use crate::support::stmt_exprs;
@@ -7,7 +8,7 @@ use hoonarqube_ir::Issue;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
 use ruff_source_file::LineIndex;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 pub(crate) fn check_async_without_awaits(
     index: &LineIndex,
@@ -21,16 +22,49 @@ pub(crate) fn check_async_without_awaits(
             && !is_exempt_async_function(function, &file_ctx.classes)
             && !async_features_present(function)
         {
-            issues.push(issue_at(
+            let mut issue = issue_at(
                 "python:S7503",
-                "This async function never awaits; make it synchronous or await something.",
+                "Use asynchronous features in this function or remove the `async` keyword.",
                 function.name.range(),
                 index,
                 source,
-            ));
+            );
+            if let Some(range) = async_keyword_range(function, source) {
+                issue = issue.with_flow(vec![flow_location(
+                    "This function is async.",
+                    range,
+                    index,
+                    source,
+                )]);
+            }
+            issues.push(issue);
         }
     }
     issues
+}
+
+/// The locked parser starts an undecorated async declaration at its keyword.
+/// Recovered or inconsistent ranges must not invent a supporting location.
+fn async_keyword_range(
+    function: &ruff_python_ast::StmtFunctionDef,
+    source: &str,
+) -> Option<TextRange> {
+    let declaration = function.range();
+    let name = function.name.range();
+    let start = declaration.start();
+    let end = start.checked_add(TextSize::new(5))?;
+    source.get(start.to_usize()..declaration.end().to_usize())?;
+    if end > declaration.end()
+        || name.is_empty()
+        || end > name.start()
+        || name.end() > declaration.end()
+        || source.get(name.start().to_usize()..name.end().to_usize())
+            != Some(function.name.as_str())
+        || source.get(start.to_usize()..end.to_usize()) != Some("async")
+    {
+        return None;
+    }
+    Some(TextRange::new(start, end))
 }
 
 // --- python:S7503 — async function without async features ---------------------------
@@ -113,7 +147,14 @@ fn for_each_expr_for_async_scope(expr: &Expr, visit: &mut impl FnMut(&Expr)) {
 #[cfg(test)]
 mod tests {
 
-    use crate::test_support::{findings, scan};
+    use crate::test_support::{findings, issue, scan};
+    use hoonarqube_ir::{FlowLocation, Pos, Range};
+
+    use super::check_async_without_awaits;
+    use crate::engine::file_context::FileContext;
+    use ruff_python_ast::Stmt;
+    use ruff_source_file::LineIndex;
+    use ruff_text_size::TextRange;
 
     #[test]
     fn s7503_flags_async_functions_without_awaits() {
@@ -128,6 +169,22 @@ mod tests {
         let found = findings(&flagged, "python:S7503");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start.line, 1);
+        assert_eq!(
+            *found[0],
+            issue(
+                "python:S7503",
+                "Use asynchronous features in this function or remove the `async` keyword.",
+                (1, 10),
+                (1, 14),
+            )
+            .with_flow(vec![FlowLocation::in_primary_file(
+                "This function is async.",
+                Range {
+                    start: Pos { line: 1, column: 0 },
+                    end: Pos { line: 1, column: 5 },
+                },
+            )])
+        );
     }
     #[test]
     fn s7503_preserves_async_generator_contracts() {
@@ -136,5 +193,46 @@ mod tests {
         let nested_yield =
             scan("async def outer():\n    def values():\n        yield 1\n    return values\n");
         assert_eq!(findings(&nested_yield, "python:S7503").len(), 1);
+    }
+
+    #[test]
+    fn s7503_unproven_keyword_ranges_keep_the_original_primary() {
+        let source = "async def noop():\n    return '𐐀'\n";
+        let parsed = ruff_python_parser::parse_module(source).expect("valid fixture");
+        let index = LineIndex::from_source_text(source);
+        let end = u32::try_from(source.len()).expect("small fixture");
+        let inside_unicode =
+            u32::try_from(source.find('𐐀').expect("astral character") + 1).expect("small fixture");
+        let cases = [
+            (1, end, 10, 14),
+            (0, 4, 10, 14),
+            (0, 13, 10, 14),
+            (0, end + 1, 10, 14),
+            (0, end, 4, 8),
+            (0, end, 10, 10),
+            (0, end, 11, 15),
+            (u32::MAX, u32::MAX, 10, 14),
+            (0, inside_unicode, 10, 14),
+        ];
+        for (start, end, name_start, name_end) in cases {
+            let mut stmt = parsed.syntax().body[0].clone();
+            let Stmt::FunctionDef(function) = &mut stmt else {
+                panic!("function fixture");
+            };
+            function.range = TextRange::new(start.into(), end.into());
+            function.name.range = TextRange::new(name_start.into(), name_end.into());
+            let mut context = FileContext::build(&parsed, source);
+            context.stmts = vec![&stmt];
+            assert_eq!(
+                check_async_without_awaits(&index, source, &context),
+                vec![issue(
+                    "python:S7503",
+                    "Use asynchronous features in this function or remove the `async` keyword.",
+                    (1, name_start),
+                    (1, name_end),
+                )],
+                "declaration {start}..{end}, name {name_start}..{name_end}"
+            );
+        }
     }
 }
