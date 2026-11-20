@@ -65,6 +65,7 @@ impl<'a> TbBuilder<'a, '_> {
         self.model.bindings.push(TbBinding {
             name,
             kind,
+            function_expression_name: false,
             decl,
             s1172_eligible: true,
             reads: Vec::new(),
@@ -364,7 +365,9 @@ impl<'a> Visit<'a> for TbBuilder<'a, '_> {
             && function.body.is_some()
             && let Some(id) = &function.id
         {
-            self.declare(id.name.as_str(), TbKind::Function, id.span);
+            let binding = self.declare(id.name.as_str(), TbKind::Function, id.span);
+            self.model.bindings[binding].function_expression_name =
+                function.r#type == oxc_ast::ast::FunctionType::FunctionExpression;
         }
         let parameter_start = self.model.bindings.len();
         self.declare_parameters(&function.params);
