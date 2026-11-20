@@ -36,6 +36,9 @@ use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 const API_PREFIX: &str = "/api/v1";
+const DEFAULT_FINDINGS_PAGE_SIZE: u16 = 100;
+const MAX_FINDINGS_PAGE_SIZE: u16 = 500;
+const MAX_FINDINGS_CURSOR_BYTES: usize = 42;
 const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PROJECT_BYTES: usize = 256;
 const MAX_BRANCH_BYTES: usize = 256;
@@ -634,6 +637,18 @@ struct FindingsResponse {
     findings: Vec<FindingRecord>,
 }
 
+#[derive(Debug, Deserialize)]
+struct FindingsPageQuery {
+    limit: Option<u16>,
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct FindingsPageResponse {
+    findings: Vec<FindingRecord>,
+    next_cursor: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ReviewsResponse {
     reviews: Vec<ReviewRecord>,
@@ -814,6 +829,10 @@ fn router(state: AppState) -> Router {
             get(get_findings),
         )
         .route(
+            &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}/findings/page"),
+            get(get_findings_page),
+        )
+        .route(
             &format!("{API_PREFIX}/projects/{{project}}/reviews"),
             get(list_reviews).post(post_review),
         )
@@ -931,6 +950,49 @@ async fn get_findings(
         .findings(&project, analysis_id)
         .map_err(|error| store_error(&error))?;
     Ok(Json(FindingsResponse { findings }))
+}
+
+async fn get_findings_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
+    SafeQuery(query): SafeQuery<FindingsPageQuery>,
+) -> Result<Json<FindingsPageResponse>, ApiError> {
+    authorize_project(&state, &headers, &project, Role::Reader)?;
+    validate_project(&project)?;
+    let limit = query.limit.unwrap_or(DEFAULT_FINDINGS_PAGE_SIZE);
+    if analysis_id <= 0 || !(1..=MAX_FINDINGS_PAGE_SIZE).contains(&limit) {
+        return Err(ApiError::bad_request());
+    }
+    let after_id = query
+        .cursor
+        .as_deref()
+        .map(|cursor| parse_finding_cursor(analysis_id, cursor))
+        .transpose()?;
+    let store::FindingPage { findings, next_id } = state
+        .store
+        .findings_page(&project, analysis_id, after_id, limit)
+        .map_err(|error| store_error(&error))?;
+    Ok(Json(FindingsPageResponse {
+        findings,
+        next_cursor: next_id.map(|id| encode_finding_cursor(analysis_id, id)),
+    }))
+}
+
+fn encode_finding_cursor(analysis_id: i64, finding_id: i64) -> String {
+    format!("v1.{analysis_id}.{finding_id}")
+}
+
+fn parse_finding_cursor(analysis_id: i64, cursor: &str) -> Result<i64, ApiError> {
+    if cursor.len() > MAX_FINDINGS_CURSOR_BYTES {
+        return Err(ApiError::bad_request());
+    }
+    let (_, id) = cursor.rsplit_once('.').ok_or_else(ApiError::bad_request)?;
+    let id: i64 = id.parse().map_err(|_| ApiError::bad_request())?;
+    if id <= 0 || encode_finding_cursor(analysis_id, id) != cursor {
+        return Err(ApiError::bad_request());
+    }
+    Ok(id)
 }
 
 async fn ingest_analysis(
@@ -1271,6 +1333,7 @@ fn store_error(error: &StoreError) -> ApiError {
     match error {
         StoreError::Conflict(_) => ApiError::conflict(),
         StoreError::NotFound => ApiError::not_found(),
+        StoreError::InvalidFindingCursor => ApiError::bad_request(),
         StoreError::Sql(_) | StoreError::Invalid(_) => ApiError::internal(),
     }
 }
@@ -3430,6 +3493,100 @@ mod tests {
         assert_api_error(&response, 409, "conflict");
         source_server.abort();
         destination_server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_findings_pages_preserve_order_and_validate_cursors() {
+        let (address, server) = spawn_test_service().await;
+        let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+        report.as_object_mut().unwrap().remove("assessment");
+        let issues = report["files"][0]["issues"].as_array_mut().unwrap();
+        let item = issues[0].clone();
+        issues.push(item.clone());
+        for message in ["second", "third", "fourth"] {
+            let mut finding = item.clone();
+            finding["message"] = json!(message);
+            issues.push(finding);
+        }
+        let mut empty_report = report.clone();
+        empty_report["files"][0]["issues"] = json!([]);
+        let response = ingest_report(address, "paginated", report).await;
+        assert_eq!(response.status, 200);
+        let id = json_body(&response)["analysis"]["id"].as_i64().unwrap();
+        let path = format!("/api/v1/projects/demo/analyses/{id}/findings");
+        let unpaginated = api_request(address, "GET", &path, None, "").await;
+        assert_eq!(unpaginated.status, 200);
+        let all = json_body(&unpaginated)["findings"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(all.len(), 5);
+
+        let page_path = format!("{path}/page");
+        let mut fetched = Vec::new();
+        let mut query = String::new();
+        for count in [2, 2, 1] {
+            let response = api_request(
+                address,
+                "GET",
+                &format!("{page_path}?limit=2{query}"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(response.status, 200);
+            let page = json_body(&response);
+            let items = page["findings"].as_array().unwrap();
+            assert_eq!(items.len(), count);
+            fetched.extend_from_slice(items);
+            if count == 1 {
+                assert!(page["next_cursor"].is_null());
+            } else {
+                query = format!("&cursor={}", page["next_cursor"].as_str().unwrap());
+            }
+        }
+        assert_eq!(fetched, all);
+        let default = api_request(address, "GET", &page_path, None, "").await;
+        assert_eq!(default.status, 200);
+        assert_eq!(
+            json_body(&default),
+            json!({"findings": all, "next_cursor": null})
+        );
+
+        let empty = ingest_report(address, "no-findings", empty_report).await;
+        assert_eq!(empty.status, 200);
+        let other_id = json_body(&empty)["analysis"]["id"].as_i64().unwrap();
+        let empty_path = format!("/api/v1/projects/demo/analyses/{other_id}/findings/page");
+        let response = api_request(address, "GET", &empty_path, None, "").await;
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            json_body(&response),
+            json!({"findings": [], "next_cursor": null})
+        );
+        let foreign_cursor = format!("{empty_path}?limit=2{query}");
+        let response = api_request(address, "GET", &foreign_cursor, None, "").await;
+        assert_api_error(&response, 400, "invalid_request");
+
+        for invalid in [
+            "limit=0".to_owned(),
+            "limit=501".to_owned(),
+            "limit=-1".to_owned(),
+            "limit=abc".to_owned(),
+            "cursor=invalid".to_owned(),
+            format!("cursor=v1.{id}.{}", i64::MAX),
+        ] {
+            let url = format!("{page_path}?{invalid}");
+            let response = api_request(address, "GET", &url, None, "").await;
+            assert_api_error(&response, 400, "invalid_request");
+        }
+        let forbidden = format!("/api/v1/projects/foreign/analyses/{id}/findings/page?limit=1");
+        let response = api_request(address, "GET", &forbidden, None, "").await;
+        assert_api_error(&response, 403, "forbidden");
+        let nonexistent = format!("/api/v1/projects/demo/analyses/{}/findings/page", i64::MAX);
+        let response = api_request(address, "GET", &nonexistent, None, "").await;
+        assert_api_error(&response, 404, "not_found");
+        server.abort();
+        let _ = server.await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

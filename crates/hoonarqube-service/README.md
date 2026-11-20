@@ -36,6 +36,19 @@ must match their latest immutable history entry, including the reviewed analysis
 state, version, actor, timestamp, and reason; contradictory backups are refused
 before creating a project or writing any rows.
 
+## Finding pages
+
+Use `GET /api/v1/projects/{project}/analyses/{analysis_id}/findings/page` for
+a bounded response. It uses the same project access and review rules as
+`/findings`. Set `limit` to 1–500 (default 100). The response contains an
+ordered `findings` array and `next_cursor`. Pass the cursor unchanged as
+`cursor` on the next request. A null cursor marks the last page, including an
+empty result. Cursors belong to the analysis that issued them.
+
+The finding order stays fixed for the life of an analysis. Reviews reflect
+the state when each page was read, so clients may see review changes between
+pages. The existing `/findings` route still returns the full array.
+
 ## Database startup and recovery
 
 Use a dedicated SQLite file for each instance. The service initializes empty

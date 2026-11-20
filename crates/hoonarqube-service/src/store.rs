@@ -1,6 +1,8 @@
 mod findings;
 mod schema;
 
+pub(crate) use findings::FindingPage;
+
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -20,6 +22,7 @@ pub(crate) enum StoreError {
     Sql(rusqlite::Error),
     Conflict(String),
     NotFound,
+    InvalidFindingCursor,
     Invalid(String),
 }
 impl Display for StoreError {
@@ -28,6 +31,7 @@ impl Display for StoreError {
             Self::Sql(error) => write!(formatter, "database error: {error}"),
             Self::Conflict(message) => write!(formatter, "database conflict: {message}"),
             Self::NotFound => formatter.write_str("record not found"),
+            Self::InvalidFindingCursor => formatter.write_str("invalid finding cursor"),
             Self::Invalid(message) => write!(formatter, "invalid database state: {message}"),
         }
     }
@@ -37,7 +41,9 @@ impl std::error::Error for StoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Sql(error) => Some(error),
-            Self::Conflict(_) | Self::NotFound | Self::Invalid(_) => None,
+            Self::Conflict(_) | Self::NotFound | Self::InvalidFindingCursor | Self::Invalid(_) => {
+                None
+            }
         }
     }
 }

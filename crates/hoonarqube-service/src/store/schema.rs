@@ -6,6 +6,7 @@ const SCHEMA_VERSION: i64 = 2;
 const CREATE_V1: &str = include_str!("schema_v1.sql");
 const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
 const ENSURE_V1_INDEXES: &str = include_str!("indexes_v1.sql");
+const ENSURE_V2_INDEXES: &str = include_str!("indexes_v2.sql");
 
 pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> {
     connection.pragma_update(None, "foreign_keys", true)?;
@@ -55,6 +56,7 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> 
     // Releases through 0.11.1 re-created missing service indexes on open.
     // IF NOT EXISTS keeps an intact schema unchanged on ordinary restarts.
     tx.execute_batch(ENSURE_V1_INDEXES)?;
+    tx.execute_batch(ENSURE_V2_INDEXES)?;
     tx.commit()?;
     connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
     Ok(())
