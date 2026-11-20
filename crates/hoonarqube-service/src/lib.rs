@@ -24,9 +24,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use hoonarqube_catalog::{embedded, native_rule};
-use hoonarqube_core::assessment::gates::{
-    GATE_CONFIG_SCHEMA_VERSION, GateCondition, GateConfig, evaluate_gate,
-};
+use hoonarqube_gates::{GATE_CONFIG_SCHEMA_VERSION, GateCondition, GateConfig, evaluate_gate};
 use hoonarqube_ir::assessment::{ASSESSMENT_SCHEMA_VERSION, GateReport};
 use hoonarqube_ir::{AnalysisReport, FileClassification, FileReport, Issue, MeasurementStatus};
 use serde::de::DeserializeOwned;
