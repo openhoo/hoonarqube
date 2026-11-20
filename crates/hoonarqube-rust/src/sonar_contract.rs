@@ -362,15 +362,6 @@ pub(super) const FINDINGS: &[FindingContract] = &[
         end_column: 68,
     },
     FindingContract {
-        key: "rust:S1612",
-        message: "Replace this closure with a method reference.",
-        anchor: "    let result = Some('a').map(|s| s.to_uppercase());",
-        occurrence: 0,
-        start_column: 31,
-        end_line_delta: 0,
-        end_column: 51,
-    },
-    FindingContract {
         key: "rust:S1656",
         message: "Remove or correct this useless self-assignment.",
         anchor: "    x = x; // Self-assignment - does nothing",

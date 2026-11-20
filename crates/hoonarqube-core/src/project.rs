@@ -921,6 +921,13 @@ mod tests {
                 1,
             ),
             ("sample.ts", "const value = `first\n   \nlast`;\n", 3, 0),
+            (
+                "raw.go",
+                "package p\n\nconst a = `start\n\t\n\n// string data\nend`\n\nconst b = \"`not raw`\\n\"\n// outside `comment`\n",
+                7,
+                1,
+            ),
+            ("crlf.go", "package p\r\nvar s = `\r\n \t\r\n`", 4, 0),
             ("empty.js", "", 0, 0),
             ("empty.py", "", 0, 0),
         ] {

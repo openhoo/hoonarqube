@@ -1,0 +1,267 @@
+{
+  "claim": "Go S3776 nil guards on directly typed callback fields and the error result of os.Stat / strconv.ParseBool.",
+  "date": "2026-11-20",
+  "parent": "b8411407357d1eabf8d2bce59035d7343996e6ec",
+  "native_binary_sha256": "d42e60f9e10026d218631065f9424b6e8cc89f17c5d7d7598a7645c5f7ed6605",
+  "reference": {
+    "product": "SonarQube Community Build 26.9.0.129388",
+    "go_analyzer": "1.43.0.7704",
+    "profile": "Sonar way",
+    "threshold": 15
+  },
+  "authored_control": {
+    "source_utf8_sha256": "0d37eaadd6c742cdac983610d559af1ec3137d4b5cc73ce0fd5979fcf68a521f",
+    "reference_raw_issues_sha256": "245cb79cc3fdeb5179d74b84a0eedbfe23dc6750832d388d8a1c9098f1b2710c",
+    "fixtures": {
+      "fieldError": {
+        "score": 16,
+        "flows": 16
+      },
+      "fieldSecond": {
+        "score": 16,
+        "flows": 16
+      },
+      "fieldPointer": {
+        "score": 17,
+        "flows": 17
+      },
+      "fieldWrongPosition": {
+        "score": 17,
+        "flows": 17
+      },
+      "nestedField": {
+        "score": 17,
+        "flows": 17
+      },
+      "stdParse": {
+        "score": 16,
+        "flows": 16
+      },
+      "stdStat": {
+        "score": 16,
+        "flows": 16
+      },
+      "stdWrongPosition": {
+        "score": 17,
+        "flows": 17
+      },
+      "shadowedStat": {
+        "score": 17,
+        "flows": 17
+      },
+      "shadowedParse": {
+        "score": 17,
+        "flows": 17
+      },
+      "withElse": {
+        "score": 18,
+        "flows": 18
+      },
+      "compound": {
+        "score": 18,
+        "flows": 18
+      }
+    },
+    "parent_exact_issues": 8,
+    "revised_exact_issues": 12,
+    "recipe": {
+      "preamble": "package probe\nimport (\n  fs \"os\"\n  conv \"strconv\"\n)\ntype Callbacks struct { Run func() error; Pair func() (int,error) }\ntype Other struct { Run func() *int; Pair func() (*int,error) }\ntype Outer struct { Hidden struct { Run func() error }; Run func() *int }\ntype Fake struct { Stat func(string)(int,*int); ParseBool func(string)(bool,*int) }\n",
+      "one_function": "\\nfunc {signature} int {\\n + 16 independent if n == i { n++ } rows, i=0..15, then the guard, return n and closing brace",
+      "format": "Every statement is indented with four spaces, including the guard and return. The final brace is unindented; all lines end with LF.",
+      "cases": [
+        {
+          "signature": "fieldError(c *Callbacks, n int)",
+          "guard": "if value := c.Run(); value != nil { n++ }"
+        },
+        {
+          "signature": "fieldSecond(c Callbacks, n int)",
+          "guard": "if _, value := c.Pair(); nil != value { n++ }"
+        },
+        {
+          "signature": "fieldPointer(c Other, n int)",
+          "guard": "if value := c.Run(); value != nil { n++ }"
+        },
+        {
+          "signature": "fieldWrongPosition(c Other, n int)",
+          "guard": "if value, _ := c.Pair(); value != nil { n++ }"
+        },
+        {
+          "signature": "nestedField(c Outer, n int)",
+          "guard": "if value := c.Run(); value != nil { n++ }"
+        },
+        {
+          "signature": "stdParse(n int)",
+          "guard": "if _, problem := conv.ParseBool(\"true\"); problem == nil { n++ }"
+        },
+        {
+          "signature": "stdStat(n int)",
+          "guard": "if _, problem := fs.Stat(\".\"); problem != nil { n++ }"
+        },
+        {
+          "signature": "stdWrongPosition(n int)",
+          "guard": "if info, _ := fs.Stat(\".\"); info != nil { n++ }"
+        },
+        {
+          "signature": "shadowedStat(fs Fake, n int)",
+          "guard": "if _, problem := fs.Stat(\".\"); problem != nil { n++ }"
+        },
+        {
+          "signature": "shadowedParse(conv Fake, n int)",
+          "guard": "if _, problem := conv.ParseBool(\"true\"); problem != nil { n++ }"
+        },
+        {
+          "signature": "withElse(c Callbacks, n int)",
+          "guard": "if problem := c.Run(); problem != nil { n++ } else { n-- }"
+        },
+        {
+          "signature": "compound(c Callbacks, n int)",
+          "guard": "if problem := c.Run(); problem != nil && n > 0 { n++ }"
+        }
+      ]
+    }
+  },
+  "public_replay": {
+    "source_checks": "Verified the 10 repository commits, 163 inventory SHA-256 hashes and equality of source file sets. Compared Primary + UTF-16 range + message + ordered flow groups, locations and messages. With go:S3776 removed, every native before/after JSON document was identical. Public project code was not built.",
+    "parent": {
+      "reference": 68,
+      "native": 74,
+      "primary_matches": 68,
+      "primary_and_message_matches": 52,
+      "exact_with_ordered_flows": 52,
+      "exact_ignoring_order_of_independent_flows": 52,
+      "native_only": 6,
+      "reference_only": 0
+    },
+    "revised": {
+      "reference": 68,
+      "native": 72,
+      "primary_matches": 68,
+      "primary_and_message_matches": 52,
+      "exact_with_ordered_flows": 52,
+      "exact_ignoring_order_of_independent_flows": 52,
+      "native_only": 4,
+      "reference_only": 0
+    },
+    "projects": [
+      {
+        "project": "chi",
+        "source_inventory_sha256": "cec23d72ba3ae02f9037bb8ee1a18a52e69a33115bccb70448128df9eb8fc656",
+        "reference_issues_sha256": "61a964e3f85be73abc2102fbec184c4ca71138757976f3af48970c00c1de2060",
+        "files": 35,
+        "repository": "go-chi/chi",
+        "commit": "167e1e3bd039d060696b99c8da4e876ae04f42c1"
+      },
+      {
+        "project": "mux",
+        "source_inventory_sha256": "6090c86f35bc2cf49dc681abce54954bf6103b6aa706d73eee5eabf64ecfdccf",
+        "reference_issues_sha256": "dc73a1844da038e3bfa98d1398d9a0eaf37454f8483a4965101c4b89a27e5bc1",
+        "files": 6,
+        "repository": "gorilla/mux",
+        "commit": "b4617d0b9670ad14039b2739167fd35a60f557c5"
+      },
+      {
+        "project": "cors",
+        "source_inventory_sha256": "e76a8db7c67c64754429c3f0d5838de7f2fb46d877d2dd0b84d3b7c0200436a4",
+        "reference_issues_sha256": "051fec663f5bd5ec90659a59be5aa36f8439482ce692f0a90c4d734eddf7043c",
+        "files": 3,
+        "repository": "go-chi/cors",
+        "commit": "3a5381283113550282a3dcfba669a48ba4691d84"
+      },
+      {
+        "project": "pflag",
+        "source_inventory_sha256": "a6b0d204de579442dc29d84935f535467bce6cddc1df7c7e4cb7eff877a71757",
+        "reference_issues_sha256": "7c903c54f235fe887a9bc1bf0e3ac42e575c595fdd8903061fab852bcfcf5d6d",
+        "files": 37,
+        "repository": "spf13/pflag",
+        "commit": "5ca813443bd2a4d9f46a253ea0407d23b3790713"
+      },
+      {
+        "project": "cobra",
+        "source_inventory_sha256": "527994df4a6dfd4b38beb4c69525694a0097d654421af306ad2f1f0014c0e492",
+        "reference_issues_sha256": "17a307d7ff7eebdec69c28502081e70f29f16e061eeca5c0311a419676b3f59f",
+        "files": 14,
+        "repository": "spf13/cobra",
+        "commit": "adbc8813901bba65827259daa8e22ff94ec1f30e"
+      },
+      {
+        "project": "websocket",
+        "source_inventory_sha256": "d2cafa5d8a06c3597f42cec105cf27f743f51dd09fb792516328ee5e5d11b26c",
+        "reference_issues_sha256": "a6117c3fda0f44620bc1d6ec492f06ea653bd7a679ab26e9aab2542faffe5c8a",
+        "files": 12,
+        "repository": "gorilla/websocket",
+        "commit": "e064f32e3674d9d79a8fd417b5bc06fa5c6cad8f"
+      },
+      {
+        "project": "cron",
+        "source_inventory_sha256": "88f141dbf173f1ab0e41e38867535b2ce4cdebb2c76d047565d7ffca98bc20e4",
+        "reference_issues_sha256": "f0f050e41493bf3f5be8d9dd90258da91366811040ea3ae7a431a21875754ecf",
+        "files": 8,
+        "repository": "robfig/cron",
+        "commit": "bc59245fe10efaed9d51b56900192527ed733435"
+      },
+      {
+        "project": "testify",
+        "source_inventory_sha256": "dd0921922db8891a584f5daf96a55ac3935892d86eacdc0ec47de1ec3a5b6885",
+        "reference_issues_sha256": "f2a65c3cf128a42bffa2cc49baaa8ac7d9b21d68a92e62c54c36314c57c51279",
+        "files": 18,
+        "repository": "stretchr/testify",
+        "commit": "87a7b9d57689f6579db2da795ab8deeab29cb724"
+      },
+      {
+        "project": "uuid",
+        "source_inventory_sha256": "67a00571558a98249935d8b2da69adfd3c86fb5cf4c1b114206f7cc0ffd1580e",
+        "reference_issues_sha256": "958231ee27b1db0a0dd9c13e0d9cde603adb888f6be3a2e9d3e0c2168e7b8a74",
+        "files": 5,
+        "repository": "gofrs/uuid",
+        "commit": "e77e0425f79791b8d7d10d47995cb65b221da492"
+      },
+      {
+        "project": "kong",
+        "source_inventory_sha256": "dced859d09781a0bb91222aa9f2f807e094ce94481e9a7345135ccc13708c89d",
+        "reference_issues_sha256": "7453e5c2b2040887c1fa6659da1fbdc3789bd7824bb855c12e4dc7bf534ecb35",
+        "files": 25,
+        "repository": "alecthomas/kong",
+        "commit": "af6c65142cbcd8c86b11713721d6581bb9df4e07"
+      }
+    ],
+    "changed_functions": [
+      {
+        "path": "command.go",
+        "line": 905,
+        "old_score": 57,
+        "new_score": 48,
+        "reference_score": 40,
+        "reference_present": true,
+        "project": "cobra"
+      },
+      {
+        "path": "completions.go",
+        "line": 231,
+        "old_score": 16,
+        "new_score": null,
+        "reference_score": null,
+        "reference_present": false,
+        "project": "cobra"
+      },
+      {
+        "path": "conn.go",
+        "line": 803,
+        "old_score": 47,
+        "new_score": 41,
+        "reference_score": 39,
+        "reference_present": true,
+        "project": "websocket"
+      },
+      {
+        "path": "mapper.go",
+        "line": 658,
+        "old_score": 18,
+        "new_score": null,
+        "reference_score": null,
+        "reference_present": false,
+        "project": "kong"
+      }
+    ]
+  },
+  "limits": "Of the 68 published reference findings, 52 match in full both before and after; all 68 primaries still match. Four extra native primaries and sixteen differences in score or supporting locations remain. The absence of an over-threshold Sonar finding does not reveal that function’s exact reference score."
+}

@@ -169,9 +169,59 @@ fn s107_default_06_literal_existing_primary_preserved() {
 }
 
 #[test]
-fn s107_default_07_variadic_existing_variadic_omission_preserved() {
+fn s107_default_07_counts_variadic_and_marks_its_complete_declaration() {
     assert_findings(
         "package probe\nfunc variadic(a,b,c,d,e,f,g int,h ...int) { println(a,b,c,d,e,f,g,h) }\n",
+        7,
+        &[expected(8, 7, [2, 5, 2, 13], &[[2, 32, 2, 40]])],
+    );
+}
+
+#[test]
+fn s107_declarations_before_limit_do_not_hide_variadic_support() {
+    assert_findings(
+        "package p\nfunc logf(t Reporter, cb pkg.Callback, path string, a, b, c, d int, args ...interface{}) {}\n",
+        7,
+        &[expected(8, 7, [2, 5, 2, 9], &[[2, 68, 2, 87]])],
+    );
+}
+
+#[test]
+fn s107_overflow_uses_whole_named_map_parameter() {
+    assert_findings(
+        "package p\nfunc visit(a *Node, b pkg.Value, c,d,e,f,g int, label string, seen map[string]bool) {}\n",
+        7,
+        &[expected(
+            9,
+            7,
+            [2, 5, 2, 10],
+            &[[2, 48, 2, 60], [2, 62, 2, 82]],
+        )],
+    );
+}
+
+#[test]
+fn s107_variadic_at_limit_is_clean() {
+    assert_findings(
+        "package p\nfunc join(a,b,c,d,e,f int, rest ...string) {}\n",
+        7,
+        &[],
+    );
+}
+
+#[test]
+fn s107_custom_threshold_counts_variadic_once() {
+    assert_findings(
+        "package p\nfunc join(a,b int, rest ...string) {}\n",
+        2,
+        &[expected(3, 2, [2, 5, 2, 9], &[[2, 19, 2, 33]])],
+    );
+}
+
+#[test]
+fn s107_excludes_receiver_and_results_from_variadic_count() {
+    assert_findings(
+        "package p\nfunc (r Node) join(a,b,c,d,e,f int, rest ...string) (first, second string) { return }\n",
         7,
         &[],
     );

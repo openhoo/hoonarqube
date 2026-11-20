@@ -437,25 +437,28 @@ internal static class Program
             {
                 return Incomplete(blazorResult.Diagnostics);
             }
-            var redundantCastFacts = new List<CompilerRedundantCastFact>();
-            facts.QuickFixes.AddRange(QuickFixPlanner.Collect(project.Compilation, project.Models, sourcePaths, redundantCastFacts));
-            foreach (var redundantCast in redundantCastFacts)
+            var redundantCastFacts = new List<CompilerRuleSpanFact>();
+            var redundantInheritanceEntries = new List<CompilerRuleSpanFact>();
+            facts.QuickFixes.AddRange(QuickFixPlanner.Collect(
+                project.Compilation, project.Models, sourcePaths, redundantCastFacts, redundantInheritanceEntries));
+            foreach (var (fact, output, rule) in redundantCastFacts.Select(fact => (fact, facts.RedundantCasts, "S1905"))
+                .Concat(redundantInheritanceEntries.Select(fact => (fact, facts.RedundantInheritanceEntries, "S1939"))))
             {
                 var sourceTree = project.Models.Keys.FirstOrDefault(tree =>
-                    StringComparer.OrdinalIgnoreCase.Equals(NormalizePath(tree.FilePath!), redundantCast.SourcePath));
+                    StringComparer.OrdinalIgnoreCase.Equals(NormalizePath(tree.FilePath!), fact.SourcePath));
                 if (sourceTree is null
-                    || !TrySemanticSpan(sourceTree, redundantCast.StartByte, redundantCast.EndByte, out var span))
+                    || !TrySemanticSpan(sourceTree, fact.StartByte, fact.EndByte, out var span))
                 {
                     return Incomplete(Diagnostic(
                         "quickfix_span_invalid",
-                        "The compiler helper emitted an invalid S1905 span.",
-                        redundantCast.SourcePath));
+                        $"The compiler helper emitted an invalid {rule} span.",
+                        fact.SourcePath));
                 }
-                facts.RedundantCasts.Add(new RedundantCastFact
+                output.Add(new RuleSpanFact
                 {
-                    SourcePath = redundantCast.SourcePath,
+                    SourcePath = fact.SourcePath,
                     Span = span,
-                    Message = redundantCast.Message,
+                    Message = fact.Message,
                 });
             }
         }
@@ -2270,7 +2273,8 @@ internal static class Program
         public Dictionary<string, RazorSourceFact> RazorSourceFacts { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public List<TypeFact> Types { get; set; } = new();
         public List<CastFact> Casts { get; set; } = new();
-        public List<RedundantCastFact> RedundantCasts { get; set; } = new();
+        public List<RuleSpanFact> RedundantCasts { get; set; } = new();
+        public List<RuleSpanFact> RedundantInheritanceEntries { get; set; } = new();
         public List<BaseTypeSuggestionFact> BaseTypeSuggestions { get; set; } = new();
         public List<GenericVarianceFact> GenericVariance { get; set; } = new();
         public List<RefObjectParameterFact> RefObjectParameters { get; set; } = new();
@@ -2322,7 +2326,7 @@ internal static class Program
         public string Message { get; set; } = "";
     }
 
-    private sealed class RedundantCastFact
+    private sealed class RuleSpanFact
     {
         public string SourcePath { get; set; } = "";
         public SemanticSpan Span { get; set; }

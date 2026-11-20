@@ -408,8 +408,10 @@ fn load_jsts_context(
         .map(|source| (source.path.clone(), source.source.clone()));
     let semantic_sources =
         hoonarqube_jsts::project_context::ProjectSemanticSources::from_pairs(pairs);
-    match hoonarqube_jsts::project_context::ProjectSemanticContext::load(&config, &semantic_sources)
-    {
+    match hoonarqube_jsts::project_context::ProjectSemanticContext::load_read_only(
+        &config,
+        &semantic_sources,
+    ) {
         Ok(context) => {
             record_jsts_context(&config, &context, diagnostics, fingerprints);
             Some(context)
@@ -474,10 +476,12 @@ fn load_jsts_auto_contexts(
         }
         let semantic_sources =
             hoonarqube_jsts::project_context::ProjectSemanticSources::from_pairs(pairs);
-        if let Ok(context) = hoonarqube_jsts::project_context::ProjectSemanticContext::load(
-            &config,
-            &semantic_sources,
-        ) && context.is_complete()
+        if let Ok(context) =
+            hoonarqube_jsts::project_context::ProjectSemanticContext::load_read_only(
+                &config,
+                &semantic_sources,
+            )
+            && context.is_complete()
         {
             record_jsts_fingerprints(&config, &context, fingerprints);
             contexts.push(context);

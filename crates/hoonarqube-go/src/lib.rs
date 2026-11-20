@@ -2643,6 +2643,9 @@ struct LineFacts {
     code: Vec<bool>,
     comments: Vec<bool>,
     imports: Vec<bool>,
+    // Rule thresholds use `code`; public ncloc also counts whitespace inside
+    // raw literals. Keep that difference out of the rule inputs.
+    blank_raw_string_rows: usize,
     metric_comment_lines: u32,
 }
 
@@ -2652,6 +2655,7 @@ impl LineFacts {
         let mut source_without_comments = source.as_bytes().to_vec();
         let mut comments = vec![false; line_count];
         let mut imports = vec![false; line_count];
+        let mut blank_raw_string_rows = 0;
         walk(root, &mut |node| match node.kind() {
             "comment" => {
                 mark_rows(&mut comments, node);
@@ -2662,6 +2666,13 @@ impl LineFacts {
                 }
             }
             "import_declaration" => mark_rows(&mut imports, node),
+            "raw_string_literal" if !node.has_error() => {
+                // The opening and closing backticks already mark their lines.
+                blank_raw_string_rows += source.as_bytes()[node.byte_range()]
+                    .split(|byte| *byte == b'\n')
+                    .filter(|line| line.iter().all(u8::is_ascii_whitespace))
+                    .count();
+            }
             _ => {}
         });
         let code = source_without_comments
@@ -2673,6 +2684,7 @@ impl LineFacts {
             code,
             comments,
             imports,
+            blank_raw_string_rows,
             metric_comment_lines: comment_line_count(root, source),
         }
     }
@@ -4087,7 +4099,10 @@ fn metrics(source: &str, line_facts: &LineFacts) -> FileMetrics {
     };
     FileMetrics {
         lines: u32_saturating(lines),
-        code_lines: u32_saturating(line_facts.code.iter().filter(|value| **value).count()),
+        code_lines: u32_saturating(
+            line_facts.code.iter().filter(|value| **value).count()
+                + line_facts.blank_raw_string_rows,
+        ),
         comment_lines: line_facts.metric_comment_lines,
     }
 }
@@ -4132,20 +4147,28 @@ fn statement_after(line: &str, separator: usize) -> (usize, usize) {
     (start, end)
 }
 
-fn parameter_count(node: Node<'_>) -> usize {
-    let mut count = 0;
-    let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        if child.kind() == "parameter_declaration" {
-            let mut inner = child.walk();
-            let names = child
-                .named_children(&mut inner)
-                .filter(|part| part.kind() == "identifier")
-                .count();
-            count += names.max(1);
+fn parameter_count(parameters: Node<'_>) -> usize {
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .filter_map(parameter_arity)
+        .sum()
+}
+
+fn parameter_arity(declaration: Node<'_>) -> Option<usize> {
+    match declaration.kind() {
+        "variadic_parameter_declaration" => Some(1),
+        "parameter_declaration" => {
+            let mut cursor = declaration.walk();
+            Some(
+                declaration
+                    .children_by_field_name("name", &mut cursor)
+                    .count()
+                    .max(1),
+            )
         }
+        _ => None,
     }
-    count
 }
 
 fn with_excess_parameter_locations(
@@ -4176,29 +4199,43 @@ fn excess_parameter_locations(
         return None;
     }
     let mut cursor = parameters.walk();
-    let groups: Option<Vec<_>> = parameters
-        .named_children(&mut cursor)
-        .filter(|child| child.kind() != "comment")
-        .map(|child| ordinary_parameter_ranges(child, source))
-        .collect();
-    Some(
-        groups?
-            .into_iter()
-            .flatten()
-            .skip(maximum)
-            .map(|range| FlowLocation::in_primary_file("", range))
-            .collect(),
-    )
+    let mut remaining = maximum;
+    let mut locations = Vec::new();
+    for declaration in parameters.named_children(&mut cursor) {
+        if declaration.kind() == "comment" {
+            continue;
+        }
+        let count = parameter_arity(declaration)?;
+        if remaining >= count {
+            remaining -= count;
+            continue;
+        }
+        // A parameter before the threshold needs no supporting location.
+        // Determine ranges only for declarations that actually exceed it.
+        let ranges = measured_parameter_ranges(declaration, source)?;
+        locations.extend(
+            ranges
+                .into_iter()
+                .skip(remaining)
+                .map(|range| FlowLocation::in_primary_file("", range)),
+        );
+        remaining = 0;
+    }
+    Some(locations)
 }
 
-fn ordinary_parameter_ranges(declaration: Node<'_>, source: &str) -> Option<Vec<Range>> {
+fn measured_parameter_ranges(declaration: Node<'_>, source: &str) -> Option<Vec<Range>> {
     let parameter_type = declaration.child_by_field_name("type")?;
-    // Only the qualified ordinary named shape has a measured support policy.
-    // Other shapes retain the existing primary without guessed locations.
-    if declaration.kind() != "parameter_declaration"
+    let measured_type = match declaration.kind() {
+        "parameter_declaration" => matches!(parameter_type.kind(), "type_identifier" | "map_type"),
+        "variadic_parameter_declaration" => {
+            matches!(parameter_type.kind(), "type_identifier" | "interface_type")
+        }
+        _ => false,
+    };
+    if !measured_type
         || declaration.has_error()
         || declaration.is_missing()
-        || parameter_type.kind() != "type_identifier"
         || parameter_type.is_missing()
     {
         return None;
@@ -4942,6 +4979,25 @@ mod tests {
             assert!(
                 found.iter().any(|key| key == "go:S2260"),
                 "missing-token parse failure was lost: {found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn go_raw_string_ncloc_does_not_change_rule_line_limits() {
+        let source = "package p\n\nconst raw = `start\n \t\n\n// literal text\nend`\n\nconst escaped = \"`not raw`\\n\"\n/* outside `a`\n\nend */\nconst single = `x` + `y`\n";
+        for input in [source.to_owned(), source.replace('\n', "\r\n")] {
+            let path = PathBuf::from("fixture.go");
+            let options = AnalyzerOptions {
+                maximum_lines_of_code: 6,
+                ..AnalyzerOptions::default()
+            };
+            let report = analyze(path.clone(), &input, &options);
+            assert!(report.issues.iter().all(|i| i.rule_key != "go:S104"));
+            assert_eq!(report.metrics.code_lines, 8);
+            assert_eq!(
+                analyze_github_quality_report(path, &input).metrics,
+                report.metrics
             );
         }
     }

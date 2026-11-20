@@ -123,7 +123,6 @@ static bool scan_automatic_semicolon(TSLexer *lexer, const bool *valid_symbols, 
         case '*':
         case '%':
         case '>':
-        case '<':
         case '=':
         case '?':
         case '^':
@@ -139,9 +138,11 @@ static bool scan_automatic_semicolon(TSLexer *lexer, const bool *valid_symbols, 
             }
             break;
 
-            // Don't insert a semicolon before a '[' or '(', unless we're parsing
-            // a type. Detect whether we're parsing a type or an expression using
-            // the validity of a binary operator token.
+            // In a type, a new line can start an index signature or a call
+            // signature (possibly generic). In an expression these tokens can
+            // continue a subscript, call, type argument list, or comparison.
+            // LOGICAL_OR is a binary operator and is valid only in expression context.
+        case '<':
         case '(':
         case '[':
             if (valid_symbols[LOGICAL_OR]) {

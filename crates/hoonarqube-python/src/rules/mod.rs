@@ -659,7 +659,7 @@ fn tier_a2_web_async_typing_checks(
     issues.extend(check_any_type_hints(parsed, index, source));
     issues.extend(check_bare_generic_hints(parsed, index, source));
     issues.extend(check_typing_alias_hints(parsed, index, source));
-    issues.extend(check_typing_union_hints(parsed, index, source));
+    issues.extend(check_typing_union_hints(parsed, index, source, file_ctx));
     issues.extend(check_pep695_generic_classes(index, source, file_ctx));
     issues.extend(check_typealias_assignments(index, source, file_ctx));
     issues.extend(check_redundant_typevars(parsed, index, source, file_ctx));

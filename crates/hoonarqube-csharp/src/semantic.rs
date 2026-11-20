@@ -626,6 +626,14 @@ pub struct RedundantCastFact {
     pub message: String,
 }
 
+/// A redundant interface entry resolved against constructed compiler symbols.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedundantInheritanceEntryFact {
+    pub source_path: PathBuf,
+    pub span: SemanticSpan,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BaseTypeSuggestionFact {
     pub source_path: PathBuf,
@@ -704,6 +712,10 @@ pub struct SemanticFacts {
     pub casts: Vec<CastFact>,
     #[serde(default)]
     pub redundant_casts: Vec<RedundantCastFact>,
+    /// Absent in older helpers; an empty list from a capable helper means
+    /// the compiler found no redundant entries in the supplied snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redundant_inheritance_entries: Option<Vec<RedundantInheritanceEntryFact>>,
     #[serde(default)]
     pub base_type_suggestions: Vec<BaseTypeSuggestionFact>,
     #[serde(default)]
@@ -1121,6 +1133,13 @@ impl ProjectSemanticContext {
         if expected_digest != &digest_bytes(source.as_bytes()) {
             return report;
         }
+        if self.facts.redundant_inheritance_entries.is_some() {
+            // The fallback keys on simple names and arity. Once Roslyn has
+            // resolved the types, do not keep conflicting fallback findings.
+            report
+                .issues
+                .retain(|issue| issue.rule_key != "csharpsquid:S1939");
+        }
         for issue in semantic_issues_for_file(self, &canonical_path, source, language) {
             if !report.issues.iter().any(|existing| {
                 existing.rule_key == issue.rule_key && existing.range == issue.range
@@ -1283,6 +1302,16 @@ fn semantic_issues_for_file(
     append_type_issues(context, path, source, language, &mut issues);
     append_cast_issues(context, path, source, language, &mut issues);
     append_redundant_cast_issues(context, path, source, language, &mut issues);
+    for fact in context.facts.redundant_inheritance_entries.iter().flatten() {
+        if canonical_or_original(&fact.source_path) == path && fact.span.valid() {
+            issues.push(cst::issue(
+                language,
+                "S1939",
+                fact.message.clone(),
+                range_from_semantic_span(fact.span, source),
+            ));
+        }
+    }
     append_base_type_issues(context, path, source, language, &mut issues);
     append_generic_variance_issues(context, path, source, language, &mut issues);
     append_ref_object_issues(context, path, source, language, &mut issues);
@@ -1520,6 +1549,15 @@ fn validate_facts(
     validate_type_facts(facts, &expected, &source_text)?;
     validate_razor_manifest(facts, sources)?;
     validate_cast_facts(facts, &expected, &source_text)?;
+    for fact in facts.redundant_inheritance_entries.iter().flatten() {
+        if !valid_fact_span(&expected, &source_text, &fact.source_path, fact.span) {
+            return Err(diag(
+                "fact_span_invalid",
+                "compiler helper emitted an invalid S1939 span",
+                Some(fact.source_path.clone()),
+            ));
+        }
+    }
     validate_suggestion_facts(facts, &expected, &source_text)?;
     validate_ref_object_facts(facts, &expected, &source_text)?;
     validate_blazor_facts(facts, &expected, &source_text)?;
@@ -3858,5 +3896,63 @@ namespace Unsafe
             (1, 1),
             "B\n",
         );
+    }
+
+    #[test]
+    fn s1939_uses_constructed_interface_identity_and_preserves_dispatch() {
+        const SOURCE: &str = r#"using System;
+using System.Collections.Generic;
+
+namespace One { interface IParent { } interface IChild : IParent { } }
+namespace Two { interface IParent { } interface SameName : One.IChild, IParent { } }
+
+interface Earlier : IEnumerable<string>, IReadOnlyCollection<string> { }
+interface Later : IReadOnlyCollection<string>, IEnumerable<string> { }
+interface Different : IEnumerable<int>, IReadOnlyCollection<string> { }
+interface Covariant : IEnumerable<object>, IReadOnlyCollection<string> { }
+interface WithComment : IEnumerable<string> /* keep this note */, IReadOnlyCollection<string> { }
+
+sealed class Demo : List<string>, Earlier, Later { }
+class Program
+{
+    static void Main()
+    {
+        using var enumerator = ((IEnumerable<string>)new Demo { "demo" }).GetEnumerator();
+        enumerator.MoveNext();
+        Console.WriteLine(enumerator.Current);
+    }
+}
+"#;
+        const RULE: &str = "csharpsquid:S1939";
+        let workspace = OwnedTempDir::new("s1939-interface-identity");
+        let helper = prepare_bundled_helper(&workspace.path().join("helper-cache"))
+            .expect("bundled CSharp helper must build for S1939 regression coverage");
+        let (fixture, context) =
+            project_runtime_fixture("s1939-interface-identity", SOURCE, &helper);
+        let report = project_report(&context, &fixture, SOURCE);
+        let lines = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == RULE)
+            .map(|issue| issue.range.start.line)
+            .collect::<Vec<_>>();
+        assert_eq!(lines, [7, 8, 11], "{:?}", report.issues);
+        let rewritten = project_runtime_action(
+            SOURCE,
+            &report,
+            RULE,
+            "csharp.s1939.remove-redundant-inheritance-entry",
+            2,
+        );
+        assert!(rewritten.contains("interface Earlier : IReadOnlyCollection<string> { }"));
+        assert!(rewritten.contains("interface Later : IReadOnlyCollection<string> { }"));
+        assert!(rewritten.contains("IEnumerable<string> /* keep this note */,"));
+        assert_eq!(fixture.stdout(SOURCE), "demo\n");
+        assert_eq!(fixture.stdout(&rewritten), "demo\n");
+
+        let (rewritten_fixture, rewritten_context) =
+            project_runtime_fixture("s1939-interface-rewritten", &rewritten, &helper);
+        let rewritten_report = project_report(&rewritten_context, &rewritten_fixture, &rewritten);
+        assert_eq!(runtime_rule_count(&rewritten_report, RULE), 1);
     }
 }
