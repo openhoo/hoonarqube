@@ -224,7 +224,6 @@ fn csharp_s2190_cli_preserves_unresolved_overload_and_argument_boundaries() {
         "class C { int Loop(int n = 0) { return Loop(); } }\n",
         "class C { int Loop(int n, int extra = 0) { return Loop(n); } }\n",
         "class C { int Loop(params int[] values) { return Loop(1, 2); } }\n",
-        "class C { int Forward(int n) { return Forward(extra: 0, n: n); } int Forward(int n, int extra) { return n + extra; } }\n",
         "class C { int Forward(ref int n) { return Forward(ref n, 0); } int Forward(ref int n, int extra) { return n + extra; } }\n",
         "class C { int Forward(int n) { return Forward((long)n); } int Forward(long n) { return (int)n; } }\n",
     ] {
@@ -297,4 +296,27 @@ fn csharp_s2190_cli_unavailable_actions_refuse_without_writing() {
         assert_eq!(report["files"], serde_json::json!([]));
         assert_eq!(fixture.read(), source);
     }
+}
+
+#[test]
+fn csharp_s2190_cli_named_arity_migrates_prior_overload_boundary() {
+    let fixture = Fixture::new("named-migration");
+    let source = "class C { int Forward(int n) { return Forward(extra: 0, n: n); } int Forward(int n, int extra) { return n + extra; } }\n";
+    fixture.write(source.as_bytes());
+    for format in ["json", "sonar"] {
+        let report = document(
+            &fixture.run(&[
+                "analyze",
+                "--profile",
+                "sonar-parity",
+                "--format",
+                format,
+                "--",
+                "Controls.cs",
+            ]),
+            0,
+        );
+        assert!(targets(&report, format).is_empty(), "{source:?}: {report}");
+    }
+    assert_eq!(fixture.read(), source.as_bytes());
 }
