@@ -149,10 +149,11 @@ retention. It does not merge into an existing database or upgrade old schemas.
 
 Configure the restored service separately with `HOONARQUBE_SERVICE_DB` pointing
 to the new file. Supply only the intended project's reader, reviewer, and admin
-assignments from your credential store. Role assignments and bearer tokens
-live in `HOONARQUBE_SERVICE_CREDENTIALS`, not in SQLite, and are absent from the
-snapshot. Keep the same approved `user_id` for people whose review history
-should remain attributable, and issue credentials for the restored instance.
+assignments from your credential store. Supply them through one of the two
+credential sources described in [Start locally](#start-locally). The snapshot
+contains review actor IDs, but no role assignments or bearer tokens. Keep the
+same approved `user_id` for people whose review history should remain
+attributable, and issue credentials for the restored instance.
 Start it in isolation until an admin confirms the project, analysis counts,
 finding pages, and reviews and a reader confirms their scoped access.
 
