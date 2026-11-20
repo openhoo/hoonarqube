@@ -2385,6 +2385,74 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         assert_eq!(incomplete.metrics.lines, 10);
     }
 
+    fn typescript_shape(extension: &str, source: &str) -> String {
+        let mut parser = Parser::new();
+        set_parser_language(&mut parser, Language::TypeScript, extension).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        assert!(!tree.root_node().has_error(), "{extension}: {source}");
+        tree.root_node().to_sexp()
+    }
+
+    #[test]
+    fn typescript_generic_overloads_keep_the_explicit_separator_tree() {
+        for ext in ["ts", "tsx"] {
+            for (members, count) in [
+                (
+                    "<T>(x: T): Box<T> & Extra|\n<U extends object = {}>(y: U): U",
+                    2,
+                ),
+                (
+                    "<T>(x: T): T| // previous overload\n/* next */ <U>(y: U): U",
+                    2,
+                ),
+                ("value: Box|\r\n<T>(x: T): T", 1),
+            ] {
+                for (prefix, suffix) in [("interface Factory {", "}"), ("type Factory = {", "};")] {
+                    let explicit = format!("{prefix}{}{suffix}", members.replace('|', ";"));
+                    let implicit = format!("{prefix}{}{suffix}", members.replace('|', ""));
+                    let reference = typescript_shape(ext, &explicit);
+                    assert_eq!(reference.matches("(call_signature").count(), count);
+                    assert_eq!(typescript_shape(ext, &implicit), reference);
+                    let result = facts(&format!("factory.{ext}"), &implicit);
+                    assert!(result.error.is_none(), "{:?}", result.error);
+                    assert!(!result.tokens.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn typescript_generic_overloads_preserve_expression_and_type_continuations() {
+        for ext in ["ts", "tsx"] {
+            for (source, kind) in [
+                ("const result = value\n< limit;", "(binary_expression"),
+                ("const result = make\n<Type>(value);", "(call_expression"),
+                (
+                    "interface Factory { <T>(value: T): Box<\nT\n> }",
+                    "(generic_type",
+                ),
+            ] {
+                let reference = typescript_shape(ext, &source.replace('\n', " "));
+                assert!(reference.contains(kind), "{reference}");
+                assert_eq!(typescript_shape(ext, source), reference);
+            }
+        }
+    }
+
+    #[test]
+    fn typescript_generic_overloads_reject_invalid_members() {
+        for path in ["bad.ts", "bad.tsx"] {
+            for members in [
+                "<T>(x: T): T <U>(y: U): U",
+                "<T>(x: T): T\n<U extends >(y: U): U",
+                "<T>(x: T): T\n<U>(y: ): U",
+            ] {
+                let result = facts(path, &format!("interface Invalid {{ {members} }}"));
+                assert!(result.error.is_some(), "{path}: {members}");
+            }
+        }
+    }
+
     #[test]
     fn typescript_variance_modifiers_produce_complete_facts() {
         // TypeScript 4.7+ variance annotations on type parameters.  Every
