@@ -18,10 +18,10 @@ internal static class QuickFixPlanner
         CSharpCompilation compilation,
         IReadOnlyDictionary<SyntaxTree, SemanticModel> models,
         IReadOnlySet<string> editablePaths,
-        List<CompilerRedundantCastFact>? redundantCastFacts = null)
+        List<CompilerRuleSpanFact> redundantCastFacts,
+        List<CompilerRuleSpanFact> redundantInheritanceEntries)
     {
         var facts = new List<CompilerQuickFixFact>();
-        var proofFacts = redundantCastFacts ?? new List<CompilerRedundantCastFact>();
         var trees = models.Keys
             .Where(tree => IsEditable(tree, editablePaths))
             .OrderBy(tree => NormalizePath(tree.FilePath), StringComparer.Ordinal)
@@ -36,8 +36,8 @@ internal static class QuickFixPlanner
             CollectS1172(tree, root, model, models, facts);
             CollectS1185(tree, root, model, facts);
             CollectS1186(compilation, tree, root, model, facts);
-            CollectS1905(compilation, tree, root, model, facts, proofFacts);
-            CollectS1939(tree, root, model, facts);
+            CollectS1905(compilation, tree, root, model, facts, redundantCastFacts);
+            CollectS1939(tree, root, model, facts, redundantInheritanceEntries);
             CollectS2219(compilation, tree, root, model, facts);
             CollectS2328(tree, root, model, models, facts);
             CollectS2737(tree, root, facts);
@@ -318,7 +318,7 @@ internal static class QuickFixPlanner
         SyntaxNode root,
         SemanticModel model,
         List<CompilerQuickFixFact> facts,
-        List<CompilerRedundantCastFact> redundantCastFacts)
+        List<CompilerRuleSpanFact> redundantCastFacts)
     {
         // RedundantCastCodeFix intentionally delegates CastExpression fixes
         // to IDE0004.  We still emit the compiler-proven finding, but do not
@@ -347,7 +347,7 @@ internal static class QuickFixPlanner
                 continue;
             }
 
-            AddRedundantCastFact(
+            AddRuleSpanFact(
                 redundantCastFacts,
                 tree,
                 cast.Type.Span,
@@ -378,7 +378,7 @@ internal static class QuickFixPlanner
 
             var message = RedundantCastMessage(model, castType, asExpression.SpanStart);
             var diagnosticSpan = TextSpan.FromBounds(asExpression.OperatorToken.SpanStart, asExpression.Right.Span.End);
-            AddRedundantCastFact(redundantCastFacts, tree, diagnosticSpan, message);
+            AddRuleSpanFact(redundantCastFacts, tree, diagnosticSpan, message);
             AddFact(
                 facts,
                 tree,
@@ -427,7 +427,7 @@ internal static class QuickFixPlanner
                 }
                 // Keep the compiler-backed diagnostic for parity, but only
                 // project the removal action for the framework implementation.
-                AddRedundantCastFact(redundantCastFacts, tree, diagnosticSpan, message);
+                AddRuleSpanFact(redundantCastFacts, tree, diagnosticSpan, message);
                 if (!trustedEnumerableMethod)
                 {
                     continue;
@@ -446,7 +446,7 @@ internal static class QuickFixPlanner
             {
                 // Keep the compiler-backed diagnostic for parity, but only
                 // project the removal action for the framework implementation.
-                AddRedundantCastFact(redundantCastFacts, tree, diagnosticSpan, message);
+                AddRuleSpanFact(redundantCastFacts, tree, diagnosticSpan, message);
                 if (!trustedEnumerableMethod)
                 {
                     continue;
@@ -464,8 +464,8 @@ internal static class QuickFixPlanner
         }
     }
 
-    private static void AddRedundantCastFact(
-        List<CompilerRedundantCastFact> facts,
+    private static void AddRuleSpanFact(
+        List<CompilerRuleSpanFact> facts,
         SyntaxTree tree,
         TextSpan span,
         string message)
@@ -475,7 +475,7 @@ internal static class QuickFixPlanner
         {
             return;
         }
-        facts.Add(new CompilerRedundantCastFact
+        facts.Add(new CompilerRuleSpanFact
         {
             SourcePath = NormalizePath(tree.FilePath),
             StartByte = Utf8Offset(text, span.Start),
@@ -647,47 +647,67 @@ internal static class QuickFixPlanner
         };
 
 
-    private static void CollectS1939(SyntaxTree tree, SyntaxNode root, SemanticModel model, List<CompilerQuickFixFact> facts)
+    private static void CollectS1939(
+        SyntaxTree tree,
+        SyntaxNode root,
+        SemanticModel model,
+        List<CompilerQuickFixFact> facts,
+        List<CompilerRuleSpanFact> diagnosticFacts)
     {
         foreach (var declaration in root.DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
         {
-            if (declaration.BaseList is null || model.GetDeclaredSymbol(declaration) is not INamedTypeSymbol owner)
+            if (declaration.BaseList is not { Types.Count: > 1 } baseList
+                || model.GetDeclaredSymbol(declaration) is not INamedTypeSymbol owner)
             {
                 continue;
             }
-            var seen = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
-            for (var index = 0; index < declaration.BaseList.Types.Count; index++)
+            var entries = baseList.Types;
+            var symbols = entries.Select(entry => model.GetTypeInfo(entry.Type).Type as INamedTypeSymbol).ToArray();
+            for (var index = 0; index < entries.Count; index++)
             {
-                var baseType = declaration.BaseList.Types[index];
-                var symbol = model.GetTypeInfo(baseType.Type).Type;
-                if (symbol is null)
+                if (symbols[index] is not { TypeKind: TypeKind.Interface } contract)
                 {
                     continue;
                 }
-                var redundant = !seen.Add(symbol) && !SymbolEqualityComparer.Default.Equals(symbol, owner);
-                if (!redundant && symbol is INamedTypeSymbol inherited)
+                INamedTypeSymbol? implementer = null;
+                var safeRemoval = false;
+                for (var other = 0; other < entries.Count; other++)
                 {
-                    for (var priorIndex = 0; priorIndex < index; priorIndex++)
+                    if (other == index || symbols[other] is not { } sibling
+                        || !sibling.AllInterfaces.Any(candidate => SymbolEqualityComparer.Default.Equals(candidate, contract)))
                     {
-                        if (model.GetTypeInfo(declaration.BaseList.Types[priorIndex].Type).Type is INamedTypeSymbol prior
-                            && prior.AllInterfaces.Any(candidate => SymbolEqualityComparer.Default.Equals(candidate, inherited)))
-                        {
-                            // Removing the entry is only safe when the class does not
-                            // re-implement a member of the interface: a `new` or
-                            // explicit implementation currently wins the interface
-                            // dispatch that would fall back to the base type.
-                            redundant = !ReimplementsInterfaceMember(owner, prior, inherited);
-                            break;
-                        }
+                        continue;
+                    }
+                    implementer ??= sibling;
+                    // A remaining direct interface still brings its entire
+                    // inherited contract. Through a base class alone, dropping
+                    // the entry can change which implementation is called.
+                    if (sibling.TypeKind == TypeKind.Interface || !ReimplementsInterfaceMember(owner, sibling, contract))
+                    {
+                        safeRemoval = true;
+                        break;
                     }
                 }
-                if (redundant)
+                if (implementer is null)
                 {
-                    var end = baseType.Span.End;
-                    if (end < SourceText(tree).Length && SourceText(tree)[end] == ',') end++;
-                    var replacement = RemoveBaseType(declaration, index);
-                    AddFact(facts, tree, "csharpsquid:S1939", new TextSpan(baseType.SpanStart, end - baseType.SpanStart),
-                        Action("csharp.s1939.remove-redundant-inheritance-entry", "Remove redundant declaration.", Edit(tree, declaration.BaseList.Span, replacement)));
+                    continue;
+                }
+                var entry = entries[index];
+                var end = entry.Span.End;
+                if (index + 1 < entries.Count && entries.GetSeparator(index).SpanStart == end)
+                {
+                    end = entries.GetSeparator(index).Span.End;
+                }
+                var diagnosticSpan = TextSpan.FromBounds(entry.SpanStart, end);
+                var name = contract.ToMinimalDisplayString(model, entry.SpanStart);
+                var via = implementer.ToMinimalDisplayString(model, entry.SpanStart);
+                AddRuleSpanFact(diagnosticFacts, tree, diagnosticSpan,
+                    $"'{via}' implements '{name}' so '{name}' can be removed from the inheritance list.");
+
+                if (safeRemoval && RemoveBaseTypeEdit(tree, baseList, index) is { } edit)
+                {
+                    AddFact(facts, tree, "csharpsquid:S1939", diagnosticSpan,
+                        Action("csharp.s1939.remove-redundant-inheritance-entry", "Remove redundant declaration.", edit));
                 }
             }
         }
@@ -2067,11 +2087,28 @@ internal static class QuickFixPlanner
             .OfType<INamedTypeSymbol>()
             .Any(symbol => symbol.Name == "Enumerable" && symbol.ContainingNamespace?.ToDisplayString() == "System.Linq");
     }
-    private static string RemoveBaseType(BaseTypeDeclarationSyntax declaration, int index)
+    private static CompilerQuickFixEdit? RemoveBaseTypeEdit(SyntaxTree tree, BaseListSyntax baseList, int index)
     {
-        var baseList = declaration.BaseList!;
-        var newBaseList = baseList.RemoveNode(baseList.Types[index], SyntaxRemoveOptions.KeepNoTrivia);
-        return newBaseList is not null && newBaseList.Types.Count > 0 ? newBaseList.ToFullString() : "";
+        var entries = baseList.Types;
+        var entry = entries[index];
+        var hasNext = index + 1 < entries.Count;
+        var separator = entries.GetSeparator(hasNext ? index : index - 1);
+        var start = Math.Min(entry.SpanStart, separator.SpanStart);
+        var end = Math.Max(entry.Span.End, separator.Span.End);
+        var text = SourceText(tree);
+        if (hasNext)
+        {
+            while (end < entries[index + 1].SpanStart && text[end] is ' ' or '\t') end++;
+        }
+        var removal = TextSpan.FromBounds(start, end);
+        if (baseList.DescendantTrivia(descendIntoTrivia: true).Any(trivia =>
+            trivia.Span.OverlapsWith(removal)
+            && !trivia.IsKind(SyntaxKind.WhitespaceTrivia)
+            && !trivia.IsKind(SyntaxKind.EndOfLineTrivia)))
+        {
+            return null;
+        }
+        return Edit(tree, removal, "");
     }
 
     private static bool ReimplementsInterfaceMember(INamedTypeSymbol owner, INamedTypeSymbol prior, INamedTypeSymbol contract)
@@ -3166,7 +3203,7 @@ internal sealed class CompilerQuickFixFact
     public List<CompilerQuickFixAction> Actions { get; set; } = new();
 }
 
-internal sealed class CompilerRedundantCastFact
+internal sealed class CompilerRuleSpanFact
 {
     public string SourcePath { get; set; } = "";
     public int StartByte { get; set; }
