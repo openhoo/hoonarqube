@@ -456,23 +456,23 @@ def backup(source, destination):
 
 
 def integrity(database):
-    tables = {
-        "projects": "project",
-        "analyses": "id",
-        "findings": "id",
-        "reviews": "id",
-        "review_history": "id",
-        "deletion_audit": "id",
-    }
     with closing(sql_read(database)) as db:
         assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
+        tables = (
+            ("projects", db.execute("SELECT * FROM projects ORDER BY project")),
+            ("analyses", db.execute("SELECT * FROM analyses ORDER BY id")),
+            ("findings", db.execute("SELECT * FROM findings ORDER BY id")),
+            ("reviews", db.execute("SELECT * FROM reviews ORDER BY id")),
+            ("review_history", db.execute("SELECT * FROM review_history ORDER BY id")),
+            ("deletion_audit", db.execute("SELECT * FROM deletion_audit ORDER BY id")),
+        )
         counts = {}
         digest = hashlib.sha256()
-        for table, key in tables.items():
+        for table, rows in tables:
             digest.update(table.encode())
             count = 0
-            for row in db.execute(f"SELECT * FROM {table} ORDER BY {key}"):
+            for row in rows:
                 digest.update(encode(row) + b"\n")
                 count += 1
             counts[table] = count
