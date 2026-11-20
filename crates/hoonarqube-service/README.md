@@ -6,12 +6,21 @@ history in SQLite. It serves a browser dashboard at `/` and project APIs under
 
 ## Start locally
 
-Configure `HOONARQUBE_SERVICE_CREDENTIALS` with a JSON array of credentials.
+Configure exactly one credential source: `HOONARQUBE_SERVICE_CREDENTIALS_FILE` (a path to a UTF-8 JSON file, at most 1 MiB) or `HOONARQUBE_SERVICE_CREDENTIALS` (inline JSON). Both accept the same array.
 Each entry has `user_id`, `token`, and a `projects` object mapping project IDs
 to `reader`, `reviewer`, or `admin`. The optional `global_admin` flag grants
 access to every project. Both user IDs and bearer tokens must be unique;
 ambiguous credentials prevent startup without including tokens in errors.
 Keep real credential values out of source files and terminal logs.
+
+On Unix, restrict the file to the service account, replace it by atomic rename,
+then send `SIGHUP` to the service process. The service validates the entire
+replacement before switching credentials. Once it logs `service credentials
+reloaded`, new requests use the new tokens and roles. Requests already authorized
+can finish. An unreadable, oversized or invalid replacement disables all new
+authenticated requests and logs `access disabled`. Repair the file and signal
+again to recover. A file modification alone does not trigger a reload. On other
+platforms, or with inline credentials, restart the service to change credentials.
 
 `HOONARQUBE_SERVICE_DB` defaults to `hoonarqube-service.sqlite3`.
 `HOONARQUBE_SERVICE_BIND` defaults to `127.0.0.1:8080`.
