@@ -1,0 +1,68 @@
+{
+  "source": "Read-only responses from the existing isolated SonarQube Community Build instance",
+  "version": "26.9.0.129388",
+  "image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+  "api": [
+    "/api/system/status",
+    "/api/qualitygates/show?name=Sonar%20way",
+    "/api/metrics/search",
+    "/api/settings/values?keys=sonar.qualitygate.ignoreSmallChanges"
+  ],
+  "gate": {
+    "name": "Sonar way",
+    "isBuiltIn": true,
+    "isDefault": true,
+    "conditions": [
+      {
+        "metric": "new_coverage",
+        "op": "LT",
+        "error": "80"
+      },
+      {
+        "metric": "new_duplicated_lines_density",
+        "op": "GT",
+        "error": "3"
+      },
+      {
+        "metric": "new_security_hotspots_reviewed",
+        "op": "LT",
+        "error": "100"
+      },
+      {
+        "metric": "new_violations",
+        "op": "GT",
+        "error": "0"
+      }
+    ]
+  },
+  "metric_definitions": {
+    "new_coverage": {
+      "name": "Coverage on New Code",
+      "type": "PERCENT",
+      "description": "Coverage of new/changed code"
+    },
+    "new_duplicated_lines_density": {
+      "name": "Duplicated Lines (%) on New Code",
+      "type": "PERCENT",
+      "description": "Duplicated lines (%) on new code balanced by statements"
+    },
+    "new_violations": {
+      "name": "New Issues",
+      "type": "INT",
+      "description": "New issues"
+    },
+    "new_security_hotspots_reviewed": {
+      "name": "Security Hotspots Reviewed on New Code",
+      "type": "PERCENT",
+      "description": "Percentage of Security Hotspots Reviewed on New Code"
+    }
+  },
+  "global_setting": [
+    {
+      "key": "sonar.qualitygate.ignoreSmallChanges",
+      "value": "true",
+      "inherited": true
+    }
+  ],
+  "interpretation": "Configuration readback only. No new-code analysis or gate parity is implied."
+}

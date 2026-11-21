@@ -122,7 +122,7 @@ def line_counts(path, source_paths):
     }
 
 
-def verify_uploads(service, destination, revision, cases):
+def verify_uploads(service, destination, revisions, cases):
     # Reuse the release smoke test's loopback-only service and scoped credential.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
     from smoke_cli_service import request, running_service
@@ -135,7 +135,7 @@ def verify_uploads(service, destination, revision, cases):
             for name, report in cases.items():
                 body = {
                     "branch": name,
-                    "commit": revision,
+                    "commit": revisions[name],
                     "analyzed_at": "2026-11-20T00:00:00Z",
                     "schema_version": 1,
                     "report": report,
@@ -214,13 +214,24 @@ def replay(root, destination, binary, service=None):
     artifacts.mkdir()
     for path in coverage.values():
         shutil.copyfile(path, artifacts / path.name)
+    checked = scan_coverage_cases(
+        evidence, stage, destination, binary, coverage, artifacts
+    )
+    check(not git(*clean), "public source changed during replay")
+    if service is not None:
+        verify_uploads(service, destination, dict.fromkeys(checked, revision), checked)
+
+
+def scan_coverage_cases(evidence, stage, destination, binary, coverage, artifacts):
+    """Check both native precision modes against the recorded report contract."""
     checked = {}
     for name, case in evidence["cases"].items():
         suite = case["tests"]
         threshold = float(case["reference"]["condition"]["errorThreshold"])
         if suite:
             check(
-                line_counts(coverage[suite], sources) == case["line_counts_by_file"],
+                line_counts(coverage[suite], evidence["source_sha256"])
+                == case["line_counts_by_file"],
                 f"{name}: line counts changed",
             )
         for mode in ("full", "one_decimal"):
@@ -265,7 +276,8 @@ def replay(root, destination, binary, service=None):
             )
             check(report["project"]["complete"], f"{name}: project incomplete")
             check(
-                {x["path"] for x in report["project"]["files"]} == set(sources),
+                {x["path"] for x in report["project"]["files"]}
+                == set(evidence["source_sha256"]),
                 f"{name}: scope changed",
             )
             check(
@@ -278,9 +290,7 @@ def replay(root, destination, binary, service=None):
             )
             print(name, mode, gate["status"], gate["conditions"][0]["actual"])
             checked[f"{name}-{mode}"] = report
-    check(not git(*clean), "public source changed during replay")
-    if service is not None:
-        verify_uploads(service, destination, revision, checked)
+    return checked
 
 
 if __name__ == "__main__":

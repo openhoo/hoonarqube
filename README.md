@@ -10,6 +10,7 @@ Start with the [quickstart](docs/quickstart.md) for a first scan, report export,
 fix preview, and exit-code handling. For maintainers resuming development, see the
 [architecture review](docs/engineering/foundation-review.md) and the
 [120-project comparison and pilot limits](docs/engineering/public-projects-2026-11-21.md).
+For a team evaluating a blocking gate, start with the [Community CI acceptance criteria](docs/engineering/community-ci-acceptance.md).
 
 ## Workspace
 
