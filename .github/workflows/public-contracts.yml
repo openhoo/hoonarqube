@@ -26,6 +26,6 @@ jobs:
           shared-key: ci
           save-if: false
       - name: Build the candidate analyzer
-        run: cargo build --locked -p hoonarqube-cli
+        run: cargo build --locked --release -p hoonarqube-cli
       - name: Check pinned source blobs and selected Sonar primary locations
-        run: python3 tools/oracle/public_contract.py --binary target/debug/hoonarqube
+        run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube

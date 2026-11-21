@@ -16,11 +16,11 @@ The language groups describe project scopes. The Java total includes the HTML so
 
 ## Run the gate
 
-From the HoonarQube repository:
+From the HoonarQube repository, build the same release profile used to qualify the contracts. The runner allows 120 seconds per project's analysis:
 
 ```sh
-cargo build --locked -p hoonarqube-cli
-python3 tools/oracle/public_contract.py --binary target/debug/hoonarqube
+cargo build --locked --release -p hoonarqube-cli
+python3 tools/oracle/public_contract.py --binary target/release/hoonarqube
 ```
 
 Use `--project commander` to replay one repository. For an offline replay, add `--local-sources checkouts.json`, a JSON object mapping GitHub names such as `tj/commander.js` to local checkout paths at exactly the pinned commit. The workflow runs on pull requests and pushes to main; it can also be started manually. Network failures fail the job.
