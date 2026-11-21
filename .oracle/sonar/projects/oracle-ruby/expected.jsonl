@@ -5,7 +5,7 @@
 {"key": "ruby:S104", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S105", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1066", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S1067", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "ruby:S1067", "infra": "implemented for supported conditional operators on parsed expressions; the Community 26.9 default profile did not activate this rule"}
 {"key": "ruby:S107", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S108", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1110", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
@@ -16,20 +16,20 @@
 {"key": "ruby:S117", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1172", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1186", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S1192", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "ruby:S1192", "infra": "implemented for eligible repeated static string values; interpolation, heredocs and chained strings are excluded"}
 {"key": "ruby:S122", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S126", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "ruby:S126", "infra": "implemented for elsif chains without a terminal else with supported jump exemptions; the Community 26.9 default profile did not activate this rule"}
 {"key": "ruby:S131", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1313", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1314", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S134", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "ruby:S134", "infra": "implemented for nesting of the supported Ruby control constructs; the Community 26.9 default profile did not activate this rule"}
 {"key": "ruby:S138", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1451", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1479", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1481", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1656", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1763", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
-{"key": "ruby:S1764", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
+{"key": "ruby:S1764", "infra": "implemented for supported binary operators with identical nonliteral operands; the public Community 26.9 scopes produced no occurrences"}
 {"key": "ruby:S1821", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1862", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1871", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}

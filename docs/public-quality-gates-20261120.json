@@ -1,0 +1,462 @@
+{
+  "schema_version": 1,
+  "captured_on_utc": "2026-11-20",
+  "reference": {
+    "edition": "community",
+    "version": "26.9.0.129388",
+    "server_image": {
+      "image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+      "platform_fingerprint": "arm64 linux sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+    },
+    "scanner_image": {
+      "image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "platform_fingerprint": "amd64 linux sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
+    },
+    "analyzers": {
+      "javascript": {
+        "version": "13.8 (build 44569)",
+        "reported_jar_hash": "c63fe71805947ac812bbf21746e893ed"
+      },
+      "text": {
+        "version": "2.49.0.12346",
+        "reported_jar_hash": "9be350ba174d0364a5258eafeedd1a01"
+      }
+    },
+    "gate": {
+      "name": "Hoonarqube public gate proof 20261120",
+      "default": false,
+      "scope": "overall",
+      "error_conditions": [
+        {
+          "metric": "duplicated_lines",
+          "comparator": "GT",
+          "threshold": "0"
+        },
+        {
+          "metric": "duplicated_lines_density",
+          "comparator": "GT",
+          "threshold": "0"
+        }
+      ]
+    },
+    "effective_profile_comparison": {
+      "identical_to_historical_reference": true,
+      "compared_profiles": 27,
+      "active_rule_activations": 3544,
+      "comparison_fields": [
+        "profile name",
+        "built-in and default flags",
+        "active rule identities",
+        "types",
+        "scopes",
+        "severities",
+        "parameter keys and values"
+      ],
+      "effective_sha256": "1fad5899c9b40c67da6885e08f677a817d45b1ab03d2cd35112035b78a840f3a",
+      "relevant_profiles": {
+        "js": {
+          "name": "Sonar way",
+          "builtin": true,
+          "default": true,
+          "active_rules": 420,
+          "effective_sha256": "b69df608261bf6bd15977fb217d3a8c62d3495c3a3dbccc9acd6165033ac8dbe"
+        },
+        "text": {
+          "name": "Sonar way",
+          "builtin": true,
+          "default": true,
+          "active_rules": 3,
+          "effective_sha256": "a4cc2b35e91a0822c185cf3ad0998e47ece38a0b4a230f563b2524b92a59f24a"
+        },
+        "ts": {
+          "name": "Sonar way",
+          "builtin": true,
+          "default": true,
+          "active_rules": 435,
+          "effective_sha256": "7f8699f53e4f73edd7aea78e2917155185901b40cfb8cd3b52f9d201e8b105ff"
+        }
+      }
+    }
+  },
+  "native": {
+    "commit": "b8411407357d1eabf8d2bce59035d7343996e6ec",
+    "tree": "d48d451b823d4a0e76cc4fd7f6ddf712dfe5a2b3",
+    "binary_sha256": "32b67e4ba45dab0b0f6c8b65255f47bc6a6e86a892b36f6874b3912b8e9140b4",
+    "target": "aarch64-apple-darwin",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "build_command": "cargo build --locked --offline --release -p hoonarqube-cli --bin hoonarqube",
+    "profile": "sonar-parity",
+    "gate_configuration": {
+      "schema_version": 1,
+      "conditions": [
+        {
+          "scope": "overall",
+          "metric": "duplicated_lines",
+          "operator": "lte",
+          "threshold": 0
+        },
+        {
+          "scope": "overall",
+          "metric": "duplicated_lines_density",
+          "operator": "lte",
+          "threshold": 0
+        }
+      ]
+    }
+  },
+  "cases": {
+    "picomatch": {
+      "source": {
+        "repository": "micromatch/picomatch",
+        "commit": "9fab7bf61913ea334c4203ed321c426cfde44a42",
+        "tree": "835c8fb1b4357aaa14c108912f869baf8d093c72",
+        "language": "js",
+        "sources": [
+          "index.js",
+          "lib"
+        ],
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ]
+      },
+      "file_scope": {
+        "checkout_clean_after_scans": true,
+        "identical_file_count": 6,
+        "source_bytes": 62882,
+        "canonical_file_map_sha256": "ec56ab46aa75844ee0e36402141615c9eea159e4768983a5413289ab3f3ba758",
+        "sha256_by_path": {
+          "index.js": "02ae26406508e28f9ba0865be16cf77f0b33de6c4d4d49c212c4176df1d5625a",
+          "lib/constants.js": "cdcb0716c3c7137f34fbec4fe29613de0aaa0a7de01505601ef3a88a5ba05fb0",
+          "lib/parse.js": "4c92a8492700bacd183c21abe2fa63dfe3c27544a3641b3804da1f0815beaae1",
+          "lib/picomatch.js": "fdd249d7ffff853f3bb1c77eafc8baa1a437bea85a94c35877b83c6a40d9ca94",
+          "lib/scan.js": "6457a1764e5c2e543cc3a0c00ce12ebb3764097628868198370b64d4e642aaae",
+          "lib/utils.js": "f04604f70cd1a3f6ace80b84766468674ff38b4bb83818d2ef1d81fc6355f935"
+        }
+      },
+      "reference": {
+        "project_key": "hq-public-gate-proof-recovery-20261120-picomatch",
+        "project_version": "9fab7bf61913ea334c4203ed321c426cfde44a42",
+        "analyzed_at": "2026-11-20T21:58:33+0000",
+        "gate_assignment": {
+          "name": "Hoonarqube public gate proof 20261120",
+          "default": false
+        },
+        "effective_profiles_match_reference_pilot": true,
+        "scanner_exit_code": 0,
+        "ce_task_id": "5ddaa0bb-6ae2-46b5-9cc9-5d55abb29549",
+        "ce_status": "SUCCESS",
+        "analysis_id": "2291a85b-ea46-41de-95a8-c0f82ce6397a",
+        "parse_warning_lines": 0,
+        "analysis_warnings": [],
+        "projectStatus": {
+          "status": "OK",
+          "conditions": [
+            {
+              "status": "OK",
+              "metricKey": "duplicated_lines_density",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "0.0"
+            },
+            {
+              "status": "OK",
+              "metricKey": "duplicated_lines",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "0"
+            }
+          ],
+          "ignoredConditions": false,
+          "caycStatus": "non-compliant"
+        }
+      },
+      "native": {
+        "exit_code": 0,
+        "project_complete": true,
+        "raw_report_sha256": "bc097ad8504909b1da45460aae84382bdee21e3f724bf19214a83c2e0d55b1f4",
+        "assessment": {
+          "gate": {
+            "schema_version": 3,
+            "status": "pass",
+            "conditions": [
+              {
+                "scope": "overall",
+                "metric": "duplicated_lines",
+                "operator": "lte",
+                "threshold": 0.0,
+                "actual": 0.0,
+                "status": "pass"
+              },
+              {
+                "scope": "overall",
+                "metric": "duplicated_lines_density",
+                "operator": "lte",
+                "threshold": 0.0,
+                "actual": 0.0,
+                "status": "pass"
+              }
+            ],
+            "diagnostics": []
+          }
+        }
+      }
+    },
+    "yjs": {
+      "source": {
+        "repository": "yjs/yjs",
+        "commit": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+        "tree": "d07eb7c5b5994055d2054d0d9ddbb2805e7ddda9",
+        "language": "js",
+        "sources": [
+          "src"
+        ],
+        "exclude": [
+          "**/__tests__/**",
+          "**/__mocks__/**",
+          "**/__fixtures__/**",
+          "**/*.spec.*",
+          "**/*.test.*",
+          "**/*.bench.*"
+        ]
+      },
+      "file_scope": {
+        "checkout_clean_after_scans": true,
+        "identical_file_count": 32,
+        "source_bytes": 432815,
+        "canonical_file_map_sha256": "e92b947747d92e65e9645d085432f9eb3c5ff8faab3d5d9b73e1cf1b195e4a92",
+        "sha256_by_path": {
+          "src/index.js": "eb6cf67c82085576b7b779c152606dfefd12f73df7b612ed3756e9de0d8974f2",
+          "src/structs/AbstractStruct.js": "1f42b2ccf7448252c4e2da4c9318b8e81dae26c66eb1c85dc6ec34af54daeeda",
+          "src/structs/GC.js": "19dd79e1bf71b4f1a3f52ed4fae63c1224793694104eddd5a32eb10c47278337",
+          "src/structs/Item.js": "32e358266a5289a98aeed613550720bcefdfd0693a9c593a75f446173b894269",
+          "src/structs/Skip.js": "b9f9a554b3d68f0abad9b503a1abe4ecef4171c5e31f46e0d1a9d7a6fd65fe7b",
+          "src/utils/BlockSet.js": "b3bdb162c852a8d2079ce5f4d955594c8454fc1e0f050d7c110e7221d478fa22",
+          "src/utils/Doc.js": "07a51cadf95305e382069061e273e1a146048efe94a18dcaeca5d12486e227c0",
+          "src/utils/EventHandler.js": "9823ed152bc705835087d95ebd31c05dad6020bf92502b0d2fc257f0ed4dc04f",
+          "src/utils/ID.js": "f63a29f3b72a3864fd7db36d17967cc804c544a8111aba7bb610030140cdd0d3",
+          "src/utils/RelativePosition.js": "4361d1995dd909d55940b14f9877d359b69227f6402b88f327f06443883db939",
+          "src/utils/Renderer.js": "18d24e5af94d74194561cac9e74549d6e4b327f9d463eda067cbd18d30a09cd0",
+          "src/utils/Snapshot.js": "1720a6e0aacf3c29c7a6cdebedd4bc08f7c11b892c3bac34c539eea5dc0f5f9b",
+          "src/utils/StructStore.js": "1891b29852ae1ae60a48ebab1c119a3f6c5a3ed36ce977252189d6213a3399f7",
+          "src/utils/Transaction.js": "845c8b957f7906664b72d22f2b9cb4fe9738c6f9b43538cfede5208f3c3ff7e8",
+          "src/utils/UndoManager.js": "03aa18a4902b4c07c5b8563137e9fc5ca1ab47952798694735225b3f11ef9dea",
+          "src/utils/UpdateDecoder.js": "c44a9aae90f5d04d859e33d33ed8e9a832c4b782c30680a1d909e8dcf900ce09",
+          "src/utils/UpdateEncoder.js": "585fb2581549e97754bccf79bb577ba72f5e76e34ed19e03ba73193a358b26b1",
+          "src/utils/YEvent.js": "b061384b8d1e1fed3ff11215ddd41bdebe7b630dc137b53c8257a6e6fdbf428d",
+          "src/utils/content-helper.js": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "src/utils/delta-helpers.js": "7d0aceff3b8edd68d6c33fecb36c9c5f8ce9b931a8a772de07c7ec8bfc8bfba5",
+          "src/utils/encoding-helpers.js": "f9b8d9363a5d4e4c95f7f4fca4814f5316ee00a157220ef46b100f568ea0338e",
+          "src/utils/encoding.js": "6f2adfb2ee8e5921438e012002bc2bac51be274b8f6cb37d23948beb11cc50cd",
+          "src/utils/ids.js": "1696ffa22c6ef47cf0a5399c92a675539f73a2baf2eafd03d42ef7fbd1a957b0",
+          "src/utils/isParentOf.js": "2c52ef3342f770ac26542ba2d0572707f89a164089f4d40573c98ca46380a2b9",
+          "src/utils/logging.js": "7393a9eb2e337aa6caa0bf5cab440860b484ae32b8f2eca5dad3c538e8ef7a12",
+          "src/utils/meta.js": "2d8c4454496f23cd36e9a439d81041e9c269996e9c82ccba7f5bc2a2a490b2d4",
+          "src/utils/position-helpers.js": "a572705ab4eddb704265854a275b4f8905185e3059abbcf375dc0e72aa7517e6",
+          "src/utils/renderer-helpers.js": "e0e6d16cfc891895075b341d86176089c89bff88d07704c41a9fb1af6e422c62",
+          "src/utils/schemas.js": "9ec885a50849bc43347a55d93afd70e34d0217b4729aef2b665db4b59c8499c7",
+          "src/utils/transaction-helpers.js": "1b5180f0c96e5a5c7778059abd929ca6e3267006c0cd64e87b8e5bccb6f54e00",
+          "src/utils/updates.js": "f72f65679b842d824a5a97d93118e7fd8e686020b98e7d7c9283d0cfcaf0edef",
+          "src/ynode.js": "670c4650eb3058fe7a5ef88dc246e6594c3c150f73ffc51744e775d15ed72488"
+        }
+      },
+      "reference": {
+        "project_key": "hq-public-gate-proof-recovery-20261120-yjs",
+        "project_version": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+        "analyzed_at": "2026-11-20T21:58:56+0000",
+        "gate_assignment": {
+          "name": "Hoonarqube public gate proof 20261120",
+          "default": false
+        },
+        "effective_profiles_match_reference_pilot": true,
+        "scanner_exit_code": 0,
+        "ce_task_id": "881853a7-7a68-491c-9535-e6eb34eb4430",
+        "ce_status": "SUCCESS",
+        "analysis_id": "e16fdaef-e1fa-4c41-9d93-9b85dc90b9d6",
+        "parse_warning_lines": 0,
+        "analysis_warnings": [
+          "There are problems with file encoding in the source code. Please check the scanner logs for more details."
+        ],
+        "projectStatus": {
+          "status": "ERROR",
+          "conditions": [
+            {
+              "status": "ERROR",
+              "metricKey": "duplicated_lines_density",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "1.1"
+            },
+            {
+              "status": "ERROR",
+              "metricKey": "duplicated_lines",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "141"
+            }
+          ],
+          "ignoredConditions": false,
+          "caycStatus": "non-compliant"
+        }
+      },
+      "native": {
+        "exit_code": 1,
+        "project_complete": true,
+        "raw_report_sha256": "0a9d2108dcd6ffb04004942289c65a37a56788c50d50138e7263cfa469ae404b",
+        "assessment": {
+          "gate": {
+            "schema_version": 3,
+            "status": "fail",
+            "conditions": [
+              {
+                "scope": "overall",
+                "metric": "duplicated_lines",
+                "operator": "lte",
+                "threshold": 0.0,
+                "actual": 141.0,
+                "status": "fail",
+                "diagnostic": "actual 141 does not satisfy <= 0 for duplicated_lines"
+              },
+              {
+                "scope": "overall",
+                "metric": "duplicated_lines_density",
+                "operator": "lte",
+                "threshold": 0.0,
+                "actual": 1.1000156030581993,
+                "status": "fail",
+                "diagnostic": "actual 1.100015603058 does not satisfy <= 0 for duplicated_lines_density"
+              }
+            ],
+            "diagnostics": [
+              "actual 141 does not satisfy <= 0 for duplicated_lines",
+              "actual 1.100015603058 does not satisfy <= 0 for duplicated_lines_density"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "missing_data_controls": {
+    "reference_unscanned_project": {
+      "project_key": "hq-public-gate-proof-recovery-20261120-without-analysis",
+      "gate_assignment": {
+        "name": "Hoonarqube public gate proof 20261120",
+        "default": false
+      },
+      "analysis_count": 0,
+      "gate_status_http_status": 200,
+      "projectStatus": {
+        "status": "NONE",
+        "conditions": [],
+        "caycStatus": "non-compliant"
+      }
+    },
+    "native_missing_coverage": {
+      "same_checkout_and_files_as": "picomatch",
+      "exit_code": 2,
+      "raw_report_sha256": "43313d75626e084bf273e1c449ed98b2ac0fe39795d241ead5720e9369f658ab",
+      "configuration": {
+        "schema_version": 1,
+        "conditions": [
+          {
+            "scope": "overall",
+            "metric": "duplicated_lines",
+            "operator": "lte",
+            "threshold": 0
+          },
+          {
+            "scope": "overall",
+            "metric": "duplicated_lines_density",
+            "operator": "lte",
+            "threshold": 0
+          },
+          {
+            "scope": "overall",
+            "metric": "line_coverage",
+            "operator": "gte",
+            "threshold": 80
+          }
+        ]
+      },
+      "project_complete": true,
+      "assessment": {
+        "gate": {
+          "schema_version": 3,
+          "status": "unavailable",
+          "conditions": [
+            {
+              "scope": "overall",
+              "metric": "duplicated_lines",
+              "operator": "lte",
+              "threshold": 0.0,
+              "actual": 0.0,
+              "status": "pass"
+            },
+            {
+              "scope": "overall",
+              "metric": "duplicated_lines_density",
+              "operator": "lte",
+              "threshold": 0.0,
+              "actual": 0.0,
+              "status": "pass"
+            },
+            {
+              "scope": "overall",
+              "metric": "line_coverage",
+              "operator": "gte",
+              "threshold": 80.0,
+              "actual": null,
+              "status": "unavailable",
+              "diagnostic": "coverage report is missing"
+            }
+          ],
+          "diagnostics": [
+            "coverage report is missing"
+          ]
+        }
+      }
+    }
+  },
+  "historical_reference_readback": {
+    "default_gate": "Sonar way",
+    "same_before_and_after": true,
+    "snapshot_sha256": "1a96e01af5a2e7613aa9e252091905bc9506d2e748df262011c7dee9418a32f6",
+    "projects": {
+      "yjs": {
+        "analysis_id": "a7ecb0ec-7bce-4e14-913c-b6eab3925a0a",
+        "gate_assignment": {
+          "name": "Sonar way",
+          "default": true
+        },
+        "profile_identity_count": 27,
+        "profile_identities_sha256": "519e738f3f42b0ff40905c4793dc96657c534db6f4f2638d36a6e21f448bb204",
+        "projectStatus": {
+          "status": "OK",
+          "conditions": [],
+          "ignoredConditions": false,
+          "caycStatus": "compliant"
+        }
+      },
+      "picomatch": {
+        "analysis_id": "82d21424-fc54-4051-b118-99b078707dbb",
+        "gate_assignment": {
+          "name": "Sonar way",
+          "default": true
+        },
+        "profile_identity_count": 27,
+        "profile_identities_sha256": "519e738f3f42b0ff40905c4793dc96657c534db6f4f2638d36a6e21f448bb204",
+        "projectStatus": {
+          "status": "OK",
+          "conditions": [],
+          "ignoredConditions": false,
+          "caycStatus": "compliant"
+        }
+      }
+    }
+  }
+}

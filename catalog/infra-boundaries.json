@@ -302,8 +302,8 @@
       "implementation_gap": true
     },
     "java:S1117": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for local declarations shadowing fields; same-file scope analysis does not establish full Java binding parity",
+      "implementation_gap": false
     },
     "java:S1118": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -846,8 +846,8 @@
       "implementation_gap": true
     },
     "java:S1854": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for local dead stores using a per-method control-flow graph; exception and alias handling remain bounded",
+      "implementation_gap": false
     },
     "java:S1858": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -1082,8 +1082,8 @@
       "implementation_gap": true
     },
     "java:S2143": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for recognized legacy date/time type uses; the frontend does not provide full classpath type resolution",
+      "implementation_gap": false
     },
     "java:S2147": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -1226,8 +1226,8 @@
       "implementation_gap": true
     },
     "java:S2211": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for implicitly typed lambda parameters from the parsed syntax; the Community 26.9 default profile did not activate this rule",
+      "implementation_gap": false
     },
     "java:S2221": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -3146,8 +3146,8 @@
       "implementation_gap": true
     },
     "ruby:S1067": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for supported conditional operators on parsed expressions; the Community 26.9 default profile did not activate this rule",
+      "implementation_gap": false
     },
     "ruby:S107": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -3182,16 +3182,16 @@
       "implementation_gap": true
     },
     "ruby:S1192": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for eligible repeated static string values; interpolation, heredocs and chained strings are excluded",
+      "implementation_gap": false
     },
     "ruby:S122": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
       "implementation_gap": true
     },
     "ruby:S126": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for elsif chains without a terminal else with supported jump exemptions; the Community 26.9 default profile did not activate this rule",
+      "implementation_gap": false
     },
     "ruby:S131": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -3206,8 +3206,8 @@
       "implementation_gap": true
     },
     "ruby:S134": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for nesting of the supported Ruby control constructs; the Community 26.9 default profile did not activate this rule",
+      "implementation_gap": false
     },
     "ruby:S138": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
@@ -3234,8 +3234,8 @@
       "implementation_gap": true
     },
     "ruby:S1764": {
-      "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
-      "implementation_gap": true
+      "reason": "implemented for supported binary operators with identical nonliteral operands; the public Community 26.9 scopes produced no occurrences",
+      "implementation_gap": false
     },
     "ruby:S1821": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",

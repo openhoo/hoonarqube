@@ -1,0 +1,1113 @@
+{
+  "schema_version": 1,
+  "selected_on_utc": "2026-11-20",
+  "scope": "wave3",
+  "native_commit": "1884c8bca3f62fa83964914ce972392ad21af383",
+  "native_tree": "1923e2181b9fa4302b6d78a2cc4c9aca369f5c2a",
+  "native_binary_sha256": "746a2e2ba44d9669e231ecff77090a9a072caa9a5287af51f8c22e60fb6f5510",
+  "reference_server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+  "reference_scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "reference_version": "26.9.0.129388",
+  "projects": [
+    {
+      "name": "httpx",
+      "repository": "encode/httpx",
+      "language": "py",
+      "commit": "7cff5f79bc78649bbcd3fd9aa7a74c86e0f63016",
+      "tree": "bd96f1f1df8ba79defc46792d1044cd4abd96b7b",
+      "sources": [
+        "httpx"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-httpx",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 24,
+        "bytes": 284401
+      }
+    },
+    {
+      "name": "httpcore",
+      "repository": "encode/httpcore",
+      "language": "py",
+      "commit": "10a658221deb38a4c5b16db55ab554b0bf731707",
+      "tree": "0603804496fe3d930ab2e11e8dcc679e078e78ea",
+      "sources": [
+        "httpcore"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-httpcore",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 32,
+        "bytes": 261931
+      }
+    },
+    {
+      "name": "starlette",
+      "repository": "encode/starlette",
+      "language": "py",
+      "commit": "271c277da0ff64e2048a4d46ecc812b9d61db5f6",
+      "tree": "b9eee237ca91cd1a4ebb39f841f99cdd394e1e03",
+      "sources": [
+        "starlette"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-starlette",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 37,
+        "bytes": 264770
+      }
+    },
+    {
+      "name": "h11",
+      "repository": "python-hyper/h11",
+      "language": "py",
+      "commit": "62c5068c971579d61fa1b55373390e12f25fd856",
+      "tree": "5a1cacdb9d0d6e8d18e8161924ae18130da6c130",
+      "sources": [
+        "h11"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-h11",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 24,
+        "bytes": 182193
+      }
+    },
+    {
+      "name": "anyio",
+      "repository": "agronholm/anyio",
+      "language": "py",
+      "commit": "37ba52b9137d72764d3bcbd31842b58a1e1ea992",
+      "tree": "9ee0d15778148057d9135b3f302643dcb0ac47ba",
+      "sources": [
+        "src/anyio"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-anyio",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 47,
+        "bytes": 536341
+      }
+    },
+    {
+      "name": "idna",
+      "repository": "kjd/idna",
+      "language": "py",
+      "commit": "d357725082245ff90f5cf8800a3fc297b1f2319a",
+      "tree": "cff6af86453ebb8d9af908fdc3f6f4463fefccdc",
+      "sources": [
+        "idna"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-idna",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 11,
+        "bytes": 332374
+      }
+    },
+    {
+      "name": "markupsafe",
+      "repository": "pallets/markupsafe",
+      "language": "py",
+      "commit": "4e111271b1494995708a9e878a10829b5e10c7ba",
+      "tree": "67631424c00e5d313d5b3bdb2fb985ccc8b5e750",
+      "sources": [
+        "src/markupsafe"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-markupsafe",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 5,
+        "bytes": 17420
+      }
+    },
+    {
+      "name": "pluggy",
+      "repository": "pytest-dev/pluggy",
+      "language": "py",
+      "commit": "93de545c3a31880feaf0f6bb8870b30d602cf681",
+      "tree": "8f60ba3a590b47405612c86938cb016f62c34ebd",
+      "sources": [
+        "src/pluggy"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-pluggy",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 14,
+        "bytes": 74970
+      }
+    },
+    {
+      "name": "tomli",
+      "repository": "hukkin/tomli",
+      "language": "py",
+      "commit": "43a86ade8b795c6ef9b4ec53372a607cd1ed426f",
+      "tree": "45107c0973cfef7355190d03de3dd44a7a02fac0",
+      "sources": [
+        "src/tomli"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-tomli",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 5,
+        "bytes": 30717
+      }
+    },
+    {
+      "name": "iniconfig",
+      "repository": "pytest-dev/iniconfig",
+      "language": "py",
+      "commit": "e0f1ee1ccd69634acf5d127ed2ea6e628f18da31",
+      "tree": "634c3ff03efe442162ee1905e06a95cf2daed98e",
+      "sources": [
+        "src/iniconfig"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-iniconfig",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 4,
+        "bytes": 13801
+      }
+    },
+    {
+      "name": "sniffio",
+      "repository": "python-trio/sniffio",
+      "language": "py",
+      "commit": "6996e05d9b9debe32f42f709c8041e744f850478",
+      "tree": "5278d093ff2ca7c7a902b20fae4da2667ceff528",
+      "sources": [
+        "sniffio"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-sniffio",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 5329
+      }
+    },
+    {
+      "name": "cattrs",
+      "repository": "python-attrs/cattrs",
+      "language": "py",
+      "commit": "e9239b7082206f18e3cec873b11451aff35beb9c",
+      "tree": "cfae3da8b66c16b198f74efcae5fddbde1967f96",
+      "sources": [
+        "src/cattrs"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "project_key": "hq-public-wave3-20261120-cattrs",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 38,
+        "bytes": 255023
+      }
+    },
+    {
+      "name": "xxhash",
+      "repository": "cespare/xxhash",
+      "language": "go",
+      "commit": "ab37246c889f9db16b606fda1c232d659df9271d",
+      "tree": "bdd320ce7d0774395a4002ec2ee24b513603a6ff",
+      "sources": [
+        "xxhash.go",
+        "xxhash_asm.go",
+        "xxhash_other.go",
+        "xxhash_safe.go",
+        "xxhash_unsafe.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-xxhash",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 5,
+        "bytes": 10108
+      }
+    },
+    {
+      "name": "backoff",
+      "repository": "cenkalti/backoff",
+      "language": "go",
+      "commit": "ce2ae81589e4316be0722e20928b2f9a6d28335a",
+      "tree": "5a3392397d68e6ecc0d15169e9752429aca91614",
+      "sources": [
+        "backoff.go",
+        "error.go",
+        "exponential.go",
+        "retry.go",
+        "ticker.go",
+        "timer.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-backoff",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 22923
+      }
+    },
+    {
+      "name": "fsnotify",
+      "repository": "fsnotify/fsnotify",
+      "language": "go",
+      "commit": "20b1e15ef3c70caeb37ea2bd184f48ef8382669e",
+      "tree": "59eaca1b44f6dbef631791a23015ffa2b8db4ace",
+      "sources": [
+        "backend_fen.go",
+        "backend_inotify.go",
+        "backend_kqueue.go",
+        "backend_other.go",
+        "backend_windows.go",
+        "fsnotify.go",
+        "shared.go",
+        "system_bsd.go",
+        "system_darwin.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-fsnotify",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 9,
+        "bytes": 80674
+      }
+    },
+    {
+      "name": "singleflight",
+      "repository": "golang/sync",
+      "language": "go",
+      "commit": "1f920df1e8fcf601d1aaf0f2ea500e1d2ccce105",
+      "tree": "33adaa90a2cf2058c9f2674f3035a74abcfbc10c",
+      "sources": [
+        "singleflight"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-singleflight",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 2,
+        "bytes": 14576
+      }
+    },
+    {
+      "name": "go-cmp",
+      "repository": "google/go-cmp",
+      "language": "go",
+      "commit": "d48f6b5daa4acf1fa41cd641c703d4986c5870f8",
+      "tree": "743caf394015fb3596ae98ef2a8ad6174aeadfdc",
+      "sources": [
+        "cmp"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-go-cmp",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 43,
+        "bytes": 471541
+      }
+    },
+    {
+      "name": "google-uuid",
+      "repository": "google/uuid",
+      "language": "go",
+      "commit": "2d3c2a9cc518326daf99a383f07c4d3c44317e4d",
+      "tree": "4417b29c0de3c38c3fe46ab172e42758d045b3fb",
+      "sources": [
+        "dce.go",
+        "doc.go",
+        "hash.go",
+        "marshal.go",
+        "node.go",
+        "node_js.go",
+        "node_net.go",
+        "null.go",
+        "sql.go",
+        "time.go",
+        "util.go",
+        "uuid.go",
+        "version1.go",
+        "version4.go",
+        "version6.go",
+        "version7.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-google-uuid",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 16,
+        "bytes": 39219
+      }
+    },
+    {
+      "name": "ulid",
+      "repository": "oklog/ulid",
+      "language": "go",
+      "commit": "75921a7395850ea47ed4dfd832184a5a294c8fde",
+      "tree": "4028c9e934d11963f65f67cbb87bd26e2a95274b",
+      "sources": [
+        "ulid.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-ulid",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 1,
+        "bytes": 22825
+      }
+    },
+    {
+      "name": "go-toml",
+      "repository": "BurntSushi/toml",
+      "language": "go",
+      "commit": "d733fc535e4a9f3c454e421a87b90ade5d49bf31",
+      "tree": "bbd51383b1180ca0cea1af614ddd487217d4d341",
+      "sources": [
+        "decode.go",
+        "deprecated.go",
+        "doc.go",
+        "encode.go",
+        "error.go",
+        "lex.go",
+        "meta.go",
+        "parse.go",
+        "type_fields.go",
+        "type_toml.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-go-toml",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 10,
+        "bytes": 113519
+      }
+    },
+    {
+      "name": "httprate",
+      "repository": "go-chi/httprate",
+      "language": "go",
+      "commit": "641f4e2cce63a1dc4e7412e509791415813d5c29",
+      "tree": "1b62a42cb26de3a37d45a4eb3e74e327e642a0e8",
+      "sources": [
+        "context.go",
+        "deprecated.go",
+        "httprate.go",
+        "limit_key.go",
+        "limiter.go",
+        "local_counter.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-httprate",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 21109
+      }
+    },
+    {
+      "name": "golang-lru",
+      "repository": "hashicorp/golang-lru",
+      "language": "go",
+      "commit": "2bb29091a6c341aba625d23fea354c4fbaef5d6f",
+      "tree": "0930b059b31d3842c297f5e9944f45c9575417a0",
+      "sources": [
+        "2q.go",
+        "doc.go",
+        "lru.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-golang-lru",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 3,
+        "bytes": 14340
+      }
+    },
+    {
+      "name": "go-isatty",
+      "repository": "mattn/go-isatty",
+      "language": "go",
+      "commit": "c44dc0b9c702c76577fdb7898032969e0611efc2",
+      "tree": "91804d61b150dfc0da8f929aa859b9517c92eba7",
+      "sources": [
+        "doc.go",
+        "isatty_bsd.go",
+        "isatty_others.go",
+        "isatty_plan9.go",
+        "isatty_solaris.go",
+        "isatty_tiocgwinsz.go",
+        "isatty_windows.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-go-isatty",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 7,
+        "bytes": 6734
+      }
+    },
+    {
+      "name": "zerolog",
+      "repository": "rs/zerolog",
+      "language": "go",
+      "commit": "284f7c889533b78603191349f4a5c48628d7afd2",
+      "tree": "7d5c4de4165fcfb95a4d49547d4723a3b8fca078",
+      "sources": [
+        "array.go",
+        "console.go",
+        "context.go",
+        "ctx.go",
+        "encoder.go",
+        "encoder_cbor.go",
+        "encoder_json.go",
+        "event.go",
+        "fields.go",
+        "globals.go",
+        "globals_118.go",
+        "go112.go",
+        "hook.go",
+        "log.go",
+        "not_go112.go",
+        "sampler.go",
+        "slog.go",
+        "syslog.go",
+        "writer.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "project_key": "hq-public-wave3-20261120-zerolog",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 19,
+        "bytes": 122281
+      }
+    },
+    {
+      "name": "papaparse",
+      "repository": "mholt/PapaParse",
+      "language": "js",
+      "commit": "7fe53c8c46cf00f7b59db403af4f2a91eaa54dc4",
+      "tree": "bc10ab5845101cf00c94dd8ad2bbffdfdeb57452",
+      "sources": [
+        "papaparse.js"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-papaparse",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 1,
+        "bytes": 51769
+      }
+    },
+    {
+      "name": "express",
+      "repository": "expressjs/express",
+      "language": "js",
+      "commit": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+      "tree": "697a8f753f84d52149bce47e75228d3d6ef4ed77",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-express",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 62063
+      }
+    },
+    {
+      "name": "koa",
+      "repository": "koajs/koa",
+      "language": "js",
+      "commit": "a0702b923eee7e7473ae0f49aacc82759817bc1d",
+      "tree": "dcc0089ead06474295959a74bfc767c45f5fb425",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-koa",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 7,
+        "bytes": 48520
+      }
+    },
+    {
+      "name": "router",
+      "repository": "pillarjs/router",
+      "language": "js",
+      "commit": "d4f4d863778a4db895b71c55aa8c26d45f61cf03",
+      "tree": "9140cadf9dfaf58fffc583dcbf006c622189687f",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-router",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 25079
+      }
+    },
+    {
+      "name": "postcss",
+      "repository": "postcss/postcss",
+      "language": "js",
+      "commit": "8b7a14a76542016ac462a0205e89b58d171c89b6",
+      "tree": "98dddefd2a2b385c3607d1319d2aa3aeea69ba23",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-postcss",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 52,
+        "bytes": 216533
+      }
+    },
+    {
+      "name": "semver",
+      "repository": "npm/node-semver",
+      "language": "js",
+      "commit": "b37b033b585ad5e575afeccadb426ea41bc6cea4",
+      "tree": "5c3ebef72dfcc896350dd4504efe3b18a1ed7926",
+      "sources": [
+        "classes"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-semver",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 4,
+        "bytes": 29343
+      }
+    },
+    {
+      "name": "minimist",
+      "repository": "minimistjs/minimist",
+      "language": "js",
+      "commit": "ecfdaea23e7931c0d529c52b743c711c3278a8ce",
+      "tree": "944cf4b81cbc35dee7996e749dd538b9197f93f9",
+      "sources": [
+        "index.js"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-minimist",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 1,
+        "bytes": 6332
+      }
+    },
+    {
+      "name": "immer",
+      "repository": "immerjs/immer",
+      "language": "ts",
+      "commit": "784c86bb234e805566481c9425fcb2a3897e8bcc",
+      "tree": "70f1bef0e081e14a90fbb807043ab405ac2e22c3",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-immer",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 18,
+        "bytes": 99970
+      }
+    },
+    {
+      "name": "superstruct",
+      "repository": "ianstormtaylor/superstruct",
+      "language": "ts",
+      "commit": "e414c8afd3b69f6bc0173b8ee25f71d8e5694f01",
+      "tree": "6090a53ca5db0ea5ad6669693728e305b4317a1e",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-superstruct",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 8,
+        "bytes": 44050
+      }
+    },
+    {
+      "name": "valtio",
+      "repository": "pmndrs/valtio",
+      "language": "ts",
+      "commit": "26d8ca8cb6e5bb3b9516d429e50bc5aab1f42e0d",
+      "tree": "48761c06cb1d9d115a44670c479b11d9ee309396",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "project_key": "hq-public-wave3-20261120-valtio",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 15,
+        "bytes": 48039
+      }
+    },
+    {
+      "name": "rack-test",
+      "repository": "rack/rack-test",
+      "language": "ruby",
+      "commit": "b3bfdbc79e6e69eb4e63994ec7d1e15130680054",
+      "tree": "ba0fd0faa9e8d654314dd6a06f3b672d66c51b5f",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-rack-test",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 32374
+      }
+    },
+    {
+      "name": "rubocop-ast",
+      "repository": "rubocop/rubocop-ast",
+      "language": "ruby",
+      "commit": "711bbbdef5e1c719fd46f0f9dacfab7a8a1108a0",
+      "tree": "0827596e1cf06d2e08b79c88eb8140a5ef78c220",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-rubocop-ast",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 142,
+        "bytes": 460595
+      }
+    },
+    {
+      "name": "rubocop-performance",
+      "repository": "rubocop/rubocop-performance",
+      "language": "ruby",
+      "commit": "22a6f2175b4d564fdb3a3d0840e7cdb604e18092",
+      "tree": "9a13b4c8d5cacb691d61a6138425dd45df66211c",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-rubocop-performance",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 61,
+        "bytes": 169678
+      }
+    },
+    {
+      "name": "ruby-json",
+      "repository": "ruby/json",
+      "language": "ruby",
+      "commit": "5a75bc26e8a5af06586708915a5935db2b614852",
+      "tree": "13aee4ec2a23295e329764903e369d972ea02af4",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-ruby-json",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 7,
+        "bytes": 80590
+      }
+    },
+    {
+      "name": "optparse",
+      "repository": "ruby/optparse",
+      "language": "ruby",
+      "commit": "9041a0aab5a3cacb61c816e4cfe5e0dcefc25e83",
+      "tree": "7f10986e1e66ef832463184f1157799edaa30bba",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-optparse",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 9,
+        "bytes": 72919
+      }
+    },
+    {
+      "name": "ruby-uri",
+      "repository": "ruby/uri",
+      "language": "ruby",
+      "commit": "bd620b2f324cd2efacc77411c6717283bf199a85",
+      "tree": "97ceb8af42f7e24f503051cfd317afa1164ba528",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-ruby-uri",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 15,
+        "bytes": 125607
+      }
+    },
+    {
+      "name": "faraday",
+      "repository": "lostisland/faraday",
+      "language": "ruby",
+      "commit": "18e51beaa98677a33466801a86e6199fb820c83f",
+      "tree": "3a5296a2dce57c11606c6488830b435fb648cbd7",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-faraday",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 35,
+        "bytes": 126954
+      }
+    },
+    {
+      "name": "rspec-support",
+      "repository": "rspec/rspec-support",
+      "language": "ruby",
+      "commit": "393117fb4c8874918044d9ed5d3ff3c482fd41ec",
+      "tree": "cd99a06e584de62972c852cfaa17dfceb6bc6a2d",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-rspec-support",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 33,
+        "bytes": 93591
+      }
+    },
+    {
+      "name": "dry-core",
+      "repository": "dry-rb/dry-core",
+      "language": "ruby",
+      "commit": "ba7a61d56d6ee5eee67b6f33c528994cfa95f496",
+      "tree": "4b8052a2d6829cbd8fd3bc37d8dfd830ba26029f",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-dry-core",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 28,
+        "bytes": 63371
+      }
+    },
+    {
+      "name": "memchr",
+      "repository": "BurntSushi/memchr",
+      "language": "rust",
+      "commit": "bd6068c30e9074a90c285e47912fa0b047d07597",
+      "tree": "22a8e7959880e4457ba1c4b0eceb2e80e5f29fa5",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-memchr",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 45,
+        "bytes": 567994
+      }
+    },
+    {
+      "name": "smallvec",
+      "repository": "servo/rust-smallvec",
+      "language": "rust",
+      "commit": "4850a2c4f47c07a0ec2ee91bd47d7f598e3fdc69",
+      "tree": "1658aa2c698aa519c1555335df9d5f244bb08fc9",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-smallvec",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 20,
+        "bytes": 148936
+      }
+    },
+    {
+      "name": "thiserror",
+      "repository": "dtolnay/thiserror",
+      "language": "rust",
+      "commit": "ba2784aadbe2015b879a129a9f53727258275aa8",
+      "tree": "d5c91c76bb7be1bcd339e260c004cebce67e7b6d",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-thiserror",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 6,
+        "bytes": 13195
+      }
+    },
+    {
+      "name": "itoa",
+      "repository": "dtolnay/itoa",
+      "language": "rust",
+      "commit": "9339ca99a43c550b5ee36e2afe524d1c90413461",
+      "tree": "578364e4339204bf7b208bf43cfcabb918337c6d",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-itoa",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 2,
+        "bytes": 18028
+      }
+    },
+    {
+      "name": "ryu",
+      "repository": "dtolnay/ryu",
+      "language": "rust",
+      "commit": "75f9e707e77c89717ffb9c2a01fe2c28a016cc82",
+      "tree": "fddf773d231439945a11e4604f5e030bca967056",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-ryu",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 17,
+        "bytes": 105717
+      }
+    },
+    {
+      "name": "slab",
+      "repository": "tokio-rs/slab",
+      "language": "rust",
+      "commit": "7d1d8ab00a7b8b1978b4bf21d9ae9633ac8c0b05",
+      "tree": "d092a4177640f04c38cf6e087fc73ebf35b01b27",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-slab",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 3,
+        "bytes": 52292
+      }
+    },
+    {
+      "name": "hashbrown",
+      "repository": "rust-lang/hashbrown",
+      "language": "rust",
+      "commit": "f3e9f0fc110f55ca55d73d6eddc0bdf5e85eb223",
+      "tree": "4285280b03c3cbb77b7fa8253d69ca621d2de526",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-hashbrown",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 28,
+        "bytes": 782290
+      }
+    },
+    {
+      "name": "indexmap",
+      "repository": "indexmap-rs/indexmap",
+      "language": "rust",
+      "commit": "41a870887c4c77adf665886e63df08f406bfe37a",
+      "tree": "0e4bbb3b29250b441f1e39617a276cae4ed46fe1",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-indexmap",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 27,
+        "bytes": 423682
+      }
+    },
+    {
+      "name": "rust-semver",
+      "repository": "dtolnay/semver",
+      "language": "rust",
+      "commit": "280ebcb6edac3aa4cdc545dbff8a26c5ac4861fe",
+      "tree": "6c918eff73d9278dc0be6813090cb723e8c42fa2",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "project_key": "hq-public-wave3-20261120-rust-semver",
+      "preflight_scope_inventory": {
+        "tracked_files_in_roots": 8,
+        "bytes": 72103
+      }
+    }
+  ]
+}

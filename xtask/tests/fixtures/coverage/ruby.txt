@@ -1,0 +1,16 @@
+# TODO qualify
+# FIXME qualify
+def inspect_value(a, b, c, d, e)
+  puts ["repeated string", "repeated string", "repeated string"]
+  if a && b && c && d && e
+    if b
+      if c
+        if d
+          puts a == a
+        end
+      end
+    end
+  elsif b
+    puts e
+  end
+end

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use hoonarqube_ir::assessment::{
     ASSESSMENT_SCHEMA_VERSION, AssessmentStatus, FindingStatus, GateConditionResult, GateOperator,
-    GateReport, GateScope, GateStatus, normalize_path,
+    GatePrecision, GateReport, GateScope, GateStatus, normalize_path,
 };
 use hoonarqube_ir::{AnalysisReport, FileClassification, MeasurementStatus};
 
@@ -54,6 +54,8 @@ pub struct GateCondition {
     pub metric: String,
     pub operator: GateOperator,
     pub threshold: f64,
+    #[serde(default, skip_serializing_if = "GatePrecision::is_full")]
+    pub precision: GatePrecision,
 }
 
 impl GateCondition {
@@ -77,6 +79,9 @@ impl GateCondition {
                 self.metric,
                 SUPPORTED_METRICS.join(", ")
             ));
+        }
+        if !self.precision.supports(self.scope, &self.metric) {
+            return Err("one_decimal precision requires overall line_coverage".to_string());
         }
         if !metric_supported(&self.scope, &self.metric) {
             return Err(format!(
@@ -254,6 +259,7 @@ fn evaluate_condition(condition: &GateCondition, report: &AnalysisReport) -> Gat
         metric: condition.metric.clone(),
         operator: condition.operator,
         threshold: safe_threshold(condition.threshold),
+        precision: condition.precision,
         actual: None,
         status: GateStatus::Unavailable,
         diagnostic: None,
@@ -265,7 +271,7 @@ fn evaluate_condition(condition: &GateCondition, report: &AnalysisReport) -> Gat
     }
 
     let value = match &condition.scope {
-        GateScope::Overall => overall_metric(&condition.metric, report),
+        GateScope::Overall => overall_metric(&condition.metric, condition.precision, report),
         GateScope::NewCode => new_code_metric(&condition.metric, report),
     };
     let value = match value {
@@ -303,6 +309,7 @@ fn unavailable_condition(condition: &GateCondition, diagnostic: String) -> GateC
         metric: condition.metric.clone(),
         operator: condition.operator,
         threshold: safe_threshold(condition.threshold),
+        precision: condition.precision,
         actual: None,
         status: GateStatus::Unavailable,
         diagnostic: Some(diagnostic),
@@ -374,7 +381,11 @@ fn operator_text(operator: GateOperator) -> &'static str {
     }
 }
 
-fn overall_metric(metric: &str, report: &AnalysisReport) -> Result<MetricValue, String> {
+fn overall_metric(
+    metric: &str,
+    precision: GatePrecision,
+    report: &AnalysisReport,
+) -> Result<MetricValue, String> {
     if !report.project.complete {
         return Err(
             "project analysis is incomplete; overall gate metric is unavailable".to_string(),
@@ -410,10 +421,11 @@ fn overall_metric(metric: &str, report: &AnalysisReport) -> Result<MetricValue, 
         }
         "line_coverage" => {
             let coverage = complete_coverage(report)?;
-            percentage_counter(
+            percentage_counter_with_precision(
                 coverage.lines.eligible,
                 coverage.lines.covered,
                 "line coverage",
+                precision,
             )
         }
         "branch_coverage" => {
@@ -658,11 +670,30 @@ fn validate_current_finding_matches(
 }
 
 fn percentage_counter(eligible: u64, covered: u64, name: &str) -> Result<MetricValue, String> {
+    percentage_counter_with_precision(eligible, covered, name, GatePrecision::Full)
+}
+
+fn percentage_counter_with_precision(
+    eligible: u64,
+    covered: u64,
+    name: &str,
+    precision: GatePrecision,
+) -> Result<MetricValue, String> {
     validate_counter(eligible, covered, name)?;
     if eligible == 0 {
         return Err(format!("{name} has no denominator"));
     }
-    let value = counter_as_f64(covered) * 100.0 / counter_as_f64(eligible);
+    let value = match precision {
+        GatePrecision::Full => counter_as_f64(covered) * 100.0 / counter_as_f64(eligible),
+        GatePrecision::OneDecimal => {
+            // The numerator fits in u128 even for u64::MAX. Round exact halves up
+            // before converting the bounded result (0..=1000 tenths) to f64.
+            let denominator = u128::from(eligible);
+            let tenths = (u128::from(covered) * 1000 + denominator / 2) / denominator;
+            let tenths = u16::try_from(tenths).map_err(|_| format!("{name} is out of range"))?;
+            f64::from(tenths) / 10.0
+        }
+    };
     if value.is_finite() {
         Ok(MetricValue::Percentage(value))
     } else {
@@ -1065,11 +1096,14 @@ fn format_number(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{GateCondition, GateConfig, compare_u64_f64, evaluate_gate};
+    use super::{
+        GateCondition, GateConfig, compare_u64_f64, evaluate_gate,
+        percentage_counter_with_precision,
+    };
     use hoonarqube_ir::assessment::{
         ASSESSMENT_SCHEMA_VERSION, AssessmentReport, AssessmentStatus, CoverageCounter,
-        CoverageReport, FileCoverage, FindingMatch, FindingStatus, GateOperator, GateScope,
-        GateStatus, LineCoverage, NewCodeLines, NewCodeReport, SourceSnapshot,
+        CoverageReport, FileCoverage, FindingMatch, FindingStatus, GateOperator, GatePrecision,
+        GateScope, GateStatus, LineCoverage, NewCodeLines, NewCodeReport, SourceSnapshot,
     };
     use hoonarqube_ir::{
         AnalysisReport, DuplicateGroup, DuplicateOccurrence, DuplicationMetrics,
@@ -1190,6 +1224,7 @@ mod tests {
             metric: metric.to_string(),
             operator,
             threshold,
+            precision: GatePrecision::Full,
         }
     }
 
@@ -1224,6 +1259,155 @@ mod tests {
             lines,
             branches: CoverageCounter::new(0, 0).expect("empty branches"),
             diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn coverage_tenths_round_exact_half_up_across_the_u64_range() {
+        // These adjacent integers collapse to the same f64 above 2^53.
+        let denominator = u64::MAX - 15;
+        let tie = denominator / 16; // 6.25 percent
+        for (eligible, covered, expected) in [
+            (16, 1, 6.3),
+            (denominator, tie - 1, 6.2),
+            (denominator, tie, 6.3),
+            (denominator, tie + 1, 6.3),
+            (u64::MAX, u64::MAX, 100.0),
+            (u64::MAX, 0, 0.0),
+            (4201, 2485, 59.2),
+        ] {
+            let actual = percentage_counter_with_precision(
+                eligible,
+                covered,
+                "coverage",
+                GatePrecision::OneDecimal,
+            )
+            .unwrap();
+            assert_eq!(
+                actual.as_f64().to_bits(),
+                f64::to_bits(expected),
+                "{covered}/{eligible}"
+            );
+        }
+        for (eligible, covered) in [(0, 0), (2, 3)] {
+            assert!(
+                percentage_counter_with_precision(
+                    eligible,
+                    covered,
+                    "coverage",
+                    GatePrecision::OneDecimal
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn overall_line_gate_compares_only_the_rounded_actual() {
+        let mut report = report(true);
+        report.assessment = Some(assessment(
+            Some(coverage_report(
+                CoverageCounter::new(3, 2).unwrap(),
+                (1..=3)
+                    .map(|line| LineCoverage {
+                        line,
+                        covered: Some(line != 3),
+                        branches: None,
+                    })
+                    .collect(),
+            )),
+            None,
+        ));
+        let full = condition(GateScope::Overall, "line_coverage", GateOperator::Gte, 66.7);
+        let rounded = GateCondition {
+            precision: GatePrecision::OneDecimal,
+            ..full.clone()
+        };
+        let above = GateCondition {
+            threshold: 66.71,
+            ..rounded.clone()
+        };
+        let equal = GateCondition {
+            operator: GateOperator::Eq,
+            ..rounded.clone()
+        };
+        let gate = evaluate_gate(
+            &GateConfig {
+                schema_version: 1,
+                conditions: vec![full, rounded, above, equal],
+            },
+            &report,
+        );
+        let actuals: Vec<_> = gate
+            .conditions
+            .iter()
+            .map(|condition| (condition.status, condition.actual))
+            .collect();
+        assert_eq!(
+            actuals,
+            vec![
+                (GateStatus::Fail, Some(200.0 / 3.0)),
+                (GateStatus::Pass, Some(66.7)),
+                (GateStatus::Fail, Some(66.7)),
+                (GateStatus::Pass, Some(66.7))
+            ]
+        );
+        assert_eq!(gate.conditions[1].precision, GatePrecision::OneDecimal);
+    }
+
+    #[test]
+    fn one_decimal_requires_overall_line_coverage_and_complete_inputs() {
+        let opt = GateCondition {
+            precision: GatePrecision::OneDecimal,
+            ..condition(GateScope::Overall, "line_coverage", GateOperator::Gte, 0.0)
+        };
+        for (scope, metric) in [
+            (GateScope::NewCode, "line_coverage"),
+            (GateScope::Overall, "branch_coverage"),
+            (GateScope::Overall, "lines"),
+        ] {
+            let invalid = GateCondition {
+                scope,
+                metric: metric.to_owned(),
+                ..opt.clone()
+            };
+            assert!(invalid.validate().is_err());
+        }
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![opt],
+        };
+        let source = coverage_report(
+            CoverageCounter::new(1, 1).unwrap(),
+            vec![LineCoverage {
+                line: 1,
+                covered: Some(true),
+                branches: None,
+            }],
+        );
+        let mut partial = source.clone();
+        partial.status = AssessmentStatus::Incomplete;
+        let mut inconsistent = source.clone();
+        inconsistent.lines.covered = 0;
+        for (complete, coverage) in [
+            (true, None),
+            (false, Some(source)),
+            (true, Some(partial)),
+            (true, Some(inconsistent)),
+            (
+                true,
+                Some(coverage_report(
+                    CoverageCounter::new(0, 0).unwrap(),
+                    Vec::new(),
+                )),
+            ),
+        ] {
+            let mut report = report(complete);
+            report.assessment = Some(assessment(coverage, None));
+            let gate = evaluate_gate(&config, &report);
+            assert_eq!(gate.status, GateStatus::Unavailable);
+            assert_eq!(gate.conditions[0].actual, None);
+            assert_eq!(gate.conditions[0].precision, GatePrecision::OneDecimal);
         }
     }
 

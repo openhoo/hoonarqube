@@ -431,3 +431,10 @@ affinity, profile and format, warmup/run/timeout settings, all completeness and
 equivalence flags, medians and maxima for elapsed time/CPU time/RSS, and any
 failed rows. Do not infer a clean-build-time, release-archive-size, SonarQube
 parity, or general repository speedup claim from these process benchmarks.
+
+## Rust scanner: standard-library import resolution
+
+The [paired Rust measurements](tools/oracle/rust-standard-path-performance-20261120.md)
+trace repeated scope searches on Clap and compare the change across six pinned
+Rust repositories and one short reproduction. The receipt includes each run
+and the hashes of the complete reports for both builds.

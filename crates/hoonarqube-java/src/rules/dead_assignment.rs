@@ -1905,7 +1905,10 @@ mod tests {
         let semantics = SemanticIndex::build(tree.root_node(), source, &lines);
         check(tree.root_node(), source, &lines, &semantics)
             .into_iter()
-            .map(|issue| (issue.message, issue.range))
+            .map(|issue| {
+                assert_eq!(issue.rule_key, "java:S1854");
+                (issue.message, issue.range)
+            })
             .collect()
     }
 
