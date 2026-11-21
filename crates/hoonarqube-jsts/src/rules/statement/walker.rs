@@ -11,8 +11,9 @@ use oxc_ast::ast::{
     ForInStatement, ForOfStatement, ForStatement, Function, FunctionBody, FunctionType,
     IfStatement, ImportDeclaration, ImportDeclarationSpecifier, ImportOrExportKind,
     LabeledStatement, NewExpression, ReturnStatement, Statement, StaticBlock, SwitchCase,
-    TSModuleBlock, ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationKind,
-    WhileStatement, WithStatement,
+    TSExternalModuleDeclaration, TSGlobalDeclaration, TSModuleBlock, TSNamespaceDeclaration,
+    ThrowStatement, TryStatement, VariableDeclaration, VariableDeclarationKind, WhileStatement,
+    WithStatement,
 };
 use oxc_ast_visit::Visit;
 use oxc_ast_visit::walk::{
@@ -20,8 +21,10 @@ use oxc_ast_visit::walk::{
     walk_expression_statement, walk_for_in_statement, walk_for_of_statement, walk_for_statement,
     walk_function, walk_function_body, walk_if_statement, walk_import_declaration,
     walk_labeled_statement, walk_program, walk_return_statement, walk_statement, walk_static_block,
-    walk_switch_case, walk_throw_statement, walk_try_statement, walk_ts_module_block,
-    walk_variable_declaration, walk_while_statement, walk_with_statement,
+    walk_switch_case, walk_throw_statement, walk_try_statement,
+    walk_ts_external_module_declaration, walk_ts_global_declaration, walk_ts_module_block,
+    walk_ts_namespace_declaration, walk_variable_declaration, walk_while_statement,
+    walk_with_statement,
 };
 use oxc_span::{GetSpan, Span};
 use std::collections::HashMap;
@@ -42,6 +45,10 @@ fn check_statement_rules(
         source,
         import_facts: Vec::new(),
         no_var_suppression: NoVarSuppression::from_comments(comments, source, index),
+        no_var_candidates: Vec::new(),
+        var_declarations: 0,
+        other_variable_declarations: 0,
+        ambient_module: false,
         statement_scopes: Vec::new(),
         s1199_list_kinds: Vec::new(),
         s1199_candidates: Vec::new(),
@@ -53,6 +60,7 @@ fn check_statement_rules(
         try_body_spans: Vec::new(),
     };
     collector.visit_program(program);
+    collector.emit_no_var_candidates();
     collector.sink.issues
 }
 
@@ -78,6 +86,10 @@ struct StatementCollector<'a, 'index> {
     import_facts: Vec<ImportFact>,
     /// `eslint-disable` regions/lines that suppress `no-var` (`S3504`).
     no_var_suppression: NoVarSuppression,
+    no_var_candidates: Vec<Span>,
+    var_declarations: usize,
+    other_variable_declarations: usize,
+    ambient_module: bool,
     /// Active statement lists used to find the return immediately following
     /// an if statement without reparsing source text.
     statement_scopes: Vec<&'a [Statement<'a>]>,
@@ -510,24 +522,32 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
         if it.kind == VariableDeclarationKind::Var {
-            if !self
-                .no_var_suppression
-                .suppressed(self.sink.index, it.span().start)
-            {
-                let span = it.declarations.first().map_or(it.span(), |declaration| {
-                    Span::new(it.span.start, declaration.id.span().end)
-                });
-                self.sink.emit_span(
-                    RuleScope::Both,
-                    "S3504",
-                    "Unexpected var, use let or const instead.",
-                    span,
-                );
-            }
+            self.collect_no_var(it);
         } else {
             self.mark_lone_block();
+            if !it.declare && !self.ambient_module {
+                self.other_variable_declarations += 1;
+            }
         }
         walk_variable_declaration(self, it);
+    }
+
+    fn visit_ts_external_module_declaration(&mut self, it: &TSExternalModuleDeclaration<'a>) {
+        self.with_ambient_module(it.declare, |collector| {
+            walk_ts_external_module_declaration(collector, it);
+        });
+    }
+
+    fn visit_ts_global_declaration(&mut self, it: &TSGlobalDeclaration<'a>) {
+        self.with_ambient_module(it.declare, |collector| {
+            walk_ts_global_declaration(collector, it);
+        });
+    }
+
+    fn visit_ts_namespace_declaration(&mut self, it: &TSNamespaceDeclaration<'a>) {
+        self.with_ambient_module(it.declare, |collector| {
+            walk_ts_namespace_declaration(collector, it);
+        });
     }
 
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
@@ -562,6 +582,48 @@ impl<'a> Visit<'a> for StatementCollector<'a, '_> {
 }
 
 impl StatementCollector<'_, '_> {
+    fn collect_no_var(&mut self, declaration: &VariableDeclaration<'_>) {
+        if declaration.declare || self.ambient_module {
+            return;
+        }
+        // ESLint directives suppress individual reports, but don't change
+        // the declaration style of the file.
+        self.var_declarations += 1;
+        if !self
+            .no_var_suppression
+            .suppressed(self.sink.index, declaration.span.start)
+        {
+            let span = declaration
+                .declarations
+                .first()
+                .map_or(declaration.span, |first| {
+                    Span::new(declaration.span.start, first.id.span().end)
+                });
+            self.no_var_candidates.push(span);
+        }
+    }
+
+    fn emit_no_var_candidates(&mut self) {
+        if self.var_declarations >= 3 && self.var_declarations > self.other_variable_declarations {
+            return;
+        }
+        for span in self.no_var_candidates.drain(..) {
+            self.sink.emit_span(
+                RuleScope::Both,
+                "S3504",
+                "Unexpected var, use let or const instead.",
+                span,
+            );
+        }
+    }
+
+    fn with_ambient_module(&mut self, ambient: bool, visit: impl FnOnce(&mut Self)) {
+        let inherited = self.ambient_module;
+        self.ambient_module |= ambient;
+        visit(self);
+        self.ambient_module = inherited;
+    }
+
     fn check_misleading_statement_layout(&mut self, statements: &[Statement<'_>]) {
         for pair in statements.windows(2) {
             let (top, next) = (&pair[0], &pair[1]);
@@ -1632,6 +1694,63 @@ export { accumulate };
         // A disable naming a different rule does not suppress no-var.
         let other_rule = js_keys("/* eslint-disable no-alert */\nvar g = 7;\n");
         assert_eq!(count_key(&other_rule, "javascript:S3504"), 1);
+    }
+
+    #[test]
+    fn s3504_reports_at_the_file_style_boundaries() {
+        for source in [
+            "var first = 1;\nvar second = first + 1;\nvar third = second + 1;\nconst tail = third + 1;\nexport { tail };\n",
+            "var base = 0;\nfunction add() { var total = base; for (var i = 0; i < 2; ++i) total += i; return total; }\nconst result = add();\nexport { result };\n",
+        ] {
+            assert_eq!(count_key(&js_keys(source), "javascript:S3504"), 0);
+        }
+
+        let cases = [
+            (
+                js(
+                    "var one = 1, two = 2, three = 3;\nvar {four} = {four: one + two + three};\nexport { four };\n",
+                ),
+                vec![(1, 7), (2, 10)],
+            ),
+            (
+                js(
+                    "let first = 1;\nvar [second] = [first];\nconst third = second + 1;\nvar fourth = third + 1;\nlet fifth = fourth + 1;\nvar sixth = fifth + 1;\nexport { sixth };\n",
+                ),
+                vec![(2, 12), (4, 10), (6, 9)],
+            ),
+        ];
+        for (report, expected) in cases {
+            let ranges = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S3504")
+                .map(|issue| (issue.range.start, issue.range.end))
+                .collect::<Vec<_>>();
+            let expected = expected
+                .into_iter()
+                .map(|(line, end)| (pos(line, 0), pos(line, end)))
+                .collect::<Vec<_>>();
+            assert_eq!(ranges, expected);
+        }
+    }
+
+    #[test]
+    fn s3504_ignores_ambient_typescript_declarations() {
+        let report = ts(
+            "declare var apiUrl: string;\ndeclare namespace Legacy { namespace Inner { var runtimeConfig: string; } }\ndeclare module 'sample' { var buildNumber: number; }\ndeclare global { var envCode: string; }\nlet current = apiUrl;\nvar compatibility = current;\nexport { compatibility };\n",
+        );
+        let ranges = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "typescript:S3504")
+            .map(|issue| (issue.range.start, issue.range.end))
+            .collect::<Vec<_>>();
+        assert_eq!(ranges, vec![(pos(6, 0), pos(6, 17))]);
+
+        let ambient_lexical = ts_keys(
+            "declare const absent: number;\ndeclare namespace Example { const unseen: number; }\nvar a = 1;\nvar b = a + 1;\nvar c = b + 1;\nconst d = c + 1;\nexport { d };\n",
+        );
+        assert_eq!(count_key(&ambient_lexical, "typescript:S3504"), 0);
     }
 
     #[test]

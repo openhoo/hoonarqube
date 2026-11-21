@@ -3767,6 +3767,53 @@ mod tests {
     }
 
     #[test]
+    fn java_coverage_matches_observed_sonar_parity_rules() {
+        assert_observed_coverage(
+            "java",
+            "Probe.java",
+            include_str!("../tests/fixtures/coverage/java.txt"),
+        );
+    }
+
+    #[test]
+    fn ruby_coverage_matches_observed_sonar_parity_rules() {
+        assert_observed_coverage(
+            "ruby",
+            "probe.rb",
+            include_str!("../tests/fixtures/coverage/ruby.txt"),
+        );
+    }
+
+    fn assert_observed_coverage(language: &'static str, file: &str, source: &str) {
+        let boundaries = infra_boundaries().unwrap();
+        let report = hoonarqube_core::analyze(
+            Path::new(file),
+            source,
+            &hoonarqube_core::AnalyzerOptions::default(),
+        )
+        .unwrap();
+        let emitted: BTreeSet<_> = report
+            .issues
+            .into_iter()
+            .map(|issue| issue.rule_key)
+            .collect();
+        let row = coverage_language(language, language, &boundaries).unwrap();
+        let counted: BTreeSet<_> = coverage_keys(language, language)
+            .unwrap()
+            .into_iter()
+            .filter(|key| {
+                !row.infra.contains(key)
+                    && !row.missing.contains(key)
+                    && !row.untested.contains(key)
+            })
+            .collect();
+        assert_eq!(
+            emitted, counted,
+            "{language}: dispatched rules must be counted as tested"
+        );
+    }
+
+    #[test]
     fn infrastructure_boundaries_match_frozen_catalog_keys() {
         let boundaries = infra_boundaries().unwrap();
         validate_infra_boundaries(&boundaries).unwrap();

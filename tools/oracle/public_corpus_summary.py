@@ -30,6 +30,9 @@ SENSOR_FAILURE = re.compile(
     re.IGNORECASE,
 )
 JS_LANGUAGES = {"javascript", "typescript", "js", "ts", "jsx", "tsx"}
+JS_SENSOR = r"Sensor JavaScript/TypeScript(?:/CSS)? analysis \[javascript\]"
+JS_BUNDLE_NOTICE = "automatically excluded because they looked like generated code"
+SENSOR_SCOPE_NOT_COMPARED = "not_compared_reference_sensor_scope"
 
 
 def canonical_sha(value):
@@ -56,6 +59,28 @@ def source_indexes(folder, root, label):
             raise ValueError(f"invalid {label} source index")
         files[path] = entry["sha256"]
     return files
+
+
+def javascript_bundle_evidence(log):
+    if JS_BUNDLE_NOTICE not in log:
+        return None
+    # Other sensors in the same run also print source file counts.
+    blocks = re.findall(
+        rf"{JS_SENSOR}$\n(.*?){JS_SENSOR} \(done\)", log, re.MULTILINE | re.DOTALL
+    )
+
+    def count(pattern):
+        matches = (
+            re.findall(pattern, blocks[0], re.MULTILINE) if len(blocks) == 1 else []
+        )
+        return int(matches[0]) if len(matches) == 1 else None
+
+    return {
+        "files_analyzed": count(
+            r"\b(\d+)/\d+ source files? (?:has|have) been analyzed$"
+        ),
+        "cache_hits": count(r"\bHit the cache for (\d+) out of \d+$"),
+    }
 
 
 def scan_result(folder, progress):
@@ -85,7 +110,7 @@ def scan_result(folder, progress):
             )
         if failures:
             state = "incomplete"
-    return {
+    result = {
         "state": state,
         "scanner_seconds": round(scanner["seconds"], 3),
         "scanner_and_compute_seconds": progress["reference"].get(
@@ -95,6 +120,9 @@ def scan_result(folder, progress):
         "compute_ms": ce.get("executionTimeMs"),
         "parse_warning_lines": len(failures),
     }
+    if (bundle := javascript_bundle_evidence(log)) is not None:
+        result["javascript_bundle_detection"] = bundle
+    return result
 
 
 def check_profiles(folder, effective):
@@ -236,7 +264,7 @@ def by_rule(native, reference, key_class):
     }
 
 
-def metrics_summary(folder, native, exact_scope):
+def metrics_summary(folder, native, exact_scope, shared):
     reference = read_json(folder / "measures.json")["component"]["measures"]
     aggregate = metric_comparison(native["project"]["metrics"], reference)
     duplication = {}
@@ -263,15 +291,22 @@ def metrics_summary(folder, native, exact_scope):
             else int(reference_value),
             "matched": observed_value == reference_value,
         }
-    ref_files = read_json(folder / "file-metrics.json")
-    file_values = file_metric_comparison(native["files"], ref_files)
+    ref_files = [
+        row
+        for row in read_json(folder / "file-metrics.json")
+        if normalized_path(row["path"]) in shared
+    ]
+    native_files = [
+        row for row in native["files"] if normalized_path(row["path"]) in shared
+    ]
+    file_values = file_metric_comparison(native_files, ref_files)
     ref_metrics = {normalized_path(row["path"]): row["measures"] for row in ref_files}
     compared_cells = sum(
         sum(
             m["metric"] in {"lines", "ncloc", "comment_lines"}
             for m in ref_metrics[normalized_path(file["path"])]
         )
-        for file in native["files"]
+        for file in native_files
         if normalized_path(file["path"]) in ref_metrics
     )
     return {
@@ -403,18 +438,42 @@ def project_metadata(folder, native_folder):
 def file_scope(folder, native_folder, root, native, result):
     reference_index = source_indexes(folder, root, "reference")
     native_index = source_indexes(native_folder, root, "native")
-    shared = reference_index.keys() & native_index.keys()
-    if any(reference_index[f] != native_index[f] for f in shared):
+    indexed_shared = reference_index.keys() & native_index.keys()
+    if any(reference_index[f] != native_index[f] for f in indexed_shared):
         raise ValueError("shared indexed source bytes differ")
+    reference_files = read_json(folder / "indexed-files.json")
+    bundle = result["reference"].get("javascript_bundle_detection")
+    sensor_scope = {}
+    shared = indexed_shared
+    if bundle is not None:
+        affected = {
+            normalized_path(row["path"])
+            for row in reference_files
+            if row.get("language") in JS_LANGUAGES
+        } & reference_index.keys()
+        # An aggregate bundle notice can't name the exclusions in a partial
+        # run. Either way, these paths lack evidence of common analyzer scope.
+        all_skipped = bundle["files_analyzed"] == bundle["cache_hits"] == 0
+        sensor_scope = {
+            "indexed_shared": len(indexed_shared),
+            "reference_sensor_skipped": sorted(affected) if all_skipped else [],
+            "reference_sensor_scope_unresolved": []
+            if all_skipped
+            else sorted(affected),
+        }
+        shared = indexed_shared - affected
     if not shared:
-        result["comparison_state"] = "not_compared_no_shared_files"
+        result["comparison_state"] = (
+            SENSOR_SCOPE_NOT_COMPARED
+            if indexed_shared
+            else "not_compared_no_shared_files"
+        )
     else:
         result["comparison_state"] = (
             "same_scope"
-            if native_index.keys() == reference_index.keys()
+            if shared == native_index.keys() == reference_index.keys()
             else "shared_files_only"
         )
-    reference_files = read_json(folder / "indexed-files.json")
     result["files"] = {
         "shared": len(shared),
         "native_only": sorted(native_index.keys() - reference_index.keys()),
@@ -423,6 +482,7 @@ def file_scope(folder, native_folder, root, native, result):
             f.get("language", "no_language") for f in reference_files
         ),
         "native_by_language": count_tree(f["language"] for f in native["files"]),
+        **sensor_scope,
     }
     return reference_index, reference_files, shared
 
@@ -545,7 +605,7 @@ def summarize_project(folder, effective, native_catalog, infra, native_folder):
     reference_index, reference_files, shared = file_scope(
         folder, native_folder, root, native, result
     )
-    if shared:
+    if shared or result["comparison_state"] == SENSOR_SCOPE_NOT_COMPARED:
         result["findings"] = finding_comparison(
             folder,
             effective,
@@ -560,7 +620,7 @@ def summarize_project(folder, effective, native_catalog, infra, native_folder):
             shared,
         )
         result["metrics"] = metrics_summary(
-            folder, native, result["comparison_state"] == "same_scope"
+            folder, native, result["comparison_state"] == "same_scope", shared
         )
     return result
 

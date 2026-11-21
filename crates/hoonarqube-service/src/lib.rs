@@ -1518,6 +1518,7 @@ fn validate_gate_claim_against_report(
                 metric: condition.metric.clone(),
                 operator: condition.operator,
                 threshold: condition.threshold,
+                precision: condition.precision,
             })
             .collect(),
     };
@@ -1534,6 +1535,7 @@ fn validate_gate_claim_against_report(
                     || expected.metric != claimed.metric
                     || expected.operator != claimed.operator
                     || expected.threshold.partial_cmp(&claimed.threshold) != Some(Ordering::Equal)
+                    || expected.precision != claimed.precision
                     || expected.actual != claimed.actual
                     || expected.status != claimed.status
             })
@@ -3194,6 +3196,79 @@ mod tests {
 
     fn reviewable_report() -> &'static str {
         r#"{"schema_version":1,"files":[{"path":"a.py","language":"python","issues":[{"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","range":{"start":{"line":1,"column":0},"end":{"line":1,"column":20}}}],"metrics":{"lines":2,"code_lines":1,"comment_lines":1}}],"project":{"metrics":{"files":1,"lines":2,"code_lines":1,"comment_lines":1},"files":[{"path":"a.py","classification":"source","status":"complete","metrics":{"lines":2,"code_lines":1,"comment_lines":1},"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"reason":null}],"duplications":[],"duplication":{"duplicated_lines":0,"duplicated_blocks":0,"duplicated_files":0,"duplicated_lines_density":0.0},"complete":true,"warnings":[],"roots":["a.py"]},"assessment":{"schema_version":3,"context":{"analyzer_version":"hoonarqube-cli/0.8.2","catalog_digest":"d9ce2a1a13961a57f4dede498924fd3518312e8de5a4a5bc671952c73c158a84","options_digest":"471a1bbba734ab8a2da6fa62d0d84d5dd967dd2e1476565c78de6881b54b48d1","scope_digest":"dc756006f7d7366908f4cff666986e61f0fbd42c39b18381e745422035d69e36"},"sources":[{"path":"a.py","content_digest":"f89600824c3f62a48dcc441d730d7d43f1923b7b37bccb3a0536d109c1199764","line_digests":["1dd36e4257b84fc35cfcaca20a29fcbbd61530714fcbde191251b7d679dd9a44","e09e09453d48049c48cadbc630a121ed1b033498846be9aba19eafb8ab73f917"],"findings":[{"issue_index":0,"rule_key":"python:S1134","message":"Take the required action to fix the issue indicated by this \"FIXME\" comment.","source_digest":"2837a0fd9c3732d35586b5be9794e0511049637f586fba20edb81d67b7d237f8","context_digest":"c2d980f6467c3167454753db29f2986ca82af25bd310de58bb297175584b3e30","start_line":1,"end_line":1,"occurrence":0,"content_identity":"7adf5f8ba5eb9ee66cc0e57217b0cf038955673f8f2156e35d664e146042a5ce","identity":"506e1fcd2d2ab0df6909a6d7df84a4c48c623b893175bf1251c636ce01ff2e8b","ambiguous":false,"path":"a.py"}]}]}}"#
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_ingest_recomputes_overall_line_coverage_at_the_declared_precision() {
+        use hoonarqube_ir::assessment::{AnalysisContext, AssessmentReport, SourceInput};
+        let (address, server) = spawn_test_service().await;
+        let mut report = measured_scope_report();
+        let parsed: AnalysisReport = serde_json::from_value(report.clone()).unwrap();
+        let assessment = AssessmentReport::from_reports_and_source_inputs(
+            AnalysisContext::new("test", "catalog", "options", "scope", None::<String>),
+            &parsed.files,
+            &[
+                SourceInput::new(FsPath::new("a.py"), b"# header\nx=1\n"),
+                SourceInput::new(
+                    FsPath::new("test_a.py"),
+                    b"# header\nx=1\ny=2\nassert x != y\n",
+                ),
+            ],
+        )
+        .unwrap();
+        report["assessment"] = serde_json::to_value(assessment).unwrap();
+        report["assessment"]["coverage"] = json!({
+            "schema_version": ASSESSMENT_SCHEMA_VERSION, "status":"complete", "inputs":[], "diagnostics":[],
+            "files":[{"path":"a.py","lines":[{"line":1,"covered":true},{"line":2,"covered":true}]},
+                     {"path":"test_a.py","lines":[{"line":4,"covered":false}]}],
+            "lines":{"covered":2,"eligible":3}, "branches":{"covered":0,"eligible":0}
+        });
+        report["assessment"]["gate"] = json!({
+            "schema_version": ASSESSMENT_SCHEMA_VERSION, "status":"pass", "diagnostics":[],
+            "conditions":[{"scope":"overall","metric":"line_coverage","operator":"gte","threshold":66.7,
+                           "precision":"one_decimal","actual":66.7,"status":"pass"}]
+        });
+        let accepted = ingest_report(address, "rounded", report.clone()).await;
+        assert_eq!(accepted.status, 200);
+        let stored = &json_body(&accepted)["analysis"]["gate"]["conditions"][0];
+        assert_eq!(stored["precision"], "one_decimal");
+        assert_eq!(stored["actual"], 66.7);
+
+        let mut forged = report.clone();
+        forged["assessment"]["gate"]["conditions"][0]["actual"] = json!(66.8);
+        assert_api_error(
+            &ingest_report(address, "wrong-actual", forged).await,
+            409,
+            "conflict",
+        );
+        let mut forged = report.clone();
+        forged["assessment"]["gate"]["conditions"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("precision");
+        assert_api_error(
+            &ingest_report(address, "missing-precision", forged).await,
+            409,
+            "conflict",
+        );
+        let mut forged = report.clone();
+        forged["assessment"]["gate"]["conditions"][0]["metric"] = json!("branch_coverage");
+        assert_api_error(
+            &ingest_report(address, "wrong-metric", forged).await,
+            400,
+            "invalid_request",
+        );
+        report["assessment"]
+            .as_object_mut()
+            .unwrap()
+            .remove("coverage");
+        assert_api_error(
+            &ingest_report(address, "missing-coverage", report).await,
+            409,
+            "conflict",
+        );
+        server.abort();
+        let _ = server.await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
