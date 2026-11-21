@@ -1,0 +1,1565 @@
+{
+  "format": 1,
+  "reference_community_build": "26.9.0.129388",
+  "qualified_native": {
+    "head": "ae55ffcf8a3612406b7d769e46f403d724da04b5",
+    "tree": "c9b2cd7cdcdbdcb6aae8ea70438961fc3400f0eb",
+    "binary": "14995f15c5559a6b2200ffe4ea9286a686949b8d945f3d9a081d71a7734ab388"
+  },
+  "projects": [
+    {
+      "name": "commander",
+      "campaign": "corpus",
+      "language": "js",
+      "repository": "tj/commander.js",
+      "commit": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "tree": "ea7f757f861aba3926265ffc2b0955dd73a9684b",
+      "sources": [
+        "index.js",
+        "lib"
+      ],
+      "exclude": [],
+      "source_inventory_sha256": "c6756299492d03c2e83aabd4112a0db7ff520cfff4ccbfe101647902eaf4b84a",
+      "files": {
+        "index.js": "3b1110c896b70704627d415e6658953a5a6f099e0b141311c73dfb06e55bdbcc",
+        "lib/argument.js": "a86c43174d904198b92ece266e97b6b711e640f3b89ac45291b682a753e145e4",
+        "lib/command.js": "751c19479dac3e3f415fbbd709df90d25c595034f699dba7bef6eeab4dc1304b",
+        "lib/error.js": "98ac5e1b63894792fa7740e5fb2b79ef8c016d94fc41e55bb6ff85fff3346e72",
+        "lib/help.js": "c1a58d89555b8c0cef5c3da9b173c998ce1faf43fe2cdcb331c0fd2c3a455c38",
+        "lib/option.js": "29fc1d0311f16f33fd0df2d8589c93b0a7e37fb89afd852672ba3b7083fa1515",
+        "lib/suggestSimilar.js": "eaa0c4bd9f4d51259c9107e65173f7de37a5413cbd5de39a5795d83d3c7deb3f"
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-corpus-20261120-commander",
+        "compute_task": "0f1fee7e-a5fe-49a6-a28d-93217d2a91f3",
+        "analysis_id": "5df0f4c3-d466-4e6a-be0c-dcc3df5371d4",
+        "issues_sha256": "a7d46ac36d63b7bc016532544b1e7eab18c0b73cb97826c64c4327e9cb5ba55b",
+        "scanner_log_sha256": "9816d797e311c386b00aab9da674f784e25a877e57795ac917c31fc43b34e725",
+        "native_stdout_sha256": "b6fd37043f4561465af1632e39a3a780c69c131ba7dff44acbb150e59fcd08c9",
+        "js_sensor_analyzed": 7
+      },
+      "parameters": {
+        "javascript:S3776": {
+          "threshold": "15"
+        },
+        "javascript:S4624": {},
+        "javascript:S6397": {},
+        "javascript:S6594": {},
+        "javascript:S6959": {},
+        "javascript:S7721": {},
+        "javascript:S7740": {},
+        "javascript:S7754": {},
+        "javascript:S7760": {},
+        "javascript:S7763": {},
+        "javascript:S7773": {},
+        "javascript:S7781": {},
+        "javascript:S7786": {},
+        "javascript:S8786": {}
+      },
+      "primaries": [
+        ["javascript:S3776", "lib/command.js", 1215, 2, 1215, 20],
+        ["javascript:S3776", "lib/command.js", 1562, 2, 1562, 15],
+        ["javascript:S3776", "lib/command.js", 1760, 2, 1760, 14],
+        ["javascript:S4624", "lib/command.js", 629, 74, 629, 103],
+        ["javascript:S6397", "lib/help.js", 701, 26, 701, 30],
+        ["javascript:S6594", "lib/command.js", 164, 39, 164, 44],
+        ["javascript:S6594", "lib/command.js", 421, 47, 421, 52],
+        ["javascript:S6594", "lib/command.js", 2732, 21, 2732, 26],
+        ["javascript:S6594", "lib/command.js", 2736, 19, 2736, 24],
+        ["javascript:S6594", "lib/command.js", 2747, 19, 2747, 24],
+        ["javascript:S6959", "lib/option.js", 317, 24, 317, 30],
+        ["javascript:S7721", "lib/command.js", 1765, 4, 1765, 24],
+        ["javascript:S7740", "lib/command.js", 125, 13, 125, 27],
+        ["javascript:S7740", "lib/command.js", 2134, 10, 2134, 24],
+        ["javascript:S7740", "lib/command.js", 2268, 8, 2268, 22],
+        ["javascript:S7754", "lib/help.js", 150, 32, 150, 36],
+        ["javascript:S7760", "lib/command.js", 1318, 6, 1318, 23],
+        ["javascript:S7760", "lib/command.js", 2213, 4, 2213, 61],
+        ["javascript:S7763", "index.js", 19, 36, 19, 40],
+        ["javascript:S7763", "index.js", 20, 9, 20, 23],
+        ["javascript:S7763", "index.js", 20, 25, 20, 45],
+        ["javascript:S7763", "index.js", 21, 9, 21, 59],
+        ["javascript:S7773", "lib/command.js", 2756, 44, 2756, 52],
+        ["javascript:S7781", "lib/help.js", 673, 48, 673, 55],
+        ["javascript:S7781", "lib/help.js", 684, 27, 684, 34],
+        ["javascript:S7786", "lib/command.js", 734, 16, 734, 21],
+        ["javascript:S7786", "lib/command.js", 2546, 18, 2546, 23],
+        ["javascript:S8786", "lib/help.js", 701, 25, 701, 39]
+      ]
+    },
+    {
+      "name": "commons-cli",
+      "campaign": "corpus",
+      "language": "java",
+      "repository": "apache/commons-cli",
+      "commit": "698b238276c0e22e97e4aec703a0b00201d29666",
+      "tree": "8382f5f45081b8adec8bc7bd581949271926dfd0",
+      "sources": [
+        "src/main/java"
+      ],
+      "exclude": [],
+      "source_inventory_sha256": "d8af38ef7e32c1adcf3807dc3d399025ad90884f530b80205b2a29810ebb9d65",
+      "files": {
+        "src/main/java/org/apache/commons/cli/AlreadySelectedException.java": "45ecede06ff7222c60330d587fed5f06c2c576a579b368d214c6600c0adab01b",
+        "src/main/java/org/apache/commons/cli/AmbiguousOptionException.java": "70f35131600c7098ad0a76b3a3402dc70f571fe1e286a0fabac16e3d5dbfa19a",
+        "src/main/java/org/apache/commons/cli/BasicParser.java": "c7cb7a149762d9e8490c1071366e452b39f72cc7563ee86c2731aa59590caf72",
+        "src/main/java/org/apache/commons/cli/Char.java": "d1fc4320e775fcbc34637306ad918e3f827ac332754002f59915830bc8736c9b",
+        "src/main/java/org/apache/commons/cli/CommandLine.java": "ce2e5e88604a122db2ebe01f844ec15168ddc903c46dfcc89ae440f427cbb261",
+        "src/main/java/org/apache/commons/cli/CommandLineParser.java": "b6cf1ecb6ca1c671e54158f8d089b0797315fe9a484af0c49c06f487b798211c",
+        "src/main/java/org/apache/commons/cli/Converter.java": "cbc8ecd7b1f365cb07474f1cf84a80e92762d67e79d9b9289645679412fb727a",
+        "src/main/java/org/apache/commons/cli/DefaultParser.java": "370e06f753d80715bcf51be17460a78a77d05dd047932efed3ebc935190b9c35",
+        "src/main/java/org/apache/commons/cli/DeprecatedAttributes.java": "d391ff014773f41b5971189f6b814ee4567f537d82267c32bfb15c3d048c7383",
+        "src/main/java/org/apache/commons/cli/GnuParser.java": "994b3c9b6f8f35dee06b585b429294e72acae2103855038b3dacb996a31145bc",
+        "src/main/java/org/apache/commons/cli/HelpFormatter.java": "85424f9fe6cee3f42bdc34066ab83af2732ad980f965801d3ccc8e540d620f99",
+        "src/main/java/org/apache/commons/cli/MissingArgumentException.java": "9d0451ee10266f0c2e522845fe4eec4c46a7739604c8a8420d224c5948c214ee",
+        "src/main/java/org/apache/commons/cli/MissingOptionException.java": "bcbbf1f65700c581afee0247723c6c15837fd642069c82a12fb672cb1593c9be",
+        "src/main/java/org/apache/commons/cli/Option.java": "1a32013675877d43716a7a49d5d4c5ddc4e68aaab0a3d619b0f4938c2c3486f3",
+        "src/main/java/org/apache/commons/cli/OptionBuilder.java": "6884c09f7b93cebab9239d2f2a00f50084427fb414e2854097e50319d7bf01bd",
+        "src/main/java/org/apache/commons/cli/OptionGroup.java": "d59d77cc9e84fb2b297598292a50e0807b408d9dfae38d2bfa5b675a90ae422a",
+        "src/main/java/org/apache/commons/cli/OptionValidator.java": "a3338a0f999e55d203a281a8fcca6597afd888d750c7a759745fbb8bf322bd68",
+        "src/main/java/org/apache/commons/cli/Options.java": "0f973c6c5d8d8bfa27c10b3b8c64f09378a4ad13852594260a7fbaac4b01a986",
+        "src/main/java/org/apache/commons/cli/ParseException.java": "a66b696e81911aa8482e1ecbe4ba3e3ac2d1475a4a32214f352c99ec7ea7bf59",
+        "src/main/java/org/apache/commons/cli/Parser.java": "025dab1b4d10e8f56ed41ca970b6fb287c4a571f34ca59b690a9a7a148b9b6db",
+        "src/main/java/org/apache/commons/cli/PatternOptionBuilder.java": "b4ec2c929cb92c17de34f96869fb9b9cabf669b5d2c53f7f25a164d5e62855f9",
+        "src/main/java/org/apache/commons/cli/PosixParser.java": "2a8a5bc1c0c50ed04cd7eaeb7df5ea1269d38a235c3205e1f3853ef4f0a66907",
+        "src/main/java/org/apache/commons/cli/TypeHandler.java": "5aa4de967e6e88626bc63d9b1bce8d7eac793d74dcdb26980b1dd3d85875a8ff",
+        "src/main/java/org/apache/commons/cli/UnrecognizedOptionException.java": "d6a5b482b501dd89c6af41ca0ff71b2de98a6b0ee229a1d57977b7a36a2d0278",
+        "src/main/java/org/apache/commons/cli/Util.java": "8c22127d91bbbe1f888f7f75af83ee433803fb5ece5716468a38e093ae426f38",
+        "src/main/java/org/apache/commons/cli/overview.html": "bb97f0169168321573db4ae93ec9f9832efeed139b4b36566ffd0f6c118419b3",
+        "src/main/java/org/apache/commons/cli/package-info.java": "8f706951a6286a908a567f06bf232bad27fd362bb6f2672f743a95682d744a6d"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-corpus-20261120-commons-cli",
+        "compute_task": "b6a2479e-9904-431a-a9aa-5bc47d9132ac",
+        "analysis_id": "5c16d3a4-9e80-41f8-af4a-3139e404bbc5",
+        "issues_sha256": "1f32d83a3bc851e47057b306d5e86cf3544ac23ca8a8090a1019bd57748fe55d",
+        "scanner_log_sha256": "323613ffbef20b3722a263763272401fd59861459ff5b38c29851d0bd105e12e",
+        "native_stdout_sha256": "1d8bcefc3145ea3e95725a261bd5c6e387e582822e6d6502b48f073c5e82ae18",
+        "java_release": "8",
+        "java_context_sha256": "4858e52d4fef942773cc5c44ed5b76c8e6db2009aeefa66746f2fc6f1b16b6f3"
+      },
+      "parameters": {
+        "java:S1117": {},
+        "java:S1135": {}
+      },
+      "primaries": [
+        ["java:S1117", "src/main/java/org/apache/commons/cli/Option.java", 548, 25, 548, 31],
+        ["java:S1135", "src/main/java/org/apache/commons/cli/HelpFormatter.java", 76, 0, 76, 68],
+        ["java:S1135", "src/main/java/org/apache/commons/cli/HelpFormatter.java", 329, 0, 329, 30],
+        ["java:S1135", "src/main/java/org/apache/commons/cli/HelpFormatter.java", 332, 0, 332, 68],
+        ["java:S1135", "src/main/java/org/apache/commons/cli/Options.java", 53, 0, 53, 28],
+        ["java:S1135", "src/main/java/org/apache/commons/cli/PatternOptionBuilder.java", 72, 0, 72, 71]
+      ]
+    },
+    {
+      "name": "javapoet",
+      "campaign": "corpus",
+      "language": "java",
+      "repository": "square/javapoet",
+      "commit": "714e05ca60179285746604452324262b126dcb2d",
+      "tree": "34185bdc3331d62cd3ff397ae07776230ec0aa53",
+      "sources": [
+        "src/main/java"
+      ],
+      "exclude": [],
+      "source_inventory_sha256": "1100cc9bd27c6b4e806dd3dacd8293b924ea8072913168c90708b220ed4578a0",
+      "files": {
+        "src/main/java/com/squareup/javapoet/AnnotationSpec.java": "fef9acc3b571c8084e7ab8ea78ec6b0b05211a99fca9f7ac49ad4a4e92f463e4",
+        "src/main/java/com/squareup/javapoet/ArrayTypeName.java": "353e4506213f68ab4f69128b6ebbc8f45536560f7fdd76df8eb2e447409ab0b1",
+        "src/main/java/com/squareup/javapoet/ClassName.java": "5720dfc422e48b0e3b3cc6fb71c2c0fe1b0ef7ab310e68e6c8d454452fedcdf6",
+        "src/main/java/com/squareup/javapoet/CodeBlock.java": "29990fd9d84952e06bd4b47be201e5a07431b82f884e9f9d13a2624052b89cd3",
+        "src/main/java/com/squareup/javapoet/CodeWriter.java": "03d4a244d8fa59809cb6014ccd4b6c0f4a73f2e856bb59335fefa4532ba366c5",
+        "src/main/java/com/squareup/javapoet/FieldSpec.java": "70e9b5d0692a18e2c9049faef62f83e29fd3dc654eb82e6796cd67721559ceaa",
+        "src/main/java/com/squareup/javapoet/JavaFile.java": "66bbaf6c24386fdf62e4f2e65941aae3fece9fe6dd66f0073c942ddfb2b9641e",
+        "src/main/java/com/squareup/javapoet/LineWrapper.java": "5bce40fb319f3a9a95d50edaf5b19198f22a5884c7b85c2dc3fcf189095a10b3",
+        "src/main/java/com/squareup/javapoet/MethodSpec.java": "5f246598e9ad6595f39cccbdd2bfed045a8e9053e67e9381dbda7b1027a3d34d",
+        "src/main/java/com/squareup/javapoet/NameAllocator.java": "ce692da91e539b64d33ea0ba76fac827d8cd304898f4f6a552e0f2e606109590",
+        "src/main/java/com/squareup/javapoet/ParameterSpec.java": "e31e5dae8820622254356a38f57c6b5df43295c86c7fa416d0b436661538f19e",
+        "src/main/java/com/squareup/javapoet/ParameterizedTypeName.java": "d14dc1dba47318d3a23f7a175bfb6ef9693ca06489d05d2c682891279513ed52",
+        "src/main/java/com/squareup/javapoet/TypeName.java": "ae9a118d800d2048be685663ac3fbac14526b37f24de486203f1303b96bc09c4",
+        "src/main/java/com/squareup/javapoet/TypeSpec.java": "b872d97629883aa6fb387999feaecf54559cd61898a0e4b97e7d1525899b4fe1",
+        "src/main/java/com/squareup/javapoet/TypeVariableName.java": "42ee5bf519d5a23dace7b62d47a8c8648e241ece364c06ac90a2d31bd4d33bd8",
+        "src/main/java/com/squareup/javapoet/Util.java": "e5685706506bc936dc39a3796e5e789aac3e6d3d2759e52e793e98f442e475c2",
+        "src/main/java/com/squareup/javapoet/WildcardTypeName.java": "7f80605e2d21f13febf0d874dbb47bc1076808ec3c014a17f7520087aaef5460"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-corpus-20261120-javapoet",
+        "compute_task": "443e0542-c524-4818-bfbb-9a6ebea89195",
+        "analysis_id": "fd3a2d84-bf2b-4c6f-b4cc-cb97b8c7f0d3",
+        "issues_sha256": "a24f089d97ca69ab94865cf78e78b7954283ad68e6294bada31014d8654b0ed3",
+        "scanner_log_sha256": "167b6198bd3217f63a5e1eef2354fecae15b3161116be1071c1a15596a2e1d17",
+        "native_stdout_sha256": "e463e0510c3d6b7587d86a2c8b8cf6443d49d2ad7a3232aab82e739c3dc0d5d6",
+        "java_release": "8",
+        "java_context_sha256": "a4820c9c43b99a7a11371be138780d2bbf241aff50ed98b43b787ecf42e1b1fc"
+      },
+      "parameters": {
+        "java:S1135": {}
+      },
+      "primaries": [
+        ["java:S1135", "src/main/java/com/squareup/javapoet/CodeWriter.java", 418, 0, 418, 63],
+        ["java:S1135", "src/main/java/com/squareup/javapoet/CodeWriter.java", 433, 0, 433, 71],
+        ["java:S1135", "src/main/java/com/squareup/javapoet/JavaFile.java", 203, 0, 203, 63]
+      ]
+    },
+    {
+      "name": "sinatra",
+      "campaign": "corpus",
+      "language": "ruby",
+      "repository": "sinatra/sinatra",
+      "commit": "7b50a1bbb5324838908dfaa00ec53ad322673a29",
+      "tree": "166815c315bb3cb12d9a63aa28ca79a943ee8b53",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [],
+      "source_inventory_sha256": "3f7cde5db3573bf10a1a1b1e45dc1e78bd21db2b38fec037d576c55d01befc13",
+      "files": {
+        "lib/sinatra.rb": "7c3157fd3ea7b6c74958c53aca174154e84ae5365d386268ca1f9ae7829aabfd",
+        "lib/sinatra/base.rb": "5a0248170882e9c1a6358d0ed4406483bfe88306a321a7307f4dea92d96f99cb",
+        "lib/sinatra/indifferent_hash.rb": "3bc8d98e022bef2c05447cc0f8ba39d09405cb09966ec8191b92fad698db877b",
+        "lib/sinatra/main.rb": "a1afa2a71159c603beae4f0b16ffabeef4b001091f5b4055f466415efb8c20cc",
+        "lib/sinatra/middleware/logger.rb": "73effcb67ef35f38ccb6ddb6c13f068cd9acdf59e3f5d1233633634da62b3404",
+        "lib/sinatra/show_exceptions.rb": "86ae85b2d1bff8482d8cd404167c388d80c0b2f927f32a0d310b58caa642bc15",
+        "lib/sinatra/version.rb": "16c613aa945d31ff2401b3957beb1d1eeac5945023de1688982c4f42a448f4a1"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-corpus-20261120-sinatra",
+        "compute_task": "7ccd5a54-a7f3-4fb0-8ff3-c0114ad30d7d",
+        "analysis_id": "041b865a-cba7-43f5-a7be-9c31c7d40d38",
+        "issues_sha256": "f6575a5fa93e1ddec49de91a9edbf4ce001432ad0bf9aea36930fe1aef2785c3",
+        "scanner_log_sha256": "daf3a7c7e72aa60359fbfe4cfc88accf3702c22bb475cf39bd906c1cb50f51a8",
+        "native_stdout_sha256": "90906d928609cbcfa74318fdcd706dab15f38ceb482312c5415ca9a086896da9"
+      },
+      "parameters": {
+        "ruby:S1135": {},
+        "ruby:S1192": {
+          "threshold": "3"
+        }
+      },
+      "primaries": [
+        ["ruby:S1135", "lib/sinatra/base.rb", 1108, 32, 1108, 36],
+        ["ruby:S1192", "lib/sinatra/base.rb", 187, 23, 187, 39],
+        ["ruby:S1192", "lib/sinatra/base.rb", 188, 23, 188, 37],
+        ["ruby:S1192", "lib/sinatra/base.rb", 239, 61, 239, 74],
+        ["ruby:S1192", "lib/sinatra/base.rb", 1005, 59, 1005, 74],
+        ["ruby:S1192", "lib/sinatra/base.rb", 1126, 11, 1126, 33],
+        ["ruby:S1192", "lib/sinatra/base.rb", 1239, 23, 1239, 34],
+        ["ruby:S1192", "lib/sinatra/show_exceptions.rb", 25, 19, 25, 32],
+        ["ruby:S1192", "lib/sinatra/show_exceptions.rb", 32, 23, 32, 34]
+      ]
+    },
+    {
+      "name": "async-lru",
+      "campaign": "wave2",
+      "language": "py",
+      "repository": "aio-libs/async-lru",
+      "commit": "c43b72733ec64e538584e5f7ec4c8faa4051934a",
+      "tree": "03c642b52fd2334dd31824cbd936231ee748d73e",
+      "sources": [
+        "async_lru"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "source_inventory_sha256": "0af304b18f3ce536f45fb9834a8094421dcec75b0eebd93ad6e4e958e31191ea",
+      "files": {
+        "async_lru/__init__.py": "3671d8515f0a1b1ba8322190b711966e025985c3e450ff167b2b1e717ac85808"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-async-lru",
+        "compute_task": "36095916-66b2-401f-9f52-60cbd08b41ce",
+        "analysis_id": "e21d9f15-0c44-4f28-922a-0e1cf8f3e677",
+        "issues_sha256": "0e82bdac61ba562c774a6396c894da19026e79c460eb3acc4105b26b969e34bc",
+        "scanner_log_sha256": "edaa9097404fb550c27958d2b54ccb29f217e5bf9a19234f01e6ef76344ae753",
+        "native_stdout_sha256": "ecd6d62364729c103f573c89667b77021ba3c4f2ac519eea9764c8c51ec4a820"
+      },
+      "parameters": {
+        "python:S1481": {
+          "regex": "(_[a-zA-Z0-9_]*|dummy|unused|ignored)"
+        },
+        "python:S3776": {
+          "threshold": "15"
+        },
+        "python:S6792": {},
+        "python:S6796": {}
+      },
+      "primaries": [
+        ["python:S1481", "async_lru/__init__.py", 307, 12, 307, 23],
+        ["python:S3776", "async_lru/__init__.py", 417, 4, 417, 17],
+        ["python:S6792", "async_lru/__init__.py", 43, 6, 43, 16],
+        ["python:S6792", "async_lru/__init__.py", 55, 6, 55, 22],
+        ["python:S6792", "async_lru/__init__.py", 324, 6, 324, 36],
+        ["python:S6796", "async_lru/__init__.py", 257, 14, 257, 48],
+        ["python:S6796", "async_lru/__init__.py", 276, 14, 276, 22],
+        ["python:S6796", "async_lru/__init__.py", 314, 8, 314, 15],
+        ["python:S6796", "async_lru/__init__.py", 334, 8, 334, 16],
+        ["python:S6796", "async_lru/__init__.py", 413, 14, 413, 22]
+      ]
+    },
+    {
+      "name": "bytes",
+      "campaign": "wave2",
+      "language": "rust",
+      "repository": "tokio-rs/bytes",
+      "commit": "67edc2b999d669eb4f471aff576e213dbcb58871",
+      "tree": "97d05c1899b3e0370e49e6fa4792f977c27fa1e5",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "source_inventory_sha256": "5f6238659753ac0ddb1413e410a8aedfd7643ced5f9842dcb422562a5390f2cd",
+      "files": {
+        "src/buf/buf_impl.rs": "6e7ee4432342e26c6f76da9920029d6f4fe76006d05614f7e9a6a4af14b87c48",
+        "src/buf/buf_mut.rs": "4efa6c6d83e8405548625cfcc6fda11e8c860978b45bd0f63f1415dad5b65c5c",
+        "src/buf/chain.rs": "1c937bc547767acab8123cbab86ca6511b34d0edb90ddf66e3308e6b2ef036c7",
+        "src/buf/iter.rs": "d4dca5b7f9b1cb441f22ac1862e28b10086721879163a810955aefb5cd7f3e58",
+        "src/buf/limit.rs": "e005ba140b70f68654877c96b981a220477e415ff5c92438c1b0cb9bc866d872",
+        "src/buf/mod.rs": "3f60295316d44b510b942abb31a0d975ae488bd4b52c87f5252d73f88f82715a",
+        "src/buf/reader.rs": "cda8bc221a1de06c7395d5c6e80f8a5924198eafbc2decc0909082ce8781d789",
+        "src/buf/take.rs": "443766677fae38b398271693ed6134c7cc14949cdb9fce299c44dd55ecf84fb3",
+        "src/buf/uninit_slice.rs": "52629b93ff7a08db45fc69395580b34fa3609fd9309ea01f86e58488b02b08a3",
+        "src/buf/vec_deque.rs": "baac165527d1bdfc3bb259380bb4722e70c3f11e8a901e8bab6e4f951b060711",
+        "src/buf/writer.rs": "e6db9603d8f1e625e55bb2b815aa6561c1ac916a02eddf2486366d21c688324c",
+        "src/bytes.rs": "3df7710f9f9ae787259795c4b78e0364313be74348fce6a9e09aceace948f0d7",
+        "src/bytes_mut.rs": "601bf4ef25552606c53ed188c17a885a0feb313a08298e82740ac4f9ab30235d",
+        "src/fmt/debug.rs": "4d217b8f43e489925bb6904010df617efc63b50a3cc1ab126eec54b43b66eb3e",
+        "src/fmt/hex.rs": "54c05ab7d95d7381e499079d63773fabd2672f3c4929b56b02ab87d4495902b5",
+        "src/fmt/mod.rs": "b38222dcfff70eb3ffb6ce305b95f3fcfd9fa68cca85693eb2ed01d3da7ddb88",
+        "src/lib.rs": "053fc1b7e028cd1ccab019ea695f3e620129ef26a5b3f80a747b402a9871dfbf",
+        "src/loom.rs": "7c89f9f5f900d5b9b7c43d08d467957933eba90d5dcff1b38cf9a7e48494a577",
+        "src/serde.rs": "3ecd7e828cd4c2b7db93c807cb1548fad209e674df493edf7cda69a7b04d405d"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-bytes",
+        "compute_task": "ff81fd4b-5bd7-47d3-9b93-fb7adbaa8aa2",
+        "analysis_id": "84eeb247-30b9-4bd4-93f5-ebcd5fe5f763",
+        "issues_sha256": "b3da4d9803784cbda4553f877000a75f38f5b59221c8235f0f324b110bbf3448",
+        "scanner_log_sha256": "8cb4438e208b6fbc3b88b317ab84e4f2ea3ff2362f6b44fb74dd236a0a5e05e7",
+        "native_stdout_sha256": "c8966ed1c34fa2278160cf0fa7671b8d9af46ef8eace3d4c1cff14cf66666c25"
+      },
+      "parameters": {
+        "rust:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["rust:S3776", "src/bytes_mut.rs", 631, 7, 631, 20]
+      ]
+    },
+    {
+      "name": "commons-csv",
+      "campaign": "wave2",
+      "language": "java",
+      "repository": "apache/commons-csv",
+      "commit": "660f7c9f853092ec8abf5d6c81d260e3c80c2194",
+      "tree": "d057a16b418ffd1789540aba9c7990566cdfe4e7",
+      "sources": [
+        "src/main/java"
+      ],
+      "exclude": [],
+      "source_inventory_sha256": "e6e920498b53ad828181248d56e2fb39dffd1477d327179e7163001e733e9b26",
+      "files": {
+        "src/main/java/org/apache/commons/csv/Assertions.java": "16d14fc68ee01b5ff956ba17f98ace1a9d2cc9b7945d4a3b78a447678e47a038",
+        "src/main/java/org/apache/commons/csv/CSVFormat.java": "020ed4927c54a102878af9935affeaead64355dcc626bd0219b03c17da83ed1a",
+        "src/main/java/org/apache/commons/csv/CSVParser.java": "5dad1c57a63c85435135f8f3a75eb4033b5348bfa8d89d813c0957ce864c437b",
+        "src/main/java/org/apache/commons/csv/CSVPrinter.java": "b57a9c6fd696b6b6f3f1d0ef2deee1e483ed14e78cc9153b1b16db8bd7fd019a",
+        "src/main/java/org/apache/commons/csv/CSVRecord.java": "7ee95cc1a880a5910b07c460a025f53a3de7488f73833878948cc9c567d3526f",
+        "src/main/java/org/apache/commons/csv/Constants.java": "3fa6fd050c79c0639539c875c3c390dac1daf4f095f3a30665996df80eedf6fe",
+        "src/main/java/org/apache/commons/csv/ExtendedBufferedReader.java": "4b7b6dbbb4c0964e719bad3b4df24a3189d9a3c97e0e365d032bc8aaa0b0b0d5",
+        "src/main/java/org/apache/commons/csv/IOUtils.java": "57b631ccd5d136aec72b1ff3e2a1df3286a5ed5ab8dadc5e3ef3e53342e0c08e",
+        "src/main/java/org/apache/commons/csv/Lexer.java": "99d3324779414392829313468cfef3ba76ee38c07acffdc6c1df30a9e9c50c76",
+        "src/main/java/org/apache/commons/csv/QuoteMode.java": "f187fd74ec75f61374e182eaf09ae9fecc407d8cc0ca1241c664ac385a70b413",
+        "src/main/java/org/apache/commons/csv/Token.java": "41aa1697ecc473e7661dddb4480bf490ca6c2ac473793f754fdcb2a758f1ab10",
+        "src/main/java/org/apache/commons/csv/package-info.java": "99ab3d854b4bd825367318961ec19d2780ddcabed6d12c83598896d024eb0774"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-commons-csv",
+        "compute_task": "4428bed2-4087-4842-a924-0ac2a10a59b2",
+        "analysis_id": "11fad338-ded5-4a00-9ae6-7acc1eef68d1",
+        "issues_sha256": "7dd1753bf0c3fe5a0e9e0bbaf0a75f9e329407a5891d66b8e5b89f285dc2068d",
+        "scanner_log_sha256": "13ae1a0405e343e92e3714537d6d6a208ce5db413f172ae802e0619ced0bd43a",
+        "native_stdout_sha256": "65f1d9aca5c039882ee1e244cef1e4eb6d92e5b4d955c57fc38c4fe7daa6939f",
+        "java_release": "8",
+        "java_context_sha256": "eb68abcd32f38f88649687850800e2e0a67745d1312c64d84d7476dbac6a7a3d"
+      },
+      "parameters": {
+        "java:S1117": {},
+        "java:S1135": {}
+      },
+      "primaries": [
+        ["java:S1117", "src/main/java/org/apache/commons/csv/CSVFormat.java", 1917, 17, 1917, 23],
+        ["java:S1117", "src/main/java/org/apache/commons/csv/CSVParser.java", 476, 21, 476, 32],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/Assertions.java", 25, 0, 25, 68],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVFormat.java", 755, 0, 755, 22],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVFormat.java", 757, 0, 757, 22],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVFormat.java", 759, 0, 759, 22],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVFormat.java", 761, 0, 761, 22],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVFormat.java", 763, 0, 763, 22],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVPrinter.java", 100, 0, 100, 98],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/CSVRecord.java", 295, 0, 295, 36],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/Lexer.java", 319, 0, 319, 43],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/Lexer.java", 347, 0, 347, 41],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/Lexer.java", 348, 0, 348, 70],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/Lexer.java", 349, 0, 349, 48],
+        ["java:S1135", "src/main/java/org/apache/commons/csv/package-info.java", 68, 0, 68, 48]
+      ]
+    },
+    {
+      "name": "cron",
+      "campaign": "wave2",
+      "language": "go",
+      "repository": "robfig/cron",
+      "commit": "bc59245fe10efaed9d51b56900192527ed733435",
+      "tree": "85dbabf776b485e167eeb2f2957ebf2cd776cee8",
+      "sources": [
+        "chain.go",
+        "constantdelay.go",
+        "cron.go",
+        "doc.go",
+        "logger.go",
+        "option.go",
+        "parser.go",
+        "spec.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "source_inventory_sha256": "9bbf1aa1972809a0f078c48ef685dbc34fad260c3902eee5e7dc6a74f169537a",
+      "files": {
+        "chain.go": "a66c78136aec5232865a62666abd6c055fb61da39d8d3672ac4a8f759437a394",
+        "constantdelay.go": "0a014f614180b2c3e45afc36cff2307ed07141259b45a37fbdc9574d7f329d3b",
+        "cron.go": "2940f1eb5e3e60a538e2ab06e4f395f1180f9f501881c4fac6960617dd068e8e",
+        "doc.go": "51e3a51e1f6f71412c7c301080077edd6c53c740f8e4c84ffa386044047f0bec",
+        "logger.go": "f278944d353c194f71ca7ebad2248e76d8e13e51103d65a40e42ae6159bf472b",
+        "option.go": "b4baa7cf817b7da1748be4426d9612aec0604e4417928be97253c8dbbe16984c",
+        "parser.go": "1da6876acb8410f3e4e098f3e503aee2a4b95f2418707463cb12bf6492c32723",
+        "spec.go": "d238b062c0ab311d30d62b6ab54d505f0e613cd54826e225e14f708849f3bf98"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-cron",
+        "compute_task": "85bf9eb6-1d86-4ab0-a835-1e316b917543",
+        "analysis_id": "67a8984d-2270-490c-8a79-288e773ee31d",
+        "issues_sha256": "f0f050e41493bf3f5be8d9dd90258da91366811040ea3ae7a431a21875754ecf",
+        "scanner_log_sha256": "6280c0471914cc4ca421e33c0d9d1a256e339fc587270b47aa82fa877ac6bd23",
+        "native_stdout_sha256": "b3a2722bbe3fd677a7ec982055f50c2c66b7911aae306294369b315cc6fb1935"
+      },
+      "parameters": {
+        "go:S1135": {},
+        "go:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["go:S1135", "parser.go", 196, 43, 196, 47],
+        ["go:S3776", "cron.go", 239, 15, 239, 18],
+        ["go:S3776", "parser.go", 160, 5, 160, 20],
+        ["go:S3776", "spec.go", 58, 23, 58, 27]
+      ]
+    },
+    {
+      "name": "floating-ui",
+      "campaign": "wave2",
+      "language": "ts",
+      "repository": "floating-ui/floating-ui",
+      "commit": "c3042f1f37d96dfadff1d8894daa31e120d89ed4",
+      "tree": "eb02ec521c57e1aa0824d943868c76ae4e4a34fc",
+      "sources": [
+        "packages/core/src"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "source_inventory_sha256": "9677ec17d6d3c5ca385823cb8ba3e2e2d3b8b50e881d8bd7ada8fcfcc8dbaf67",
+      "files": {
+        "packages/core/src/computeCoordsFromPlacement.ts": "a00170deb8e22f3b50e1cd6fbe4c55c58ece4b6b4dbb34e4fff088261a910182",
+        "packages/core/src/computePosition.ts": "7482bb3235b36cd31d285395b75cab145846c9cb289c3903244fd2683e4a8f0a",
+        "packages/core/src/constants.ts": "86233ab4b8e6c048c9d334f4a7a2445b70b81c7d504650139ce184ee0bdbb6ff",
+        "packages/core/src/detectOverflow.ts": "4e72760bb244dc23a589118f39ab16cdce7160b2ca74bae1f918acc650542479",
+        "packages/core/src/index.ts": "6d693d757f1039b3f82480a0bf661ba5e22b2ac6598e4a0eb6f100fabc12696e",
+        "packages/core/src/middleware/arrow.ts": "7d4ae9e91adf08a7b29503907b8da1004a5b5dde4192c8cd535b9a658fb698d6",
+        "packages/core/src/middleware/autoPlacement.ts": "e68610a279fbcf382d3525dabc7080d54b532f8bb77475815b9decd867b99291",
+        "packages/core/src/middleware/flip.ts": "429671ae52a0df1010d372cade619083ec37c7dfdace6757e064ac566b0fe965",
+        "packages/core/src/middleware/hide.ts": "f437d73ca8fd919182ee6ca6acad7eebf739ef7df1cff53a33f7c78a2c7a393e",
+        "packages/core/src/middleware/inline.ts": "14fcdfc181870faf92a0ae99adb58908330f3149f845155c3d225fae5a48d180",
+        "packages/core/src/middleware/offset.ts": "16a9dbb91309bf5cab58e8f80577a7d833a3a0c5259ee8d9436f6630f8682a10",
+        "packages/core/src/middleware/shift.ts": "873e8bf4403aebb6f241193bae05fb9f922f3d740b67a47ea2d67c5646ea82b4",
+        "packages/core/src/middleware/size.ts": "93f706fd3d06092d93b8786ca5bf620ac01e22da27548b44b918ba7e7fa1cc47",
+        "packages/core/src/types.ts": "7422194722f35303e4528e227cbe18f82eebe3e752539a234f514bc80b5d2398",
+        "packages/core/src/utils/debugRects.ts": "44d7cfa412e3303f8e1c6827fae0338a2d761b0aaacbc7f67b7d1d4a331df995"
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-floating-ui",
+        "compute_task": "7d708f51-4b44-4144-b4aa-164150e708b6",
+        "analysis_id": "ba8e6cab-1a2a-4871-aca9-525c4f797b8c",
+        "issues_sha256": "03493a6f699f2234037475113f850b1ee5f668c13cd283577a445e26b321fbf8",
+        "scanner_log_sha256": "4109271ccdb299ee98367cdc7853e9a36f71c1dc83d241bc82aa5ff113c2d414",
+        "native_stdout_sha256": "839ecf2164526f4e3c6fa06d944c5ac1034b78ae43c32954eb9fdad2ff4a2fe7",
+        "js_sensor_analyzed": 15
+      },
+      "parameters": {
+        "typescript:S2310": {},
+        "typescript:S3776": {
+          "threshold": "15"
+        },
+        "typescript:S4138": {},
+        "typescript:S7766": {}
+      },
+      "primaries": [
+        ["typescript:S2310", "packages/core/src/computePosition.ts", 96, 6, 96, 7],
+        ["typescript:S3776", "packages/core/src/computePosition.ts", 24, 2, 24, 4],
+        ["typescript:S3776", "packages/core/src/middleware/flip.ts", 66, 8, 66, 10],
+        ["typescript:S3776", "packages/core/src/middleware/shift.ts", 148, 2, 148, 4],
+        ["typescript:S3776", "packages/core/src/middleware/size.ts", 51, 8, 51, 10],
+        ["typescript:S4138", "packages/core/src/middleware/inline.ts", 41, 2, 49, 3],
+        ["typescript:S7766", "packages/core/src/middleware/flip.ts", 198, 46, 198, 73]
+      ]
+    },
+    {
+      "name": "httparty",
+      "campaign": "wave2",
+      "language": "ruby",
+      "repository": "jnunemaker/httparty",
+      "commit": "591b9f68d1cd9a1f08e554370f40e1c169bc78cd",
+      "tree": "e65d5856561413bc3c2128952769cfcbcbd0d531",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "source_inventory_sha256": "6dd223dd41950992d8e833ccac32679d861ce16a988d512c100d65c7196fede4",
+      "files": {
+        "lib/httparty.rb": "37070e4cf5bb58dd90e136dd386619fd6a2795ad95075197f776d87fe1b5b813",
+        "lib/httparty/connection_adapter.rb": "c1a43b1f66346dd9cc03359d1b5a474f8c90fb7121acadab870754fcacc44f60",
+        "lib/httparty/cookie_hash.rb": "7ca55b34b94cdcf7eafcb24841140f354dcd09bc224b3885a3e939c401c46e8d",
+        "lib/httparty/decompressor.rb": "1036343721d31741ee7847a7e6256a2368c1b2c63d0d997b105a368444faa6b9",
+        "lib/httparty/exceptions.rb": "f240a8fd000ee2517b16843435ffc4e2235e7f54d0ea41a97c0e74e33464b09f",
+        "lib/httparty/hash_conversions.rb": "885778c95dcb2dc4e9cb1a79421dc85df7a2d7ed3b54d4eeef81b1328cff4d99",
+        "lib/httparty/headers_processor.rb": "0fbeb85cc89c50c3443f32da69eb6166a0df1061304681d648754faa39d06deb",
+        "lib/httparty/logger/apache_formatter.rb": "53191a93d75dbbc99009cb1893aaf8a082c96d3c9966d53d03a8b292ef5830da",
+        "lib/httparty/logger/curl_formatter.rb": "3f1fe4a83214d5f4e8dee26e16b5f3b689d5b7c5271f0c8c7ad54a64f9997e48",
+        "lib/httparty/logger/logger.rb": "785f3c458ef9ff1715b2ab7976828deb64c3d6870c4c566e90cbc1e8f2b6bf45",
+        "lib/httparty/logger/logstash_formatter.rb": "de1b21c836c109b6f694ea584b844d6bd84267af34c4768cff1d000325b4141e",
+        "lib/httparty/module_inheritable_attributes.rb": "5966af0a24b10c089f30b9c2485f374e6280e9500c37acaf84b98df1ba7f494a",
+        "lib/httparty/net_digest_auth.rb": "22d6ba6d791f0961dff0163ee4ebb202f0f2fb85571186b521d60c9dcab4c57f",
+        "lib/httparty/parser.rb": "4bb5c4ce907309d7aa86f7105f306d2d1d9a2aa030ae1740f1cade9a7b27d9eb",
+        "lib/httparty/request.rb": "4fdb7dfa01e026d5410259d79055618aad3d2d8d0ffd31c8929c2c5d05362d0e",
+        "lib/httparty/request/body.rb": "3b85313dca02ae739a2bc5138d5bd065d651ca4990595bba37c8d7b061d0ebbf",
+        "lib/httparty/request/multipart_boundary.rb": "8b7bdbb2736064f638e421f0d2fb5dd88efb5f42648db7c1a26509d536b3c57f",
+        "lib/httparty/request/streaming_multipart_body.rb": "e8c743864b1f3b3961fcba04c78db7e03ee536dc7352134bdda60a5a993648af",
+        "lib/httparty/response.rb": "7d8a408ed1bd4604af6e9d7ee589b28aabf467bb7f28815e06794d5d2d35608d",
+        "lib/httparty/response/headers.rb": "1729d9c097b06db1dfb84ec73203915d6d137382472c54d8f92949fe1b248969",
+        "lib/httparty/response_fragment.rb": "d924858ca480d1033e632f32ccd39372ca90597faff55c614cb27539180aed10",
+        "lib/httparty/text_encoder.rb": "611e95635ea90f22a34730c7dc0d36ca63d8ab6a663026679c71b66522bd6d33",
+        "lib/httparty/utils.rb": "31eb8f81750c0499c5c534a57d6cfed9161a673d68df5e7bfb89d557078bc58a",
+        "lib/httparty/version.rb": "896d005aa792aed63c67340b58a12ee2127674b5fca68429599d5d2f2fd33bb3"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-httparty",
+        "compute_task": "5f964004-46ff-4e2e-8902-111bc269c07e",
+        "analysis_id": "e32fb202-8721-49d0-ae0c-84272928150d",
+        "issues_sha256": "791754b5ef63c7be2d5861a9fc849aaab92306918597d02117478e29a447d314",
+        "scanner_log_sha256": "c903fbc2557d70929af171c58f104aa24857bca894991a79a4b6e3df09c8e814",
+        "native_stdout_sha256": "290c4341d2b90f414a25d5bae83587470698c7384605f27670c39cc86945e277"
+      },
+      "parameters": {
+        "ruby:S1192": {
+          "threshold": "3"
+        }
+      },
+      "primaries": [
+        ["ruby:S1192", "lib/httparty/request.rb", 146, 62, 146, 76],
+        ["ruby:S1192", "lib/httparty/request.rb", 252, 23, 252, 37]
+      ]
+    },
+    {
+      "name": "itsdangerous",
+      "campaign": "wave2",
+      "language": "py",
+      "repository": "pallets/itsdangerous",
+      "commit": "672971d66a2ef9f85151e53283113f33d642dabd",
+      "tree": "ef4287f82d8234404b58c7b29d38197e1f38e207",
+      "sources": [
+        "src/itsdangerous"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "source_inventory_sha256": "bb1f3f46198e4582a8fe98c5b8dde9166cbb0d3d7652853e607bfa4b0165b041",
+      "files": {
+        "src/itsdangerous/__init__.py": "cd4e17bf6c055e1d4e6fb30c5d51406365ccb0d5e2bb0f65b446a9208996a9a0",
+        "src/itsdangerous/_json.py": "c0f4069a07b6c99f77dbc107285ea069d19ec866022502b1b54fa22ca13a5270",
+        "src/itsdangerous/encoding.py": "c304f3e6aff7ccb71a01dba793afef4a84adc06a9859edf4ed997f53ceda4453",
+        "src/itsdangerous/exc.py": "46bddec68d0c44511c3d996dc1e7322b5e955756c4d8af7f175f9dfa58dc527e",
+        "src/itsdangerous/serializer.py": "6d6f1687897c7e3ac6eeff5bfd6794df90e299feedcc6aae3faa0e53ffe925e8",
+        "src/itsdangerous/signer.py": "60ed0257b341bc703a8f9e3d4441c91548d4a23c36a47ab0714a509d4ef23584",
+        "src/itsdangerous/timed.py": "3afbf6050e8b73605931d1e516f374835456979e4319c098bfe5f284f120c6c5",
+        "src/itsdangerous/url_safe.py": "6b3e1ee5f5e2fefb3e61b5a3f186709f8c2254a7de0fef8610a453e547aee0fe"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-itsdangerous",
+        "compute_task": "0c6ecc8b-0d9e-4503-860e-7b849ba64608",
+        "analysis_id": "97aa2104-2062-44f5-9f92-40e811c80389",
+        "issues_sha256": "55c6d00a6a249ae204b7eb88aa6675fa96b1a46e2f6432607645491983da0889",
+        "scanner_log_sha256": "9ad6495f7ede0abb43432a7e6d08d0309449c1e3227e0094dfcd480bc08c121e",
+        "native_stdout_sha256": "7e4c5ad2f7434704ce29fa8d013ee4ddf8fcdf79af066ea637dddd821bd6aebb"
+      },
+      "parameters": {
+        "python:S1135": {},
+        "python:S3776": {
+          "threshold": "15"
+        },
+        "python:S6792": {}
+      },
+      "primaries": [
+        ["python:S1135", "src/itsdangerous/timed.py", 182, 4, 182, 67],
+        ["python:S3776", "src/itsdangerous/timed.py", 72, 8, 72, 14],
+        ["python:S6792", "src/itsdangerous/serializer.py", 40, 6, 40, 16]
+      ]
+    },
+    {
+      "name": "java-diff-utils",
+      "campaign": "wave2",
+      "language": "java",
+      "repository": "java-diff-utils/java-diff-utils",
+      "commit": "71981d8faaff266654964ce3334e7faf64d2b9f2",
+      "tree": "42bccbf4ef6a9e0f2ca50b58475d247d84320aee",
+      "sources": [
+        "java-diff-utils/src/main/java"
+      ],
+      "exclude": [],
+      "source_inventory_sha256": "c78e141b4012a78e888d649affd2fd399eefb1b2e2e35e9f398e5ff2c7bc41ef",
+      "files": {
+        "java-diff-utils/src/main/java/com/github/difflib/DiffUtils.java": "d61e066f3195331f585a6c0b808e2d8080477d1fee0d190703f72c2df6d2c190",
+        "java-diff-utils/src/main/java/com/github/difflib/UnifiedDiffUtils.java": "d3118fc42bde6731dea6c00de503fe40b5936bf53a000528c33e0bac4a9f024b",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/Change.java": "fe6442a55aa8a1e94308b40d25e1105e2fde8eb40b52938de3d5497fdfad543e",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/DiffAlgorithmFactory.java": "b4bcbb5464b631c5097cb23b84cf8e3f420788532feac25011e3b37f674b81bf",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/DiffAlgorithmI.java": "280f52ebc944901fc7eb6e66d6907334bddd504e9e31d9aec2ee7f2b4d00db0e",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/DiffAlgorithmListener.java": "783c72d90f56ca29c55acb69b634aa4d714caa295ec87094c02aa6bd11880e97",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/myers/MyersDiff.java": "c1cb0e7335fb199a57cc8be7c925684c78de1673ade8a2fe8b02b85b484d3da1",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/myers/MyersDiffWithLinearSpace.java": "ef00e5f2199b48b7174e8e50e4b0aed788e10395e14c902354e34f2e47bdd90d",
+        "java-diff-utils/src/main/java/com/github/difflib/algorithm/myers/PathNode.java": "c42cb9f146ca2cdebab60767df695a198bb5ee520b00eda14e83954de0e282f2",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/AbstractDelta.java": "d7d4efc076be85f300bca2185371c95b208f1073b8708e1af6352e040f80686b",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/ChangeDelta.java": "1c4ffd70db6137daadc2a9a12ceb3d548ddda12a70eb4a4c22193eff322b5450",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/Chunk.java": "4c63b10e4aaa3861665b56606da23174757a0eff7e762439b80d226284a375fb",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/ConflictOutput.java": "d81889b8b9891cdb73b09c26ea6b1a22bad394045e33ba76827d8a54d644d759",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/DeleteDelta.java": "a0aca0a8e449383673e1e685bb828e068221a4c25eb4e95c88709835015ca8f2",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/DeltaType.java": "46b7c59dd4c07935d89955fe04fc020cd32426a586f04fd8c6ece718cb24ef0b",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/DiffException.java": "82dc388941c6995efee65cfa1c8d1565db747fee515fb5573043a1ac88c6a67c",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/EqualDelta.java": "36a0607bcaf3447cf30447b2869bbc60d630a7d860d105dcc0cfa9d226c554ed",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/InsertDelta.java": "e485ae174ddb204e6dc3a38ba9ea0f3c196ed384e0f86054440b6b8d4f095860",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/Patch.java": "c145e62e8ee0052e7ed80d907abf0d16b1de1981a747875f05869c08f2487805",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/PatchFailedException.java": "4974c312c4ebf9fc3b5b59d71b548e1fac916d48bd1f9b91c0357083561c7013",
+        "java-diff-utils/src/main/java/com/github/difflib/patch/VerifyChunk.java": "45a045c590f091bc775604d4a2df25c47f4704bde64824524790b65c3fc4348c",
+        "java-diff-utils/src/main/java/com/github/difflib/text/DiffRow.java": "0e209b31a64d25bd9315b00a634ed8e3318b9547a7a38830db352a0092e605fe",
+        "java-diff-utils/src/main/java/com/github/difflib/text/DiffRowGenerator.java": "fd2d9b95e2599293370be7b43d343b669f7329051dd62d75a65a49caffc5cbd4",
+        "java-diff-utils/src/main/java/com/github/difflib/text/StringUtils.java": "0431b9a0c42a09237c581a6c05f8c5237469502bd5c35fa5aba111e142ba7c50",
+        "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/UnifiedDiff.java": "3795270556cf82c5206fc549a34476eda5fbf1c64ab2b4a7eb8582d8fd8e5711",
+        "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/UnifiedDiffFile.java": "debe6443b179e02ff998d1e6c8c55c83c185a821d0859792355e08769d9b14d5",
+        "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/UnifiedDiffParserException.java": "9caae72e3d40e706ad657cbe78d6922abb164efdccb9d5723ebf222d5a9cbc88",
+        "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/UnifiedDiffReader.java": "c66e5fa90acb50a6376e6e4a8e2a00344cc2cd534cee0a1a6900ac18408d1af7",
+        "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/UnifiedDiffWriter.java": "b6cdae1809ed3e03e86425fa270321c1b7f07cc47b493c1d41cbf754c7d2c5a4",
+        "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/package-info.java": "c8b36a15f65eb5c5c71e745c14be0112db41191dd85769e921993c86968186c2"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-java-diff-utils",
+        "compute_task": "24b20cbc-6a4f-444a-9dab-c8d47af94bd6",
+        "analysis_id": "9f160d71-31de-4fa5-96e8-015437aa9eca",
+        "issues_sha256": "60b3494180cd8f719ce3a2cdfc027dae42494099dd3e90f79e620fe18e67478e",
+        "scanner_log_sha256": "126e88db52c79819a5e452d196f69ece4d33acf41e280a68c296d20c94b08b6c",
+        "native_stdout_sha256": "3eced46ad698a22675d4ae4ca0f875d3ce51f215aef57029b289850e25ab4e3b",
+        "java_release": "8",
+        "java_context_sha256": "25b12db21e84c2986fd1d6321674d46b52d66b65474e061b7c1d8fa6147905b1"
+      },
+      "parameters": {
+        "java:S1135": {}
+      },
+      "primaries": [
+        ["java:S1135", "java-diff-utils/src/main/java/com/github/difflib/algorithm/myers/MyersDiffWithLinearSpace.java", 87, 0, 87, 52],
+        ["java:S1135", "java-diff-utils/src/main/java/com/github/difflib/unifieddiff/UnifiedDiffWriter.java", 30, 0, 30, 72]
+      ]
+    },
+    {
+      "name": "ripgrep",
+      "campaign": "wave2",
+      "language": "rust",
+      "repository": "BurntSushi/ripgrep",
+      "commit": "43fc97d43a4c61d65e7d74d4110c8480fe42ea5b",
+      "tree": "67fc82ac84d09d6d1085450d579f70ae77dcfd77",
+      "sources": [
+        "crates/core"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "source_inventory_sha256": "b36359b3b67c4b1c6025300a4f002defea0860ab04d74cfcb6555e7d4575183f",
+      "files": {
+        "crates/core/flags/complete/bash.rs": "2eb1185195cc3fa00e72d3e7e08b0b81a8251f2410a04856f33f0ba24610bf7e",
+        "crates/core/flags/complete/fish.rs": "3f4128d017c70aada8d865383c43122b39e219773d0fd4160f337d4ffb4227af",
+        "crates/core/flags/complete/mod.rs": "f3f0f698353fe778f96fd2d6dcd8b81d40196b0e45a63c26cedb6314afa8ee68",
+        "crates/core/flags/complete/powershell.rs": "cb3de24afe392e3e797df4c796abe037978d22885d317ea88ba5098456c66d22",
+        "crates/core/flags/complete/zsh.rs": "a1c280d862443f49d34a44861d53e37b7ce023a69f870e310e34025f20aae21b",
+        "crates/core/flags/config.rs": "adb0b126590521b981db9d913091f6d564f0b142b2d024861e84538a225cf23e",
+        "crates/core/flags/defs.rs": "6175ecfee29d43db35ffa099c2740ae01a0ccb502713dccc26c06ea78a6e5bfe",
+        "crates/core/flags/doc/help.rs": "3d33bf78a258c1a03bff64c0d5c28fc555c74257c3342080bf1b505b673d1205",
+        "crates/core/flags/doc/man.rs": "e5fbd8b40d3baf5fc74922f19cf79181d1984e6568912e04d9dda0a5d0cff96b",
+        "crates/core/flags/doc/mod.rs": "49de2b86f8efe2e9807705ae87014c2e80561ce430f8501303ad4553dba9c6ed",
+        "crates/core/flags/doc/version.rs": "190b63e9c03db51205ead9a80a61655b618961bea111366dbf4fc2adb38bd6ad",
+        "crates/core/flags/hiargs.rs": "1652876799a15ee6467e8b7d89546cefc078d1873c8413bedb21db4bc12d9f2d",
+        "crates/core/flags/lowargs.rs": "89dbf6a28aa96fcccb71fd1957f1c6f7da907d5f8c01dc7ebd4a1bb307bf31b2",
+        "crates/core/flags/mod.rs": "ec1627d2defce72bf5180a28f6e0a50c986cc261624c4927899da0eac7f64b0d",
+        "crates/core/flags/parse.rs": "c2a3375396800a6c8d8e00d98c321d5caf3c91f7938fd90eafb4e82ea95b5ca5",
+        "crates/core/haystack.rs": "8766d52fd5acedf59bf7613d5ed9e77186e97a1ffe77d0b516c6ec807e1a9157",
+        "crates/core/logger.rs": "057c6449256af78acb88c4b267774e51d416fdee878d6f1bdf6600b5d6086119",
+        "crates/core/main.rs": "9c02560a2d6f3ec56386825d5b57573d772bcaf77906f88149da25f7c7801e58",
+        "crates/core/messages.rs": "e239cd545de23c03ba13061e6f16d805b247abbaeedb2ab4f01e41e7d0c5892d",
+        "crates/core/search.rs": "53627fe6d2216552d3919586cd8746da3f392ba44e3bf59ccdc432c7c14e82d1"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-ripgrep",
+        "compute_task": "42a3935b-e115-4799-9abc-2af1d74d754f",
+        "analysis_id": "6c68e135-2c3a-497e-9441-33a613f457c0",
+        "issues_sha256": "de81a3a5a902bb95428e6f5552c500d0b706e93d2cf037ca0f5d12c719a8819a",
+        "scanner_log_sha256": "dee0fdf71c336161a559cf51d4d23dda25b4e38d275ab8604c7dd70fd6a6e4bc",
+        "native_stdout_sha256": "b57d7cfd023888d790ac9be410c9a63147d2d36d0e9bb5d9843026cf8a855464"
+      },
+      "parameters": {
+        "rust:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["rust:S3776", "crates/core/flags/doc/help.rs", 131, 3, 131, 21],
+        ["rust:S3776", "crates/core/flags/hiargs.rs", 113, 18, 113, 31],
+        ["rust:S3776", "crates/core/flags/hiargs.rs", 461, 7, 461, 19],
+        ["rust:S3776", "crates/core/flags/hiargs.rs", 980, 7, 980, 20],
+        ["rust:S3776", "crates/core/main.rs", 160, 3, 160, 18],
+        ["rust:S3776", "crates/core/main.rs", 271, 3, 271, 17]
+      ]
+    },
+    {
+      "name": "websocket",
+      "campaign": "wave2",
+      "language": "go",
+      "repository": "gorilla/websocket",
+      "commit": "e064f32e3674d9d79a8fd417b5bc06fa5c6cad8f",
+      "tree": "93a7576e74a8ef0017188fb069696a45204631e4",
+      "sources": [
+        "client.go",
+        "compression.go",
+        "conn.go",
+        "doc.go",
+        "join.go",
+        "json.go",
+        "mask.go",
+        "mask_safe.go",
+        "prepared.go",
+        "proxy.go",
+        "server.go",
+        "util.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "source_inventory_sha256": "4c4012f5a34fbd3eb0dc36c3b98772a28f10766dea063f4350cfae9b83b90975",
+      "files": {
+        "client.go": "0a8a2639748bf661a3c273c3b9caee73c1698451ec8fb4495ce08fbc23dafec6",
+        "compression.go": "f9686451e1ef3a2d4a12436c823e30be4d161afefce2e9f7288f15d0c4f94761",
+        "conn.go": "e3983cc0b60d5ad727a4deb3b4a95ef09402190beee0f191bd5e9e21761feeff",
+        "doc.go": "44394398f44c944db92c67689ecb0e2ebbf064e312b3be833878b9838d3859f8",
+        "join.go": "478a075f66cc85d65fbd33a899d78cdb85417cd39dd40b637f3356d41b54bcf8",
+        "json.go": "07db3e16c3e9377428efad014fa7040d6322024c395c22be544022922f258863",
+        "mask.go": "964df1f35553a0893ae496fc41da0020583af35c3a3d21c6d94f6bc3f17bcc5c",
+        "mask_safe.go": "7cc67544eee2b25ea32a1d685d7dc154a8ac24fa293b4aec193b5c532f39bc57",
+        "prepared.go": "c7409038c8ec669b344dfb765adde184f30194cced3bed9a40fb18b00242377e",
+        "proxy.go": "4ac9b470cd30544571ad6861d1e633a8ad46d16e1d570e02aa22742b7b873d4b",
+        "server.go": "17a3bf89fdaf1ac7701f99eff1cd8ca82642aadb3bcddf7d9a41e3cf2c3ddd6d",
+        "util.go": "cc5a71996d2309dc4889b9b8c31b555e46a883b3d219870260f833ae223f64d2"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave2-20261120-websocket",
+        "compute_task": "eb017e9e-9060-43e9-87e5-069cdf461074",
+        "analysis_id": "1d39ac32-d371-4db9-ba38-df0597822929",
+        "issues_sha256": "a6117c3fda0f44620bc1d6ec492f06ea653bd7a679ab26e9aab2542faffe5c8a",
+        "scanner_log_sha256": "8f869225ad05164e104b64ef1699876c0b809c5a360da8d79c2fcf5a06fe38c1",
+        "native_stdout_sha256": "78134511ef20edf3c4393976e5d201a623ea9b83cd2de405784a6084b517163d"
+      },
+      "parameters": {
+        "go:S1135": {},
+        "go:S1192": {
+          "threshold": "3"
+        },
+        "go:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["go:S1135", "prepared.go", 74, 5, 74, 9],
+        ["go:S1192", "client.go", 244, 9, 244, 33],
+        ["go:S1192", "conn.go", 626, 8, 626, 50],
+        ["go:S1192", "server.go", 111, 28, 111, 52],
+        ["go:S3776", "client.go", 175, 17, 175, 28],
+        ["go:S3776", "conn.go", 803, 15, 803, 27],
+        ["go:S3776", "conn.go", 1049, 24, 1049, 28],
+        ["go:S3776", "server.go", 124, 19, 124, 26],
+        ["go:S3776", "util.go", 202, 5, 202, 27],
+        ["go:S3776", "util.go", 228, 5, 228, 20]
+      ]
+    },
+    {
+      "name": "backoff",
+      "campaign": "wave3",
+      "language": "go",
+      "repository": "cenkalti/backoff",
+      "commit": "ce2ae81589e4316be0722e20928b2f9a6d28335a",
+      "tree": "5a3392397d68e6ecc0d15169e9752429aca91614",
+      "sources": [
+        "backoff.go",
+        "error.go",
+        "exponential.go",
+        "retry.go",
+        "ticker.go",
+        "timer.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "source_inventory_sha256": "6d4a524add8c8cf5efd67dc841a9481d044d0127f7c977f03d5e0c4b0ab88f71",
+      "files": {
+        "backoff.go": "16efab95531fc982cec784064225bc1e32fc9db1a4a1f66ebf034fb39ef0af5b",
+        "error.go": "0e342c992a392450e15bc61c3cea7ef0b8491e48ba15d020a44b2203688f8f92",
+        "exponential.go": "ec857c1701f07b5d5c03fd7249e8e0931c2f5104eacb128eb96843c73a0cd644",
+        "retry.go": "8d99b1338b7a3176c4c56e417ca65e7e88b20acf512205bfa7b0975c018fd93d",
+        "ticker.go": "02f8c98049f13b59610069033ae35aea6c43b9e1f0252f244828a0106e388aed",
+        "timer.go": "d121c20c6dade0ee22e12b2a818389396e88b9efb05c844706cd933a8fec95d3"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-backoff",
+        "compute_task": "a3f73c34-2b31-4931-9348-add0095cb140",
+        "analysis_id": "860c4e13-092b-4efd-8277-70fa19e9855f",
+        "issues_sha256": "d473ae850d1f0564f8b1aed0bb34ee1a45024b3596c50264b94001ace73566a6",
+        "scanner_log_sha256": "1f1182339e595d228cb1c85ac770a4d70b9c57779a4e8eb6592713c643e76cd3",
+        "native_stdout_sha256": "8e2ac64e46e58511e6e24e131e4ea6356f50b47dde1ada5fb823ba0acb07e8c4"
+      },
+      "parameters": {
+        "go:S1186": {},
+        "go:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["go:S1186", "backoff.go", 46, 30, 46, 32],
+        ["go:S1186", "backoff.go", 54, 30, 54, 32],
+        ["go:S1186", "backoff.go", 65, 54, 65, 56],
+        ["go:S3776", "retry.go", 114, 5, 114, 10]
+      ]
+    },
+    {
+      "name": "express",
+      "campaign": "wave3",
+      "language": "js",
+      "repository": "expressjs/express",
+      "commit": "43fca52d28a422c8be48fd489cbd4f2d6152bab6",
+      "tree": "697a8f753f84d52149bce47e75228d3d6ef4ed77",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "source_inventory_sha256": "884dd24c6c1a38da36479db680d38ec1db86310a5e73433407960886fc5cd216",
+      "files": {
+        "lib/application.js": "6d7e08355025786982d17042fc0355b6a5e9339545dc27e2782b3aaa28a7bc04",
+        "lib/express.js": "4f35e8273a5e78c35e778d14e4a8c80a81ca3e1fc8047dc87d2077b860404572",
+        "lib/request.js": "a9fda39c4472aeaa4d696f4324f58cc1d036f84ed04145d6d56a12a59578e751",
+        "lib/response.js": "efe24afe2978d0bf2ad52d5b163a7af0d25d965e5dfc75979c4fcc883c60a510",
+        "lib/utils.js": "4bd3bf9c911e086d1911954708de7a6c384ed924360e3fd1d4a43c98bd68b112",
+        "lib/view.js": "74f4171b66263e22481820bc5975708f7dd8a61484f570aac7c5b4ab77ecbd79"
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-express",
+        "compute_task": "7c7ccf3d-0354-4729-a37b-6b3050896efa",
+        "analysis_id": "9977b465-86e1-4795-af97-9d30322cb783",
+        "issues_sha256": "9ff7a85d5d7f266060deab28a4157919184dc3d06033c43f84bf894645445d6b",
+        "scanner_log_sha256": "bbd4818bc47ae632e6e83b045e8166cba6377a3ae5eaafece814638d3049bd99",
+        "native_stdout_sha256": "bea72a1af031846b84e943c7486b386d3fb6a2d44232a292857d329aff118a68",
+        "js_sensor_analyzed": 6
+      },
+      "parameters": {
+        "javascript:S1121": {},
+        "javascript:S3358": {},
+        "javascript:S3776": {
+          "threshold": "15"
+        },
+        "javascript:S4138": {},
+        "javascript:S6535": {},
+        "javascript:S6836": {},
+        "javascript:S7740": {},
+        "javascript:S7751": {},
+        "javascript:S7758": {},
+        "javascript:S7765": {},
+        "javascript:S7773": {},
+        "javascript:S7780": {},
+        "javascript:S7781": {},
+        "javascript:S7786": {}
+      },
+      "primaries": [
+        ["javascript:S1121", "lib/response.js", 190, 14, 190, 15],
+        ["javascript:S3358", "lib/response.js", 642, 8, 643, 21],
+        ["javascript:S3776", "lib/response.js", 126, 11, 126, 19],
+        ["javascript:S4138", "lib/application.js", 324, 4, 326, 5],
+        ["javascript:S4138", "lib/application.js", 498, 2, 500, 3],
+        ["javascript:S4138", "lib/response.js", 467, 4, 472, 5],
+        ["javascript:S4138", "lib/response.js", 1003, 6, 1006, 7],
+        ["javascript:S6535", "lib/response.js", 290, 35, 290, 36],
+        ["javascript:S6836", "lib/response.js", 138, 6, 138, 44],
+        ["javascript:S7740", "lib/response.js", 378, 6, 378, 16],
+        ["javascript:S7740", "lib/response.js", 902, 6, 902, 17],
+        ["javascript:S7740", "lib/view.js", 146, 8, 146, 19],
+        ["javascript:S7751", "lib/view.js", 106, 14, 106, 34],
+        ["javascript:S7758", "lib/response.js", 1035, 16, 1035, 26],
+        ["javascript:S7765", "lib/request.js", 424, 17, 424, 24],
+        ["javascript:S7765", "lib/response.js", 509, 16, 509, 23],
+        ["javascript:S7773", "lib/response.js", 768, 9, 768, 14],
+        ["javascript:S7773", "lib/utils.js", 111, 20, 111, 30],
+        ["javascript:S7780", "lib/response.js", 298, 28, 298, 37],
+        ["javascript:S7780", "lib/response.js", 299, 28, 299, 37],
+        ["javascript:S7780", "lib/response.js", 1037, 17, 1037, 26],
+        ["javascript:S7780", "lib/response.js", 1039, 17, 1039, 26],
+        ["javascript:S7780", "lib/response.js", 1041, 17, 1041, 26],
+        ["javascript:S7781", "lib/response.js", 298, 9, 298, 16],
+        ["javascript:S7781", "lib/response.js", 299, 9, 299, 16],
+        ["javascript:S7786", "lib/application.js", 296, 14, 296, 19],
+        ["javascript:S7786", "lib/view.js", 84, 16, 84, 21]
+      ]
+    },
+    {
+      "name": "faraday",
+      "campaign": "wave3",
+      "language": "ruby",
+      "repository": "lostisland/faraday",
+      "commit": "18e51beaa98677a33466801a86e6199fb820c83f",
+      "tree": "3a5296a2dce57c11606c6488830b435fb648cbd7",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/test/**",
+        "**/spec/**"
+      ],
+      "source_inventory_sha256": "f40e9441dfa97a3a527575e78f65632d1168fc411233f8ad09084a8678b05b44",
+      "files": {
+        "lib/faraday.rb": "6fe99661e6c3621a14c20f5241e16566dc01d04521a43107929782180363285a",
+        "lib/faraday/adapter.rb": "bb01f94a4ca00d0e4e6ec0209dc7f57862b9e115fe52bb839f8123beafa42452",
+        "lib/faraday/adapter/test.rb": "37b806f8da447bff5f55f9b1beee86572d3833e3f9d8bad61da6918c2584ceb5",
+        "lib/faraday/adapter_registry.rb": "3b09b08acf45afa71f4a3abeff031555317a87ad2183c460c2920434235343bf",
+        "lib/faraday/base_options.rb": "b2470609378a00e5936b135100245d72975593399d0363789514c2e8fdd8f0fa",
+        "lib/faraday/connection.rb": "f8889fe9e051b8c4a41cd00a0af32fb6cbc4590d590d9e64e4944316f7fea9b9",
+        "lib/faraday/encoders/flat_params_encoder.rb": "051879a4da66af92259caa631d875cd222627a69fb2d8e6c6263a2bea2f022f5",
+        "lib/faraday/encoders/nested_params_encoder.rb": "49c9c1378806e31ed5ff8e82f1e3fa454aa911a32a0d672d460a42735d9132ca",
+        "lib/faraday/error.rb": "3e8596766b2e9a99075b24c790420011d3fb9d23fc57fc7e56c2cdcfe3ae9f3d",
+        "lib/faraday/logging/formatter.rb": "b6a2d2b5f9fb49fa3cf7481a34609aaac08a43c00bb4dba7d0e2be25b35867be",
+        "lib/faraday/methods.rb": "fe4df819725bd8f171b3382b4b26aa6c6d850231e0e456944777757ea79dc870",
+        "lib/faraday/middleware.rb": "6dec4fca02e4c3aff728d2bf293eedd9fc7a36c2f88c9a7d6ece71003a8b6014",
+        "lib/faraday/middleware_registry.rb": "80afd067891271f1f220b300e7f8b71c1d3812f4382f4b107e39fb36df250303",
+        "lib/faraday/options.rb": "aacd28d6e05fc4b1f78bb181b4998ef0b28804c2864ef4674083400afcf45a05",
+        "lib/faraday/options/connection_options.rb": "11567c6694f479d804941f643c8bd12149e1b4028d852253ccd7449bd5d8585f",
+        "lib/faraday/options/env.rb": "46adb191fed48f7ffe59f3d5fcda928051ae1f79c5361106d25c8df45d6139fc",
+        "lib/faraday/options/proxy_options.rb": "8d4c2448ff4b91fea7cca35eaf0f14b9fb3ae63985670194d1ae19c0c60940a0",
+        "lib/faraday/options/request_options.rb": "b31126e004439a20779185022921fd25e4558cc2d351b5cf697734747185c990",
+        "lib/faraday/options/ssl_options.rb": "90c6477dd8eef2d1d36e77b91ea5b3cb27765b449b45dc0aa850bbf65eda87aa",
+        "lib/faraday/options_like.rb": "e4476d3e096a27d2a9294a6b7808ff66f1f28800c3de7a25ede1b0a03c57b4e1",
+        "lib/faraday/parameters.rb": "84fce125540d3f9d35d72b7ab5be36a56131bd71ff4e757c9eaf7542bcc3b4ce",
+        "lib/faraday/rack_builder.rb": "ddd9693278b8e0cb7cb2e39fcd9e2089e730641c6a4f5f584154f04eff39f928",
+        "lib/faraday/request.rb": "cf41fb30763e2cd2502a5ef8dadbbe1d95197e8e7f884fa24d63fbff655cc668",
+        "lib/faraday/request/authorization.rb": "a39857628d410d9d2e63497f76b88152c21439a4d879ae0a4872c9d7264f789b",
+        "lib/faraday/request/instrumentation.rb": "d2a64a3074a5a830e303a18366a4b4f28ec6849bdd6f1c555cb260d400f4b95b",
+        "lib/faraday/request/json.rb": "442676b1659f9758319fa5334271592d9c77c69503a1acc959387f33d366b7b5",
+        "lib/faraday/request/url_encoded.rb": "4cfd95350df5d5fcdaf8e19bb9070884cfa3c0b4dc0a769fa6e3c237b955e6db",
+        "lib/faraday/response.rb": "67eede8fb3622983f328a3947cb28ba482b372972f308620fe67fce09b3ab8fd",
+        "lib/faraday/response/json.rb": "52e20cc9ab8de496e074b04033654d07be6a87538082ca551c45ffbbe95df3a1",
+        "lib/faraday/response/logger.rb": "ccba52a5c13d19c5c23882a62fb0332203fe3bc9eed0eac5889afc422bd7278f",
+        "lib/faraday/response/raise_error.rb": "babc4f5ae38ad5ca9c52e832c994bc9b2d0088568b3532a202bf98d3494026d1",
+        "lib/faraday/utils.rb": "40e26eec47f13f69467c21c0edb890d5d3d4c40ae44508cd54b74a31f642e27e",
+        "lib/faraday/utils/headers.rb": "f6a97fd006d973014cb8a2c224b9960d9223637a29cec114b33a6ca506443057",
+        "lib/faraday/utils/params_hash.rb": "2125c7d749de10fdc7b80103031137b2f6718ca53de20f6028ac3b1ad8f80d23",
+        "lib/faraday/version.rb": "e486b2a058e792de0c0507af78cf578ff859646649d301da4f180d91772d3cef"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-faraday",
+        "compute_task": "6fb26701-034f-45e3-90e6-ffe100bef9d5",
+        "analysis_id": "c860eecc-a8f1-489c-981b-c9775746fd2f",
+        "issues_sha256": "7247e529609e55126e3ff9db38f8339a6806db9d072388e16db7d6b2d120ae89",
+        "scanner_log_sha256": "a6905f4d0566270b7e1f00285dd76f9b446f4c561d19566c5ec4e0315944da76",
+        "native_stdout_sha256": "ffc487199438015e5a173875a844263b622fbfc913a0fc048bea71ce46b4d6f2"
+      },
+      "parameters": {
+        "ruby:S1134": {},
+        "ruby:S1135": {}
+      },
+      "primaries": [
+        ["ruby:S1134", "lib/faraday/encoders/nested_params_encoder.rb", 157, 6, 157, 11],
+        ["ruby:S1135", "lib/faraday/adapter/test.rb", 310, 10, 310, 14],
+        ["ruby:S1135", "lib/faraday/connection.rb", 333, 10, 333, 14]
+      ]
+    },
+    {
+      "name": "fsnotify",
+      "campaign": "wave3",
+      "language": "go",
+      "repository": "fsnotify/fsnotify",
+      "commit": "20b1e15ef3c70caeb37ea2bd184f48ef8382669e",
+      "tree": "59eaca1b44f6dbef631791a23015ffa2b8db4ace",
+      "sources": [
+        "backend_fen.go",
+        "backend_inotify.go",
+        "backend_kqueue.go",
+        "backend_other.go",
+        "backend_windows.go",
+        "fsnotify.go",
+        "shared.go",
+        "system_bsd.go",
+        "system_darwin.go"
+      ],
+      "exclude": [
+        "**/*_test.go"
+      ],
+      "source_inventory_sha256": "878a0dad86a7a2e06a0177bbd743e612607d63d960f0c4f7821c4ed78336a6e3",
+      "files": {
+        "backend_fen.go": "889bee67c06fe57c34e2aa2ce00e3dc674747d0dceb7bb26d2f18a12d0bbe600",
+        "backend_inotify.go": "2277cd27bc7ffc7f74de7d3e0cce23accda105617dd0acfb0fbb974f6da80c9a",
+        "backend_kqueue.go": "14ebf78b8f7e72720d9a4ee6a43ee9db183bb2809944ca3af34b566c53dc8231",
+        "backend_other.go": "98a6f1b6e8a961948d2d163cf6d859e75e3a7fbd4ea86e929e6746b9d8e5f81a",
+        "backend_windows.go": "34d70cda811f460081c8e7b36f678cae5bd0cd23850b8db8ef2d68290b20ee00",
+        "fsnotify.go": "f654f5410c085cb90b2619d4018f2c351a8689773edf2f91679bc5ae0318948d",
+        "shared.go": "61f8d8b304077329f8c0bf843fbbffff05b9a0e856ac92d6861b137e30815192",
+        "system_bsd.go": "71909136347ab1f0d3f193b22e5ccadca9ddc6c14fde704ca3e63d00b91f42e4",
+        "system_darwin.go": "910e412c7f03abe4b6099c8287deab0d2e491e8540b7dd4cbd4f8d668fd6e276"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-fsnotify",
+        "compute_task": "f7239b76-2eca-40d9-bf08-4144abdb8e7b",
+        "analysis_id": "1c8c8d42-5e1d-4068-b13c-835b9d2d3937",
+        "issues_sha256": "1706b714813bc28c8bf12f05f0c24288c36d8a40fd1d5ded4e7fe4bd11a2f70a",
+        "scanner_log_sha256": "eafe9d2cd1b664cf8b19fcece323b83734b5bf0ce1789e9d7874eaa081984158",
+        "native_stdout_sha256": "c1e86a11df661af494ad8578456c70c0928cd4b9922bfbf24ecdd3c09d5edb0a"
+      },
+      "parameters": {
+        "go:S1135": {},
+        "go:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["go:S1135", "backend_fen.go", 420, 14, 420, 18],
+        ["go:S1135", "backend_inotify.go", 320, 6, 320, 10],
+        ["go:S1135", "backend_inotify.go", 498, 6, 498, 10],
+        ["go:S1135", "backend_kqueue.go", 503, 9, 503, 13],
+        ["go:S3776", "backend_fen.go", 151, 14, 151, 24],
+        ["go:S3776", "backend_fen.go", 227, 14, 227, 25],
+        ["go:S3776", "backend_inotify.go", 185, 18, 185, 25],
+        ["go:S3776", "backend_inotify.go", 353, 18, 353, 28],
+        ["go:S3776", "backend_inotify.go", 415, 18, 415, 29],
+        ["go:S3776", "backend_inotify.go", 535, 18, 535, 26],
+        ["go:S3776", "backend_kqueue.go", 336, 17, 336, 25],
+        ["go:S3776", "backend_kqueue.go", 425, 17, 425, 27],
+        ["go:S3776", "backend_windows.go", 497, 26, 497, 36]
+      ]
+    },
+    {
+      "name": "iniconfig",
+      "campaign": "wave3",
+      "language": "py",
+      "repository": "pytest-dev/iniconfig",
+      "commit": "e0f1ee1ccd69634acf5d127ed2ea6e628f18da31",
+      "tree": "634c3ff03efe442162ee1905e06a95cf2daed98e",
+      "sources": [
+        "src/iniconfig"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "source_inventory_sha256": "e86fea2b88333a08895bdc78de55aedf142ae31f1f0bc7a2a0ab57ca35344673",
+      "files": {
+        "src/iniconfig/__init__.py": "96b5cc5a1526b8e0d0c50cd9b70a122029d8623fdb3ca7a1eef111fceaafc312",
+        "src/iniconfig/_parse.py": "d1affc29f479a9f9bfb58e015974bb2aee5d48e6437a6398a2440793ce678da4",
+        "src/iniconfig/exceptions.py": "9a2a50fda3310fd0af4af156375a135d8e10b919ca00c6757f7b027668c34d4d"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-iniconfig",
+        "compute_task": "4b5feeeb-bb0a-4def-a060-c2aec81fee37",
+        "analysis_id": "0f374744-8d07-4f10-929f-3288225ca1f7",
+        "issues_sha256": "4b7ca696fe1ff0aad2c4c97715c7572b17384e84fb24f1fb6b5e05ebf2bbaec8",
+        "scanner_log_sha256": "490ad5dbff4df68d28e65d492972f3d34b8d7954444f802a009b3e14b8912830",
+        "native_stdout_sha256": "2380de287d70afa87841a09bd1ecc1fc7468deaf249fb8f362ae8870d98fd356"
+      },
+      "parameters": {
+        "python:S3776": {
+          "threshold": "15"
+        },
+        "python:S6796": {}
+      },
+      "primaries": [
+        ["python:S3776", "src/iniconfig/_parse.py", 90, 4, 90, 15],
+        ["python:S3776", "src/iniconfig/_parse.py", 121, 4, 121, 14],
+        ["python:S6796", "src/iniconfig/__init__.py", 55, 8, 55, 11],
+        ["python:S6796", "src/iniconfig/__init__.py", 58, 8, 58, 11],
+        ["python:S6796", "src/iniconfig/__init__.py", 210, 8, 210, 11],
+        ["python:S6796", "src/iniconfig/__init__.py", 215, 8, 215, 11]
+      ]
+    },
+    {
+      "name": "koa",
+      "campaign": "wave3",
+      "language": "js",
+      "repository": "koajs/koa",
+      "commit": "a0702b923eee7e7473ae0f49aacc82759817bc1d",
+      "tree": "dcc0089ead06474295959a74bfc767c45f5fb425",
+      "sources": [
+        "lib"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "source_inventory_sha256": "30af4e50c318e39680c25305f8407a21a6f547d0a4273b8a9763a8bb8b12581b",
+      "files": {
+        "lib/application.js": "7e6ea82e22ed030675283125f85a5bc6ad79de759c583886daa4709f41d8e90c",
+        "lib/context.js": "a522c9c7afadcb563ce77b7949405f0760de44b87836de94c73897864b52e175",
+        "lib/is-stream.js": "8d3d310d81005cfc2aaa5d523afab9c2204c7a69b00565cf332d302c2ca7092d",
+        "lib/only.js": "ab7febafa4bc552b844dc57e00a6c187df1fef75915319da6b4682945a9a2db8",
+        "lib/request.js": "3ce871b786093b1e785e69350cce8b56fa8fbf11653c0f36b9cbde6e37e83bde",
+        "lib/response.js": "b14f940db75ea2437317a76279cbc0d72cdbd65c6e205e104221c8371891af97",
+        "lib/search-params.js": "62a32a3eb6fe74192e039373613dca4357b9a9d8158a07b090360a6baa08f8b0"
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-koa",
+        "compute_task": "c5d9a4f7-8711-4bc5-a846-74c6e8e45f6d",
+        "analysis_id": "8e7f0b58-d0e5-404e-93e6-5a1aa1f2d346",
+        "issues_sha256": "6af7b99a7ce5e7a414f13caf73bc6a0b99fdc4bf6650ccbb7e49f5f36df5680b",
+        "scanner_log_sha256": "e94637fab55df9a5c6325b3e762893e4f46a2428ca37eccfc1c0a86d09778fb0",
+        "native_stdout_sha256": "8e067fd5b18493cbbefdb4153a536d039090428ffab5c8cd6c10aa36cfc77340",
+        "js_sensor_analyzed": 7
+      },
+      "parameters": {
+        "javascript:S1121": {},
+        "javascript:S1135": {},
+        "javascript:S2486": {},
+        "javascript:S3776": {
+          "threshold": "15"
+        },
+        "javascript:S4138": {},
+        "javascript:S6557": {},
+        "javascript:S7726": {},
+        "javascript:S7772": {},
+        "javascript:S7773": {}
+      },
+      "primaries": [
+        ["javascript:S1121", "lib/request.js", 705, 18, 705, 19],
+        ["javascript:S1135", "lib/is-stream.js", 5, 3, 5, 7],
+        ["javascript:S2486", "lib/request.js", 391, 6, 393, 5],
+        ["javascript:S3776", "lib/application.js", 292, 9, 292, 16],
+        ["javascript:S3776", "lib/response.js", 148, 6, 148, 10],
+        ["javascript:S4138", "lib/only.js", 3, 2, 7, 3],
+        ["javascript:S6557", "lib/request.js", 286, 19, 286, 34],
+        ["javascript:S6557", "lib/request.js", 507, 19, 507, 36],
+        ["javascript:S7726", "lib/is-stream.js", 7, 26, 7, 28],
+        ["javascript:S7726", "lib/only.js", 1, 29, 1, 31],
+        ["javascript:S7772", "lib/context.js", 7, 21, 7, 27],
+        ["javascript:S7772", "lib/is-stream.js", 3, 23, 3, 31],
+        ["javascript:S7772", "lib/request.js", 7, 20, 7, 25],
+        ["javascript:S7772", "lib/request.js", 8, 20, 8, 25],
+        ["javascript:S7772", "lib/request.js", 11, 26, 11, 31],
+        ["javascript:S7772", "lib/request.js", 18, 21, 18, 27],
+        ["javascript:S7772", "lib/search-params.js", 1, 32, 1, 37],
+        ["javascript:S7773", "lib/response.js", 269, 13, 269, 21]
+      ]
+    },
+    {
+      "name": "markupsafe",
+      "campaign": "wave3",
+      "language": "py",
+      "repository": "pallets/markupsafe",
+      "commit": "4e111271b1494995708a9e878a10829b5e10c7ba",
+      "tree": "67631424c00e5d313d5b3bdb2fb985ccc8b5e750",
+      "sources": [
+        "src/markupsafe"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "source_inventory_sha256": "09491760fe08c51f6d559653541e8bcd80e65e7dfba6b1b96308c0c4d8e12485",
+      "files": {
+        "src/markupsafe/__init__.py": "310afadaabdd94a53d5b57c84cbd56b1ebe1877454be8ba986237d142e533df0",
+        "src/markupsafe/_native.py": "8522ecf099b3e5aa9acae7a780927791d4f93f0369056a4aae6412762a67742f"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-markupsafe",
+        "compute_task": "724f6332-ae75-4eb7-88e4-044947bc817a",
+        "analysis_id": "cb493211-bc72-4a0d-917c-719f50b63051",
+        "issues_sha256": "f589722e166184cad9221bdb8fa186273fd525e4af8af7d0edca8e3a773f58f4",
+        "scanner_log_sha256": "cc13d6ea7cffad5e9521ab14e0663dbdbface03913b4c569da7687758d8c41aa",
+        "native_stdout_sha256": "3c7bf34941a6676e23abf942eaf2375766ceb325c0071748b5a572121ecd4c19"
+      },
+      "parameters": {
+        "python:S5806": {}
+      },
+      "primaries": [
+        ["python:S5806", "src/markupsafe/__init__.py", 126, 12, 126, 18]
+      ]
+    },
+    {
+      "name": "minimist",
+      "campaign": "wave3",
+      "language": "js",
+      "repository": "minimistjs/minimist",
+      "commit": "ecfdaea23e7931c0d529c52b743c711c3278a8ce",
+      "tree": "944cf4b81cbc35dee7996e749dd538b9197f93f9",
+      "sources": [
+        "index.js"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "source_inventory_sha256": "703aaab5c2e7451d68ec99d5a5291dc2e8214fb948d6b41ca813e811d7301f45",
+      "files": {
+        "index.js": "b851dc59691951bbd8daf1dd4dd38e5644e614a3bb75fdc4575c4a6fa84166dd"
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-minimist",
+        "compute_task": "fc543464-fa22-4b6e-bf40-33f2fbddd9be",
+        "analysis_id": "ef5ab437-c71c-47bf-a6d7-1161ee527314",
+        "issues_sha256": "6964f0a2c30a7e7263144931cb594f81fb4ef4358e888aad496525bc4ce218a8",
+        "scanner_log_sha256": "50104ce8ad1c85632d27cc57c404360e92de86936d22b1756f7ac182843a1720",
+        "native_stdout_sha256": "4a2525c88de7fa1bfbb4a96ce0d28c47eee3e62ed9cd557b705898a752bf0891",
+        "js_sensor_analyzed": 1
+      },
+      "parameters": {
+        "javascript:S3776": {
+          "threshold": "15"
+        },
+        "javascript:S6582": {},
+        "javascript:S7726": {},
+        "javascript:S7751": {},
+        "javascript:S7765": {},
+        "javascript:S8786": {}
+      },
+      "primaries": [
+        ["javascript:S3776", "index.js", 23, 17, 23, 25],
+        ["javascript:S6582", "index.js", 216, 8, 216, 52],
+        ["javascript:S6582", "index.js", 242, 7, 242, 57],
+        ["javascript:S7726", "index.js", 23, 17, 23, 26],
+        ["javascript:S7751", "index.js", 39, 2, 39, 25],
+        ["javascript:S7751", "index.js", 59, 17, 59, 43],
+        ["javascript:S7751", "index.js", 67, 1, 67, 23],
+        ["javascript:S7751", "index.js", 70, 3, 70, 26],
+        ["javascript:S7765", "index.js", 148, 10, 148, 17],
+        ["javascript:S8786", "index.js", 209, 9, 209, 34]
+      ]
+    },
+    {
+      "name": "rust-semver",
+      "campaign": "wave3",
+      "language": "rust",
+      "repository": "dtolnay/semver",
+      "commit": "280ebcb6edac3aa4cdc545dbff8a26c5ac4861fe",
+      "tree": "6c918eff73d9278dc0be6813090cb723e8c42fa2",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "source_inventory_sha256": "814b2afe7b39bb6794474c5726fa15061b357c32a50080ad765fc149e9e46c17",
+      "files": {
+        "src/display.rs": "cfe08cb163fd5ba7fa024880a0809afb07f6e465891d8cefb716c693b13958d0",
+        "src/error.rs": "d0311d2d3ec0c1c04f3067a59aed52bac57329e47801be67b09199d145c7f73e",
+        "src/eval.rs": "292eac9472c92db20fcd3a864c5598f55a2f5554008af8f704ff975fcf40dd74",
+        "src/identifier.rs": "dc5d61282418a5eaefca7ebe37a5bcdd61da22a5191454d61ea1ef566004aa9e",
+        "src/impls.rs": "30bac3940b9bab840dc59280832c9afbb342abf47c51740a1b83b43c1646c56b",
+        "src/lib.rs": "e56f4d7c7774c45e61026fb0050955d67601c9ad18bdf93f8921d9898067c119",
+        "src/parse.rs": "2d9cb28a72a813968c16da29a9690f8e53f1ce00727a1dbe67aec3ddb5ed59ed",
+        "src/serde.rs": "e2a9b9dc3cd2cccc250eaffad049de418ef791bf8c4a34111a48f068353e0a37"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-rust-semver",
+        "compute_task": "5b5ae23f-2b39-47cf-b5fa-beecb51cbd6c",
+        "analysis_id": "d7c123f1-06f3-4167-b01e-4ed5a5d666bf",
+        "issues_sha256": "242f8291e22533d72ab08f8f3049f152904ca444cb6da9d399692d2512a03689",
+        "scanner_log_sha256": "9dfad1a499788741537c6bd14a39e598f29fa35494c1acb25c90da4f19e5479d",
+        "native_stdout_sha256": "817ec631c149598fb67b6e7577c896ec0384f760c9b121a1e7025377e0f481ed"
+      },
+      "parameters": {
+        "rust:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["rust:S3776", "src/parse.rs", 220, 3, 220, 13],
+        ["rust:S3776", "src/parse.rs", 287, 3, 287, 13]
+      ]
+    },
+    {
+      "name": "ryu",
+      "campaign": "wave3",
+      "language": "rust",
+      "repository": "dtolnay/ryu",
+      "commit": "75f9e707e77c89717ffb9c2a01fe2c28a016cc82",
+      "tree": "fddf773d231439945a11e4604f5e030bca967056",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/tests/**",
+        "**/benches/**"
+      ],
+      "source_inventory_sha256": "744a24999577ad2f692e427ba16d51b6aaf0ac99aa6b7aa0a4a30db9e62ec20e",
+      "files": {
+        "src/buffer/mod.rs": "e29fea93a1af8e3a25e2045489f4264cf50e708c0b2edfcb51ec95582e63fcd0",
+        "src/common.rs": "cae347e97fc30c50a964f80425e8c3e69ece2b8ab81f9b81b9baa7fcec64a001",
+        "src/d2s.rs": "f2612785ebe510c935b979dc5f66f6b8c818ca8a4cf0364ce1fe1d41fea39592",
+        "src/d2s_full_table.rs": "9b0186acbc6d65dc55c17e16125be707a2bfb920d22b35d33234b4cc38566a36",
+        "src/d2s_intrinsics.rs": "bbf15472f4299942312e80a992cbc2f47f85f17ed193f24084534434dbfb26e7",
+        "src/d2s_small_table.rs": "db3bbe4002d816785b0ee233c330f19fa7002f31dab47dc6f67b266996fe3ae4",
+        "src/digit_table.rs": "02351ca54cb8cb3679f635115dd094f32fd91750e9f66103c1ee9ec3db507072",
+        "src/f2s.rs": "ace23f2d4459055bbb8544c2efc09753fec27ff3ce44648e8015e8aff5696b0c",
+        "src/f2s_intrinsics.rs": "4667c34aab7637f2330df7bbd4c178c0ba1dd5854ff15b9a36a96fd5f527fb66",
+        "src/lib.rs": "ec6dc1b2b40fa14a9af5185991c1bebab3b6dc1f0947a81020a376eade8dae1c",
+        "src/parse.rs": "7f8aa7e007caf5dcb03abdc4238157724bb742d0823a3b8a01646fa1f1129154",
+        "src/pretty/exponent.rs": "87b2a2625bf43bf987f8b84f35ffe554853f9af5b850dac1c8b8810c9a4399ca",
+        "src/pretty/mantissa.rs": "1301cd5d35e7cbcedacad36c296893a94dfa7154ebe4146d6466769ed67934b4",
+        "src/pretty/mod.rs": "49b0701a2f7b896e3ff23221761a48b4445a048d9ae63207d8934ff1969de795",
+        "src/s2d.rs": "5637c35a1dc0979f69ef434d8e1c8a9da40e54820cbd12081c795da5aff04fb4",
+        "src/s2f.rs": "0c46a7dd17b93d5b44c3ed05396289aba9c8e96757364722eb470090ebbcada5",
+        "src/tests.rs": "4c1bfe1e7e6515779528dddcfd53ba3f6333618132e53a9c675b2bca69e9f8b0"
+      },
+      "semantic_context": {
+        "typescript": "not_applicable",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-ryu",
+        "compute_task": "4c8ff055-3a93-4cf2-a2c1-55695d66b2f8",
+        "analysis_id": "2a51c0ac-4159-4195-b017-b81d4c18cb34",
+        "issues_sha256": "75dedc89c534bb0061920cb6aa748a80a050981d4758527cb91a9a0c41bc673f",
+        "scanner_log_sha256": "793896137b816c3f76337c61bcfdf156252569eb3d8ebfd77da8481a3e5ccaf4",
+        "native_stdout_sha256": "a521cc93361c915330520c3c0e5947a0de0bece9222579a1c39c0a95e6a04eee"
+      },
+      "parameters": {
+        "rust:S3776": {
+          "threshold": "15"
+        }
+      },
+      "primaries": [
+        ["rust:S3776", "src/d2s.rs", 38, 7, 38, 23],
+        ["rust:S3776", "src/d2s.rs", 91, 7, 91, 10],
+        ["rust:S3776", "src/f2s.rs", 40, 7, 40, 10],
+        ["rust:S3776", "src/s2d.rs", 15, 7, 15, 10],
+        ["rust:S3776", "src/s2f.rs", 17, 7, 17, 10]
+      ]
+    },
+    {
+      "name": "superstruct",
+      "campaign": "wave3",
+      "language": "ts",
+      "repository": "ianstormtaylor/superstruct",
+      "commit": "e414c8afd3b69f6bc0173b8ee25f71d8e5694f01",
+      "tree": "6090a53ca5db0ea5ad6669693728e305b4317a1e",
+      "sources": [
+        "src"
+      ],
+      "exclude": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "source_inventory_sha256": "a4878a70f8038b93e59b33a2f5a07d0da5531edd916eba48c3936507b3cad59e",
+      "files": {
+        "src/error.ts": "5a5d1522b7b61b8d03819118f37bd1dd77e370d3129a29f4cb7a4189317db247",
+        "src/index.ts": "c290c33653fb10ee6fa4180fdbb986da6fd906d18965206d2a19b93629e41987",
+        "src/struct.ts": "293e076aa2240654f712299a9130f45b389b58790fb26867f6755cb97f1e8f3c",
+        "src/structs/coercions.ts": "0606a56a0593b148409e04a985afa1008c7743e1a04a9d4c57d1fc8cbba99567",
+        "src/structs/refinements.ts": "788a59933bdc9f60de8c0e9eb05a4d1e866c90a411bdcc0ea3f22482e63d1c78",
+        "src/structs/types.ts": "a615a6a363ae2d3de9e3bb086a24fe02a9a2412df5862447bbc81a62778637ef",
+        "src/structs/utilities.ts": "a85eaed14450fcf3e2ae1605f79f1c049dbd3375b055e5c879d4716b72352a92",
+        "src/utils.ts": "911572929692d42e413f0779e3653c93b659fa2f3fb4e38cbcbf3bb6d6623545"
+      },
+      "semantic_context": {
+        "typescript": "missing",
+        "csharp": "not_applicable"
+      },
+      "reference": {
+        "project_key": "hq-public-wave3-20261120-superstruct",
+        "compute_task": "267e19c2-40f3-4d3a-9edc-4b82ee16bfc7",
+        "analysis_id": "8d14bf47-ba56-45de-889a-a40d35b655a1",
+        "issues_sha256": "87a7a72844b4ccc8f5bef6bff15ebe1c24a93ad5cf5a4fac56a699ec4b7c2fae",
+        "scanner_log_sha256": "fe5d8f09598a580e0a97e7008f01b35e7855e98962d1c9d08906912a57d4430f",
+        "native_stdout_sha256": "a231770f8d5f29da92af4c5e952b1a34cdb9879aeaff3d9fd4fcd0e8815bfce5",
+        "js_sensor_analyzed": 8
+      },
+      "parameters": {
+        "typescript:S1121": {},
+        "typescript:S1301": {},
+        "typescript:S1533": {},
+        "typescript:S3358": {},
+        "typescript:S3776": {
+          "threshold": "15"
+        },
+        "typescript:S4323": {},
+        "typescript:S6569": {},
+        "typescript:S6598": {},
+        "typescript:S6644": {},
+        "typescript:S7773": {}
+      },
+      "primaries": [
+        ["typescript:S1121", "src/error.ts", 46, 21, 46, 24],
+        ["typescript:S1301", "src/structs/utilities.ts", 182, 2, 182, 8],
+        ["typescript:S1301", "src/structs/utilities.ts", 232, 2, 232, 8],
+        ["typescript:S1533", "src/utils.ts", 328, 25, 328, 32],
+        ["typescript:S3358", "src/structs/refinements.ts", 46, 12, 46, 43],
+        ["typescript:S3358", "src/structs/refinements.ts", 68, 12, 68, 43],
+        ["typescript:S3776", "src/utils.ts", 130, 17, 130, 20],
+        ["typescript:S4323", "src/structs/refinements.ts", 9, 12, 9, 53],
+        ["typescript:S6569", "src/structs/refinements.ts", 10, 2, 10, 15],
+        ["typescript:S6569", "src/structs/refinements.ts", 33, 45, 33, 58],
+        ["typescript:S6569", "src/structs/refinements.ts", 55, 45, 55, 58],
+        ["typescript:S6569", "src/structs/refinements.ts", 79, 2, 79, 15],
+        ["typescript:S6569", "src/structs/refinements.ts", 93, 42, 93, 55],
+        ["typescript:S6569", "src/structs/refinements.ts", 111, 2, 111, 15],
+        ["typescript:S6598", "src/structs/types.ts", 144, 37, 144, 60],
+        ["typescript:S6644", "src/structs/types.ts", 303, 12, 303, 34],
+        ["typescript:S7773", "src/structs/types.ts", 86, 33, 86, 38],
+        ["typescript:S7773", "src/structs/types.ts", 162, 37, 162, 42],
+        ["typescript:S7773", "src/structs/types.ts", 281, 37, 281, 42]
+      ]
+    }
+  ]
+}

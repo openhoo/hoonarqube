@@ -1,0 +1,31 @@
+name: Pinned public source contracts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-contracts:
+    name: 25 public repositories against Sonar locations
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exercise wrong pins, scope, parameters and primary locations
+        run: python3 -m unittest discover -s tools/oracle -p public_contract_test.py -v
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: ci
+          save-if: false
+      - name: Build the candidate analyzer
+        run: cargo build --locked --release -p hoonarqube-cli
+      - name: Check pinned source blobs and selected Sonar primary locations
+        run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube

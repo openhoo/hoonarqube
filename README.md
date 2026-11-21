@@ -1,6 +1,6 @@
 # Hoonarqube
 
-Rust-native SonarQube-compatible static analyzer for Python, JavaScript/TypeScript,
+Rust-native static analyzer for Python, JavaScript/TypeScript,
 C#, Go, Java, Ruby, and Rust. It combines a frozen Sonar-parity catalog with a
 separate, provenance-rich native catalog and emits text, JSON, SonarQube Generic
 Issue Import JSON, or GitLab Code Quality JSON. SARIF 2.1.0 output is reserved
@@ -8,7 +8,8 @@ for the isolated `github-code-quality` profile, which requires `--format sarif`.
 
 Start with the [quickstart](docs/quickstart.md) for a first scan, report export,
 fix preview, and exit-code handling. For maintainers resuming development, see the
-[engineering review and pilot criteria](docs/engineering/foundation-review.md).
+[architecture review](docs/engineering/foundation-review.md) and the
+[120-project comparison and pilot limits](docs/engineering/public-projects-2026-11-21.md).
 
 ## Workspace
 
