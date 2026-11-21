@@ -13,6 +13,8 @@ The source was `tj/commander.js` at `ba6d13ddb4243e5913367734f8c159089ffe7834`, 
 
 Without LCOV, SonarQube classified 1,252 lines as eligible and all 1,252 as uncovered. Hoonarqube deliberately returns exit 2 for missing coverage. Its source analysis still completed. No branch coverage, new-code gates, or other editions were qualified here.
 
+The [CI replay](community-gate-contract.md) uses the original compressed LCOV inputs to check these decisions on every pull request without Docker or upstream test execution.
+
 ## Replay the native CLI
 
 The [receipt](public-line-coverage-gates-20261120.json) records source hashes, test selection, container digests, per-file line evidence, compute-task and analysis IDs, reference decisions and both native modes. From the root of this repository, with an empty destination:
