@@ -15,7 +15,29 @@ The [raw samples](public-go-pipeline-timing-20261120.json) include the separate 
 
 The native scanner and SonarScanner CLI 8.0.1.6346 ran as arm64 host processes on one shared Apple M4 Max. SonarQube Community Build 26.9.0.129388 ran in a Linux arm64 container limited to four CPUs and 5 GiB, with embedded H2; Hoonarqube used its host SQLite service. The servers have different resource limits and persistence models. These are four small codebases and five measurements each. They establish elapsed time for this installation and agreed output. They do not establish equivalent full profiles, a product-wide speed ratio, production capacity, p95 latency or all-in resource cost.
 
-## Repeat
+## Verify the persisted results in CI or locally
+
+Normal CI runs this check with the candidate CLI and service binaries. It
+fetches the four commit and tree pins, scans the declared scopes as source
+data, starts a private loopback service with a fresh database, and reads the
+persisted reports and indexed findings. It compares the file inventory and
+content digest, primary location multiset, and no-TODO result with the
+versioned Sonar contract. It needs Git and access to the four public GitHub
+repositories. It does not build the Go projects or need a Sonar service.
+
+```sh
+python3 tools/oracle/public_go_pipeline.py --check-persisted \
+  --native /path/to/hoonarqube --service /path/to/hoonarqube-service \
+  --output /path/to/new-run
+```
+
+Use a fresh output path for each run. On success, `result.json` lists the
+observed digests and counts. For a failure control, copy the versioned
+contract, replace one project's `primaries_sha256` in the copy, and repeat
+with `--expected-contract /path/to/copy.json` and a new output path. The
+command should exit nonzero and name the changed field.
+
+## Repeat the timing comparison
 
 Use isolated native and reference services, check out the four repositories at the exact commits in the [manifest](public-corpus-projects-20261120.json) in subdirectories named chi, mux, cors and pflag, and supply an empty output directory **path that does not yet exist**. The reference token must be able to create and delete private projects on the disposable reference instance. The runner only deletes its own newly created project. Project source is scanned as data. The output directory contains scan logs, native reports and raw API pages; only the portable timing summary is committed here.
 

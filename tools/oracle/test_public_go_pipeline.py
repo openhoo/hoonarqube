@@ -4,7 +4,7 @@ import unittest
 
 from parity import read_json
 from pathlib import Path
-from public_go_pipeline import compare, contract
+from public_go_pipeline import compare, compare_persisted, contract, pinned_rows
 
 
 class GoPipelineContractTests(unittest.TestCase):
@@ -48,3 +48,11 @@ class GoPipelineContractTests(unittest.TestCase):
     def test_unknown_file_is_not_silently_dropped(self):
         with self.assertRaises(ValueError):
             contract({"actual.go": "a"}, [("go:S1186", "missing.go", 1, 0, 1, 4)])
+
+    def test_persisted_contract_rejects_changed_location_digest(self):
+        row = read_json(Path(__file__).with_name("public-go-pipeline-contract.json"))
+        self.assertEqual(set(row), set(pinned_rows()))
+        actual = row["chi"]
+        changed = {**actual, "primaries_sha256": "0" * 64}
+        with self.assertRaisesRegex(ValueError, "chi: .*primaries_sha256"):
+            compare_persisted("chi", actual, changed)
