@@ -1,0 +1,1777 @@
+{
+  "native": {
+    "binary_sha256": "14995f15c5559a6b2200ffe4ea9286a686949b8d945f3d9a081d71a7734ab388",
+    "commit": "ae55ffcf8a3612406b7d769e46f403d724da04b5",
+    "infrastructure_boundaries_sha256": "1e3e77e971e3db15ef3b61f5e8d8b34e956ba5e7d22072edb1fffec943f8c5fa",
+    "profile": "sonar-parity",
+    "tree": "c9b2cd7cdcdbdcb6aae8ea70438961fc3400f0eb"
+  },
+  "population": "108 exact indexed source selections in public-projects-2026-11-21.json. Deltas sum over selections; aligned variants may share files. One-sided counts are not classifications of detection accuracy.",
+  "rows": [
+    {
+      "rule": "java:S1854",
+      "matched": 7,
+      "native_only": 156,
+      "reference_only": 3,
+      "differing_repositories": 6,
+      "largest_scope": "commons-codec",
+      "one_sided_pairs_with_same_file_and_start_line": 0
+    },
+    {
+      "rule": "rust:S2208",
+      "matched": 0,
+      "native_only": 153,
+      "reference_only": 0,
+      "differing_repositories": 7,
+      "largest_scope": "rayon",
+      "one_sided_pairs_with_same_file_and_start_line": 0
+    },
+    {
+      "rule": "javascript:S6861",
+      "matched": 0,
+      "native_only": 63,
+      "reference_only": 73,
+      "differing_repositories": 2,
+      "largest_scope": "jquery",
+      "one_sided_pairs_with_same_file_and_start_line": 63
+    },
+    {
+      "rule": "typescript:S1874",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 97,
+      "differing_repositories": 6,
+      "largest_scope": "zod",
+      "one_sided_pairs_with_same_file_and_start_line": 0
+    },
+    {
+      "rule": "javascript:S6582",
+      "matched": 124,
+      "native_only": 61,
+      "reference_only": 32,
+      "differing_repositories": 10,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S6643",
+      "matched": 0,
+      "native_only": 68,
+      "reference_only": 0,
+      "differing_repositories": 6,
+      "largest_scope": "jekyll"
+    },
+    {
+      "rule": "javascript:S6676",
+      "matched": 0,
+      "native_only": 55,
+      "reference_only": 3,
+      "differing_repositories": 8,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S7727",
+      "matched": 2,
+      "native_only": 37,
+      "reference_only": 0,
+      "differing_repositories": 6,
+      "largest_scope": "eslint"
+    },
+    {
+      "rule": "python:S2638",
+      "matched": 0,
+      "native_only": 11,
+      "reference_only": 25,
+      "differing_repositories": 6,
+      "largest_scope": "markupsafe"
+    },
+    {
+      "rule": "javascript:S6757",
+      "matched": 0,
+      "native_only": 33,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jekyll"
+    },
+    {
+      "rule": "typescript:S1854",
+      "matched": 0,
+      "native_only": 25,
+      "reference_only": 7,
+      "differing_repositories": 5,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "python:S2245",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 29,
+      "differing_repositories": 4,
+      "largest_scope": "more-itertools"
+    },
+    {
+      "rule": "typescript:S6582",
+      "matched": 42,
+      "native_only": 20,
+      "reference_only": 9,
+      "differing_repositories": 5,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "javascript:S6557",
+      "matched": 12,
+      "native_only": 25,
+      "reference_only": 3,
+      "differing_repositories": 6,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S2681",
+      "matched": 3,
+      "native_only": 27,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "python:S1172",
+      "matched": 93,
+      "native_only": 3,
+      "reference_only": 21,
+      "differing_repositories": 5,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "typescript:S7727",
+      "matched": 2,
+      "native_only": 24,
+      "reference_only": 0,
+      "differing_repositories": 5,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "typescript:S6606",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 23,
+      "differing_repositories": 5,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "rust:S7459",
+      "matched": 0,
+      "native_only": 21,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "smallvec"
+    },
+    {
+      "rule": "java:S1117",
+      "matched": 10,
+      "native_only": 19,
+      "reference_only": 1,
+      "differing_repositories": 4,
+      "largest_scope": "javapoet"
+    },
+    {
+      "rule": "javascript:S7755",
+      "matched": 1,
+      "native_only": 17,
+      "reference_only": 3,
+      "differing_repositories": 4,
+      "largest_scope": "picomatch"
+    },
+    {
+      "rule": "python:S7483",
+      "matched": 18,
+      "native_only": 20,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "httpcore"
+    },
+    {
+      "rule": "typescript:S6564",
+      "matched": 3,
+      "native_only": 11,
+      "reference_only": 9,
+      "differing_repositories": 4,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6790",
+      "matched": 0,
+      "native_only": 20,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "rust:S4275",
+      "matched": 0,
+      "native_only": 19,
+      "reference_only": 0,
+      "differing_repositories": 6,
+      "largest_scope": "clap"
+    },
+    {
+      "rule": "javascript:S1854",
+      "matched": 1,
+      "native_only": 10,
+      "reference_only": 8,
+      "differing_repositories": 4,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S2094",
+      "matched": 1,
+      "native_only": 17,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "typescript:S7781",
+      "matched": 0,
+      "native_only": 17,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "javascript:S6594",
+      "matched": 9,
+      "native_only": 13,
+      "reference_only": 3,
+      "differing_repositories": 5,
+      "largest_scope": "jekyll"
+    },
+    {
+      "rule": "python:S6794",
+      "matched": 74,
+      "native_only": 16,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "rust:S7432",
+      "matched": 0,
+      "native_only": 16,
+      "reference_only": 0,
+      "differing_repositories": 5,
+      "largest_scope": "rayon"
+    },
+    {
+      "rule": "javascript:S1874",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 14,
+      "differing_repositories": 3,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S3403",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 14,
+      "differing_repositories": 3,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "typescript:S6571",
+      "matched": 21,
+      "native_only": 4,
+      "reference_only": 10,
+      "differing_repositories": 2,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "typescript:S6653",
+      "matched": 0,
+      "native_only": 5,
+      "reference_only": 9,
+      "differing_repositories": 4,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "python:S5890",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 13,
+      "differing_repositories": 4,
+      "largest_scope": "flask"
+    },
+    {
+      "rule": "python:S4790",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 11,
+      "differing_repositories": 5,
+      "largest_scope": "httpx"
+    },
+    {
+      "rule": "python:S7497",
+      "matched": 0,
+      "native_only": 6,
+      "reference_only": 5,
+      "differing_repositories": 2,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "rust:S7422",
+      "matched": 0,
+      "native_only": 10,
+      "reference_only": 0,
+      "differing_repositories": 7,
+      "largest_scope": "serde-json"
+    },
+    {
+      "rule": "typescript:S1523",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 10,
+      "differing_repositories": 2,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "typescript:S6676",
+      "matched": 0,
+      "native_only": 8,
+      "reference_only": 2,
+      "differing_repositories": 5,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "typescript:S7763",
+      "matched": 13,
+      "native_only": 0,
+      "reference_only": 10,
+      "differing_repositories": 2,
+      "largest_scope": "swr"
+    },
+    {
+      "rule": "javascript:S2392",
+      "matched": 3,
+      "native_only": 8,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "python:S1854",
+      "matched": 0,
+      "native_only": 7,
+      "reference_only": 2,
+      "differing_repositories": 4,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "python:S5864",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 9,
+      "differing_repositories": 5,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "typescript:S3699",
+      "matched": 0,
+      "native_only": 9,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "typescript:S4782",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 9,
+      "differing_repositories": 4,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "javascript:S107",
+      "matched": 2,
+      "native_only": 4,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S878",
+      "matched": 7,
+      "native_only": 8,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "python:S5886",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 8,
+      "differing_repositories": 2,
+      "largest_scope": "werkzeug"
+    },
+    {
+      "rule": "javascript:S4043",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 5,
+      "differing_repositories": 2,
+      "largest_scope": "eslint"
+    },
+    {
+      "rule": "python:S8714",
+      "matched": 0,
+      "native_only": 7,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "click"
+    },
+    {
+      "rule": "typescript:S2301",
+      "matched": 1,
+      "native_only": 3,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "typescript:S4123",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 5,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "go:S1871",
+      "matched": 1,
+      "native_only": 4,
+      "reference_only": 2,
+      "differing_repositories": 3,
+      "largest_scope": "kong"
+    },
+    {
+      "rule": "javascript:S1264",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 2,
+      "differing_repositories": 3,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S1527",
+      "matched": 0,
+      "native_only": 6,
+      "reference_only": 0,
+      "differing_repositories": 4,
+      "largest_scope": "picomatch"
+    },
+    {
+      "rule": "javascript:S2310",
+      "matched": 1,
+      "native_only": 3,
+      "reference_only": 3,
+      "differing_repositories": 3,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S4275",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 3,
+      "differing_repositories": 1,
+      "largest_scope": "koa"
+    },
+    {
+      "rule": "javascript:S6323",
+      "matched": 0,
+      "native_only": 6,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S6645",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 3,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S905",
+      "matched": 1,
+      "native_only": 6,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "python:S5727",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 6,
+      "differing_repositories": 3,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S5795",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 6,
+      "differing_repositories": 2,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S6353",
+      "matched": 20,
+      "native_only": 0,
+      "reference_only": 6,
+      "differing_repositories": 2,
+      "largest_scope": "tomli"
+    },
+    {
+      "rule": "rust:S7424",
+      "matched": 0,
+      "native_only": 6,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "clap"
+    },
+    {
+      "rule": "go:S3776",
+      "matched": 114,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "kong"
+    },
+    {
+      "rule": "javascript:S1871",
+      "matched": 1,
+      "native_only": 3,
+      "reference_only": 2,
+      "differing_repositories": 3,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S3699",
+      "matched": 0,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S5869",
+      "matched": 1,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S6551",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 5,
+      "differing_repositories": 2,
+      "largest_scope": "commander"
+    },
+    {
+      "rule": "python:S1135",
+      "matched": 78,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S1515",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 5,
+      "differing_repositories": 2,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "python:S3699",
+      "matched": 0,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "click"
+    },
+    {
+      "rule": "python:S5527",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 4,
+      "differing_repositories": 1,
+      "largest_scope": "httpx"
+    },
+    {
+      "rule": "typescript:S1186",
+      "matched": 3,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 3,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "typescript:S1871",
+      "matched": 1,
+      "native_only": 5,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S2245",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 5,
+      "differing_repositories": 4,
+      "largest_scope": "swr"
+    },
+    {
+      "rule": "typescript:S7755",
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 5,
+      "differing_repositories": 3,
+      "largest_scope": "swr"
+    },
+    {
+      "rule": "javascript:S1121",
+      "matched": 85,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "javascript:S1186",
+      "matched": 23,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "underscore"
+    },
+    {
+      "rule": "javascript:S1994",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 1,
+      "differing_repositories": 3,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "javascript:S2201",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S2245",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 3,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S2871",
+      "matched": 1,
+      "native_only": 2,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S3358",
+      "matched": 29,
+      "native_only": 3,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "javascript:S3800",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 3,
+      "differing_repositories": 3,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S4138",
+      "matched": 36,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "werkzeug"
+    },
+    {
+      "rule": "javascript:S6535",
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S6661",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "eslint"
+    },
+    {
+      "rule": "javascript:S6666",
+      "matched": 5,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 3,
+      "largest_scope": "express"
+    },
+    {
+      "rule": "javascript:S6671",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S6679",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "underscore"
+    },
+    {
+      "rule": "python:S1481",
+      "matched": 9,
+      "native_only": 2,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "more-itertools"
+    },
+    {
+      "rule": "python:S3776",
+      "matched": 377,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "python:S3862",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 3,
+      "largest_scope": "httpx"
+    },
+    {
+      "rule": "python:S5332",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 3,
+      "largest_scope": "httpx"
+    },
+    {
+      "rule": "python:S5361",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "python:S5644",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "starlette"
+    },
+    {
+      "rule": "python:S5655",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 3,
+      "largest_scope": "black"
+    },
+    {
+      "rule": "python:S5685",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S7484",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 3,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "python:S7491",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "python:S7515",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S8510",
+      "matched": 1,
+      "native_only": 3,
+      "reference_only": 1,
+      "differing_repositories": 3,
+      "largest_scope": "more-itertools"
+    },
+    {
+      "rule": "python:S905",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "rust:S1116",
+      "matched": 0,
+      "native_only": 4,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "hashbrown"
+    },
+    {
+      "rule": "typescript:S3863",
+      "matched": 16,
+      "native_only": 2,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "typescript:S5869",
+      "matched": 5,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6551",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6754",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 4,
+      "differing_repositories": 2,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "javascript:S2703",
+      "matched": 2,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "express"
+    },
+    {
+      "rule": "javascript:S5332",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 3,
+      "differing_repositories": 1,
+      "largest_scope": "jekyll"
+    },
+    {
+      "rule": "javascript:S5850",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S6353",
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 3,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S7773",
+      "matched": 22,
+      "native_only": 1,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "underscore"
+    },
+    {
+      "rule": "javascript:S930",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "python:S1045",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "python:S1066",
+      "matched": 24,
+      "native_only": 2,
+      "reference_only": 1,
+      "differing_repositories": 3,
+      "largest_scope": "h11"
+    },
+    {
+      "rule": "python:S117",
+      "matched": 98,
+      "native_only": 2,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "fastapi"
+    },
+    {
+      "rule": "python:S1186",
+      "matched": 24,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "h11"
+    },
+    {
+      "rule": "python:S1226",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "black"
+    },
+    {
+      "rule": "python:S125",
+      "matched": 10,
+      "native_only": 0,
+      "reference_only": 3,
+      "differing_repositories": 3,
+      "largest_scope": "packaging"
+    },
+    {
+      "rule": "python:S5747",
+      "matched": 2,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "flask"
+    },
+    {
+      "rule": "python:S5779",
+      "matched": 5,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S6792",
+      "matched": 65,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S7513",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "python:S7514",
+      "matched": 0,
+      "native_only": 3,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S8786",
+      "matched": 7,
+      "native_only": 2,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "python:S930",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "flask"
+    },
+    {
+      "rule": "typescript:S2201",
+      "matched": 1,
+      "native_only": 2,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6654",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 3,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6660",
+      "matched": 4,
+      "native_only": 0,
+      "reference_only": 3,
+      "differing_repositories": 1,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "go:S107",
+      "matched": 8,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "go-cmp"
+    },
+    {
+      "rule": "javascript:S1119",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S1515",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S2137",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "underscore"
+    },
+    {
+      "rule": "javascript:S2234",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S2301",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S2814",
+      "matched": 2,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "express"
+    },
+    {
+      "rule": "javascript:S3776",
+      "matched": 129,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "javascript:S4165",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S6638",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S6657",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "picomatch"
+    },
+    {
+      "rule": "javascript:S7781",
+      "matched": 9,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "picomatch"
+    },
+    {
+      "rule": "python:S1192",
+      "matched": 66,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "fastapi"
+    },
+    {
+      "rule": "python:S1313",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "werkzeug"
+    },
+    {
+      "rule": "python:S1845",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "python:S1871",
+      "matched": 3,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "black"
+    },
+    {
+      "rule": "python:S3516",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 2,
+      "largest_scope": "click"
+    },
+    {
+      "rule": "python:S5642",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "starlette"
+    },
+    {
+      "rule": "python:S5806",
+      "matched": 28,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "python:S7493",
+      "matched": 3,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S7494",
+      "matched": 5,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "python:S7502",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "anyio"
+    },
+    {
+      "rule": "ruby:S1192",
+      "matched": 68,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "ruby-uri"
+    },
+    {
+      "rule": "rust:S1751",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 2,
+      "largest_scope": "serde-json"
+    },
+    {
+      "rule": "rust:S7456",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "rayon"
+    },
+    {
+      "rule": "rust:S7464",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "indexmap"
+    },
+    {
+      "rule": "typescript:S1788",
+      "matched": 1,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "redux-without-parser-failure"
+    },
+    {
+      "rule": "typescript:S2871",
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S4138",
+      "matched": 5,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "redux-without-parser-failure"
+    },
+    {
+      "rule": "typescript:S4623",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 2,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "typescript:S5850",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6534",
+      "matched": 0,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S878",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 2,
+      "differing_repositories": 1,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "typescript:S8786",
+      "matched": 1,
+      "native_only": 2,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S905",
+      "matched": 1,
+      "native_only": 1,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "javascript:S1143",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S1523",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "underscore"
+    },
+    {
+      "rule": "javascript:S1529",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S1751",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S1940",
+      "matched": 4,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "javascript:S2189",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S2430",
+      "matched": 1,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jekyll"
+    },
+    {
+      "rule": "javascript:S2486",
+      "matched": 5,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S2819",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S3579",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S3796",
+      "matched": 1,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "capybara"
+    },
+    {
+      "rule": "javascript:S3923",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S6635",
+      "matched": 5,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "chalk-aligned"
+    },
+    {
+      "rule": "javascript:S6790",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "yjs"
+    },
+    {
+      "rule": "javascript:S7059",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "axios"
+    },
+    {
+      "rule": "javascript:S7060",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jekyll"
+    },
+    {
+      "rule": "javascript:S8786",
+      "matched": 6,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "javascript:S888",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jquery"
+    },
+    {
+      "rule": "python:S112",
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "python:S1700",
+      "matched": 3,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "httpcore"
+    },
+    {
+      "rule": "python:S1751",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "more-itertools"
+    },
+    {
+      "rule": "python:S3358",
+      "matched": 5,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S5247",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "python:S5708",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "packaging"
+    },
+    {
+      "rule": "python:S5713",
+      "matched": 3,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "fastapi"
+    },
+    {
+      "rule": "python:S5717",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "python:S5797",
+      "matched": 3,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "click"
+    },
+    {
+      "rule": "python:S5799",
+      "matched": 2,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "httpx"
+    },
+    {
+      "rule": "python:S5807",
+      "matched": 9,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "attrs"
+    },
+    {
+      "rule": "python:S5843",
+      "matched": 9,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "black"
+    },
+    {
+      "rule": "python:S5868",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "python:S5869",
+      "matched": 1,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "packaging"
+    },
+    {
+      "rule": "python:S6019",
+      "matched": 4,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "black"
+    },
+    {
+      "rule": "python:S6796",
+      "matched": 339,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S7490",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "trio"
+    },
+    {
+      "rule": "python:S7492",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "idna"
+    },
+    {
+      "rule": "python:S7496",
+      "matched": 6,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "python:S7503",
+      "matched": 14,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "httpcore"
+    },
+    {
+      "rule": "python:S7508",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "cattrs"
+    },
+    {
+      "rule": "python:S8572",
+      "matched": 1,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "jinja"
+    },
+    {
+      "rule": "rust:S2185",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "hashbrown"
+    },
+    {
+      "rule": "rust:S6913",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "rayon"
+    },
+    {
+      "rule": "rust:S7415",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "hashbrown"
+    },
+    {
+      "rule": "typescript:S2486",
+      "matched": 4,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "swr"
+    },
+    {
+      "rule": "typescript:S3358",
+      "matched": 95,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "floating-ui"
+    },
+    {
+      "rule": "typescript:S3531",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "superstruct"
+    },
+    {
+      "rule": "typescript:S3696",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "swr"
+    },
+    {
+      "rule": "typescript:S3799",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "superstruct"
+    },
+    {
+      "rule": "typescript:S4124",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "zod"
+    },
+    {
+      "rule": "typescript:S6544",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "ajv"
+    },
+    {
+      "rule": "typescript:S6594",
+      "matched": 0,
+      "native_only": 0,
+      "reference_only": 1,
+      "differing_repositories": 1,
+      "largest_scope": "react-hook-form"
+    },
+    {
+      "rule": "typescript:S6661",
+      "matched": 0,
+      "native_only": 1,
+      "reference_only": 0,
+      "differing_repositories": 1,
+      "largest_scope": "superstruct"
+    }
+  ],
+  "same_start_line_method": "Top four rules only. After subtracting exact primary matches, intersect the two multisets of (rule, file, non-null starting line) per scope. This counts potential pairs and does not establish that two reports refer to the same issue."
+}
