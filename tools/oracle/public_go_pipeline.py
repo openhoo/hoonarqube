@@ -1,4 +1,4 @@
-"""Measure both scanners through their persisted file inventories and findings APIs."""
+"""Check persisted public Go results or measure both scanners through their APIs."""
 
 import argparse
 import os
@@ -14,6 +14,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from parity import read_json, read_secret_file, write_json_atomic
+from public_corpus_capture import verify_checkout
+from public_corpus_prepare import prepare_checkout
 from public_corpus_summary import canonical_sha, normalized_path, utf16_coordinates
 from real_project_suite import Sonar, digest, verify_source
 
@@ -28,6 +30,8 @@ PARAMETERS = {
 }
 RULES = set(PARAMETERS)
 SCOPES = {"chi": 14, "mux": 6, "cors": 4, "pflag": 1}
+CONTRACT = Path(__file__).with_name("public-go-pipeline-contract.json")
+MANIFEST = Path(__file__).with_name("public-corpus-projects-20261120.json")
 
 
 def elapsed(start):
@@ -288,19 +292,63 @@ def verify_reference_rules(sonar, key):
 
 
 def compare(name, a, b):
-    frozen = read_json(Path(__file__).with_name("public-go-pipeline-contract.json"))[
-        name
-    ]
-    if b != frozen:
+    if b != read_json(CONTRACT)[name]:
         raise ValueError(
             f"{name}: result changed from the independent pinned reference"
         )
-    if (
-        a != b
-        or a["primaries"] != SCOPES[name]
-        or a["no_todo_gate"] != ("fail" if name == "chi" else "pass")
+    compare_persisted(name, a, b)
+
+
+def compare_persisted(name, actual, expected):
+    if actual != expected:
+        missing = object()
+        fields = [
+            key
+            for key in sorted(actual.keys() | expected.keys())
+            if actual.get(key, missing) != expected.get(key, missing)
+        ]
+        raise ValueError(f"{name}: persisted output differs in {', '.join(fields)}")
+    if actual["primaries"] != SCOPES[name] or actual["no_todo_gate"] != (
+        "fail" if name == "chi" else "pass"
     ):
-        raise ValueError(f"{name}: output contract differs: {a}, {b}")
+        raise ValueError(f"{name}: unexpected pinned finding count or no-TODO result")
+
+
+def pinned_rows():
+    selected = [r for r in read_json(MANIFEST)["captures"] if r["name"] in SCOPES]
+    rows = {r["name"]: r for r in selected}
+    if rows.keys() != SCOPES.keys() or len(rows) != len(selected):
+        raise ValueError("incomplete or duplicate pinned Go inventory")
+    return rows
+
+
+def check_persisted(args, rows):
+    contract_file = args.expected_contract or CONTRACT
+    expected = read_json(contract_file)
+    if expected.keys() != rows.keys():
+        raise ValueError("expected contract must cover every pinned Go project")
+    prepared = {n: prepare_checkout(args.output, row) for n, row in rows.items()}
+    results = {}
+    with TemporaryDirectory(dir=args.output) as service_dir:
+        token = secrets.token_urlsafe(40)
+        with running_service(args.service, Path(service_dir), token) as port:
+            for name, row in prepared.items():
+                folder = args.output / name
+                folder.mkdir()
+                root = verify_checkout(row)
+                actual = native(args, row, root, folder, port, token)["contract"]
+                verify_checkout(row)
+                compare_persisted(name, actual, expected[name])
+                results[name] = {"commit": row["commit"], **actual}
+                print(
+                    f"{name}: {actual['files']} persisted files, "
+                    f"{actual['primaries']} primaries, no-TODO {actual['no_todo_gate']}",
+                    flush=True,
+                )
+    write_json_atomic(
+        args.output / "result.json",
+        {"expected_contract_sha256": digest(contract_file), "projects": results},
+    )
 
 
 def pinned_checkout(args, name, row):
@@ -323,40 +371,45 @@ def pinned_checkout(args, name, row):
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
-    for flag in (
-        "sources",
-        "output",
-        "java",
-        "scanner-jar",
-        "scanner-cache",
-        "token-file",
-        "native",
-        "service",
-    ):
+    for flag in ("output", "native", "service"):
         p.add_argument("--" + flag, type=Path, required=True)
-    p.add_argument("--server", required=True)
+    timing_paths = ("sources", "java", "scanner-jar", "scanner-cache", "token-file")
+    for flag in timing_paths:
+        p.add_argument("--" + flag, type=Path)
+    p.add_argument("--server")
     p.add_argument("--rounds", type=int, default=3)
+    p.add_argument(
+        "--check-persisted",
+        action="store_true",
+        help="fetch pinned sources and check the candidate service without Sonar",
+    )
+    p.add_argument(
+        "--expected-contract",
+        type=Path,
+        help="override the reference contract in check mode for a negative control",
+    )
     args = p.parse_args()
-    if args.rounds < 1:
-        p.error("need at least one measured round")
+    if not args.check_persisted:
+        missing = [
+            "--" + flag
+            for flag in (*timing_paths, "server")
+            if not getattr(args, flag.replace("-", "_"))
+        ]
+        if missing:
+            p.error(f"timing mode requires {', '.join(missing)}")
+        if args.expected_contract:
+            p.error("--expected-contract requires --check-persisted")
+        if args.rounds < 1:
+            p.error("need at least one measured round")
     for k, v in vars(args).items():
         if isinstance(v, Path):
             setattr(args, k, v.resolve())
     return args
 
 
-def main():
-    args = parse_args()
-    os.umask(0o077)
-    args.output.mkdir(parents=True, exist_ok=False)
+def measure(args, rows):
     token = read_secret_file(args.token_file).strip()
     sonar = Sonar(args.server, token)
-    refs = read_json(Path(__file__).with_name("public-corpus-projects-20261120.json"))[
-        "captures"
-    ]
-    rows = {r["name"]: r for r in refs if r["name"] in SCOPES}
-    if rows.keys() != SCOPES.keys():
-        raise ValueError("incomplete pinned inventory")
     samples = {n: [] for n in rows}
     result = {
         "rule_parameters": PARAMETERS,
@@ -418,6 +471,17 @@ def main():
         for n, records in samples.items()
     }
     write_json_atomic(args.output / "result.json", result)
+
+
+def main():
+    args = parse_args()
+    os.umask(0o077)
+    args.output.mkdir(parents=True, exist_ok=False)
+    rows = pinned_rows()
+    if args.check_persisted:
+        check_persisted(args, rows)
+    else:
+        measure(args, rows)
 
 
 if __name__ == "__main__":

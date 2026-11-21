@@ -301,6 +301,12 @@ jobs:
       - name: Scan, ingest and reopen a persisted analysis
         run: python3 scripts/smoke_cli_service.py target/debug
 
+      - name: Check persisted results for four pinned public Go projects
+        run: >-
+          python3 tools/oracle/public_go_pipeline.py --check-persisted
+          --native target/debug/hoonarqube --service target/debug/hoonarqube-service
+          --output "$RUNNER_TEMP/hoonarqube-public-go"
+
       - name: GitHub Code Quality action smoke (upload disabled)
         id: code-quality-smoke
         uses: ./actions/code-quality
