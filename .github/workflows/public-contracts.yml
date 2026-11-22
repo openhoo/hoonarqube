@@ -27,6 +27,8 @@ jobs:
           save-if: false
       - name: Build the candidate analyzer and service
         run: cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
+      - name: Build and test a pinned Blinker wheel and compare assigned coverage gates
+        run: python3 tools/oracle/blinker_build/replay.py target/release
       - name: Check pinned source blobs and selected Sonar primary locations
         run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube
       - name: Enforce assigned gates and authorized reviews on two Redux revisions
