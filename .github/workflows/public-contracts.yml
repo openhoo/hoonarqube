@@ -33,6 +33,8 @@ jobs:
         run: >-
           python3 tools/oracle/ruby_empty_methods.py --binary target/release/hoonarqube
           --case rack --case puma-puma --case dry-rb-dry-monads --case ruby-logger
+      - name: Check Ruby duplicate literals and supporting locations on 49 public projects
+        run: python3 tools/oracle/ruby_duplicate_literals.py --binary target/release/hoonarqube
       - name: Enforce assigned gates and authorized reviews on two Redux revisions
         run: python3 tools/oracle/public_redux_gates.py target/release
       - name: Compare duplication gates on real Yjs and FastAPI changes

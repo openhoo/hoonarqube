@@ -5,11 +5,11 @@ from collections import Counter
 import gzip
 import json
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 
-from public_contract import require, safe_path, stage
+from public_contract import require
+from ruby_rule_scan import analyze, pinned_source
 from public_corpus_summary import normalize_native
 
 MANIFEST = Path(__file__).parent / "fixtures/ruby-s1186-public-20261122.json.gz"
@@ -18,44 +18,8 @@ RULE = "ruby:S1186"
 
 def replay(case, binary, local_repo):
     with tempfile.TemporaryDirectory(prefix="ruby-empty-methods-") as temp:
-        safe_path(case["repository"])
-        require(case["repository"].count("/") == 1, "invalid project name")
-        for field in ("commit", "tree"):
-            require(re.fullmatch("[0-9a-f]{40}", case[field]), f"invalid {field}")
-        for path in case["files"]:
-            safe_path(path)
-        source = stage(case, Path(temp), local_repo)
-        run = subprocess.run(
-            [
-                binary,
-                "analyze",
-                *sorted(case["files"]),
-                "--format",
-                "json",
-                "--profile",
-                "sonar-parity",
-            ],
-            cwd=source,
-            timeout=180,
-            capture_output=True,
-            check=False,
-        )
-        if run.returncode:
-            detail = run.stderr.decode(errors="replace").strip().splitlines()
-            raise ValueError(
-                f"analyzer exit {run.returncode}: " + "; ".join(detail[:4])
-            )
-        report = json.loads(run.stdout)
-        require(
-            report["project"]["complete"]
-            and not report["parity"]["rule_set_violations"],
-            "incomplete scan",
-        )
-        for rows in (report["files"], report["project"]["files"]):
-            require(
-                Counter(f["path"] for f in rows) == Counter(case["files"].keys()),
-                "different file scope",
-            )
+        source = pinned_source(case, Path(temp), local_repo)
+        report = analyze(source, case["files"], binary)
         selected = [
             {**f, "issues": [i for i in f["issues"] if i["rule_key"] == RULE]}
             for f in report["files"]
