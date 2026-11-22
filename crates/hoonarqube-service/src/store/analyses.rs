@@ -59,7 +59,7 @@ impl Store {
             .transpose()?;
 
         let capacity = usize::from(limit) + 1;
-        let mut analyses = Vec::with_capacity(capacity);
+        let mut analyses = Vec::new();
         if let Some((epoch, id)) = cursor {
             // SQLite can scan earlier pages of tied timestamps with a tuple
             // bound. Seek by ID within this timestamp, then by timestamp.
