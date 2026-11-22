@@ -119,7 +119,30 @@ the scanner, service, and CI script on two pinned revisions. The
 decision, the binary hashes, concurrent updates, restart, and both restore
 formats.
 
-## Finding pages
+## Browse analysis and finding pages
+
+The dashboard loads 25 analyses at a time for the selected branch and 100
+findings at a time for the selected analysis. Use **Previous** and **Next** in
+each section. The displayed count is the count for that page. Loading another
+branch starts at its newest analysis.
+
+To page through history from another client, use
+`GET /api/v1/projects/{project}/analyses/page`. Supply `branch` to select one
+branch or omit it for the whole project. Set `limit` to 1–100 (default 25). The
+response contains an `analyses` array and `next_cursor`. Each entry includes
+the analysis ID, project, branch, commit, analyzed time, report schema version
+and completeness, plus the gate policy version if assigned. Order is newest
+analyzed time first, with higher analysis IDs first when times are equal.
+
+Pass `next_cursor` unchanged as `cursor` with the same project and branch
+filter. A null cursor marks the last page, including an empty result. History
+pages read the current state: deleted rows are omitted, and new rows ahead of
+the cursor appear after a refresh from the first page.
+
+For the selected analysis, `GET /api/v1/projects/{project}/analyses/{analysis_id}/overview`
+returns the summary (including metrics and the stored gate) and scan warnings.
+The existing `/analyses` list and `/analyses/{analysis_id}` detail keep their
+original responses, including the full report on detail.
 
 Use `GET /api/v1/projects/{project}/analyses/{analysis_id}/findings/page` for
 a bounded response. It uses the same project access and review rules as
@@ -131,6 +154,11 @@ empty result. Cursors belong to the analysis that issued them.
 The finding order stays fixed for the life of an analysis. Reviews reflect
 the state when each page was read, so clients may see review changes between
 pages. The existing `/findings` route still returns the full array.
+Clients writing reviews can set `include_review_versions=true` on the page
+request to get `review_version` when a branch review exists but applies to a
+different scan context. Use it as `expected_version` for the write. The field
+does not include the incompatible review's state or audit history. When a
+compatible review is attached, use its `version` as before.
 
 ## Database startup and recovery
 

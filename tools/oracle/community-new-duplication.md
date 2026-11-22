@@ -4,7 +4,7 @@ Community Build 26.9.0.129388 and HoonarQube both ignored **two actual
 threshold violations** on small FastAPI changes. Both failed the gate on a
 larger FastAPI change, although they counted different duplicated lines.
 For Yjs, one native gate was unavailable because repeated lines made the
-baseline mapping ambiguous.
+baseline mapping ambiguous. The separate [SCM period replay](community-scm-period.md) measures that Yjs change at 65/86 and preserves the other four gate decisions.
 
 Each row covers one source file, with a project-assigned gate that allows at
 most 3% duplicated lines on new code. The base and candidate were analyzed

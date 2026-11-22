@@ -549,6 +549,12 @@ are explicit inputs:
   JSON (schema 1) supplied at that path. Its assessment context must match the
   analyzer, catalog, effective options, and scope; this is a pinned-reference
   comparison, not Git-history or merge-base discovery.
+- Add `--specific-analysis PATH` to `--baseline` to classify new code by the
+  selected analysis date in a full Git checkout. Supply a JSON object with
+  `analysis_id`, the full baseline Git `revision`, and `timestamp_ms` (Unix
+  milliseconds for the analysis, not the commit). HoonarQube verifies the
+  source bytes in both revisions and uses Git committer dates. See the
+  [format, limits, and public comparisons](tools/oracle/community-scm-period.md).
 - `--write-baseline PATH` atomically writes the current native report with its
   assessment artifact to that path. Use a complete result as the subsequent
   pinned reference.
