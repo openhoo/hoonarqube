@@ -130,8 +130,8 @@
       },
       "native": {
         "new": 35,
-        "duplicated": 20,
-        "density": 57.142857,
+        "duplicated": 21,
+        "density": 60.0,
         "status": "fail",
         "ignored": false,
         "exit": 1
