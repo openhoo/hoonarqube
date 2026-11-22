@@ -1005,6 +1005,33 @@ const NATIVE_RULES: &[NativeRuleRecord] = &[
     ),
 ];
 
+/// Catalog rules the reporter-observed `SonarQube` Server 2025.4.4 default
+/// "Sonar way" quality profiles do not activate (issues #780, #781, #782),
+/// plus emitted rule keys the reference repository does not define at all
+/// (issue #806): `typescript:S3800` exists only in the `javascript`
+/// repository (`compatibleLanguages: ["js"]`), so it can never appear in
+/// `parity.active_rules` and every emission would be a rule-set violation.
+///
+/// The reference membership comes from the `/api/qualityprofiles/export`
+/// output the issue reporters attached to their findings and the captured
+/// `/api/rules/search` repository listings; it is pinned here as observed
+/// evidence for that server version, not as a claim about every `SonarQube`
+/// release. `sonar-parity` membership follows those cited observations for
+/// these keys only; the cumulative `recommended`, `extended`, and `strict`
+/// profiles keep every catalog detector available, and the isolated
+/// `github-code-quality` profile never reaches this filter.
+pub const SONAR_PARITY_INACTIVE_RULE_KEYS: &[&str] = &[
+    "csharpsquid:S3216",
+    "csharpsquid:S4261",
+    "javascript:S1441",
+    "javascript:S1537",
+    "python:S1720",
+    "python:S6542",
+    "typescript:S1441",
+    "typescript:S1537",
+    "typescript:S3800",
+];
+
 /// Iterates the Hoonarqube-native catalog in stable key order.
 #[must_use]
 pub fn native_rules() -> impl ExactSizeIterator<Item = &'static NativeRuleRecord> {

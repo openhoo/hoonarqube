@@ -13,11 +13,11 @@ from http.client import HTTPConnection
 from pathlib import Path
 
 
-def request(port, token, path, body=None):
+def request(port, token, path, body=None, *, method=None):
     connection = HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         connection.request(
-            "GET" if body is None else "POST",
+            method or ("GET" if body is None else "POST"),
             "/api/v1/projects" + path,
             body=None if body is None else json.dumps(body),
             headers={
@@ -34,7 +34,7 @@ def request(port, token, path, body=None):
 
 
 @contextmanager
-def running_service(binary, work, token):
+def running_service(binary, work, token, *, extra_credentials=()):
     with socket.socket() as available:
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
@@ -43,7 +43,10 @@ def running_service(binary, work, token):
         "HOONARQUBE_SERVICE_BIND": f"127.0.0.1:{port}",
         "HOONARQUBE_SERVICE_DB": str(work / "service.sqlite3"),
         "HOONARQUBE_SERVICE_CREDENTIALS": json.dumps(
-            [{"user_id": "smoke", "token": token, "projects": {"smoke": "admin"}}]
+            [
+                {"user_id": "smoke", "token": token, "projects": {"smoke": "admin"}},
+                *extra_credentials,
+            ]
         ),
     }
     with subprocess.Popen([binary], cwd=work, env=env) as process:

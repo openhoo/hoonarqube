@@ -65,33 +65,40 @@ def require_standalone(path):
         )
 
 
-def initialize(db):
+POLICY_TABLE = "project_gate_policies"
+POLICY_COPY = "INSERT INTO project_gate_policies SELECT * FROM source.project_gate_policies WHERE project COLLATE BINARY = ?"
+
+
+def initialize(db, version=3):
+    if version not in (2, 3):
+        raise SnapshotError(
+            "expected a Hoonarqube service database at schema version 2 or 3"
+        )
     for filename in (
         "schema_v1.sql",
         "migrate_v2.sql",
+        *(("migrate_v3.sql",) if version == 3 else ()),
         "indexes_v1.sql",
         "indexes_v2.sql",
     ):
         db.executescript((SCHEMA / filename).read_text(encoding="utf-8"))
-    db.execute("PRAGMA main.user_version = 2")
+    if version == 3:
+        db.execute("PRAGMA main.user_version = 3")
+    else:
+        db.execute("PRAGMA main.user_version = 2")
 
 
-def verify_source(db):
-    if db.execute("PRAGMA source.user_version").fetchone() != (2,):
-        raise SnapshotError(
-            "expected a Hoonarqube service database at schema version 2"
-        )
-
+def verify_source(db, tables):
     objects = db.execute(
         """SELECT type, name FROM source.sqlite_schema
            WHERE type IN ('table', 'view', 'trigger') AND substr(name, 1, 7) <> 'sqlite_'"""
     )
-    if set(objects) != {("table", name) for name in TABLES}:
+    if set(objects) != {("table", name) for name in tables}:
         raise SnapshotError("source does not have the expected service tables")
 
     # The copy statements use the service table column order. Reject schema
     # changes before copying rather than silently remapping columns by position.
-    for table in TABLES:
+    for table in tables:
         columns = db.execute(
             "SELECT * FROM pragma_table_xinfo(?, 'source') ORDER BY cid", (table,)
         ).fetchall()
@@ -127,20 +134,36 @@ def verify_projection(db, restoring, counts):
         raise SnapshotError(
             "project deletion audit references a missing or unrelated analysis"
         )
+    if (
+        POLICY_TABLE in counts
+        and db.execute(
+            """SELECT 1 FROM analyses a LEFT JOIN project_gate_policies p
+        ON p.project=a.project AND p.version=a.gate_policy_version
+        WHERE (a.gate_policy_version IS NULL) <> (a.assigned_gate_json IS NULL)
+        OR (a.gate_policy_version IS NOT NULL AND p.version IS NULL) LIMIT 1"""
+        ).fetchone()
+    ):
+        raise SnapshotError("analysis references a missing gate policy")
     if db.execute("PRAGMA main.integrity_check").fetchall() != [("ok",)]:
         raise SnapshotError("staged database failed its integrity check")
     if restoring:
         # Refuse archives with rows outside the projection, even if their
         # checksums were supplied. This catches detached records as well.
-        total = db.execute(
-            """SELECT (SELECT count(*) FROM source.projects),
-                      (SELECT count(*) FROM source.analyses),
-                      (SELECT count(*) FROM source.findings),
-                      (SELECT count(*) FROM source.reviews),
-                      (SELECT count(*) FROM source.review_history),
-                      (SELECT count(*) FROM source.deletion_audit)"""
-        ).fetchone()
-        if total != tuple(counts.values()):
+        total = dict(
+            db.execute(
+                """SELECT 'projects', count(*) FROM source.projects
+               UNION ALL SELECT 'analyses', count(*) FROM source.analyses
+               UNION ALL SELECT 'findings', count(*) FROM source.findings
+               UNION ALL SELECT 'reviews', count(*) FROM source.reviews
+               UNION ALL SELECT 'review_history', count(*) FROM source.review_history
+               UNION ALL SELECT 'deletion_audit', count(*) FROM source.deletion_audit"""
+            )
+        )
+        if POLICY_TABLE in counts:
+            total[POLICY_TABLE] = db.execute(
+                "SELECT count(*) FROM source.project_gate_policies"
+            ).fetchone()[0]
+        if total != counts:
             raise SnapshotError(
                 "snapshot contains records outside the requested project"
             )
@@ -155,15 +178,18 @@ def project_copy(source, stage, project, restoring):
         # Defer constraints until the complete projection can be diagnosed.
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("PRAGMA main.journal_mode = DELETE")
-        initialize(db)
         db.execute("ATTACH DATABASE ? AS source", (uri,))
+        version = db.execute("PRAGMA source.user_version").fetchone()[0]
+        initialize(db, version)
+        tables = TABLES + ((POLICY_TABLE,) if version == 3 else ())
+        statements = COPY + ((POLICY_COPY,) if version == 3 else ())
         db.execute("BEGIN")
         db.execute("PRAGMA defer_foreign_keys = ON")
-        verify_source(db)
+        verify_source(db, tables)
         verify_selected_project(db, project, restoring)
         counts = {
             table: db.execute(statement, (project,)).rowcount
-            for table, statement in zip(TABLES, COPY, strict=True)
+            for table, statement in zip(tables, statements, strict=True)
         }
         verify_projection(db, restoring, counts)
         db.execute("COMMIT")

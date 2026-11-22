@@ -1,0 +1,393 @@
+{
+  "server_version": "26.9.0.129388",
+  "cases": {
+    "broad-987f2896": {
+      "project": "hq-commander-combined-20261122-987f2896-broad",
+      "scm_only": {},
+      "gate": "HQ Commander combined coverage 20261122",
+      "baseline": {
+        "id": "f6e8fe54-b7ad-4cc0-92fa-82c7647f52c3",
+        "analysisId": "697945ca-583a-42a2-8cc8-f90f2d2a563e",
+        "componentKey": "hq-commander-combined-20261122-987f2896-broad",
+        "status": "SUCCESS",
+        "revision": "987f28966c71baecb0ef4a36780e727bcd575b31"
+      },
+      "candidate": {
+        "id": "55f5e78f-b699-4ef8-8c35-66b0c64eada9",
+        "analysisId": "d2980953-43e6-4dbe-89de-d18d54356db0",
+        "componentKey": "hq-commander-combined-20261122-987f2896-broad",
+        "status": "SUCCESS",
+        "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834"
+      },
+      "lcov_sha256": "6f7fb1f4027d2821a673c1a6127f791ec6b88082a6c3934d6d1ddcdd0ee8dba7",
+      "period": {
+        "projectKey": "hq-commander-combined-20261122-987f2896-broad",
+        "branchKey": "main",
+        "type": "SPECIFIC_ANALYSIS",
+        "value": "697945ca-583a-42a2-8cc8-f90f2d2a563e"
+      },
+      "decision": {
+        "status": "OK",
+        "conditions": [
+          {
+            "status": "OK",
+            "metricKey": "new_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "100.0"
+          },
+          {
+            "status": "OK",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "92.9"
+          }
+        ],
+        "ignoredConditions": false,
+        "period": {
+          "mode": "SPECIFIC_ANALYSIS",
+          "date": "2026-03-07T02:37:24+0000",
+          "parameter": "697945ca-583a-42a2-8cc8-f90f2d2a563e"
+        },
+        "caycStatus": "non-compliant"
+      },
+      "measures": {
+        "coverage": "92.9",
+        "lines_to_cover": "4201",
+        "uncovered_conditions": "62",
+        "new_lines": "5",
+        "uncovered_lines": "294",
+        "new_coverage": "100.0",
+        "new_conditions_to_cover": "1",
+        "new_uncovered_conditions": "0",
+        "new_uncovered_lines": "0",
+        "conditions_to_cover": "816",
+        "new_lines_to_cover": "5"
+      }
+    },
+    "focused-987f2896": {
+      "project": "hq-commander-combined-20261122-987f2896-focused",
+      "scm_only": {},
+      "gate": "HQ Commander combined coverage 20261122",
+      "baseline": {
+        "id": "cace9c05-d357-4558-bdbd-303372710591",
+        "analysisId": "fbb665da-50c3-4142-8744-b08f1b47005d",
+        "componentKey": "hq-commander-combined-20261122-987f2896-focused",
+        "status": "SUCCESS",
+        "revision": "987f28966c71baecb0ef4a36780e727bcd575b31"
+      },
+      "candidate": {
+        "id": "e8f49a82-94ad-48c4-978c-74285f67e74e",
+        "analysisId": "1504f616-d757-4659-9033-4c14cb3473c7",
+        "componentKey": "hq-commander-combined-20261122-987f2896-focused",
+        "status": "SUCCESS",
+        "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834"
+      },
+      "lcov_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "period": {
+        "projectKey": "hq-commander-combined-20261122-987f2896-focused",
+        "branchKey": "main",
+        "type": "SPECIFIC_ANALYSIS",
+        "value": "fbb665da-50c3-4142-8744-b08f1b47005d"
+      },
+      "decision": {
+        "status": "ERROR",
+        "conditions": [
+          {
+            "status": "OK",
+            "metricKey": "new_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "80.0"
+          },
+          {
+            "status": "ERROR",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "59.4"
+          }
+        ],
+        "ignoredConditions": false,
+        "period": {
+          "mode": "SPECIFIC_ANALYSIS",
+          "date": "2026-03-07T02:37:24+0000",
+          "parameter": "fbb665da-50c3-4142-8744-b08f1b47005d"
+        },
+        "caycStatus": "non-compliant"
+      },
+      "measures": {
+        "coverage": "59.4",
+        "lines_to_cover": "4201",
+        "uncovered_conditions": "84",
+        "new_lines": "5",
+        "uncovered_lines": "1716",
+        "new_coverage": "80.0",
+        "new_conditions_to_cover": "0",
+        "new_uncovered_conditions": "0",
+        "new_uncovered_lines": "1",
+        "conditions_to_cover": "232",
+        "new_lines_to_cover": "5"
+      }
+    },
+    "broad-b51c0ea3": {
+      "project": "hq-commander-combined-20261122-b51c0ea3-broad",
+      "scm_only": {
+        "index.js": [
+          22
+        ]
+      },
+      "gate": "HQ Commander combined coverage 20261122",
+      "baseline": {
+        "id": "b49c696a-6dec-4dc4-884e-c7edfa0fef71",
+        "analysisId": "b28f96c6-0cc5-4e4b-892a-057f553090c1",
+        "componentKey": "hq-commander-combined-20261122-b51c0ea3-broad",
+        "status": "SUCCESS",
+        "revision": "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75"
+      },
+      "candidate": {
+        "id": "066e9888-b265-4edd-9025-d30b3986f06f",
+        "analysisId": "94f760ba-d107-49b9-be4b-d3982a7af6a5",
+        "componentKey": "hq-commander-combined-20261122-b51c0ea3-broad",
+        "status": "SUCCESS",
+        "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834"
+      },
+      "lcov_sha256": "6f7fb1f4027d2821a673c1a6127f791ec6b88082a6c3934d6d1ddcdd0ee8dba7",
+      "period": {
+        "projectKey": "hq-commander-combined-20261122-b51c0ea3-broad",
+        "branchKey": "main",
+        "type": "SPECIFIC_ANALYSIS",
+        "value": "b28f96c6-0cc5-4e4b-892a-057f553090c1"
+      },
+      "decision": {
+        "status": "OK",
+        "conditions": [
+          {
+            "status": "OK",
+            "metricKey": "new_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "100.0"
+          },
+          {
+            "status": "OK",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "92.9"
+          }
+        ],
+        "ignoredConditions": false,
+        "period": {
+          "mode": "SPECIFIC_ANALYSIS",
+          "date": "2026-02-09T07:51:47+0000",
+          "parameter": "b28f96c6-0cc5-4e4b-892a-057f553090c1"
+        },
+        "caycStatus": "non-compliant"
+      },
+      "measures": {
+        "coverage": "92.9",
+        "lines_to_cover": "4201",
+        "uncovered_conditions": "62",
+        "new_lines": "49",
+        "uncovered_lines": "294",
+        "new_coverage": "100.0",
+        "new_conditions_to_cover": "9",
+        "new_uncovered_conditions": "0",
+        "new_uncovered_lines": "0",
+        "conditions_to_cover": "816",
+        "new_lines_to_cover": "48"
+      }
+    },
+    "focused-b51c0ea3": {
+      "project": "hq-commander-combined-20261122-b51c0ea3-focused",
+      "scm_only": {
+        "index.js": [
+          22
+        ]
+      },
+      "gate": "HQ Commander combined coverage 20261122",
+      "baseline": {
+        "id": "0f965bcb-bb9c-48c2-9fbf-5749c7e0ca61",
+        "analysisId": "4a932918-ff86-44a9-9e35-2c0e0d1b24ff",
+        "componentKey": "hq-commander-combined-20261122-b51c0ea3-focused",
+        "status": "SUCCESS",
+        "revision": "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75"
+      },
+      "candidate": {
+        "id": "80bbf84d-7f0a-4398-bc61-4d55b41ab850",
+        "analysisId": "b9611c6c-9fbb-4ccf-a242-494f2af40d50",
+        "componentKey": "hq-commander-combined-20261122-b51c0ea3-focused",
+        "status": "SUCCESS",
+        "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834"
+      },
+      "lcov_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "period": {
+        "projectKey": "hq-commander-combined-20261122-b51c0ea3-focused",
+        "branchKey": "main",
+        "type": "SPECIFIC_ANALYSIS",
+        "value": "4a932918-ff86-44a9-9e35-2c0e0d1b24ff"
+      },
+      "decision": {
+        "status": "ERROR",
+        "conditions": [
+          {
+            "status": "OK",
+            "metricKey": "new_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "94.4"
+          },
+          {
+            "status": "ERROR",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "59.4"
+          }
+        ],
+        "ignoredConditions": false,
+        "period": {
+          "mode": "SPECIFIC_ANALYSIS",
+          "date": "2026-02-09T07:51:47+0000",
+          "parameter": "4a932918-ff86-44a9-9e35-2c0e0d1b24ff"
+        },
+        "caycStatus": "non-compliant"
+      },
+      "measures": {
+        "coverage": "59.4",
+        "lines_to_cover": "4201",
+        "uncovered_conditions": "84",
+        "new_lines": "49",
+        "uncovered_lines": "1716",
+        "new_coverage": "94.4",
+        "new_conditions_to_cover": "6",
+        "new_uncovered_conditions": "0",
+        "new_uncovered_lines": "3",
+        "conditions_to_cover": "232",
+        "new_lines_to_cover": "48"
+      }
+    },
+    "policy-987f2896": {
+      "project": "hq-commander-combined-20261122-987f2896-focused-95",
+      "scm_only": {},
+      "gate": "HQ Commander combined coverage 20261122 95 new",
+      "baseline": {
+        "id": "89666f3f-e151-45b6-be3b-0e37b51f18aa",
+        "analysisId": "41c0553c-9818-412b-bb40-eb35b0ffa004",
+        "componentKey": "hq-commander-combined-20261122-987f2896-focused-95",
+        "status": "SUCCESS",
+        "revision": "987f28966c71baecb0ef4a36780e727bcd575b31"
+      },
+      "candidate": {
+        "id": "4932ced7-69b1-4781-9094-7cbc5cf0b619",
+        "analysisId": "9d242b49-1821-4637-8f8a-bff0aa165790",
+        "componentKey": "hq-commander-combined-20261122-987f2896-focused-95",
+        "status": "SUCCESS",
+        "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834"
+      },
+      "lcov_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "period": {
+        "projectKey": "hq-commander-combined-20261122-987f2896-focused-95",
+        "branchKey": "main",
+        "type": "SPECIFIC_ANALYSIS",
+        "value": "41c0553c-9818-412b-bb40-eb35b0ffa004"
+      },
+      "decision": {
+        "status": "OK",
+        "conditions": [
+          {
+            "status": "OK",
+            "metricKey": "new_coverage",
+            "comparator": "LT",
+            "errorThreshold": "95",
+            "actualValue": "80.0"
+          }
+        ],
+        "ignoredConditions": true,
+        "period": {
+          "mode": "SPECIFIC_ANALYSIS",
+          "date": "2026-03-07T02:37:24+0000",
+          "parameter": "41c0553c-9818-412b-bb40-eb35b0ffa004"
+        },
+        "caycStatus": "non-compliant"
+      },
+      "measures": {
+        "coverage": "59.4",
+        "lines_to_cover": "4201",
+        "uncovered_conditions": "84",
+        "new_lines": "5",
+        "uncovered_lines": "1716",
+        "new_coverage": "80.0",
+        "new_conditions_to_cover": "0",
+        "new_uncovered_conditions": "0",
+        "new_uncovered_lines": "1",
+        "conditions_to_cover": "232",
+        "new_lines_to_cover": "5"
+      }
+    },
+    "policy-b51c0ea3": {
+      "project": "hq-commander-combined-20261122-b51c0ea3-focused-95",
+      "scm_only": {
+        "index.js": [
+          22
+        ]
+      },
+      "gate": "HQ Commander combined coverage 20261122 95 new",
+      "baseline": {
+        "id": "7a3cf4cb-8b05-4691-a3b9-2ce01a0acd41",
+        "analysisId": "5d8c4916-cecc-4b26-a132-db836456d0a5",
+        "componentKey": "hq-commander-combined-20261122-b51c0ea3-focused-95",
+        "status": "SUCCESS",
+        "revision": "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75"
+      },
+      "candidate": {
+        "id": "bbfdd1fc-0146-40e6-8f3c-d5a4ecd01922",
+        "analysisId": "18e4c509-f223-4a7b-9bec-a022004efce8",
+        "componentKey": "hq-commander-combined-20261122-b51c0ea3-focused-95",
+        "status": "SUCCESS",
+        "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834"
+      },
+      "lcov_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "period": {
+        "projectKey": "hq-commander-combined-20261122-b51c0ea3-focused-95",
+        "branchKey": "main",
+        "type": "SPECIFIC_ANALYSIS",
+        "value": "5d8c4916-cecc-4b26-a132-db836456d0a5"
+      },
+      "decision": {
+        "status": "ERROR",
+        "conditions": [
+          {
+            "status": "ERROR",
+            "metricKey": "new_coverage",
+            "comparator": "LT",
+            "errorThreshold": "95",
+            "actualValue": "94.4"
+          }
+        ],
+        "ignoredConditions": false,
+        "period": {
+          "mode": "SPECIFIC_ANALYSIS",
+          "date": "2026-02-09T07:51:47+0000",
+          "parameter": "5d8c4916-cecc-4b26-a132-db836456d0a5"
+        },
+        "caycStatus": "non-compliant"
+      },
+      "measures": {
+        "coverage": "59.4",
+        "lines_to_cover": "4201",
+        "uncovered_conditions": "84",
+        "new_lines": "49",
+        "uncovered_lines": "1716",
+        "new_coverage": "94.4",
+        "new_conditions_to_cover": "6",
+        "new_uncovered_conditions": "0",
+        "new_uncovered_lines": "3",
+        "conditions_to_cover": "232",
+        "new_lines_to_cover": "48"
+      }
+    }
+  }
+}

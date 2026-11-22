@@ -1,4 +1,5 @@
 mod findings;
+pub(crate) mod policy;
 mod schema;
 
 pub(crate) use findings::FindingPage;
@@ -8,7 +9,7 @@ use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -56,6 +57,12 @@ impl From<rusqlite::Error> for StoreError {
 fn to_sqlite_u64(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value)
         .map_err(|_| StoreError::Invalid("version exceeds SQLite integer range".to_string()))
+}
+
+fn optional_u64(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<Option<u64>> {
+    row.get::<_, Option<i64>>(column)?
+        .map(|value| from_sqlite_u64(value, column))
+        .transpose()
 }
 
 fn from_sqlite_u64(value: i64, column: usize) -> rusqlite::Result<u64> {
@@ -115,6 +122,8 @@ pub(crate) struct AnalysisSummary {
     pub duplication: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gate: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate_policy_version: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -219,6 +228,8 @@ pub(crate) struct RestoreResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct BackupAnalysis {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate_policy_version: Option<u64>,
     pub id: i64,
     pub branch: String,
     pub commit: String,
@@ -337,7 +348,7 @@ impl Store {
         let latest = connection
             .query_row(
                 "SELECT id, project, branch, commit_sha, analyzed_at, report_schema_version,
-                        complete, metrics_json, duplication_json, gate_json
+                        complete, metrics_json, duplication_json, COALESCE(assigned_gate_json, gate_json), gate_policy_version
                  FROM analyses
                  WHERE project = ?1 AND deleted_at IS NULL
                  ORDER BY analyzed_epoch DESC, id DESC LIMIT 1",
@@ -399,7 +410,7 @@ impl Store {
         ensure_active_project(&connection, project)?;
         let mut statement = connection.prepare(
             "SELECT id, project, branch, commit_sha, analyzed_at, report_schema_version,
-                    complete, metrics_json, duplication_json, gate_json
+                    complete, metrics_json, duplication_json, COALESCE(assigned_gate_json, gate_json), gate_policy_version
              FROM analyses
              WHERE project = ?1 AND deleted_at IS NULL
                AND (?2 IS NULL OR branch = ?2)
@@ -421,7 +432,7 @@ impl Store {
         connection
             .query_row(
                 "SELECT id, project, branch, commit_sha, analyzed_at, report_schema_version,
-                        complete, metrics_json, duplication_json, gate_json,
+                        complete, metrics_json, duplication_json, COALESCE(assigned_gate_json, gate_json), gate_policy_version,
                         report_json, assessment_json
                  FROM analyses
                  WHERE id = ?1 AND project = ?2 AND deleted_at IS NULL",
@@ -489,9 +500,10 @@ impl Store {
         legacy_content_hash: impl FnOnce() -> Option<String>,
     ) -> Result<IngestResult, StoreError> {
         let mut connection = self.lock()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         // The project tombstone gates both ingest branches: an idempotent
         // replay must not acknowledge data into a deleted project.
-        let project_deleted: Option<String> = connection
+        let project_deleted: Option<String> = transaction
             .query_row(
                 "SELECT deleted_at FROM projects WHERE project = ?1",
                 [&input.project],
@@ -504,7 +516,7 @@ impl Store {
                 "the project has been explicitly deleted".to_string(),
             ));
         }
-        let existing = Self::existing_analysis(&connection, input)?;
+        let existing = Self::existing_analysis(&transaction, input)?;
         if let Some(ExistingAnalysis {
             id,
             content_hash,
@@ -520,13 +532,14 @@ impl Store {
             if content_hash == input.content_hash
                 || (!exact_floats && legacy_content_hash().as_deref() == Some(&content_hash))
             {
-                let summary = connection.query_row(
+                let summary = transaction.query_row(
                     "SELECT id, project, branch, commit_sha, analyzed_at, report_schema_version,
-                            complete, metrics_json, duplication_json, gate_json
+                            complete, metrics_json, duplication_json, COALESCE(assigned_gate_json, gate_json), gate_policy_version
                      FROM analyses WHERE id = ?1",
                     [id],
                     summary_from_row,
                 )?;
+                transaction.commit()?;
                 return Ok(IngestResult {
                     analysis: summary,
                     idempotent: true,
@@ -538,16 +551,18 @@ impl Store {
             ));
         }
 
-        let transaction = connection.transaction()?;
         let analysis_id = Self::insert_analysis_rows(&transaction, input)?;
-        transaction.commit()?;
-        let summary = connection.query_row(
+        if let Some(policy) = policy::latest(&transaction, &input.project)? {
+            policy::bind(&transaction, analysis_id, &policy, &input.report_json)?;
+        }
+        let summary = transaction.query_row(
             "SELECT id, project, branch, commit_sha, analyzed_at, report_schema_version,
-                    complete, metrics_json, duplication_json, gate_json
+                    complete, metrics_json, duplication_json, COALESCE(assigned_gate_json, gate_json), gate_policy_version
              FROM analyses WHERE id = ?1",
             [analysis_id],
             summary_from_row,
         )?;
+        transaction.commit()?;
         Ok(IngestResult {
             analysis: summary,
             idempotent: false,
@@ -962,7 +977,18 @@ impl Store {
         project: &str,
         now: &str,
     ) -> Result<BackupEnvelope, StoreError> {
-        let connection = self.lock()?;
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let backup = Self::export_snapshot(&tx, project, now)?;
+        tx.commit()?;
+        Ok(backup)
+    }
+
+    fn export_snapshot(
+        connection: &Connection,
+        project: &str,
+        now: &str,
+    ) -> Result<BackupEnvelope, StoreError> {
         let project_deleted_at: Option<String> = connection
             .query_row(
                 "SELECT deleted_at FROM projects WHERE project = ?1",
@@ -974,7 +1000,7 @@ impl Store {
         let mut analyses_statement = connection.prepare(
             "SELECT id, branch, commit_sha, analyzed_at, analyzed_epoch, report_schema_version, complete,
                     metrics_json, duplication_json, gate_json, report_json, assessment_json,
-                    content_hash, deleted_at, exact_floats
+                    content_hash, deleted_at, exact_floats, gate_policy_version
              FROM analyses WHERE project = ?1 ORDER BY id ASC",
         )?;
         let analyses = analyses_statement
@@ -1013,8 +1039,10 @@ impl Store {
         let deletions = deletion_statement
             .query_map([project], deletion_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
+        let gate_policies = policy::history(connection, project)?;
         Ok(BackupEnvelope {
-            schema_version: 1,
+            schema_version: if gate_policies.is_empty() { 1 } else { 2 },
+            gate_policies,
             kind: "hoonarqube_service_backup".to_string(),
             project: project.to_string(),
             exported_at: now.to_string(),
@@ -1029,9 +1057,11 @@ impl Store {
 
     pub(crate) fn restore(&self, restore: &ValidatedRestore) -> Result<RestoreResult, StoreError> {
         let mut connection = self.lock()?;
-        let transaction = connection.transaction()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         restore_project(&transaction, &restore.backup)?;
-        let (analysis_ids, analyses_count) = restore_analyses(&transaction, &restore.backup)?;
+        let already_governed = policy::restore_history(&transaction, &restore.backup)?;
+        let (analysis_ids, analyses_count) =
+            restore_analyses(&transaction, &restore.backup, already_governed)?;
         let findings_count = restore_findings(&transaction, &restore.backup, &analysis_ids)?;
         let (review_ids, reviews_count) =
             restore_reviews(&transaction, &restore.backup, &analysis_ids)?;
@@ -1085,11 +1115,19 @@ fn restore_project(
 fn restore_analyses(
     transaction: &rusqlite::Transaction<'_>,
     backup: &BackupEnvelope,
+    already_governed: bool,
 ) -> Result<(HashMap<i64, i64>, u64), StoreError> {
     let mut analysis_ids = HashMap::new();
     let mut analyses_count = 0_u64;
     for analysis in &backup.analyses {
         let (target_id, inserted) = restore_analysis(transaction, backup, analysis)?;
+        if already_governed && inserted {
+            return Err(StoreError::Conflict(
+                "restore new analyses into a fresh project database to preserve policy history"
+                    .into(),
+            ));
+        }
+        policy::restore_binding(transaction, backup, analysis, target_id, inserted)?;
         if inserted {
             analyses_count += 1;
         }
@@ -1521,6 +1559,7 @@ fn parse_json(text: &str) -> Result<Value, StoreError> {
 
 fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisSummary> {
     Ok(AnalysisSummary {
+        gate_policy_version: optional_u64(row, 10)?,
         id: row.get(0)?,
         project: row.get(1)?,
         branch: row.get(2)?,
@@ -1563,20 +1602,20 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisSummary
 fn detail_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AnalysisDetail> {
     Ok(AnalysisDetail {
         summary: summary_from_row(row)?,
-        report: wire_json::parse(&row.get::<_, String>(10)?).map_err(|error| {
+        report: wire_json::parse(&row.get::<_, String>(11)?).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
-                10,
+                11,
                 rusqlite::types::Type::Text,
                 Box::new(error),
             )
         })?,
         assessment: row
-            .get::<_, Option<String>>(11)?
+            .get::<_, Option<String>>(12)?
             .map(|text| wire_json::parse(&text))
             .transpose()
             .map_err(|error| {
                 rusqlite::Error::FromSqlConversionFailure(
-                    11,
+                    12,
                     rusqlite::types::Type::Text,
                     Box::new(error),
                 )
@@ -1630,6 +1669,7 @@ fn history_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRecord> 
 
 fn backup_analysis_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BackupAnalysis> {
     Ok(BackupAnalysis {
+        gate_policy_version: optional_u64(row, 15)?,
         id: row.get(0)?,
         branch: row.get(1)?,
         commit: row.get(2)?,

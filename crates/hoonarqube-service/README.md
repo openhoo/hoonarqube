@@ -8,7 +8,7 @@ history in SQLite. It serves a browser dashboard at `/` and project APIs under
 
 Configure exactly one credential source: `HOONARQUBE_SERVICE_CREDENTIALS_FILE` (a path to a UTF-8 JSON file, at most 1 MiB) or `HOONARQUBE_SERVICE_CREDENTIALS` (inline JSON). Both accept the same array.
 Each entry has `user_id`, `token`, and a `projects` object mapping project IDs
-to `reader`, `reviewer`, or `admin`. The optional `global_admin` flag grants
+to `reader`, `scanner`, `reviewer`, or `admin`. The optional `global_admin` flag grants
 access to every project. Both user IDs and bearer tokens must be unique;
 ambiguous credentials prevent startup without including tokens in errors.
 Keep real credential values out of source files and terminal logs.
@@ -45,6 +45,80 @@ must match their latest immutable history entry, including the reviewed analysis
 state, version, actor, timestamp, and reason; contradictory backups are refused
 before creating a project or writing any rows.
 
+## Assign a project gate
+
+Assign a gate before the first CI upload to enforce the same conditions even
+when the scanner omits its gate or submits a weaker one. Use a project
+`admin` credential for policy changes. Give CI the `scanner` role: it can
+upload and read analyses but cannot change policy, submit reviews, restore
+backups, or delete records. Reviewers can read and review, and readers can read.
+
+An admin can provision a project and assign its first gate with
+`PUT /api/v1/projects/{project}/gate-policy`:
+
+```json
+{
+  "schema_version": 1,
+  "expected_version": 0,
+  "config": {
+    "schema_version": 1,
+    "conditions": [
+      {"scope": "new_code", "metric": "violations", "operator": "lte", "threshold": 0}
+    ]
+  }
+}
+```
+
+The response contains `policy.version`, `policy.config`, `policy.updated_by`
+and `policy.updated_at`. Any project reader can retrieve it with
+`GET /api/v1/projects/{project}/gate-policy`; an existing unassigned project
+returns `{"policy":null}`. To change the policy, send its current version as
+`expected_version`. A stale update returns HTTP 409. The service accepts
+one to 64 valid gate conditions. Once assigned, the policy remains active;
+each update adds an immutable revision.
+
+The service binds each new analysis to the policy active at ingestion.
+The upload response, history and analysis detail expose `gate_policy_version`
+and the initial service decision in `gate`. The uploaded scanner decision, if
+present, stays in `report.assessment.gate`. An idempotent replay returns the
+original analysis and policy. Updating the policy does not change older
+analyses. Analyses submitted before assignment retain their original scanner
+gate, including the possibility of no gate.
+
+For the current verdict, read
+`GET /api/v1/projects/{project}/analyses/{analysis_id}/gate`. It uses that
+analysis's bound conditions and includes compatible authorized hotspot reviews
+and reopenings. For an unassigned analysis it uses the submitted gate, or
+returns HTTP 404 if no gate was submitted. Assignment controls the conditions;
+the service still relies on an authorized scanner for its source scope,
+measurements, and baseline evidence. It does not independently check out code
+or authenticate coverage producers.
+
+### Enforce the upload verdict in CI
+
+HTTP 200 acknowledges storage. A failing or unavailable gate is still stored.
+The script below checks the service receipt for the exact project, branch and
+commit in the CI job. It exits **0** for an assigned pass, **1** for a failed
+gate, and **2** for unavailable, unassigned, malformed, or mismatched results.
+
+```sh
+# Use a trusted service URL and the scanner credential from the CI secret store.
+# ingest.json contains the analysis envelope described in the root README.
+set -eu
+curl --fail --silent --show-error \
+  --oauth2-bearer "$SCANNER_TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @ingest.json "$SERVICE_URL/api/v1/projects/$PROJECT/analyses" \
+  -o ingest-receipt.json
+python3 scripts/check_project_gate.py --project "$PROJECT" --branch "$BRANCH" \
+  --commit "$COMMIT" < ingest-receipt.json
+```
+
+The [Redux replay](../../tools/oracle/project_gate_policy_replay.py) exercises
+the scanner, service, and CI script on two pinned revisions. The
+[receipt](../../tools/oracle/project-gate-policy-redux.json) records each
+decision, the binary hashes, concurrent updates, restart, and both restore
+formats.
+
 ## Finding pages
 
 Use `GET /api/v1/projects/{project}/analyses/{analysis_id}/findings/page` for
@@ -61,10 +135,10 @@ pages. The existing `/findings` route still returns the full array.
 ## Database startup and recovery
 
 Use a dedicated SQLite file for each instance. The service initializes empty
-unversioned files and upgrades existing version 1 databases to version 2 in one
-transaction. The upgrade adds a marker to distinguish reports written with
-exact float parsing from older reports. It does not rewrite existing reports,
-hashes, or reviews. Missing service indexes are recreated on startup. A
+unversioned files and upgrades version 1 or 2 databases to version 3 in one
+transaction. Version 2 introduced exact float parsing; version 3 adds gate
+policy history and nullable analysis bindings. Existing analyses stay
+unassigned. The migration preserves reports, hashes, and reviews. Missing service indexes are recreated on startup. A
 nonempty unversioned database, a database missing a required table, or an
 unsupported version stops startup without switching its journal mode.
 
@@ -74,12 +148,17 @@ row still resolves to its original analysis. An older row may already contain
 rounded values; the service preserves those values.
 
 Take a consistent SQLite backup before upgrading, including any committed
-state in the WAL. The project backup schema stays at version 1. The new service
-can restore valid older backups. An old binary cannot open a version 2 database.
-It can restore a new project backup into a version 1 database only when the old
-decoder reproduces every analysis hash and metric in that backup; a backup with
-an affected precise value can be rejected. Keep the pre-upgrade SQLite backup
-for rollback.
+state in the WAL. Older binaries cannot open a version 3 database. Keep the
+pre-upgrade SQLite backup for rollback.
+
+Project JSON exports use backup schema 1 for unassigned projects and schema 2
+for assigned projects. Schema 2 includes policy revisions and the binding for
+each analysis. Restore recalculates each assigned gate from its policy and
+validated report. Restore into an empty destination for recovery. A destination
+with an existing policy accepts only matching policy history and known analyses
+with unchanged bindings; an archive cannot insert an analysis under an older
+or missing policy there. Previous service binaries cannot restore schema 2
+JSON exports.
 
 On refusal, preserve the database and its WAL files; inspect a backup before
 choosing a compatible binary or restoring a known-good copy. Do not reset
@@ -111,11 +190,12 @@ same project, branch, and commit returns HTTP 409.
 ### Recover one project above the HTTP limit
 
 Use the operator script from this service revision on Linux or macOS with
-Python 3.11 or later. It reads a schema version 2 service database, including
+Python 3.11 or later. It reads a schema version 2 or 3 service database, including
 committed WAL records, in one read-only SQLite transaction. Only the exact
 project is copied into a new SQLite file. The copy includes report bytes,
 analysis and finding IDs, review revisions and actors, and soft deletions
-and their audit records. The 16 MiB HTTP limit still applies to HTTP routes.
+and their audit records. Schema 3 also copies gate history, bound policy
+versions, and initial decisions. The 16 MiB HTTP limit still applies to HTTP routes.
 
 Run the following as an operator with filesystem read access to the service
 database and write access to a private local directory. Use a destination
@@ -148,7 +228,7 @@ copies database rows without going through the HTTP parser or applying
 retention. It does not merge into an existing database or upgrade old schemas.
 
 Configure the restored service separately with `HOONARQUBE_SERVICE_DB` pointing
-to the new file. Supply only the intended project's reader, reviewer, and admin
+to the new file. Supply only the intended project's reader, scanner, reviewer, and admin
 assignments from your credential store. Supply them through one of the two
 credential sources described in [Start locally](#start-locally). The snapshot
 contains review actor IDs, but no role assignments or bearer tokens. Keep the

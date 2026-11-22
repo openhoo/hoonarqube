@@ -915,6 +915,7 @@ version = "0.11.1"
 name = "hoonarqube-gates"
 version = "0.11.1"
 dependencies = [
+ "hoonarqube-catalog",
  "hoonarqube-ir",
  "serde",
 ]

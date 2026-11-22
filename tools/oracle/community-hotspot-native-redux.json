@@ -1,0 +1,116 @@
+{
+  "repo": "reduxjs/redux",
+  "base": "0b6d794effa9da5080bfb4c6865a324357b85018",
+  "head": "e6f6c7da7b39ed46273d05d150cf1f578973ac3c",
+  "path": "src/utils/actionTypes.js",
+  "sha256": {
+    "0b6d794effa9da5080bfb4c6865a324357b85018": "8c9eef6d0b9ceae64357de9e01cb4df0f3e826990017f20b2dfc5589d6f54388",
+    "e6f6c7da7b39ed46273d05d150cf1f578973ac3c": "505b660b824a71a0486a18d32d4b3bfb9f243262048d77aa6cb20dcb89c2744c"
+  },
+  "scanner_sha256": "77b21598e8da8d8b65c7b85d88e9820b04283ee65783b4ae8381282103debc7c",
+  "service_sha256": "7577d0c19c070447374ad888bf4e1010af49cd3ad9ba29e358f10c28994fd2f1",
+  "rule": "javascript:S2245",
+  "states": {
+    "unchanged": {
+      "actual": null,
+      "condition": "no_value",
+      "gate": "pass"
+    },
+    "unreviewed": {
+      "actual": 0,
+      "condition": "fail",
+      "gate": "fail"
+    },
+    "missing": {
+      "actual": null,
+      "condition": "unavailable",
+      "gate": "unavailable"
+    },
+    "reader_denied": {
+      "actual": 0,
+      "condition": "fail",
+      "gate": "fail"
+    },
+    "one_reviewed": {
+      "actual": 50,
+      "condition": "fail",
+      "gate": "fail"
+    },
+    "both_reviewed": {
+      "actual": 100,
+      "condition": "pass",
+      "gate": "pass"
+    },
+    "other_branch": {
+      "actual": 0,
+      "condition": "fail",
+      "gate": "fail"
+    },
+    "after_restart": {
+      "actual": 100,
+      "condition": "pass",
+      "gate": "pass"
+    },
+    "reopened": {
+      "actual": 50,
+      "condition": "fail",
+      "gate": "fail"
+    },
+    "immutable_scan": {
+      "actual": 0,
+      "condition": "fail",
+      "gate": "fail"
+    }
+  },
+  "legacy_backup_ambiguity_preserved": true,
+  "community_26_9_mapping": {
+    "unchanged": {
+      "exit_code": 0,
+      "status": "pass",
+      "conditions": [
+        [
+          "community_26_9_violations",
+          0.0,
+          "pass"
+        ],
+        [
+          "community_26_9_security_hotspots_reviewed",
+          null,
+          "no_value"
+        ]
+      ]
+    },
+    "candidate": {
+      "exit_code": 1,
+      "status": "fail",
+      "conditions": [
+        [
+          "community_26_9_violations",
+          2.0,
+          "fail"
+        ],
+        [
+          "community_26_9_security_hotspots_reviewed",
+          null,
+          "no_value"
+        ]
+      ]
+    },
+    "missing": {
+      "exit_code": 2,
+      "status": "unavailable",
+      "conditions": [
+        [
+          "community_26_9_violations",
+          null,
+          "unavailable"
+        ],
+        [
+          "community_26_9_security_hotspots_reviewed",
+          null,
+          "unavailable"
+        ]
+      ]
+    }
+  }
+}
