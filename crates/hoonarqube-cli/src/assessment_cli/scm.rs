@@ -7,10 +7,10 @@ use std::process::{Command, Stdio};
 
 use hoonarqube_core::assessment::compare_reports;
 use hoonarqube_ir::assessment::{
-    AssessmentReport, AssessmentStatus, FindingStatus, NewCodeLines, NewCodeReport, SourceSnapshot,
-    SpecificAnalysis, normalize_path,
+    AssessmentReport, AssessmentStatus, FindingMatch, FindingStatus, NewCodeLines, NewCodeReport,
+    SourceSnapshot, SpecificAnalysis, normalize_path,
 };
-use hoonarqube_ir::{AnalysisReport, Issue, Range};
+use hoonarqube_ir::{AnalysisReport, FileReport, Issue, Range};
 
 use super::{MAX_ASSESSMENT_INPUT_BYTES, load_reference_report, read_bounded_text};
 
@@ -70,27 +70,13 @@ pub(super) fn classify(
             .checked_add(lines.len())
             .filter(|n| *n <= 4_000_000)
             .ok_or("SCM period exceeds the changed line limit")?;
-        for finding in &source.findings {
-            let matched = findings
-                .next()
-                .filter(|m| {
-                    m.path == source.path
-                        && m.issue_index == finding.issue_index
-                        && m.identity == finding.identity
-                })
-                .ok_or("SCM period has an incomplete baseline finding inventory")?;
-            let issue = files
-                .get(&source.path)
-                .and_then(|f| f.issues.get(finding.issue_index))
-                .ok_or("SCM finding has no matching native issue")?;
-            if matched.status != FindingStatus::Existing {
-                match touches_period(issue, &source.path, &lines, dates.len()) {
-                    Some(false) => matched.status = FindingStatus::Existing,
-                    None => matched.status = FindingStatus::Uncertain,
-                    Some(true) => (),
-                }
-            }
-        }
+        classify_findings(
+            source,
+            files.get(&source.path).copied(),
+            &mut findings,
+            &lines,
+            dates.len(),
+        )?;
         if !lines.is_empty() {
             membership.push(NewCodeLines {
                 path: source.path.clone(),
@@ -118,6 +104,36 @@ pub(super) fn classify(
     comparison.changed_source_lines = Some(membership);
     comparison.specific_analysis = Some(period);
     Ok(comparison)
+}
+
+fn classify_findings(
+    source: &SourceSnapshot,
+    file: Option<&FileReport>,
+    findings: &mut std::slice::IterMut<'_, FindingMatch>,
+    lines: &[u32],
+    line_count: usize,
+) -> Result<(), String> {
+    for finding in &source.findings {
+        let matched = findings
+            .next()
+            .filter(|m| {
+                m.path == source.path
+                    && m.issue_index == finding.issue_index
+                    && m.identity == finding.identity
+            })
+            .ok_or("SCM period has an incomplete baseline finding inventory")?;
+        let issue = file
+            .and_then(|f| f.issues.get(finding.issue_index))
+            .ok_or("SCM finding has no matching native issue")?;
+        if matched.status != FindingStatus::Existing {
+            match touches_period(issue, &source.path, lines, line_count) {
+                Some(false) => matched.status = FindingStatus::Existing,
+                None => matched.status = FindingStatus::Uncertain,
+                Some(true) => (),
+            }
+        }
+    }
+    Ok(())
 }
 
 fn verify_base(
