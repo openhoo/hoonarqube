@@ -32,7 +32,7 @@ def safe_path(value):
     return value
 
 
-def validate(case):
+def validate_scope(case):
     repo = case["repository"]
     require(len(repo.split("/")) == 2, f"invalid GitHub repository: {repo}")
     safe_path(repo)
@@ -64,6 +64,11 @@ def validate(case):
         canonical_sha(files) == case["source_inventory_sha256"],
         "source inventory digest mismatch",
     )
+
+
+def validate(case):
+    validate_scope(case)
+    files = case["files"]
     rules = case["parameters"]
     expected = case["primaries"]
     require(
@@ -162,7 +167,7 @@ def stage(case, scratch, local_repo=None):
     return source
 
 
-def compare(case, report, source):
+def observe(case, report, source):
     project, parity = report["project"], report["parity"]
     require(
         project["complete"] and not parity["rule_set_violations"],
@@ -210,6 +215,11 @@ def compare(case, report, source):
     ]
     found, _, _, invalid = normalize_native(selected, source, {}, {})
     require(not invalid, f"invalid primary ranges: {dict(invalid)}")
+    return found
+
+
+def compare(case, report, source):
+    found = observe(case, report, source)
     expected = Counter(map(tuple, case["primaries"]))
     require(
         found == expected,
@@ -217,8 +227,7 @@ def compare(case, report, source):
     )
 
 
-def replay(case, binary, local_repo=None):
-    validate(case)
+def scan(case, binary, local_repo, evaluate):
     with tempfile.TemporaryDirectory(prefix="public-contract-") as directory:
         scratch = Path(directory)
         source = stage(case, scratch, local_repo)
@@ -248,7 +257,12 @@ def replay(case, binary, local_repo=None):
                 "LC_ALL": "C",
             },
         )
-        compare(case, json.loads(result.stdout), source)
+        return evaluate(case, json.loads(result.stdout), source)
+
+
+def replay(case, binary, local_repo=None):
+    validate(case)
+    return scan(case, binary, local_repo, compare)
 
 
 def main():
