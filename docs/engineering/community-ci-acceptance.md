@@ -1,6 +1,6 @@
-# First production pilot: Community Build and CI gates
+# Community Build and CI gate acceptance
 
-The first acceptance target is a team's existing **SonarQube Community Build gate**. Before using Hoonarqube to block merges, compare the gate actually assigned to the team, on two revisions of its repository. Keep the current gate authoritative during the comparison. Commercial analyzers, portfolios and single sign-on are outside this first acceptance decision.
+Current verification uses public source revisions and Hoonarqube's own CI. No team repository or production migration is selected. Before a future team uses Hoonarqube to block merges, compare its assigned **SonarQube Community Build gate** on actual revisions and keep the existing gate authoritative during the comparison. Commercial analyzers, portfolios and single sign-on are outside this first acceptance decision.
 
 ## Which gate do we need to reproduce?
 
@@ -9,7 +9,7 @@ The [readback](community-default-gate.json) comes from the built-in, default **S
 | Failure predicate read from the reference | What Hoonarqube can establish today |
 |---|---|
 | Coverage on new code below 80% | The [six Commander decisions](../../tools/oracle/community-combined-coverage.md) match for the two Git baselines on measured lines and branch outcomes. At 95%, 5 new lines to cover triggered the exception and 48 did not. |
-| Duplicated line density on new code above 3% | Native gates support duplication on new code when given a compatible prior report. Picomatch and Yjs qualify **overall** duplication. Commander exposed a one-line difference in physical SCM counts; a coverage comparison does not qualify a duplication exception. |
+| Duplicated line density on new code above 3% | The [five Yjs and FastAPI comparisons](../../tools/oracle/community-new-duplication.md) exercise this policy. On two FastAPI changes with 10 and 14 new lines, both engines ignore a measured breach. On 35 new lines both block; native counts 20 duplicated lines, Sonar 21. On a Yjs change with 86 new lines, Sonar measures 65 duplicated lines while the native gate blocks as unavailable because line matching is ambiguous. |
 | Reviewed hotspots on new code below 100% | The [Redux replay](../../tools/oracle/community-hotspot-review.md) tests authorized reviews, restart and historical decisions. Sonar 26.9 classifies its two S2245 findings as vulnerabilities and omits the empty hotspot condition. A matching nonempty Community hotspot population is still needed. |
 | More than zero new issues | The versioned 26.9 gate counts two new violations on Redux while the reference counts zero: the Git revision diff and reference SCM definition disagree. Equivalence depends on the active rules, native finding identities and the selected baseline. The [public project comparison](public-projects-2026-11-21.md) records one-sided findings. |
 

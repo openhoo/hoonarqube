@@ -1,0 +1,231 @@
+{
+  "server": "26.9.0.129388",
+  "scanner": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "cases": [
+    {
+      "repo": "yjs",
+      "project": "hq-yjs-duplication-20261122-040e4a-53fd0285-486d5677",
+      "path": "src/utils/ids.js",
+      "base": {
+        "analysisId": "81f6e42f-2616-497c-a0a8-c1f143d4fbfb",
+        "computeId": "76bbcce6-35d9-4216-8bd7-71c5d98f8d34",
+        "revision": "53fd0285116bdd8320649329e7a04b6f19e94e1d",
+        "tree": "3d8595e193edb1df47d48d8e342057d3a865ccd9",
+        "blob": "dd5ac7b36e6870f0c59d8fc2f640ba370d50b90b",
+        "sha256": "6238087a1911f5f97f3168ab9fb4dd2c91f87a143ac6195ef2d547459992fe64",
+        "ce_status": "SUCCESS"
+      },
+      "candidate": {
+        "analysisId": "7a1154fe-62e1-4075-945c-8823a2ce2ef2",
+        "computeId": "cf46b45c-4bd6-4546-86b1-5a2ae053380b",
+        "revision": "486d5677d99b003fc0ca1d62c6d47ee3d709cb2e",
+        "tree": "ce2cda7caf8fb96f89a2c18109fab0e2457bf1e5",
+        "blob": "5ac29ce62333f2ba9b4b817bcafdae75af34bc21",
+        "sha256": "b629f47bc6313b475396303360cb2bfb1090daf8337d49c374a7f29acbd1146a",
+        "ce_status": "SUCCESS"
+      },
+      "capture_sha256": "51ee19a70a4b2741ab471ecaa888b3357444e37ef93c946646b7440f32866bcf",
+      "assignment_default": false,
+      "period_type": "SPECIFIC_ANALYSIS",
+      "period_branch": "main",
+      "gate": "HQ Yjs new duplication 20261122",
+      "condition_id": "f14c3f04-4e69-4b59-8716-75ad3a9296e2",
+      "period": "81f6e42f-2616-497c-a0a8-c1f143d4fbfb",
+      "reference": {
+        "new": 86,
+        "duplicated": 65,
+        "density": 75.5814,
+        "status": "ERROR",
+        "ignored": false
+      },
+      "native": {
+        "new": null,
+        "duplicated": null,
+        "density": null,
+        "status": "unavailable",
+        "ignored": false,
+        "exit": 2
+      }
+    },
+    {
+      "repo": "yjs",
+      "project": "hq-yjs-duplication-20261122-8e03df-ebae7a3e-ee37f0a0",
+      "path": "src/structs/Item.js",
+      "base": {
+        "analysisId": "444f915f-88b9-4ce6-a155-b82b5268f8fd",
+        "computeId": "5e0c4690-f498-4999-a5da-8ae409ac17de",
+        "revision": "ebae7a3ee238654921cf09c6fe803b019b1e1cd7",
+        "tree": "6d62055a5e73530fa78f31d4d63a28713ebb3a3f",
+        "blob": "d3fb68a6086cab497099f265f95100258224db1b",
+        "sha256": "f943dfc401e586af13d418ecb33d584c2726195a112c7d57d823d494e943e731",
+        "ce_status": "SUCCESS"
+      },
+      "candidate": {
+        "analysisId": "b91102f1-99bc-4cac-bef8-13eb935fd952",
+        "computeId": "96a0b032-7cca-45de-8cf7-61fb8057567a",
+        "revision": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+        "tree": "d07eb7c5b5994055d2054d0d9ddbb2805e7ddda9",
+        "blob": "6648444197db444ae84fe42e3ad687916112e3e0",
+        "sha256": "32e358266a5289a98aeed613550720bcefdfd0693a9c593a75f446173b894269",
+        "ce_status": "SUCCESS"
+      },
+      "capture_sha256": "7c06e5a61b89c41582a5ab5b008c7b8ec8c7446837bbd46ae0abcff988644e8d",
+      "assignment_default": false,
+      "period_type": "SPECIFIC_ANALYSIS",
+      "period_branch": "main",
+      "gate": "HQ Yjs new duplication 20261122",
+      "condition_id": "f14c3f04-4e69-4b59-8716-75ad3a9296e2",
+      "period": "444f915f-88b9-4ce6-a155-b82b5268f8fd",
+      "reference": {
+        "new": 19,
+        "duplicated": 0,
+        "density": 0.0,
+        "status": "OK",
+        "ignored": false
+      },
+      "native": {
+        "new": 19,
+        "duplicated": 0,
+        "density": 0.0,
+        "status": "pass",
+        "ignored": false,
+        "exit": 0
+      }
+    },
+    {
+      "repo": "fastapi",
+      "project": "hq-fastapi-duplication-20261122-4d5730-e0f8cadf-b78c8226",
+      "path": "fastapi/routing.py",
+      "base": {
+        "analysisId": "19bb738a-0beb-4070-8981-1cf89c9e25e6",
+        "computeId": "acad46aa-9c67-4200-80bd-58d16449a1e3",
+        "revision": "e0f8cadf094bb4cb7a21e7757333d5dfbae46712",
+        "tree": "4590fa8baeb7bca13e92f1ad8f30a0d00b1bd6f3",
+        "blob": "f33b964794f243ed5b6d5a5da3213d8b73ca5b95",
+        "sha256": "aa1db2c8aac5da821eb5432c848780ee6ca4a2823fdc993b88f863fbba5a14c3",
+        "ce_status": "SUCCESS"
+      },
+      "candidate": {
+        "analysisId": "d5053c5e-2799-4fa5-9890-5352e334ce0e",
+        "computeId": "98a67695-1b02-43fc-9962-2ef249511de9",
+        "revision": "b78c82262f5170831ebd3f27873b09d8e579bac2",
+        "tree": "f51b499917d2f8f794bbcc570e158f9a5ff2b03a",
+        "blob": "48c0c21535ee561b38399bec321313bf7bebd83c",
+        "sha256": "4e6f0dad3cb6a5e1c8d5c71802ea7d4ef7ed81a161c845f8c0c7cf05b391e5cb",
+        "ce_status": "SUCCESS"
+      },
+      "capture_sha256": "0faf53726fb277b5bdc323c9c77b4647269aceac0b4234b9e6f03dae02c87a89",
+      "assignment_default": false,
+      "period_type": "SPECIFIC_ANALYSIS",
+      "period_branch": "main",
+      "gate": "HQ FastAPI new duplication 20261122",
+      "condition_id": "15d2a7cb-9506-438a-8d5b-7518c1aa1818",
+      "period": "19bb738a-0beb-4070-8981-1cf89c9e25e6",
+      "reference": {
+        "new": 35,
+        "duplicated": 21,
+        "density": 60.0,
+        "status": "ERROR",
+        "ignored": false
+      },
+      "native": {
+        "new": 35,
+        "duplicated": 20,
+        "density": 57.142857,
+        "status": "fail",
+        "ignored": false,
+        "exit": 1
+      }
+    },
+    {
+      "repo": "fastapi",
+      "project": "hq-fastapi-duplication-20261122-e764e3-7cb19539-5d5666be",
+      "path": "fastapi/params.py",
+      "base": {
+        "analysisId": "e722ef4f-588f-4188-9f5d-731eb006f8a9",
+        "computeId": "edd478af-5d04-4fe8-86ca-26711f0339c0",
+        "revision": "7cb195394c5ac560b5c8acf6884537c8f721ea65",
+        "tree": "4b550296fcfd5c138d9c998b43c03074a9b41be2",
+        "blob": "e8f2eb290d31bc584b9481675dadb5b05940e9de",
+        "sha256": "38dcb14ef9c5355ac9fe60807aafd6458a2a2298f7edacfcc601b07233b53bd1",
+        "ce_status": "SUCCESS"
+      },
+      "candidate": {
+        "analysisId": "22e1a9c8-214d-408d-8856-c920ebfa8894",
+        "computeId": "f1274178-8179-4496-94a3-54fda49ccd6d",
+        "revision": "5d5666bec590c2d9740362ab65506aae0d128bd0",
+        "tree": "d3bca51d6032a68d7ed2bea1fdfe468685bc83f3",
+        "blob": "d3f2ae175b1fd3f0dc95c2be70ec7c546040f6ae",
+        "sha256": "d5f34d48ae49ecf339170f85e7ff6e3b2b00d8d802fbad666f72e5ac15a9a893",
+        "ce_status": "SUCCESS"
+      },
+      "capture_sha256": "b27b835d3333bfad341dbb0cf9cb528b5330d77dd7fe0ea3d9739be7843ae633",
+      "assignment_default": false,
+      "period_type": "SPECIFIC_ANALYSIS",
+      "period_branch": "main",
+      "gate": "HQ FastAPI new duplication 20261122",
+      "condition_id": "15d2a7cb-9506-438a-8d5b-7518c1aa1818",
+      "period": "e722ef4f-588f-4188-9f5d-731eb006f8a9",
+      "reference": {
+        "new": 10,
+        "duplicated": 2,
+        "density": 20.0,
+        "status": "OK",
+        "ignored": true
+      },
+      "native": {
+        "new": 10,
+        "duplicated": 2,
+        "density": 20.0,
+        "status": "pass",
+        "ignored": true,
+        "exit": 0
+      }
+    },
+    {
+      "repo": "fastapi",
+      "project": "hq-fastapi-duplication-20261122-d9b3d8-2bb28066-8b0090c3",
+      "path": "fastapi/param_functions.py",
+      "base": {
+        "analysisId": "0c41cb40-f3df-4084-819a-f321dce5f011",
+        "computeId": "2775cbad-eff1-426e-b6ba-fafacca0729b",
+        "revision": "2bb280667d0b40f592c22bae0317c02cf004960d",
+        "tree": "4db997b048826166e8ade8cbe9c8214a4f3c76be",
+        "blob": "4be504f43570131375c55b5e11620cca3b80ccb6",
+        "sha256": "50718d993a0160ea689fa46dac37115b22a09018cae33aef5b551818aea9c0c3",
+        "ce_status": "SUCCESS"
+      },
+      "candidate": {
+        "analysisId": "edb24847-872e-4118-a81f-efc4324c1fb6",
+        "computeId": "392a9af7-78e0-4348-b6f7-9f73f2ff9061",
+        "revision": "8b0090c39bed382435dd7a13b60966729ddc5dfc",
+        "tree": "5aa44c0a0729fdd268ee5c0da867a033455cb2ff",
+        "blob": "d3edde2682f745ee7026d1e13041305fd97d49c9",
+        "sha256": "e7ba27ee2339df201b9af9c466af4091f3dfa41870ef87cfdee3488792c28d0c",
+        "ce_status": "SUCCESS"
+      },
+      "capture_sha256": "78c8659e8d8eb54bd0e55fdc2fa2bde3ca87ed4967c3a60a3b526d42dfafe222",
+      "assignment_default": false,
+      "period_type": "SPECIFIC_ANALYSIS",
+      "period_branch": "main",
+      "gate": "HQ FastAPI new duplication 20261122",
+      "condition_id": "15d2a7cb-9506-438a-8d5b-7518c1aa1818",
+      "period": "0c41cb40-f3df-4084-819a-f321dce5f011",
+      "reference": {
+        "new": 14,
+        "duplicated": 14,
+        "density": 100.0,
+        "status": "OK",
+        "ignored": true
+      },
+      "native": {
+        "new": 14,
+        "duplicated": 14,
+        "density": 100.0,
+        "status": "pass",
+        "ignored": true,
+        "exit": 0
+      }
+    }
+  ]
+}
