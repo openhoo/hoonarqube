@@ -322,13 +322,13 @@ def metrics_summary(folder, native, exact_scope, shared):
     }
 
 
-def replay_source(reference_row, native_row):
+def replay_source(reference_row, native_row, *, checkout_verifier=verify_checkout):
     """Only the local checkout path may differ between captures."""
     if reference_row == native_row:
         return native_row
     if {**native_row, "path": reference_row["path"]} != reference_row:
         raise ValueError("replay source manifest differs from the reference capture")
-    verify_checkout(native_row)
+    checkout_verifier(native_row)
     return native_row
 
 
@@ -362,10 +362,12 @@ def evidence_digests(folder, native_folder):
     return inventory
 
 
-def project_metadata(folder, native_folder):
+def project_metadata(folder, native_folder, *, checkout_verifier=verify_checkout):
     progress = read_json(folder / "progress.json")
     row = replay_source(
-        read_json(folder / "source.json"), read_json(native_folder / "source.json")
+        read_json(folder / "source.json"),
+        read_json(native_folder / "source.json"),
+        checkout_verifier=checkout_verifier,
     )
     native_progress = read_json(native_folder / "progress.json")
     if native_progress["native"]["status"] == "complete" and not native_progress.get(
@@ -593,8 +595,18 @@ def finding_comparison(
     }
 
 
-def summarize_project(folder, effective, native_catalog, infra, native_folder):
-    row, result, native, reference_issues = project_metadata(folder, native_folder)
+def summarize_project(
+    folder,
+    effective,
+    native_catalog,
+    infra,
+    native_folder,
+    *,
+    checkout_verifier=verify_checkout,
+):
+    row, result, native, reference_issues = project_metadata(
+        folder, native_folder, checkout_verifier=checkout_verifier
+    )
     if (
         result["reference"]["state"] != "complete"
         or result["native"]["status"] != "complete"
