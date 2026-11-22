@@ -570,6 +570,12 @@ are explicit inputs:
   `new_code` does not support `code_lines` or `comment_lines`, and any
   `new_code` condition requires `--baseline`.
 
+For active Community 26.9 violations on new code, use
+`community_26_9_qualified_violations` with `--profile sonar-parity`. It returns
+a number only when every active violation rule in the scanned languages has
+a verified native detector control. Unqualified scopes return exit 2 and list
+the blocking keys. See the [gate contract and public comparisons](tools/oracle/community-qualified-violations.md).
+
 The `coverage` metric counts covered lines and covered branch outcomes together,
 then divides by the total number of measured lines and branch outcomes. On new
 code, it selects observations on changed lines before calculating the ratio.
