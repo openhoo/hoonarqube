@@ -1069,7 +1069,7 @@ module.exports = function defineGrammar(dialect) {
         optional('static'),
         optional($.override_modifier),
         optional('readonly'),
-        field('name', $._property_name),
+        field('name', choice($._property_name, alias('abstract', $.property_identifier))),
         optional('?'),
         field('type', optional($.type_annotation)),
       ),

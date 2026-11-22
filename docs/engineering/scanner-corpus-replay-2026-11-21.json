@@ -1,0 +1,500 @@
+{
+  "baseline": {
+    "binary_sha256": "14995f15c5559a6b2200ffe4ea9286a686949b8d945f3d9a081d71a7734ab388",
+    "commit": "ae55ffcf8a3612406b7d769e46f403d724da04b5",
+    "infrastructure_boundaries_sha256": "1e3e77e971e3db15ef3b61f5e8d8b34e956ba5e7d22072edb1fffec943f8c5fa",
+    "profile": "sonar-parity",
+    "tree": "c9b2cd7cdcdbdcb6aae8ea70438961fc3400f0eb"
+  },
+  "baseline_report": "docs/engineering/public-projects-2026-11-21.json",
+  "black": {
+    "changed_file_rows": {
+      "added_paths": [],
+      "finding_or_metric_rows_changed": [
+        "src/black/linegen.py"
+      ],
+      "removed_paths": []
+    },
+    "changed_native_issue_records": {
+      "added_or_changed": [
+        {
+          "issue": {
+            "flows": [
+              {
+                "locations": [
+                  {
+                    "message": "enclosing",
+                    "range": {
+                      "end": {
+                        "column": 6,
+                        "line": 2697
+                      },
+                      "start": {
+                        "column": 4,
+                        "line": 2697
+                      }
+                    }
+                  }
+                ]
+              }
+            ],
+            "message": "Merge this if statement with the enclosing one.",
+            "range": {
+              "end": {
+                "column": 10,
+                "line": 2698
+              },
+              "start": {
+                "column": 8,
+                "line": 2698
+              }
+            },
+            "rule_key": "python:S1066"
+          },
+          "occurrences": 1,
+          "path": "src/black/linegen.py"
+        }
+      ],
+      "removed_or_changed": []
+    },
+    "common_file_eligible_primaries_after": {
+      "matched": 136,
+      "native_only": 3,
+      "reference_only": 9
+    },
+    "common_file_eligible_primaries_before": {
+      "matched": 135,
+      "native_only": 3,
+      "reference_only": 10
+    },
+    "native_exit_after": 0,
+    "native_exit_before": 0,
+    "native_failed_paths_after": [],
+    "native_failed_paths_before": [],
+    "pin": {
+      "commit": "a12e95913f5181f357f210207ea2c37f6b970174",
+      "exclusions": [
+        "**/tests/**",
+        "**/_tests/**",
+        "**/test_*.py"
+      ],
+      "language": "py",
+      "name": "black",
+      "repository": "psf/black",
+      "roots": [
+        "src/black"
+      ],
+      "tree": "6df41a47c622144dc84aad2e5d29e02eb8a6a1b1"
+    },
+    "python_s1066": {
+      "common_file_primary_comparison_after": {
+        "class": "shared_equal_declared_parameters",
+        "matched": 10,
+        "native_only": 0,
+        "reference_only": 0
+      },
+      "common_file_primary_comparison_before": {
+        "class": "shared_equal_declared_parameters",
+        "matched": 9,
+        "native_only": 0,
+        "reference_only": 1
+      },
+      "raw_native_issue_payload_delta": {
+        "added_or_changed": 1,
+        "removed_or_changed": 0
+      },
+      "raw_native_issue_records_after": 10,
+      "raw_native_issue_records_before": 9,
+      "raw_retained_reference_issue_records": 10
+    },
+    "scope_after": {
+      "comparable_files": 25,
+      "native_count": 25,
+      "native_only_count": 0,
+      "reference_count": 25,
+      "reference_only_count": 0,
+      "shared_indexed_count": 25,
+      "source_index_equal": true
+    },
+    "scope_before": {
+      "comparable_files": 25,
+      "native_count": 25,
+      "native_only_count": 0,
+      "reference_count": 25,
+      "reference_only_count": 0,
+      "shared_indexed_count": 25,
+      "source_index_equal": true
+    },
+    "states_after": {
+      "comparison": "same_scope",
+      "native": "complete",
+      "reference": "complete"
+    },
+    "states_before": {
+      "comparison": "same_scope",
+      "native": "complete",
+      "reference": "complete"
+    }
+  },
+  "candidate": {
+    "binary_sha256": "50d85c9c44a6cd44588bda22ecbdbebd9dfb79a02db7a7d8f45d56ad0a35d4ba",
+    "build_profile": "release",
+    "build_receipt_sha256": "a27469b871d507f7d2f4ef67be5192d44a362c85d1bd07692424f33220dbc422",
+    "commit": "649f27bc3e7af3f8c7ce988354c31075773da5a4",
+    "compiled_tree": "9a4c6d089080bc95be4786013b45d39aaf2b932c",
+    "postbuild_documentation_paths": [],
+    "product_change_paths": [
+      "crates/hoonarqube-core/src/source_facts.rs",
+      "crates/hoonarqube-python/src/rules/collapsible_ifs.rs",
+      "crates/hoonarqube-python/src/tests.rs",
+      "vendor/tree-sitter-typescript/PATCHES",
+      "vendor/tree-sitter-typescript/common/define-grammar.js",
+      "vendor/tree-sitter-typescript/tsx/src/grammar.json",
+      "vendor/tree-sitter-typescript/tsx/src/parser.c",
+      "vendor/tree-sitter-typescript/typescript/src/grammar.json",
+      "vendor/tree-sitter-typescript/typescript/src/parser.c"
+    ],
+    "signature_log_sha256": "468a7792f3dff3da8e7c194b3523a32121f2c20f5620c016eb4637d0137a13e7",
+    "tree": "9a4c6d089080bc95be4786013b45d39aaf2b932c",
+    "verified_product_replay": {
+      "black": {
+        "base": "f58b67056808c4b420e92a19ffeb7029d8e4878e",
+        "paths": [
+          "crates/hoonarqube-python/src/rules/collapsible_ifs.rs",
+          "crates/hoonarqube-python/src/tests.rs"
+        ],
+        "source": "375833921f536e85d20d7d8fefde74dbff4f701c",
+        "source_verification_receipt_sha256": "c81d50e9b08e35d238d1c7a3c28fb077bb3986a2a731f7f6bd49cc1c7db82640",
+        "stable_patch_id": "90dcc52a6830f9a251ee922b0b81c365244fb198"
+      },
+      "commit": "649f27bc3e7af3f8c7ce988354c31075773da5a4",
+      "pinia": {
+        "base": "ae55ffcf8a3612406b7d769e46f403d724da04b5",
+        "paths": [
+          "crates/hoonarqube-core/src/source_facts.rs",
+          "docs/engineering/pinia-typescript-parser-2026-11-21.md",
+          "vendor/tree-sitter-typescript/PATCHES",
+          "vendor/tree-sitter-typescript/common/define-grammar.js",
+          "vendor/tree-sitter-typescript/tsx/src/grammar.json",
+          "vendor/tree-sitter-typescript/tsx/src/parser.c",
+          "vendor/tree-sitter-typescript/typescript/src/grammar.json",
+          "vendor/tree-sitter-typescript/typescript/src/parser.c"
+        ],
+        "source": "5c5eff726f37f10eebb2f0635cef82053f2131fb",
+        "stable_patch_id": "1b58352cdfb7ad308aca7d897eb7fb40cf2cb0f0"
+      },
+      "source_signature_sha256": "468a7792f3dff3da8e7c194b3523a32121f2c20f5620c016eb4637d0137a13e7",
+      "tree": "9a4c6d089080bc95be4786013b45d39aaf2b932c",
+      "verified_replay_exact_paths": true
+    }
+  },
+  "comparable_eligible_primary_changes": {
+    "wave2/black": [
+      {
+        "matched": 135,
+        "native_only": 3,
+        "reference_only": 10
+      },
+      {
+        "matched": 136,
+        "native_only": 3,
+        "reference_only": 9
+      }
+    ],
+    "wave2/pinia": [
+      null,
+      {
+        "matched": 48,
+        "native_only": 14,
+        "reference_only": 7
+      }
+    ]
+  },
+  "contract": {
+    "commit": "7b8c1cf58d52f5b90c97387218d492a9a2d64d14",
+    "log_sha256": "ee7084ea6b30c78606000cd1d8c028aad6039474ee9e5cb26a3628583dc4ef00",
+    "manifest_sha256": "3a63584e7621567a98549fa6f6891ed61b498c175e6c95ed79cfdc48ee727d9a",
+    "passed": 25,
+    "projects": [
+      "commander",
+      "commons-cli",
+      "javapoet",
+      "sinatra",
+      "async-lru",
+      "bytes",
+      "commons-csv",
+      "cron",
+      "floating-ui",
+      "httparty",
+      "itsdangerous",
+      "java-diff-utils",
+      "ripgrep",
+      "websocket",
+      "backoff",
+      "express",
+      "faraday",
+      "fsnotify",
+      "iniconfig",
+      "koa",
+      "markupsafe",
+      "minimist",
+      "rust-semver",
+      "ryu",
+      "superstruct"
+    ],
+    "replay_script_sha256": "ec805c5b9e1cc016b0afc0b030ae2826ae93f18cbbaeb9a668a7db82687132df",
+    "sonar_primaries": 214,
+    "source_files": 309,
+    "source_mode": "verified local Git objects",
+    "tree": "1253c2914cebb2af47cadaf350377f2da798dec0"
+  },
+  "debug_only_black_observation": {
+    "failure": "integer subtraction overflow when a multiline nested condition ends in a lower column than it starts",
+    "not_in_release_census": true,
+    "pinia_only": true,
+    "profile": "debug",
+    "python_rule": "python:S1066",
+    "scanner_exit": 101
+  },
+  "exact_scope_eligible_rule_count_changes": {
+    "python:S1066": [
+      {
+        "matched": 24,
+        "native_only": 2,
+        "reference_only": 1
+      },
+      {
+        "matched": 25,
+        "native_only": 2,
+        "reference_only": 0
+      }
+    ]
+  },
+  "incomplete_or_unavailable_after": {
+    "wave2/anyhow": {
+      "comparison": "not_compared_incomplete_or_unavailable",
+      "native": "incomplete",
+      "reference": "complete"
+    },
+    "wave2/devise": {
+      "comparison": "not_compared_incomplete_or_unavailable",
+      "native": "incomplete",
+      "reference": "complete"
+    },
+    "wave2/gson": {
+      "comparison": "not_compared_incomplete_or_unavailable",
+      "native": "complete",
+      "reference": "not_run"
+    },
+    "wave2/jsoup": {
+      "comparison": "not_compared_incomplete_or_unavailable",
+      "native": "complete",
+      "reference": "not_run"
+    }
+  },
+  "native_stdout_sha256_changed_scopes": [
+    "wave2/black",
+    "wave2/pinia"
+  ],
+  "native_stdout_sha256_unchanged_scopes": 120,
+  "parsed_native_report_changes": [
+    "wave2/black",
+    "wave2/pinia"
+  ],
+  "pinia": {
+    "changed_file_rows": {
+      "added_paths": [],
+      "finding_or_metric_rows_changed": [],
+      "removed_paths": []
+    },
+    "common_file_eligible_primaries_after": {
+      "matched": 48,
+      "native_only": 14,
+      "reference_only": 7
+    },
+    "common_file_eligible_primaries_before": null,
+    "native_exit_after": 0,
+    "native_exit_before": 2,
+    "native_failed_paths_after": [],
+    "native_failed_paths_before": [
+      "packages/pinia/src/devtools/formatting.ts"
+    ],
+    "pin": {
+      "commit": "4023d1233724ae478da09c81a5b65ad815cc1358",
+      "exclusions": [
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/__fixtures__/**",
+        "**/*.spec.*",
+        "**/*.test.*",
+        "**/*.bench.*"
+      ],
+      "language": "ts",
+      "name": "pinia",
+      "repository": "vuejs/pinia",
+      "roots": [
+        "packages/pinia/src"
+      ],
+      "tree": "bf8586718dd7502d164acb13257828c80ff3a467"
+    },
+    "scope_after": {
+      "comparable_files": 18,
+      "native_count": 19,
+      "native_only_count": 1,
+      "reference_count": 18,
+      "reference_only_count": 0,
+      "shared_indexed_count": 18,
+      "source_index_equal": false
+    },
+    "scope_before": {
+      "comparable_files": null,
+      "native_count": 19,
+      "native_only_count": 1,
+      "reference_count": 18,
+      "reference_only_count": 0,
+      "shared_indexed_count": 18,
+      "source_index_equal": false
+    },
+    "states_after": {
+      "comparison": "shared_files_only",
+      "native": "complete",
+      "reference": "complete"
+    },
+    "states_before": {
+      "comparison": "not_compared_incomplete_or_unavailable",
+      "native": "incomplete",
+      "reference": "complete"
+    }
+  },
+  "reference": {
+    "captured_build": "SonarQube Community Build 26.9.0.129388",
+    "distinct_repositories": 120,
+    "verified_unchanged_scopes": 122
+  },
+  "reference_sensor_scope_not_compared": [
+    "wave3/papaparse"
+  ],
+  "schema_version": 1,
+  "scope_state_changes": {
+    "wave2/pinia": [
+      {
+        "comparison": "not_compared_incomplete_or_unavailable",
+        "native": "incomplete",
+        "reference": "complete"
+      },
+      {
+        "comparison": "shared_files_only",
+        "native": "complete",
+        "reference": "complete"
+      }
+    ]
+  },
+  "totals_after": {
+    "comparison_states": {
+      "not_compared_incomplete_or_unavailable": 4,
+      "not_compared_reference_sensor_scope": 1,
+      "same_scope": 108,
+      "shared_files_only": 9
+    },
+    "distinct_repositories": 120,
+    "file_metrics_in_exact_comparable_scopes": {
+      "compared_cells": 10298,
+      "matched_cells": 8683
+    },
+    "files_in_exact_comparable_scopes": 3434,
+    "native_states": {
+      "complete": 120,
+      "incomplete": 2
+    },
+    "primary_findings_in_exact_comparable_scopes": {
+      "matched": 4583,
+      "native_only": 1299,
+      "reference_only": 707
+    },
+    "primary_sensor_file_count_evidence_by_selection_language": {
+      "go": {
+        "matches_index_count": 22
+      },
+      "java": {
+        "matches_index_count": 7,
+        "unavailable": 2
+      },
+      "js": {
+        "differs_from_index_count": 1,
+        "matches_index_count": 15,
+        "zero_reported": 1
+      },
+      "py": {
+        "matches_index_count": 25
+      },
+      "ruby": {
+        "matches_index_count": 20
+      },
+      "rust": {
+        "no_file_count_logged": 16
+      },
+      "ts": {
+        "matches_index_count": 13
+      }
+    },
+    "reference_states": {
+      "complete": 120,
+      "not_run": 2
+    },
+    "scopes": 122
+  },
+  "totals_before": {
+    "comparison_states": {
+      "not_compared_incomplete_or_unavailable": 5,
+      "not_compared_reference_sensor_scope": 1,
+      "same_scope": 108,
+      "shared_files_only": 8
+    },
+    "distinct_repositories": 120,
+    "file_metrics_in_exact_comparable_scopes": {
+      "compared_cells": 10298,
+      "matched_cells": 8683
+    },
+    "files_in_exact_comparable_scopes": 3434,
+    "native_states": {
+      "complete": 119,
+      "incomplete": 3
+    },
+    "primary_findings_in_exact_comparable_scopes": {
+      "matched": 4582,
+      "native_only": 1299,
+      "reference_only": 708
+    },
+    "primary_sensor_file_count_evidence_by_selection_language": {
+      "go": {
+        "matches_index_count": 22
+      },
+      "java": {
+        "matches_index_count": 7,
+        "unavailable": 2
+      },
+      "js": {
+        "differs_from_index_count": 1,
+        "matches_index_count": 15,
+        "zero_reported": 1
+      },
+      "py": {
+        "matches_index_count": 25
+      },
+      "ruby": {
+        "matches_index_count": 20
+      },
+      "rust": {
+        "no_file_count_logged": 16
+      },
+      "ts": {
+        "matches_index_count": 13
+      }
+    },
+    "reference_states": {
+      "complete": 120,
+      "not_run": 2
+    },
+    "scopes": 122
+  }
+}

@@ -41,3 +41,10 @@ StoreCreator). As for '(' and '[', the scanner checks whether a binary
 operator is valid so expression continuations keep their original tree.
 This scanner-only change applies to both dialects without regenerating
 the parsers.
+
+Property signatures accept `abstract` as a `property_identifier`, including
+Pinia's optional `abstract?: boolean` in an interface and a nested object
+type. This addresses the property signature case of upstream
+tree-sitter-typescript #377. Both parser dialects use the same rule; the
+class modifier rules are unchanged. The generated files use the CLI,
+ABI, and JavaScript grammar version documented above.

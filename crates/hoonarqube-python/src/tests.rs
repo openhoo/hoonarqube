@@ -3649,6 +3649,56 @@ fn s1066_flags_sole_nested_if_without_clauses() {
 }
 
 #[test]
+fn s1066_handles_a_multiline_condition_ending_at_an_earlier_column() {
+    // The closing parenthesis is ten columns left of the first condition
+    // token, so even the final merged column estimate can be negative.
+    let report = scan("if a:\n    if         check(\n    ):\n        work()\n");
+    let found = findings(&report, "python:S1066");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].range.start, pos(2, 4));
+    assert_eq!(found[0].range.end, pos(2, 6));
+    assert_eq!(found[0].flows[0].locations[0].range.start, pos(1, 0));
+    assert_eq!(found[0].flows[0].locations[0].range.end, pos(1, 2));
+}
+
+#[test]
+fn s1066_multiline_guard_uses_condition_parentheses_at_80_and_81_columns() {
+    for (outer_width, expected) in [(74, 1), (75, 0)] {
+        // The wrapper starts at column 7 and its closing parenthesis ends at
+        // column 5. At width 74 the estimate is 3 + 74 + (5 - 7) + 5 = 80.
+        let outer = "a".repeat(outer_width);
+        for inner in ["check(\n    )", "(\n        a and a_long_condition\n    )"] {
+            let source = format!("if {outer}:\n    if {inner}:\n        work()\n");
+            let report = scan(&source);
+            let found = findings(&report, "python:S1066");
+            assert_eq!(found.len(), expected, "{source}");
+            if expected == 1 {
+                assert_eq!(found[0].range.start, pos(2, 4));
+                assert_eq!(found[0].range.end, pos(2, 6));
+            }
+        }
+    }
+    for (inner_width, expected) in [(74, 1), (75, 0)] {
+        // The final elif condition ends at column 1 (its closing parenthesis).
+        let inner = "b".repeat(inner_width);
+        let source = format!(
+            "if root:\n    work()\nelif (\n    outer\n):\n    if {inner}:\n        work()\n"
+        );
+        let report = scan(&source);
+        let found = findings(&report, "python:S1066");
+        assert_eq!(found.len(), expected, "{source}");
+        if expected == 1 {
+            assert_eq!(found[0].range.start, pos(6, 4));
+            assert_eq!(found[0].range.end, pos(6, 6));
+            let enclosing = &found[0].flows[0].locations[0];
+            assert_eq!(enclosing.message, "enclosing");
+            assert_eq!(enclosing.range.start, pos(3, 0));
+            assert_eq!(enclosing.range.end, pos(3, 4));
+        }
+    }
+}
+
+#[test]
 fn s1066_spares_semantics_changing_shapes() {
     // Extra statements in the enclosing suite prevent the merge.
     assert!(
