@@ -569,6 +569,7 @@ fn empty_assessment(context: AnalysisContext) -> AssessmentReport {
 
 fn unavailable_new_code(status: AssessmentStatus, diagnostic: impl Into<String>) -> NewCodeReport {
     NewCodeReport {
+        changed_source_lines: None,
         schema_version: ASSESSMENT_SCHEMA_VERSION,
         status,
         reference_context: None,
@@ -809,6 +810,7 @@ fn assessment_status_name(status: AssessmentStatus) -> &'static str {
 
 fn gate_status_name(status: GateStatus) -> &'static str {
     match status {
+        GateStatus::NoValue => "no_value",
         GateStatus::Pass => "pass",
         GateStatus::Fail => "fail",
         GateStatus::Unavailable => "unavailable",
@@ -963,6 +965,15 @@ fn append_gate_summary(output: &mut String, assessment: &AssessmentReport) {
                 GatePrecision::OneDecimal => ", precision=one_decimal",
             },
         );
+        if !condition.small_change_policy.is_off() {
+            let _ = writeln!(output, "quality gate small-change policy: community20");
+            if let Some(count) = condition.ignored_on_small_change {
+                let _ = writeln!(
+                    output,
+                    "quality gate exception: {count} eligible new lines (below 20)"
+                );
+            }
+        }
         if let Some(diagnostic) = condition.diagnostic.as_deref() {
             let _ = writeln!(output, "quality gate diagnostic: {diagnostic}");
         }
@@ -985,10 +996,44 @@ pub(crate) fn assessment_exit_status(report: &AnalysisReport) -> u8 {
         .coverage
         .as_ref()
         .is_some_and(|coverage| !matches!(coverage.status, AssessmentStatus::Complete))
-        || assessment
-            .new_code
-            .as_ref()
-            .is_some_and(|new_code| !matches!(new_code.status, AssessmentStatus::Complete))
+        || assessment.new_code.as_ref().is_some_and(|new_code| {
+            if new_code.status == AssessmentStatus::Complete {
+                return false;
+            }
+            // Multiple old positions may match an unchanged source line.
+            // Only an explicitly requested gate whose new-code conditions
+            // all depend exclusively on proven source changes can decide.
+            let proven_gate = new_code.status == AssessmentStatus::Incomplete
+                && new_code.changed_source_lines.is_some()
+                && report.project.complete
+                && assessment.gate.as_ref().is_some_and(|gate| {
+                    let mut scoped = gate
+                        .conditions
+                        .iter()
+                        .filter(|c| c.scope == hoonarqube_ir::assessment::GateScope::NewCode)
+                        .peekable();
+                    scoped.peek().is_some()
+                        && scoped.all(|c| {
+                            let from_source =
+                                c.metric == "coverage" || !c.small_change_policy.is_off();
+                            let evidence_present = if c.metric.contains("coverage") {
+                                assessment.coverage.as_ref().is_some_and(|coverage| {
+                                    coverage.status == AssessmentStatus::Complete
+                                })
+                            } else {
+                                report.project.duplication.is_some()
+                            };
+                            from_source
+                                && evidence_present
+                                && match c.status {
+                                    GateStatus::Pass | GateStatus::Fail => c.actual.is_some(),
+                                    GateStatus::NoValue => !c.small_change_policy.is_off(),
+                                    GateStatus::Unavailable => false,
+                                }
+                        })
+                });
+            !proven_gate
+        })
         || assessment
             .gate
             .as_ref()

@@ -1,0 +1,43 @@
+{
+  "project": "reduxjs/redux",
+  "source": "src/utils/actionTypes.js",
+  "revisions": [
+    "0b6d794effa9da5080bfb4c6865a324357b85018",
+    "e6f6c7da7b39ed46273d05d150cf1f578973ac3c"
+  ],
+  "source_sha256": {
+    "0b6d794effa9da5080bfb4c6865a324357b85018": "8c9eef6d0b9ceae64357de9e01cb4df0f3e826990017f20b2dfc5589d6f54388",
+    "e6f6c7da7b39ed46273d05d150cf1f578973ac3c": "505b660b824a71a0486a18d32d4b3bfb9f243262048d77aa6cb20dcb89c2744c"
+  },
+  "scanner_sha256": "77b21598e8da8d8b65c7b85d88e9820b04283ee65783b4ae8381282103debc7c",
+  "service_sha256": "c1c1c114998ec163c62ddd488aba3912286dfb2be8a7efdf303063d67547f904",
+  "unassigned": "scanner pass",
+  "assigned_v1": "scanner pass, service fail (1 file > 0)",
+  "omitted_scanner_gate": "service fail",
+  "assigned_v2": "service pass (1 file <= 2)",
+  "replayed_v1": "unchanged failure",
+  "missing_baseline_v3": "unavailable",
+  "assigned_review_percent": [
+    0,
+    50,
+    100
+  ],
+  "immutable_review_percent": 0,
+  "after_restart_review_percent": 100,
+  "ci_exit": {
+    "assigned_pass": 0,
+    "weak_scanner_pass": 1,
+    "omitted_gate": 1,
+    "unassigned": 2,
+    "missing_baseline": 2,
+    "wrong_revision": 2
+  },
+  "two_service_processes": "one accepted writer; duplicate ingest kept one policy and analysis",
+  "restart": true,
+  "json_restore": true,
+  "project_sqlite_snapshot_restore": true,
+  "governed_restore_rejects_unknown_analyses": true,
+  "reader_reviewer_scanner_and_foreign_policy_write": "403",
+  "scanner_review": "403",
+  "stale_assignment": "409"
+}

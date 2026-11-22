@@ -5,13 +5,17 @@
 //! typed input API and the metric derivations that can be proved from that
 //! artifact.  A gate never turns missing or partial data into a zero.
 
+mod community_profile;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use hoonarqube_ir::assessment::SmallChangePolicy;
 use hoonarqube_ir::assessment::{
-    ASSESSMENT_SCHEMA_VERSION, AssessmentStatus, FindingStatus, GateConditionResult, GateOperator,
-    GatePrecision, GateReport, GateScope, GateStatus, normalize_path,
+    ASSESSMENT_SCHEMA_VERSION, AssessmentStatus, CoverageCounter, FindingStatus,
+    GateConditionResult, GateOperator, GatePrecision, GateReport, GateScope, GateStatus,
+    normalize_path,
 };
 use hoonarqube_ir::{AnalysisReport, FileClassification, MeasurementStatus};
 
@@ -30,12 +34,17 @@ pub const SUPPORTED_METRICS: &[&str] = &[
     "code_lines",
     "comment_lines",
     "issues",
+    "violations",
+    "security_hotspots_reviewed",
+    community_profile::VIOLATIONS,
+    community_profile::HOTSPOTS,
     "duplicated_lines",
     "duplicated_blocks",
     "duplicated_files",
     "duplicated_lines_density",
     "line_coverage",
     "branch_coverage",
+    "coverage",
 ];
 
 /// Versioned metric gate configuration.
@@ -56,6 +65,8 @@ pub struct GateCondition {
     pub threshold: f64,
     #[serde(default, skip_serializing_if = "GatePrecision::is_full")]
     pub precision: GatePrecision,
+    #[serde(default, skip_serializing_if = "SmallChangePolicy::is_off")]
+    pub small_change_policy: SmallChangePolicy,
 }
 
 impl GateCondition {
@@ -80,8 +91,16 @@ impl GateCondition {
                 SUPPORTED_METRICS.join(", ")
             ));
         }
+        if !self.small_change_policy.supports(self.scope, &self.metric) {
+            return Err(
+                "small-change policy requires a coverage or duplication condition on new code"
+                    .into(),
+            );
+        }
         if !self.precision.supports(self.scope, &self.metric) {
-            return Err("one_decimal precision requires overall line_coverage".to_string());
+            return Err(
+                "one_decimal precision requires coverage or overall line_coverage".to_string(),
+            );
         }
         if !metric_supported(&self.scope, &self.metric) {
             return Err(format!(
@@ -143,6 +162,7 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
                 | "duplicated_blocks"
                 | "duplicated_files"
                 | "duplicated_lines_density"
+                | "coverage"
                 | "line_coverage"
                 | "branch_coverage"
         ),
@@ -151,10 +171,15 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
             "files"
                 | "lines"
                 | "issues"
+                | "violations"
+                | "security_hotspots_reviewed"
+                | community_profile::VIOLATIONS
+                | community_profile::HOTSPOTS
                 | "duplicated_lines"
                 | "duplicated_blocks"
                 | "duplicated_files"
                 | "duplicated_lines_density"
+                | "coverage"
                 | "line_coverage"
                 | "branch_coverage"
         ),
@@ -170,6 +195,18 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
 /// diagnostics are emitted in that same order.
 #[must_use]
 pub fn evaluate_gate(config: &GateConfig, report: &AnalysisReport) -> GateReport {
+    evaluate_gate_with_reviews(config, report, &BTreeSet::new())
+}
+
+/// Evaluates the configured gate with reviewed hotspot identities from a trusted
+/// reviewer store. IDs are the native, unprefixed assessment digests. Never
+/// populate this set from a scanner-supplied review claim.
+#[must_use]
+pub fn evaluate_gate_with_reviews(
+    config: &GateConfig,
+    report: &AnalysisReport,
+    reviewed_hotspots: &BTreeSet<String>,
+) -> GateReport {
     let mut conditions = Vec::with_capacity(config.conditions.len());
     let mut diagnostics = Vec::new();
 
@@ -224,7 +261,7 @@ pub fn evaluate_gate(config: &GateConfig, report: &AnalysisReport) -> GateReport
     }
 
     for condition in &config.conditions {
-        let result = evaluate_condition(condition, report);
+        let result = evaluate_condition(condition, report, reviewed_hotspots);
         if let Some(diagnostic) = result.diagnostic.as_ref() {
             diagnostics.push(diagnostic.clone());
         }
@@ -253,13 +290,19 @@ pub fn evaluate_gate(config: &GateConfig, report: &AnalysisReport) -> GateReport
     }
 }
 
-fn evaluate_condition(condition: &GateCondition, report: &AnalysisReport) -> GateConditionResult {
+fn evaluate_condition(
+    condition: &GateCondition,
+    report: &AnalysisReport,
+    reviewed_hotspots: &BTreeSet<String>,
+) -> GateConditionResult {
     let mut result = GateConditionResult {
         scope: condition.scope,
         metric: condition.metric.clone(),
         operator: condition.operator,
         threshold: safe_threshold(condition.threshold),
         precision: condition.precision,
+        small_change_policy: condition.small_change_policy,
+        ignored_on_small_change: None,
         actual: None,
         status: GateStatus::Unavailable,
         diagnostic: None,
@@ -271,10 +314,18 @@ fn evaluate_condition(condition: &GateCondition, report: &AnalysisReport) -> Gat
     }
 
     let value = match &condition.scope {
-        GateScope::Overall => overall_metric(&condition.metric, condition.precision, report),
-        GateScope::NewCode => new_code_metric(&condition.metric, report),
+        GateScope::Overall => {
+            overall_metric(&condition.metric, condition.precision, report).map(|v| (v, None))
+        }
+        GateScope::NewCode => new_code_metric(
+            &condition.metric,
+            condition.precision,
+            condition.small_change_policy,
+            report,
+            reviewed_hotspots,
+        ),
     };
-    let value = match value {
+    let (value, change_size) = match value {
         Ok(value) => value,
         Err(diagnostic) => {
             result.diagnostic = Some(diagnostic);
@@ -282,19 +333,26 @@ fn evaluate_condition(condition: &GateCondition, report: &AnalysisReport) -> Gat
         }
     };
 
-    if !value.is_finite() {
+    let Some(actual) = value.as_f64() else {
+        result.status = GateStatus::NoValue;
+        return result;
+    };
+    if !actual.is_finite() {
         result.diagnostic = Some("derived gate metric is non-finite".to_string());
         return result;
     }
-    result.actual = Some(value.as_f64());
+    result.actual = Some(actual);
 
     if value.meets(condition.operator, condition.threshold) {
         result.status = GateStatus::Pass;
+    } else if let Some(n) = change_size.filter(|&n| n < 20) {
+        result.status = GateStatus::Pass;
+        result.ignored_on_small_change = Some(n);
     } else {
         result.status = GateStatus::Fail;
         result.diagnostic = Some(format!(
             "actual {} does not satisfy {} {} for {}",
-            format_number(value.as_f64()),
+            format_number(actual),
             operator_text(condition.operator),
             format_number(condition.threshold),
             condition.metric
@@ -310,6 +368,8 @@ fn unavailable_condition(condition: &GateCondition, diagnostic: String) -> GateC
         operator: condition.operator,
         threshold: safe_threshold(condition.threshold),
         precision: condition.precision,
+        small_change_policy: condition.small_change_policy,
+        ignored_on_small_change: None,
         actual: None,
         status: GateStatus::Unavailable,
         diagnostic: Some(diagnostic),
@@ -318,6 +378,7 @@ fn unavailable_condition(condition: &GateCondition, diagnostic: String) -> GateC
 
 #[derive(Debug, Clone, Copy)]
 enum MetricValue {
+    NoValue,
     Count(u64),
     Percentage(f64),
 }
@@ -333,22 +394,17 @@ fn counter_as_f64(value: u64) -> f64 {
 }
 
 impl MetricValue {
-    fn as_f64(self) -> f64 {
+    fn as_f64(self) -> Option<f64> {
         match self {
-            Self::Count(value) => counter_as_f64(value),
-            Self::Percentage(value) => value,
-        }
-    }
-
-    fn is_finite(self) -> bool {
-        match self {
-            Self::Count(_) => true,
-            Self::Percentage(value) => value.is_finite(),
+            Self::NoValue => None,
+            Self::Count(value) => Some(counter_as_f64(value)),
+            Self::Percentage(value) => Some(value),
         }
     }
 
     fn meets(self, operator: GateOperator, threshold: f64) -> bool {
         match self {
+            Self::NoValue => false,
             Self::Count(value) => {
                 let ordering = compare_u64_f64(value, threshold);
                 compare_ordering(ordering, operator)
@@ -419,6 +475,10 @@ fn overall_metric(
                 Err("duplication density is invalid or non-finite".to_string())
             }
         }
+        "coverage" => {
+            let coverage = complete_coverage(report)?;
+            combined_coverage(&coverage.lines, &coverage.branches, precision)
+        }
         "line_coverage" => {
             let coverage = complete_coverage(report)?;
             percentage_counter_with_precision(
@@ -440,19 +500,55 @@ fn overall_metric(
     }
 }
 
-fn new_code_metric(metric: &str, report: &AnalysisReport) -> Result<MetricValue, String> {
+fn new_code_metric(
+    metric: &str,
+    precision: GatePrecision,
+    policy: SmallChangePolicy,
+    report: &AnalysisReport,
+    reviewed_hotspots: &BTreeSet<String>,
+) -> Result<(MetricValue, Option<u64>), String> {
     if !report.project.complete {
         return Err(
             "project analysis is incomplete; new-code gate metric is unavailable".to_string(),
         );
     }
-    let new_code = complete_new_code(report)?;
-    let line_sets = new_code_line_sets(new_code)?;
+    let source_only = metric == "coverage" || !policy.is_off();
+    let new_code = complete_new_code(report, source_only)?;
+    let entries = if source_only {
+        new_code.changed_source_lines.as_deref().ok_or_else(|| {
+            "this condition requires exact changed source lines from a compatible baseline"
+                .to_string()
+        })?
+    } else {
+        &new_code.lines
+    };
+    let line_sets = new_code_line_sets(entries)?;
     let measurements = measurement_index(report)?;
     let scoped_line_count = validate_new_line_sets(&measurements, &line_sets)?;
-    match metric {
+    let mut change_size = None;
+    let value = match metric {
         "files" => Ok(MetricValue::Count(usize_as_u64(line_sets.len()))),
         "lines" => Ok(MetricValue::Count(scoped_line_count)),
+        "violations"
+        | "security_hotspots_reviewed"
+        | community_profile::VIOLATIONS
+        | community_profile::HOTSPOTS => {
+            let qualified = matches!(
+                metric,
+                community_profile::VIOLATIONS | community_profile::HOTSPOTS
+            )
+            .then(|| community_profile::Qualified::new(report))
+            .transpose()?;
+            let assessment = report.assessment.as_ref().ok_or("missing assessment")?;
+            new_security_metric(
+                metric,
+                assessment,
+                new_code,
+                &measurements,
+                reviewed_hotspots,
+                qualified.as_ref(),
+            )
+        }
         "issues" => {
             if new_code
                 .findings
@@ -472,38 +568,133 @@ fn new_code_metric(metric: &str, report: &AnalysisReport) -> Result<MetricValue,
                     .count(),
             )))
         }
-        "line_coverage" => {
-            let coverage = complete_coverage(report)?;
-            let (eligible, covered) = scoped_line_coverage(coverage, &line_sets)?;
-            percentage_counter(eligible, covered, "new-code line coverage")
+        "line_coverage" | "branch_coverage" | "coverage" => {
+            return new_code_coverage(metric, precision, policy, report, &line_sets);
         }
-        "branch_coverage" => {
-            let coverage = complete_coverage(report)?;
-            let (eligible, covered) = scoped_branch_coverage(coverage, &line_sets)?;
-            percentage_counter(eligible, covered, "new-code branch coverage")
-        }
-        "duplicated_lines" => {
+        "duplicated_lines"
+        | "duplicated_blocks"
+        | "duplicated_files"
+        | "duplicated_lines_density" => {
             let scoped = scoped_duplication(report, &measurements, &line_sets)?;
-            Ok(MetricValue::Count(scoped.duplicated_lines))
-        }
-        "duplicated_blocks" => {
-            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
-            Ok(MetricValue::Count(scoped.duplicated_blocks))
-        }
-        "duplicated_files" => {
-            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
-            Ok(MetricValue::Count(scoped.duplicated_files))
-        }
-        "duplicated_lines_density" => {
-            let scoped = scoped_duplication(report, &measurements, &line_sets)?;
-            percentage_counter(
-                scoped.denominator,
-                scoped.duplicated_lines,
-                "new-code duplication density",
-            )
+            if !policy.is_off() {
+                change_size = Some(scoped_line_count);
+                if metric == "duplicated_lines_density" && scoped.denominator == 0 {
+                    return Ok((MetricValue::NoValue, None));
+                }
+            }
+            match metric {
+                "duplicated_lines" => Ok(MetricValue::Count(scoped.duplicated_lines)),
+                "duplicated_blocks" => Ok(MetricValue::Count(scoped.duplicated_blocks)),
+                "duplicated_files" => Ok(MetricValue::Count(scoped.duplicated_files)),
+                _ => percentage_counter(
+                    scoped.denominator,
+                    scoped.duplicated_lines,
+                    "new-code duplication density",
+                ),
+            }
         }
         _ => Err("unsupported new-code gate metric".to_string()),
+    }?;
+    Ok((value, change_size))
+}
+
+/// Returns the catalog classification used by both the evaluator and the service.
+/// Unknown rules cannot be silently treated as ordinary issues.
+#[must_use]
+pub fn is_security_hotspot(key: &str) -> Option<bool> {
+    let rule_type = hoonarqube_catalog::embedded()
+        .rule(key)
+        .map(|rule| rule.rule_type.as_str())
+        .or_else(|| hoonarqube_catalog::native_rule(key).map(|rule| rule.rule_type));
+    match rule_type {
+        Some("SECURITY_HOTSPOT") => Some(true),
+        Some("BUG" | "CODE_SMELL" | "VULNERABILITY") => Some(false),
+        _ => None,
     }
+}
+
+fn new_security_metric(
+    metric: &str,
+    assessment: &hoonarqube_ir::assessment::AssessmentReport,
+    new_code: &hoonarqube_ir::assessment::NewCodeReport,
+    measurements: &MeasurementIndex<'_>,
+    reviewed: &BTreeSet<String>,
+    qualified: Option<&community_profile::Qualified<'_>>,
+) -> Result<MetricValue, String> {
+    if assessment.context.catalog_digest != hoonarqube_catalog::embedded().snapshot().catalog_sha256
+    {
+        return Err("finding catalog differs from the gate evaluator".into());
+    }
+    let hotspots = matches!(
+        metric,
+        "security_hotspots_reviewed" | community_profile::HOTSPOTS
+    );
+    let sources: BTreeMap<_, _> = assessment.sources.iter().map(|s| (&s.path, s)).collect();
+    validate_finding_inventory(measurements, &sources)?;
+    let mut eligible = 0;
+    let mut completed = 0;
+    for entry in &new_code.findings {
+        if entry.status == FindingStatus::Existing {
+            continue;
+        }
+        let finding = sources
+            .get(&entry.path)
+            .and_then(|source| source.findings.get(entry.issue_index))
+            .ok_or("new-code finding missing from source inventory")?;
+        let kind = if let Some(profile) = qualified {
+            let Some(hotspot) = profile.hotspot(&entry.path, &finding.rule_key)? else {
+                continue;
+            };
+            hotspot
+        } else {
+            is_security_hotspot(&finding.rule_key)
+                .ok_or_else(|| format!("unknown finding kind for {}", finding.rule_key))?
+        };
+        if kind != hotspots {
+            continue;
+        }
+        if entry.status == FindingStatus::Uncertain || finding.ambiguous {
+            return Err(format!("uncertain new-code finding identity for {metric}"));
+        }
+        eligible += 1;
+        if hotspots && reviewed.contains(&entry.identity) {
+            completed += 1;
+        }
+    }
+    if hotspots && eligible == 0 {
+        Ok(MetricValue::NoValue)
+    } else if hotspots {
+        percentage_counter(eligible, completed, "new-code hotspot review")
+    } else {
+        Ok(MetricValue::Count(eligible))
+    }
+}
+
+fn validate_finding_inventory(
+    measurements: &MeasurementIndex<'_>,
+    sources: &BTreeMap<&PathBuf, &hoonarqube_ir::assessment::SourceSnapshot>,
+) -> Result<(), String> {
+    for (path, file) in &measurements.files {
+        if matches!(
+            file.classification,
+            FileClassification::Source | FileClassification::Test
+        ) && (file.status != MeasurementStatus::Complete || !sources.contains_key(path))
+        {
+            return Err(format!("incomplete finding inventory: {}", path.display()));
+        }
+    }
+    if sources.keys().any(|path| {
+        !measurements.files.get(*path).is_some_and(|file| {
+            file.status == MeasurementStatus::Complete
+                && matches!(
+                    file.classification,
+                    FileClassification::Source | FileClassification::Test
+                )
+        })
+    }) {
+        return Err("assessment contains a source outside the measured finding inventory".into());
+    }
+    Ok(())
 }
 
 fn duplication_counter(
@@ -576,6 +767,7 @@ fn complete_coverage(
 
 fn complete_new_code(
     report: &AnalysisReport,
+    source_only: bool,
 ) -> Result<&hoonarqube_ir::assessment::NewCodeReport, String> {
     let assessment = report.assessment.as_ref().ok_or_else(|| {
         "new-code data is unavailable because no assessment is attached".to_string()
@@ -599,7 +791,10 @@ fn complete_new_code(
             new_code.schema_version
         ));
     }
-    if new_code.status != AssessmentStatus::Complete {
+    let exact_source_diff = source_only
+        && new_code.status == AssessmentStatus::Incomplete
+        && new_code.changed_source_lines.is_some();
+    if new_code.status != AssessmentStatus::Complete && !exact_source_diff {
         return Err(format!(
             "new-code status is {:?}; a valid baseline is required",
             new_code.status
@@ -680,16 +875,43 @@ fn percentage_counter_with_precision(
     precision: GatePrecision,
 ) -> Result<MetricValue, String> {
     validate_counter(eligible, covered, name)?;
+    coverage_ratio(u128::from(eligible), u128::from(covered), name, precision)
+}
+
+// The sum of two u64 counters may exceed u64::MAX; neither component may
+// be rounded independently or interpreted as a percentage before adding.
+fn combined_coverage(
+    lines: &CoverageCounter,
+    branches: &CoverageCounter,
+    precision: GatePrecision,
+) -> Result<MetricValue, String> {
+    coverage_ratio(
+        u128::from(lines.eligible) + u128::from(branches.eligible),
+        u128::from(lines.covered) + u128::from(branches.covered),
+        "coverage",
+        precision,
+    )
+}
+
+fn coverage_ratio(
+    eligible: u128,
+    covered: u128,
+    name: &str,
+    precision: GatePrecision,
+) -> Result<MetricValue, String> {
     if eligible == 0 {
         return Err(format!("{name} has no denominator"));
     }
     let value = match precision {
-        GatePrecision::Full => counter_as_f64(covered) * 100.0 / counter_as_f64(eligible),
+        GatePrecision::Full => {
+            // At most 65 significant counter bits. The wire representation of
+            // an unrounded measured percentage is f64.
+            #[allow(clippy::cast_precision_loss)]
+            let value = covered as f64 * 100.0 / eligible as f64;
+            value
+        }
         GatePrecision::OneDecimal => {
-            // The numerator fits in u128 even for u64::MAX. Round exact halves up
-            // before converting the bounded result (0..=1000 tenths) to f64.
-            let denominator = u128::from(eligible);
-            let tenths = (u128::from(covered) * 1000 + denominator / 2) / denominator;
+            let tenths = (covered * 1000 + eligible / 2) / eligible;
             let tenths = u16::try_from(tenths).map_err(|_| format!("{name} is out of range"))?;
             f64::from(tenths) / 10.0
         }
@@ -710,10 +932,10 @@ fn validate_counter(eligible: u64, covered: u64, name: &str) -> Result<(), Strin
 }
 
 fn new_code_line_sets(
-    new_code: &hoonarqube_ir::assessment::NewCodeReport,
+    entries: &[hoonarqube_ir::assessment::NewCodeLines],
 ) -> Result<BTreeMap<PathBuf, BTreeSet<u32>>, String> {
     let mut sets = BTreeMap::new();
-    for entry in &new_code.lines {
+    for entry in entries {
         let lines = sets.entry(entry.path.clone()).or_insert_with(BTreeSet::new);
         for &line in &entry.lines {
             if line == 0 {
@@ -914,71 +1136,74 @@ fn duplication_line_denominator(
     Ok(denominator)
 }
 
-fn scoped_line_coverage(
-    coverage: &hoonarqube_ir::assessment::CoverageReport,
+/// Count only measured observations on the changed lines, before forming any percentage.
+fn new_code_coverage(
+    metric: &str,
+    precision: GatePrecision,
+    policy: SmallChangePolicy,
+    report: &AnalysisReport,
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
-) -> Result<(u64, u64), String> {
-    validate_scoped_coverage_entries(coverage, line_sets)?;
-    if coverage.lines.eligible == 0 {
-        return Err("new-code line coverage has no global denominator".to_string());
+) -> Result<(MetricValue, Option<u64>), String> {
+    let coverage = complete_coverage(report)?;
+    if !policy.is_off() && line_sets.is_empty() {
+        return Ok((MetricValue::NoValue, None));
     }
-    let mut eligible = 0_u64;
-    let mut covered = 0_u64;
-    for file in &coverage.files {
-        let Some(lines) = line_sets.get(&file.path) else {
-            continue;
+    let (lines, branches) = scoped_coverage(coverage, line_sets)?;
+    if !policy.is_off() {
+        let no_denominator = match metric {
+            "line_coverage" => lines.eligible == 0,
+            "branch_coverage" => branches.eligible == 0,
+            _ => lines.eligible == 0 && branches.eligible == 0,
         };
-        for line in &file.lines {
-            if !lines.contains(&line.line) {
-                continue;
-            }
-            let Some(covered_line) = line.covered else {
-                continue;
-            };
-            eligible = eligible
-                .checked_add(1)
-                .ok_or_else(|| "new-code line denominator overflows u64".to_string())?;
-            if covered_line {
-                covered = covered
-                    .checked_add(1)
-                    .ok_or_else(|| "new-code covered line counter overflows u64".to_string())?;
-            }
+        if no_denominator {
+            return Ok((MetricValue::NoValue, None));
         }
     }
-    Ok((eligible, covered))
+    let value = match metric {
+        "line_coverage" => {
+            percentage_counter(lines.eligible, lines.covered, "new-code line coverage")
+        }
+        "branch_coverage" => percentage_counter(
+            branches.eligible,
+            branches.covered,
+            "new-code branch coverage",
+        ),
+        _ => combined_coverage(&lines, &branches, precision),
+    }?;
+    Ok((value, (!policy.is_off()).then_some(lines.eligible)))
 }
 
-fn scoped_branch_coverage(
+fn scoped_coverage(
     coverage: &hoonarqube_ir::assessment::CoverageReport,
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
-) -> Result<(u64, u64), String> {
+) -> Result<(CoverageCounter, CoverageCounter), String> {
     validate_scoped_coverage_entries(coverage, line_sets)?;
-    let mut eligible = 0_u64;
-    let mut covered = 0_u64;
+    let mut lines = CoverageCounter {
+        eligible: 0,
+        covered: 0,
+    };
+    let mut branches = lines.clone();
+    // complete_coverage validated the checked global sums of these disjoint
+    // entries. The two subset counters therefore cannot overflow.
     for file in &coverage.files {
-        let Some(lines) = line_sets.get(&file.path) else {
+        let Some(changed) = line_sets.get(&file.path) else {
             continue;
         };
-        for line in &file.lines {
-            if !lines.contains(&line.line) {
+        for entry in &file.lines {
+            if !changed.contains(&entry.line) {
                 continue;
             }
-            if let Some(branches) = line.branches.as_ref() {
-                validate_counter(
-                    branches.eligible,
-                    branches.covered,
-                    "new-code branch coverage",
-                )?;
-                eligible = eligible
-                    .checked_add(branches.eligible)
-                    .ok_or_else(|| "new-code branch denominator overflows u64".to_string())?;
-                covered = covered
-                    .checked_add(branches.covered)
-                    .ok_or_else(|| "new-code covered branch counter overflows u64".to_string())?;
+            if let Some(hit) = entry.covered {
+                lines.eligible += 1;
+                lines.covered += u64::from(hit);
+            }
+            if let Some(counts) = &entry.branches {
+                branches.eligible += counts.eligible;
+                branches.covered += counts.covered;
             }
         }
     }
-    Ok((eligible, covered))
+    Ok((lines, branches))
 }
 
 fn validate_scoped_coverage_entries(
@@ -1103,7 +1328,8 @@ mod tests {
     use hoonarqube_ir::assessment::{
         ASSESSMENT_SCHEMA_VERSION, AssessmentReport, AssessmentStatus, CoverageCounter,
         CoverageReport, FileCoverage, FindingMatch, FindingStatus, GateOperator, GatePrecision,
-        GateScope, GateStatus, LineCoverage, NewCodeLines, NewCodeReport, SourceSnapshot,
+        GateScope, GateStatus, LineCoverage, NewCodeLines, NewCodeReport, SmallChangePolicy,
+        SourceSnapshot,
     };
     use hoonarqube_ir::{
         AnalysisReport, DuplicateGroup, DuplicateOccurrence, DuplicationMetrics,
@@ -1225,6 +1451,7 @@ mod tests {
             operator,
             threshold,
             precision: GatePrecision::Full,
+            small_change_policy: SmallChangePolicy::Off,
         }
     }
 
@@ -1234,6 +1461,7 @@ mod tests {
         findings: Vec<FindingMatch>,
     ) -> NewCodeReport {
         NewCodeReport {
+            changed_source_lines: None,
             schema_version: ASSESSMENT_SCHEMA_VERSION,
             status,
             reference_context,
@@ -1284,7 +1512,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                actual.as_f64().to_bits(),
+                actual.as_f64().unwrap().to_bits(),
                 f64::to_bits(expected),
                 "{covered}/{eligible}"
             );
@@ -1484,6 +1712,184 @@ mod tests {
     }
 
     #[test]
+    fn combined_coverage_weights_observations_and_scopes_before_rounding() {
+        let mut report = report(true);
+        // The first line has no DA record, but its two LCOV branches are measured.
+        let mut coverage = coverage_report(
+            CoverageCounter::new(2, 2).unwrap(),
+            vec![
+                LineCoverage {
+                    line: 1,
+                    covered: None,
+                    branches: Some(CoverageCounter::new(2, 1).unwrap()),
+                },
+                LineCoverage {
+                    line: 2,
+                    covered: Some(true),
+                    branches: Some(CoverageCounter::new(4, 4).unwrap()),
+                },
+                LineCoverage {
+                    line: 3,
+                    covered: Some(true),
+                    branches: None,
+                },
+            ],
+        );
+        coverage.branches = CoverageCounter::new(6, 5).unwrap();
+        let mut changed = new_code_report(AssessmentStatus::Complete, Some(context()), vec![]);
+        changed.lines[0].lines = vec![1, 2, 3];
+        changed.changed_source_lines = Some(vec![NewCodeLines {
+            path: PathBuf::from("src/main.rs"),
+            lines: vec![1, 3],
+        }]);
+        report.assessment = Some(assessment(Some(coverage), Some(changed)));
+        let snapshot = SourceSnapshot::from_report(
+            std::path::Path::new("src/main.rs"),
+            b"one\ntwo\nthree\nfour\n",
+            None,
+        )
+        .unwrap();
+        report.assessment.as_mut().unwrap().sources.push(snapshot);
+        let cfg = |scope, minimum| GateCondition {
+            precision: GatePrecision::OneDecimal,
+            ..condition(scope, "coverage", GateOperator::Gte, minimum)
+        };
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                cfg(GateScope::Overall, 87.5),
+                cfg(GateScope::NewCode, 66.7),
+                GateCondition {
+                    precision: GatePrecision::Full,
+                    ..cfg(GateScope::NewCode, 66.7)
+                },
+            ],
+        };
+        let gate = evaluate_gate(&config, &report);
+        assert_eq!(
+            gate.conditions
+                .iter()
+                .map(|c| (c.actual, c.status))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some(87.5), GateStatus::Pass),
+                (Some(66.7), GateStatus::Pass),
+                (Some(200.0 / 3.0), GateStatus::Fail)
+            ]
+        );
+        // An unrepresented changed line cannot silently reduce the denominator.
+        let change = report
+            .assessment
+            .as_mut()
+            .unwrap()
+            .new_code
+            .as_mut()
+            .unwrap();
+        change.lines[0].lines.push(4);
+        change.changed_source_lines.as_mut().unwrap()[0]
+            .lines
+            .push(4);
+        let gate = evaluate_gate(&config, &report);
+        assert_eq!(gate.conditions[0].status, GateStatus::Pass);
+        assert_eq!(gate.conditions[1].status, GateStatus::Unavailable);
+        assert_eq!(gate.conditions[1].actual, None);
+    }
+
+    #[test]
+    fn community_exception_counts_coverable_lines_separately_from_physical_lines() {
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                GateCondition {
+                    small_change_policy: SmallChangePolicy::Community20,
+                    ..condition(GateScope::NewCode, "coverage", GateOperator::Gte, 80.0)
+                },
+                GateCondition {
+                    small_change_policy: SmallChangePolicy::Community20,
+                    ..condition(
+                        GateScope::NewCode,
+                        "duplicated_lines_density",
+                        GateOperator::Lte,
+                        3.0,
+                    )
+                },
+            ],
+        };
+        for (physical, coverable) in [(19, 19), (20, 19), (20, 20)] {
+            let mut report = report(true);
+            let path = "src/main.rs";
+            report.project.files = vec![project_file(path, physical)];
+            report.project.duplications.push(DuplicateGroup {
+                language: "rust".into(),
+                occurrences: vec![DuplicateOccurrence {
+                    path: path.into(),
+                    start_line: 1,
+                    end_line: 2,
+                    start_byte: 0,
+                    end_byte: 4,
+                }],
+            });
+            let mut coverage = coverage_report(
+                CoverageCounter::new(u64::from(coverable), 0).unwrap(),
+                (1..=physical)
+                    .map(|line| LineCoverage {
+                        line,
+                        covered: (line <= coverable).then_some(false),
+                        branches: (line > coverable).then(|| CoverageCounter::new(2, 0).unwrap()),
+                    })
+                    .collect(),
+            );
+            coverage.branches =
+                CoverageCounter::new(u64::from((physical - coverable) * 2), 0).unwrap();
+            let mut changed = new_code_report(AssessmentStatus::Complete, Some(context()), vec![]);
+            changed.lines[0].lines = (1..=physical).collect();
+            changed.changed_source_lines = Some(changed.lines.clone());
+            let mut assessment = assessment(Some(coverage), Some(changed));
+            assessment.sources.push(
+                SourceSnapshot::from_report(path, "x\n".repeat(physical as usize).as_bytes(), None)
+                    .unwrap(),
+            );
+            report.assessment = Some(assessment);
+            let decision = evaluate_gate(&config, &report);
+            for (c, n) in decision.conditions.iter().zip([coverable, physical]) {
+                assert!(c.actual.is_some());
+                assert_eq!(
+                    c.status,
+                    if n < 20 {
+                        GateStatus::Pass
+                    } else {
+                        GateStatus::Fail
+                    }
+                );
+                assert_eq!(c.ignored_on_small_change, (n < 20).then_some(u64::from(n)));
+            }
+            decision.validate().unwrap();
+
+            // The same policy may only waive measured failures. It cannot supply missing evidence.
+            report.assessment.as_mut().unwrap().coverage = None;
+            assert_eq!(
+                evaluate_gate(&config, &report).conditions[0].status,
+                GateStatus::Unavailable
+            );
+            let changed = report
+                .assessment
+                .as_mut()
+                .unwrap()
+                .new_code
+                .as_mut()
+                .unwrap();
+            changed.lines.clear();
+            changed.changed_source_lines = Some(vec![]);
+            let empty = evaluate_gate(&config, &report);
+            assert_eq!(empty.conditions[1].status, GateStatus::NoValue);
+            assert_eq!(empty.conditions[1].ignored_on_small_change, None);
+            assert_eq!(empty.conditions[1].actual, None);
+            assert_eq!(empty.conditions[0].status, GateStatus::Unavailable);
+            empty.validate().unwrap();
+        }
+    }
+
+    #[test]
     fn new_code_coverage_uses_changed_line_set_not_project_total() {
         let mut report = report(true);
         report.assessment = Some(assessment(
@@ -1591,6 +1997,101 @@ mod tests {
         let evaluated = evaluate_gate(&config, &report);
         assert_eq!(evaluated.status, GateStatus::Unavailable);
         assert_eq!(evaluated.conditions[0].status, GateStatus::Unavailable);
+    }
+
+    #[test]
+    fn new_hotspot_gate_separates_reviewed_empty_and_unknown() {
+        use std::collections::BTreeSet;
+        let mut report = report(true);
+        let mut file = current_issue_file_report();
+        file.issues[0].rule_key = "javascript:S2245".into();
+        let snapshot = SourceSnapshot::from_source(&file.path, b"x\n", &file.issues).unwrap();
+        let id = snapshot.findings[0].identity.clone();
+        let mut scope = context();
+        scope.catalog_digest = hoonarqube_catalog::embedded()
+            .snapshot()
+            .catalog_sha256
+            .clone();
+        let baseline = new_code_report(
+            AssessmentStatus::Complete,
+            Some(scope.clone()),
+            vec![FindingMatch {
+                path: file.path.clone(),
+                issue_index: 0,
+                identity: id.clone(),
+                status: FindingStatus::New,
+            }],
+        );
+        let mut current = assessment(None, Some(baseline));
+        current.context = scope;
+        current.sources = vec![snapshot];
+        report.files = vec![file];
+        report.assessment = Some(current);
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                condition(
+                    GateScope::NewCode,
+                    "security_hotspots_reviewed",
+                    GateOperator::Gte,
+                    100.0,
+                ),
+                condition(GateScope::NewCode, "violations", GateOperator::Lte, 0.0),
+            ],
+        };
+        let gate = evaluate_gate(&config, &report);
+        assert_eq!(gate.status, GateStatus::Fail);
+        assert_eq!(gate.conditions[0].actual, Some(0.0));
+        assert_eq!(gate.conditions[1].actual, Some(0.0));
+        let gate = super::evaluate_gate_with_reviews(&config, &report, &BTreeSet::from([id]));
+        assert_eq!(gate.status, GateStatus::Pass);
+        assert_eq!(gate.conditions[0].actual, Some(100.0));
+        report
+            .assessment
+            .as_mut()
+            .unwrap()
+            .new_code
+            .as_mut()
+            .unwrap()
+            .findings[0]
+            .status = FindingStatus::Uncertain;
+        assert_eq!(
+            evaluate_gate(&config, &report).status,
+            GateStatus::Unavailable
+        );
+        report
+            .assessment
+            .as_mut()
+            .unwrap()
+            .new_code
+            .as_mut()
+            .unwrap()
+            .findings[0]
+            .status = FindingStatus::Existing;
+        let empty = evaluate_gate(&config, &report);
+        assert_eq!(empty.status, GateStatus::Pass);
+        assert_eq!(empty.conditions[0].status, GateStatus::NoValue);
+        assert_eq!(empty.conditions[0].actual, None);
+        empty.validate().unwrap();
+        let mut forged = empty;
+        forged.conditions[1].status = GateStatus::NoValue;
+        forged.conditions[1].actual = None;
+        assert!(forged.validate().is_err());
+        let mut missing = report.clone();
+        missing.assessment.as_mut().unwrap().new_code = None;
+        assert_eq!(
+            evaluate_gate(&config, &missing).status,
+            GateStatus::Unavailable
+        );
+        // Stripping the source and its findings must not certify a zero denominator.
+        report.files.clear();
+        let current = report.assessment.as_mut().unwrap();
+        current.sources.clear();
+        current.new_code.as_mut().unwrap().findings.clear();
+        assert_eq!(
+            evaluate_gate(&config, &report).status,
+            GateStatus::Unavailable
+        );
     }
 
     #[test]

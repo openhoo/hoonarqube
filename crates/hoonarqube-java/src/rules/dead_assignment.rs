@@ -1135,16 +1135,27 @@ impl<'source, 'index> Flow<'source, 'index> {
     /// store is flaggable for plain `=` anywhere and for compound
     /// operators at statement level.
     fn scan_assignment(&self, node: Node<'_>, defer_writes: bool, out: &mut ScanOut) {
+        let operator = assignment_operator(node);
+        let left = node.child_by_field_name("left");
+        if let Some(left) = left {
+            if left.kind() == "identifier" {
+                // A compound assignment consumes the old value before evaluating its RHS.
+                if operator != "="
+                    && let Some(symbol) = self.local_symbol(left)
+                {
+                    out.read(symbol);
+                }
+            } else {
+                // Field receivers and array addresses are evaluated even for plain assignment.
+                self.scan(left, defer_writes, out);
+            }
+        }
         if let Some(right) = node.child_by_field_name("right") {
             self.scan(right, defer_writes, out);
         }
-        let operator = assignment_operator(node);
-        let Some(left) = node.child_by_field_name("left") else {
+        let Some(left) = left else {
             return;
         };
-        if operator != "=" {
-            self.scan(left, defer_writes, out);
-        }
         if defer_writes || left.kind() != "identifier" {
             return;
         }
@@ -2088,6 +2099,70 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert!(findings[0].0.contains("\"x\""));
         assert_eq!(findings[0].1.start.line, 5);
+    }
+
+    #[test]
+    fn compound_assignment_reads_the_previous_value() {
+        let source = r"class A {
+  int live() {
+    int state = 17;
+    state *= 23;
+    state += 2;
+    return state;
+  }
+
+  void deadCompound(int input) {
+    int state = input;
+    state += 5;
+  }
+
+  int deadBeforePlainAssignment(int input) {
+    int state = input;
+    state = 19;
+    return state;
+  }
+}";
+        let actual: Vec<_> = findings(source)
+            .into_iter()
+            .map(|(_, range)| {
+                (
+                    range.start.line,
+                    range.start.column,
+                    range.end.line,
+                    range.end.column,
+                )
+            })
+            .collect();
+        // Only the final compound result and explicitly overwritten initializer are dead.
+        assert_eq!(actual, [(11, 10, 11, 14), (15, 14, 15, 21)]);
+    }
+
+    #[test]
+    fn plain_assignment_reads_array_address_and_field_receiver() {
+        let source = r"class A {
+  int value;
+  void f(int input, int index) {
+    int[] buffer = new int[4];
+    int position = index & 3;
+    buffer[position] = input;
+
+    A receiver = new A();
+    receiver.value = input;
+
+    int unused = input;
+  }
+}";
+        let actual = findings(source);
+        assert_eq!(actual.len(), 1, "{actual:?}");
+        let (message, range) = &actual[0];
+        assert_eq!(
+            message,
+            "Remove this useless assignment to local variable \"unused\"."
+        );
+        assert_eq!(
+            (range.start.line, range.start.column, range.end.column),
+            (11, 15, 22)
+        );
     }
 
     #[test]

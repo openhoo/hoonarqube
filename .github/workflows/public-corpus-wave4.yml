@@ -1,0 +1,144 @@
+name: Wave 4 independent public source qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scanner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and identify the release scanner
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p hoonarqube-cli --bin hoonarqube
+          binary_root="$RUNNER_TEMP/wave4-binary"
+          install -D -m755 target/release/hoonarqube "$binary_root/hoonarqube"
+          python3 tools/oracle/wave4_build_receipt.py "$binary_root/hoonarqube" > "$binary_root/build.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wave4-native-binary
+          path: ${{ runner.temp }}/wave4-binary/
+          retention-days: 7
+          if-no-files-found: error
+
+  capture:
+    name: Compare ${{ matrix.language }} with Community Build
+    needs: scanner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        language: [go, js, py, ruby, rust, ts]
+    env:
+      WAVE4_LANGUAGE: ${{ matrix.language }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wave4-native-binary
+          path: ${{ runner.temp }}/wave4-binary
+      - name: Restore only the pinned public source files
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/wave4"
+          mkdir -m 700 "$state"
+          python3 tools/oracle/wave4_prepare.py --state "$state" \
+            --manifest tools/oracle/public-corpus-wave4-projects-20261122.json \
+            --language "$WAVE4_LANGUAGE"
+      - name: Capture native results
+        id: native
+        run: |
+          set -euo pipefail
+          binary_root="$RUNNER_TEMP/wave4-binary"
+          chmod 755 "$binary_root/hoonarqube"
+          python3 tools/oracle/wave4_capture.py native --state "$RUNNER_TEMP/wave4" \
+            --binary "$binary_root/hoonarqube" --build-receipt "$binary_root/build.json" --jobs 2
+      - name: Start the pinned private reference
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/wave4"
+          mkdir -m 700 "$state/community" "$state/community/docker"
+          manifest=tools/oracle/public-corpus-wave4-projects-20261122.json
+          image() {
+            python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reference_images"][sys.argv[2]])' "$manifest" "$1"
+          }
+          server_image=$(image index)
+          scanner_image=$(image scanner_linux_amd64)
+          docker pull --platform linux/amd64 "$server_image"
+          docker pull --platform linux/amd64 "$scanner_image"
+          for image in "$server_image" "$scanner_image"; do
+            test "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64
+          done
+          docker network create --internal hq-wave4-internal
+          docker volume create hq-wave4-scanner-cache
+          docker run --detach --pull=never --platform linux/amd64 --name hq-wave4-reference \
+            --network hq-wave4-internal --network-alias reference \
+            --memory 3500m --cpus 2 -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
+            --tmpfs /opt/sonarqube/data:rw,size=2g,uid=1000,gid=0,mode=0770 \
+            --tmpfs /opt/sonarqube/extensions:rw,size=256m,uid=1000,gid=0,mode=0770 \
+            --tmpfs /opt/sonarqube/logs:rw,size=128m,uid=1000,gid=0,mode=0770 \
+            --tmpfs /opt/sonarqube/temp:rw,size=512m,uid=1000,gid=0,mode=0770 \
+            "$server_image" > "$state/community/docker/server.id"
+          for _ in $(seq 1 40); do
+            if docker exec hq-wave4-reference curl --fail --silent --max-time 3 \
+                http://127.0.0.1:9000/api/system/status \
+                | python3 -c 'import json,sys; raise SystemExit(json.load(sys.stdin)["status"] != "UP")' 2>/dev/null; then
+              exit 0
+            fi
+            sleep 4
+          done
+          docker logs --tail 60 hq-wave4-reference
+          exit 1
+      - name: Compare against fresh Community Build analyses
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/wave4"
+          python3 tools/oracle/wave4_capture.py reference --state "$state" \
+            --server hq-wave4-reference --network hq-wave4-internal \
+            --cache hq-wave4-scanner-cache --docker-state "$state/community"
+      - name: Summarize evidence
+        if: ${{ always() && steps.native.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/wave4"
+          python3 tools/oracle/wave4_capture.py summary --state "$state"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() && steps.native.outcome == 'success' }}
+        with:
+          name: wave4-evidence-${{ matrix.language }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/wave4/wave4-receipt.json
+            ${{ runner.temp }}/wave4/native-build.json
+            ${{ runner.temp }}/wave4/native-catalog.json
+            ${{ runner.temp }}/wave4/reference-environment.json
+            ${{ runner.temp }}/wave4/prepare-progress.json
+            ${{ runner.temp }}/wave4/pinned.json
+            ${{ runner.temp }}/wave4/profiles/*.json
+            ${{ runner.temp }}/wave4/profiles-end/*.json
+            ${{ runner.temp }}/wave4/native/*/*.json
+            ${{ runner.temp }}/wave4/native/*/native.stdout
+            ${{ runner.temp }}/wave4/pilot/*/*.json
+            ${{ runner.temp }}/wave4/pilot/*/scanner.stdout
+            ${{ runner.temp }}/wave4/reference/*/*.json
+            ${{ runner.temp }}/wave4/reference/*/scanner.stdout
+      - name: Stop the private reference
+        if: ${{ always() }}
+        run: |
+          if [ -s "$RUNNER_TEMP/wave4/community/docker/server.id" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/wave4/community/docker/server.id")"
+            docker network rm hq-wave4-internal
+            docker volume rm hq-wave4-scanner-cache
+          fi

@@ -306,6 +306,11 @@ jobs:
           python3 -m unittest discover -s tools/oracle -p test_community_gate_contract.py -v
           python3 tools/oracle/community_gate_contract.py target/debug
 
+      - name: Compare Commander changes with Git, LCOV and six Community gate decisions
+        run: |
+          python3 -m unittest discover -s tools/oracle -p test_commander_reference.py -v
+          python3 tools/oracle/community_combined_coverage.py target/debug
+
       - name: Check persisted results for four pinned public Go projects
         run: >-
           python3 tools/oracle/public_go_pipeline.py --check-persisted

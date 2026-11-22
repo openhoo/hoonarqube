@@ -399,18 +399,18 @@ pub(crate) fn analyze_project_paths(
         &project_options.duplication,
     )?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
-    attach_project_assessment(
-        &mut report,
-        &collected.source_inventory,
-        options,
-        project_options,
-    );
     crate::parity_cli::attach_parity_contract(
         &mut report,
         catalog,
         options,
         project_options,
         semantic.as_ref(),
+    );
+    attach_project_assessment(
+        &mut report,
+        &collected.source_inventory,
+        options,
+        project_options,
     );
     Ok(report)
 }
