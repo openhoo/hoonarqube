@@ -2397,6 +2397,46 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
     }
 
     #[test]
+    fn typescript_abstract_property_names_produce_complete_source_facts() {
+        for ext in ["ts", "tsx"] {
+            for source in [
+                "interface InspectorValue { abstract?: boolean }",
+                "interface InspectorValue { abstract: boolean }",
+                "type InspectorValue = { fields?: { readonly abstract?: boolean } };",
+            ] {
+                let parsed = facts(&format!("inspector.{ext}"), source);
+                assert!(
+                    parsed.error.is_none(),
+                    "{ext}: {source}: {:?}",
+                    parsed.error
+                );
+                assert_eq!(parsed.metrics.code_lines, 1);
+                assert!(typescript_shape(ext, source).contains(
+                    "(property_signature name: (property_identifier) type: (type_annotation (predefined_type)))"
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn typescript_abstract_property_names_preserve_modifier_and_syntax_errors() {
+        for ext in ["ts", "tsx"] {
+            let source = "abstract class InspectorValue { abstract getValue(): boolean; }";
+            assert!(typescript_shape(ext, source).contains(
+                "(abstract_class_declaration name: (type_identifier) body: (class_body (abstract_method_signature name: (property_identifier)"
+            ));
+            let malformed = facts(
+                &format!("inspector.{ext}"),
+                "interface InspectorValue { abstract??: boolean }",
+            );
+            assert_eq!(
+                malformed.error.as_deref(),
+                Some("syntax tree contains recovered or missing nodes"),
+            );
+        }
+    }
+
+    #[test]
     fn typescript_generic_overloads_keep_the_explicit_separator_tree() {
         for ext in ["ts", "tsx"] {
             for (members, count) in [

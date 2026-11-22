@@ -5,6 +5,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ModModule;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
+use ruff_python_ast::token::{Tokens, parentheses_iterator};
 use ruff_python_parser::Parsed;
 use ruff_source_file::LineIndex;
 use ruff_text_size::Ranged;
@@ -58,15 +59,31 @@ fn has_comment_before_inner(
     })
 }
 
-/// Merging the enclosing and inner conditions with ` and ` must stay within 80
-/// columns.
-fn merged_line_too_long(inner: &StmtIf, enclosing: &Expr, index: &LineIndex, source: &str) -> bool {
-    let outer_end = index.line_column(enclosing.end(), source);
-    let inner_start = index.line_column(inner.test.start(), source);
-    let inner_end = index.line_column(inner.test.end(), source);
-    let outer_last_column = outer_end.column.get() - 1;
-    let inner_condition_length = inner_end.column.get() - inner_start.column.get();
-    outer_last_column + inner_condition_length + 5 > 80
+fn condition_range(test: &Expr, tokens: &Tokens, index: &LineIndex) -> TextRange {
+    // Ruff omits grouping parentheses from the expression range. On a multiline
+    // header those parentheses can put the first or last token on a different
+    // line, so measure the whole grouped condition. Keep single-line behavior.
+    parentheses_iterator(test.into(), None, tokens)
+        .last()
+        .filter(|range| index.line_index(range.start()) != index.line_index(range.end()))
+        .unwrap_or_else(|| test.range())
+}
+
+/// The reference estimates the merged line using the condition token columns
+/// and five characters for ` and `.
+fn merged_line_too_long(
+    inner: &Expr,
+    enclosing: &Expr,
+    tokens: &Tokens,
+    index: &LineIndex,
+    source: &str,
+) -> bool {
+    let outer = condition_range(enclosing, tokens, index);
+    let inner = condition_range(inner, tokens, index);
+    let column = |offset| index.line_column(offset, source).column.to_zero_indexed();
+    // Move the inner start column to the right so that an end column on a
+    // different line may be smaller without unsigned subtraction.
+    column(outer.end()) + column(inner.end()) + 5 > 80 + column(inner.start())
 }
 
 fn visit_suite(
@@ -158,7 +175,7 @@ fn push_collapsible(
         || contains_walrus(&inner.test)
         || contains_walrus(&outer.test)
         || has_comment_before_inner(inner, outer, parsed, index, source)
-        || merged_line_too_long(inner, enclosing_test, index, source)
+        || merged_line_too_long(&inner.test, enclosing_test, parsed.tokens(), index, source)
     {
         return;
     }
