@@ -206,7 +206,9 @@ def bootstrap(state):
     return read_secret_file(path).strip()
 
 
-def run_reference(row, root, folder, sonar, token, cache):
+def run_reference(
+    row, root, folder, sonar, token, cache, *, source_verifier=oracle.verify_source
+):
     key = row["project_key"]
     try:
         sonar.request("/api/components/show", {"component": key})
@@ -277,7 +279,7 @@ def run_reference(row, root, folder, sonar, token, cache):
     scan_and_ce_seconds = time.monotonic() - start
     oracle.capture_reference(row, sonar, root, folder)
     oracle.verify_reference_files(root, folder)
-    oracle.verify_source(row)
+    source_verifier(row)
     return {
         "status": "complete",
         "scanner_and_ce_seconds": round(scan_and_ce_seconds, 3),
@@ -335,9 +337,11 @@ def run_native(row, root, folder, binary):
     }
 
 
-def execute(row, args, sonar, token):
+def execute(row, args, sonar, token, *, checkout_verifier=None, helper_handler=None):
+    verify = checkout_verifier or verify_checkout
+    archive = helper_handler or preserve_native_helper
     folder = args.output / row["name"]
-    root = verify_checkout(row)
+    root = verify(row)
     if folder.resolve().is_relative_to(root):
         raise ValueError("capture output must stay outside the source checkout")
     folder.mkdir(parents=True, exist_ok=True)
@@ -357,17 +361,23 @@ def execute(row, args, sonar, token):
                     }
                 elif not args.native_only:
                     status[label] = run_reference(
-                        row, root, folder, sonar, token, not args.no_shared_cache
+                        row,
+                        root,
+                        folder,
+                        sonar,
+                        token,
+                        not args.no_shared_cache,
+                        source_verifier=checkout_verifier or oracle.verify_source,
                     )
             elif not args.reference_only:
                 try:
                     status[label] = run_native(row, root, folder, args.binary)
                 finally:
-                    preserve_native_helper(row, root, folder)
+                    archive(row, root, folder)
         except Exception as error:  # noqa: BLE001 - retain per-tool failure evidence
             status[label] = {"status": "failed", "reason": str(error)}
         write_json_atomic(folder / "progress.json", status)
-    verify_checkout(row)
+    verify(row)
     status["ended_at_utc"] = utc()
     write_json_atomic(folder / "progress.json", status)
     return status
