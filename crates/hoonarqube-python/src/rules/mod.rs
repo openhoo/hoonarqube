@@ -768,7 +768,7 @@ pub(crate) fn check_tier_b_battery(
         issues.extend(check_unused_locals(
             parsed, table, options, index, source, file_ctx,
         ));
-        issues.extend(check_use_before_definition(table, facts, index, source));
+        issues.extend(check_use_before_definition(file_ctx, index, source));
         issues.extend(check_dead_stores(
             parsed, table, facts, options, index, source,
         ));
