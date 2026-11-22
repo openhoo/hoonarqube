@@ -1,0 +1,992 @@
+{
+  "environment": {
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "clippy": "clippy 0.1.96 (ac68faa20c 2026-05-25)",
+    "clippy_image_id": "sha256:55d1d6475bfd5a609e79cf3dfb9610a4c311a6473a524795f1ca69190e2582e0",
+    "mapping": {
+      "lintId": "clippy::wildcard_imports",
+      "message": "Replace this wildcard import with specific imports.",
+      "ruleKey": "S2208"
+    },
+    "rust_image": "rust@sha256:4732ca96fd086cb9be682050c3f0176288eebaac2b80aa2bcefccfaf198e1950",
+    "rust_plugin": "1.8.1.3395",
+    "rust_plugin_sha256": "2a90db3515e4a168d59d40b13af49d2a7969c57cceb4a0c69423406ea9bd8e75",
+    "rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-unknown-linux-gnu\nrelease: 1.96.0\nLLVM version: 22.1.2",
+    "scanner_cli": "8.0.1.6346",
+    "scanner_cli_sha256": "4548b5df84d63dc1792f064959da889d5f9f1a34596a94c26938d7270df4f9a9",
+    "scanner_image": "sonarsource/sonar-scanner-cli@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+    "server": "26.9.0.129388",
+    "server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1"
+  },
+  "native_binary_sha256": "9b454447ce5917655c0f8ac0e2fcbb56adddea4c8d9d79531a1c9857a389f136",
+  "projects": {
+    "clap": {
+      "after": {
+        "matched": 2,
+        "native_only": 1,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "clap_builder/src/parser/features/suggestions.rs",
+          90,
+          8,
+          90,
+          16
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 3,
+        "reference_only": 2
+      },
+      "cargo_lock_sha256": "cd4f68160ca72b956e0df588a7c0aeabd57fce932d6f891b2e16a9de0167d125",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 2,
+      "clippy_out_of_scope": 0,
+      "clippy_report_sha256": "92e7272fe515d96dbf555a05cc356006c623002412a702eb0704437b6d785e57",
+      "direct_clippy_sha256": "fd3bdf17494cf5ef006fc5a62731fd4bc1bd9de126b2fd207d4fc3f311407b39",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "c7c2b31c-f3fb-483c-9816-90524bfee42f",
+        "portable_scanner_log_sha256": "c0fc216b0ad68e69c3a62a30b98b4fa7b300db3f6f6ad191d8e1d969d2704251",
+        "project": "hq-s2208-20261122-clap-external",
+        "sha256": {
+          "analysis.json": "3ecdb859056c1cae714b665fcc8959fee6984f363e7318c19dc05b1a0671b4f2",
+          "files.json": "714c64a83eb2d6cc4413a470d46a291d1264c58619b0447c9ff5db4a74c2c340",
+          "history.json": "3652e3b9abb3e3568715de920f1da46fb36d4b81f628f4c75d070ca65e2dcfee",
+          "issues.json": "bba2ecd71fc3c199297cb4d19e7146499d5511bedfae9e27ac269805fa3e817d",
+          "profile.json": "3fe203bc817112cdb9719746d2692bb0c3c95a738c0a375ffb643bd3db64ed98",
+          "scanner-settings.json": "aa1b88522ce907c9a123cc8f6147ab368fdae803a0d5ea71551a0011858dd6ee"
+        },
+        "task": "a9b63382-e26f-4ed0-a393-3243a68f1a46"
+      },
+      "files": 56,
+      "integrated": {
+        "analysis": "634303be-f4c2-4b81-baf6-67ffebe6659a",
+        "portable_scanner_log_sha256": "6f4c3f97f28a70341905f7cbd16cb4f5e66a96eb823344229f38c3977e534e1b",
+        "project": "hq-s2208-20261122-clap-integrated",
+        "sha256": {
+          "analysis.json": "9c0408468003321f70f5cb261444ee3804de5546b96aef93cd34f63f290f51be",
+          "files.json": "2f2cbeeb188e93be646db215d7808614760296633fdbe480cb56f2094384b0b3",
+          "history.json": "1708ebfbbfdda523549bb06923d88ecad3c1f510afe02c1bd12e6266ff6c0bdb",
+          "issues.json": "6d055ed80c5b1da58ddf21f13619f5a4e4257e36dc30ab9ab2ccee76d2fe59b8",
+          "profile.json": "59b5892dc68ef18eec3ba9306074ba75f2da8ca07dbdc46f94ab927798bf062d",
+          "scanner-settings.json": "563e910c2f5ed0a868b5db9608059c9b375590ade2fe63a6bb532e780a718e12"
+        },
+        "task": "557c40c3-dc3a-481b-add9-5ba2a3843609"
+      },
+      "native_after_sha256": "2bab3da8c0f96dbab469fb648c89549c786427ca2fd94d9fe20ff0de7e2c9bf2",
+      "native_before_sha256": "1b50bbd8f78139038f1a44e7b5494bf1906ae70c5347dc969185e3d8fb38ae0b",
+      "revision": {
+        "commit": "8e3d03639756241aa2b7dd624a7f5852bef76f31",
+        "tree": "b395c3a2c598fc6fb760fc8ff6799ceb89cf4332"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=clap_builder/src",
+        "-Dsonar.exclusions="
+      ],
+      "scope_sha256": "d4abd4bd3b1e0a566812b852edfa0a1112ee548687d33e019e364595498b2034",
+      "supplemental": {
+        "tests": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--lib",
+            "--tests",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 4,
+          "matched_native": 2,
+          "outside_scope": 0,
+          "report_sha256": "e2fbe68c1f496ad99f14981dd477aa8094282fcf453e1718f9ac9b652cca82a0"
+        }
+      }
+    },
+    "hashbrown": {
+      "after": {
+        "matched": 0,
+        "native_only": 1,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "src/control/group/lsx.rs",
+          4,
+          4,
+          4,
+          30
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 1,
+        "reference_only": 0
+      },
+      "cargo_lock_sha256": "6fc07a488b9012c71511b8f2cce256537fcf45cc17001e311ce1fd4f917810cd",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 0,
+      "clippy_out_of_scope": 0,
+      "clippy_report_sha256": "61752b6f4f464008f13a5c62ec965d9fe4c68fb8fae54edc4acfa009d8dd5f4e",
+      "direct_clippy_sha256": "cae457409b6b013e063a9c1fc50b7017897b704ec8a9dfa2af4c702b037cc997",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "1a6e63ed-4d6a-4aed-b1bc-6515cfc0f5cc",
+        "portable_scanner_log_sha256": "6175f496bcfb6dbfc7597bff2c08c4c957ad89f7359f493dcc8de93b19390599",
+        "project": "hq-s2208-20261122-hashbrown-external",
+        "sha256": {
+          "analysis.json": "d4259f271b5a494c16e72b4981d3e20213308d0be04acb2f2ea8b0e8f45b6830",
+          "files.json": "97a49788fa20ab06ac2f723c3fdea4e6123bd836304e73454db940d158089e46",
+          "history.json": "3860f817b35b6acce9f2ded89b6a075d5afced93cdff362cb3b3d6082529cf6a",
+          "issues.json": "6cac2a3c122ad479bf5acc3addaa8dc73026fcdc65826206b46397a2ccf4f4dc",
+          "profile.json": "3fe203bc817112cdb9719746d2692bb0c3c95a738c0a375ffb643bd3db64ed98",
+          "scanner-settings.json": "2ab356605e1f2d3046b5ec82e8246c5ee145f68da996c1852bfe018e6cc3dbe7"
+        },
+        "task": "70a5224b-9b6b-4f65-b647-73488b29c4ff"
+      },
+      "files": 28,
+      "integrated": {
+        "analysis": "6dd3cbea-3755-49b1-ae2f-aa135b7a1e49",
+        "portable_scanner_log_sha256": "de493cd76e268a8351d07402ad45d8ee970c2a610eea30445f105196bffa8680",
+        "project": "hq-s2208-20261122-hashbrown-integrated",
+        "sha256": {
+          "analysis.json": "c5878227d443a00efa0e0432afda3badbbc7171943edc5b368a45256648803e7",
+          "files.json": "0b8bec38d9858cf160428a9dc749478d165c07c4528c620d292e6e57a5364f8d",
+          "history.json": "da78321b8759a2611e97bab7bd09fa5683631e5c73bdf41f552adf1b962f4a89",
+          "issues.json": "73dc98d356fb4e61019a79df06690da166255e1a6e5c88b6facee50c8fb0dd49",
+          "profile.json": "59b5892dc68ef18eec3ba9306074ba75f2da8ca07dbdc46f94ab927798bf062d",
+          "scanner-settings.json": "362b220585c5158de5c6349fad4f7b33a102ef1ecbf4d39fdf54c7fee6ba7e4b"
+        },
+        "task": "41ff8c8e-46c6-47e1-9ee9-847c3d8c9e8e"
+      },
+      "native_after_sha256": "65cefe0b7c9cd8a48376f0fe004ffd47a5ea20eeaac7646e0ea40d6d5eceacf2",
+      "native_before_sha256": "03e6f80f9ca980684a67ec1979fc289feca6b3853970c91f6d9417957e933b0d",
+      "revision": {
+        "commit": "f3e9f0fc110f55ca55d73d6eddc0bdf5e85eb223",
+        "tree": "4285280b03c3cbb77b7fa8253d69ca621d2de526"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=src",
+        "-Dsonar.exclusions=**/tests/**,**/benches/**"
+      ],
+      "scope_sha256": "5b2b11e8c231b970e3560509437fbbb910a5f07315d1625affb2a8ba6bf10cbd",
+      "supplemental": {}
+    },
+    "indexmap": {
+      "after": {
+        "matched": 0,
+        "native_only": 2,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "src/map/tests.rs",
+          1,
+          4,
+          1,
+          12
+        ],
+        [
+          "src/set/tests.rs",
+          1,
+          4,
+          1,
+          12
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 2,
+        "reference_only": 0
+      },
+      "cargo_lock_sha256": "4a3eb0d1a84a21e843b990dd9dc45801230a7182748d16e727634cb296e68cba",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 0,
+      "clippy_out_of_scope": 0,
+      "clippy_report_sha256": "20d88af98e53700e4989789676f34fb6b1852ed10e836fd9427756b167a4c5ca",
+      "direct_clippy_sha256": "0e0d074e4d0eb1d068820f1abc183d0f612613a47bf2e5036d307410cdfbf603",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "dffd477d-b918-4b2e-b236-df20a61b7ea3",
+        "portable_scanner_log_sha256": "b4243796bdf6d8e2b293ec4e3db4e081bc07eefedd696d74a80ff0ad6db0f07d",
+        "project": "hq-s2208-20261122-indexmap-external",
+        "sha256": {
+          "analysis.json": "d17de56960e831b3d6e8e03ea98630d63ff2da1a865d092b53ef4f954dfb54f4",
+          "files.json": "98d027a1bc7928814d312807c5bd8658ad340f4604663549aa28d7141ba52987",
+          "history.json": "a6ff67697f580f1ed9b2eea71a5b0f0addf6ffbc4ededfa9ce7a70bda8d64770",
+          "issues.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "profile.json": "3fe203bc817112cdb9719746d2692bb0c3c95a738c0a375ffb643bd3db64ed98",
+          "scanner-settings.json": "d420a16b962473a3dd819939fac7dcd5f32d2c830393120cbfe466dbc28f04e1"
+        },
+        "task": "e5c8175b-740b-49ff-8873-f521b4f63be4"
+      },
+      "files": 27,
+      "integrated": {
+        "analysis": "c7397df1-f962-46f9-882a-0a9f3fb4d2d7",
+        "portable_scanner_log_sha256": "e95543ef58af31814411a712d723a487861106ef16447794525e92e9a0ca3067",
+        "project": "hq-s2208-20261122-indexmap-integrated",
+        "sha256": {
+          "analysis.json": "8877bc553ddfa1b8d8501b693698845b3095c0776ab34529fb9517f0aeafe552",
+          "files.json": "85d397f7dbae5fd1d6c132f8210b8f40e718799e0537034093baad5fa524d787",
+          "history.json": "31831bef284dee994aa0a948db47021bf001f2850b06104c18db4cb2a7d3733a",
+          "issues.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "profile.json": "59b5892dc68ef18eec3ba9306074ba75f2da8ca07dbdc46f94ab927798bf062d",
+          "scanner-settings.json": "da8498f6da284a3993a5871e02bc46125ce2c983506d8f229fd91b55d718a165"
+        },
+        "task": "58018787-e328-4df3-b69b-29d59fb6a81d"
+      },
+      "native_after_sha256": "86d102a99f9b724662122fb631e8e08f504cf50ef8272e04806f0d02b2638a33",
+      "native_before_sha256": "6ff89c9f21f744e58631b16daedf08b63d2207948bb4a41369b31e1f44a9138d",
+      "revision": {
+        "commit": "41a870887c4c77adf665886e63df08f406bfe37a",
+        "tree": "0e4bbb3b29250b441f1e39617a276cae4ed46fe1"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=src",
+        "-Dsonar.exclusions=**/tests/**,**/benches/**"
+      ],
+      "scope_sha256": "878fd2311becebf00ca484f8218b7a4fa3704f7928ee971f2d9d5464e9fa2a6c",
+      "supplemental": {
+        "tests": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--lib",
+            "--tests",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 0,
+          "matched_native": 0,
+          "outside_scope": 0,
+          "report_sha256": "d954a2939c9999ed58bd73a0c0035b8a179c1ad25448fd5287702e8439d13252"
+        }
+      }
+    },
+    "log": {
+      "after": {
+        "matched": 0,
+        "native_only": 8,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "src/kv/error.rs",
+          70,
+          8,
+          70,
+          16
+        ],
+        [
+          "src/kv/key.rs",
+          112,
+          8,
+          112,
+          16
+        ],
+        [
+          "src/kv/key.rs",
+          131,
+          8,
+          131,
+          16
+        ],
+        [
+          "src/kv/key.rs",
+          154,
+          8,
+          154,
+          16
+        ],
+        [
+          "src/kv/source.rs",
+          281,
+          8,
+          281,
+          16
+        ],
+        [
+          "src/kv/value.rs",
+          424,
+          8,
+          424,
+          16
+        ],
+        [
+          "src/kv/value.rs",
+          640,
+          8,
+          640,
+          16
+        ],
+        [
+          "src/kv/value.rs",
+          765,
+          8,
+          765,
+          16
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 8,
+        "reference_only": 0
+      },
+      "cargo_lock_sha256": "6756cc891f944d90d97bf1cc9cf4ba2f0c741fec77c597b348a4e241620c53e8",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 0,
+      "clippy_out_of_scope": 0,
+      "clippy_report_sha256": "8caec2882458b0a974ea04d6900ca66b0e36a428f66bb72ee28ce7e95498bec8",
+      "direct_clippy_sha256": "8a9d5238a43c67c7af1e44217aaa01d9ff089b562db00887b6ff0ddb392c310f",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "ad831bb5-1260-4869-8f6f-1326952d1211",
+        "portable_scanner_log_sha256": "8716676b335cb82060f565cd644afbb86f2be318d5d56a65af25e97b702337dc",
+        "project": "hq-s2208-20261122-log-external",
+        "sha256": {
+          "analysis.json": "56cb925cb601ca6e7f8d50b2ce93c534f8530b887f17f4c7738d87d9be006e78",
+          "files.json": "fdc6151ace6af2add8ef91cdd6b7e5f9253f1c08f2c4fb2a12cb71bdf8c122f1",
+          "history.json": "1f83894847601cbea5010560f0d62748953cb1aa5c4b84f14cb3328d32e0e93a",
+          "issues.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "profile.json": "b5dd48d53b52ee9adb67f318bad762ee013c6722e163ad0614368a730500ca4f",
+          "scanner-settings.json": "fa0bc4705575e483f350fb06a4078992edef48a2eea40412e0f983e2256f5c53"
+        },
+        "task": "90225ec3-0789-4142-8e42-83c56b258d9e"
+      },
+      "files": 9,
+      "integrated": {
+        "analysis": "747d6fe5-c99e-4c91-a2e4-93ac72a30a5a",
+        "portable_scanner_log_sha256": "90fbcffffe2a457af839d6b4837a2b1b58fd8c06fa54d526e692bdcdb73ba7a2",
+        "project": "hq-s2208-20261122-log-integrated",
+        "sha256": {
+          "analysis.json": "8dbe5aae6b8acecd807c1e9f402622e97bc40ca6f9562395e2d9ee3acc9820c7",
+          "files.json": "eb78903deb501201557121f3b22a0e1b362b37891a352ebf0f0d7c4f7a5fbfd2",
+          "history.json": "69bfc53a91cdae3003197fb748138632a99639de3cbc5ebdd1d8d44c1e13d2bd",
+          "issues.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "profile.json": "ef391388aee04bf488fce678ac0782f8afb6b77b507f82830e08572fcf140b10",
+          "scanner-settings.json": "09a6f340138d83f18053812d4ca85e747a6fdbeb2b1cbe177fbc011241ad90fc"
+        },
+        "task": "7be4a9c1-6f5d-4e9e-bf25-5af73aa1cbb9"
+      },
+      "native_after_sha256": "d6ad95d34074e45f26d437fa8c3a282a4076841ff695b5350c7a68616fa3c8af",
+      "native_before_sha256": "5f4b9d87a5e97deeb5610632733ae15f2efd0c07250b00db3bb6698ae3feae94",
+      "revision": {
+        "commit": "75fcb86da1cce3b9476c58c911482ec43ec235f4",
+        "tree": "4ad24feff309086eefcbbe50d3fda25d0ceeed34"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=src",
+        "-Dsonar.exclusions=**/tests/**,**/benches/**"
+      ],
+      "scope_sha256": "6f67b57e3688157c27bc63b2c87b8b0b34ddb56ccf8e1988b64f555366f41ddf",
+      "supplemental": {
+        "kv-std": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--features",
+            "kv_std",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 5,
+          "matched_native": 5,
+          "outside_scope": 0,
+          "report_sha256": "9a724d012e6c4e589676624b83e5f83ed2149c97cf799910fd0456813bf3f78d"
+        },
+        "kv-tests": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--lib",
+            "--tests",
+            "--features",
+            "kv_std",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 5,
+          "matched_native": 5,
+          "outside_scope": 0,
+          "report_sha256": "d689db44d6b988b12ec86d9143fed5dd3db8d3ee8c6625baa09598ec5eaa7e9e"
+        }
+      }
+    },
+    "memchr": {
+      "after": {
+        "matched": 1,
+        "native_only": 3,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "src/vector.rs",
+          210,
+          8,
+          210,
+          29
+        ],
+        [
+          "src/vector.rs",
+          263,
+          8,
+          263,
+          29
+        ],
+        [
+          "src/vector.rs",
+          495,
+          8,
+          495,
+          29
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 4,
+        "reference_only": 1
+      },
+      "cargo_lock_sha256": "490fe55af89c4ef54f6c2ec451f7cbfbb5a1349d3dd7932b2d286b3b2a6fe03d",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 1,
+      "clippy_out_of_scope": 0,
+      "clippy_report_sha256": "7fe22ed9791d5322394b6c24d11961a6a15e271f970d9a831894c5e726041506",
+      "direct_clippy_sha256": "43e80a219ac9b8a6f3d06b53b219c88cbb7c27030669458bfc614c395d3f3cfb",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "c04f2b77-26d6-4a34-b63a-1e2fb273bfcc",
+        "portable_scanner_log_sha256": "8f6c1bf60584e0d073e71d99b4ffbe64410661b8f86ad6932e6e3157b8a054cd",
+        "project": "hq-s2208-20261122-memchr-external",
+        "sha256": {
+          "analysis.json": "1930311c83e8e3a0443c503c2eb219ef510661700f797fca994be28a84ad44bc",
+          "files.json": "0d93aa5278c729c560b9a5883b79f0b7efda2a86aebd3b5c60e8c5591c87754b",
+          "history.json": "4c6b6a1be6f47ab1e86c6857b8de0b56ce4c3030a2b80527e308e526b13237eb",
+          "issues.json": "ad43b5d8001d9a4b748083ee59ccc61dbb3c80ed3925733aa7e7a6aac499de15",
+          "profile.json": "9db9c617b66b6ec3321acb0a1677f195d097642ff77d068aa6f5dd261763160a",
+          "scanner-settings.json": "d59d08c38a648beef762a80cb2dd33eb8f6b4138dc5c5775547211af0ef0aff3"
+        },
+        "task": "197f795a-8101-4bd4-8396-a132d7130844"
+      },
+      "files": 37,
+      "integrated": {
+        "analysis": "e60cd34f-02ed-414d-97a0-3d8a09006ba2",
+        "portable_scanner_log_sha256": "ada5da88d52febf5ba19970c71c4643240019ee3ef9ff7c42d055a0d749054a5",
+        "project": "hq-s2208-20261122-memchr-integrated",
+        "sha256": {
+          "analysis.json": "97c6cd93fb33a121e3cad4a6034731fdae7a4ccaedab2d72a31484059d820487",
+          "files.json": "ea016d7fe4abdbc0d883f397e45ebdb4585a1771cfe4bc8cf3c1c7fc17cb2635",
+          "history.json": "93bef6fb7537e79e29b79e13b4138ccb27be64a647565d16f31c5ac4bdfffffd",
+          "issues.json": "78fb47703743fad39342728f86c07fd3117f1fbd9b310b1f7eee82c13cd9dbbb",
+          "profile.json": "2c4053d38368b79f5171739a83cd1d5951d49f7a8ca6959a522d6dae9f54480e",
+          "scanner-settings.json": "9e2180c87904e6eaefa922978378ca4a2b2ee73db3830f78e6fd2def1b3e414c"
+        },
+        "task": "3351c32e-4839-438b-8402-301762013571"
+      },
+      "native_after_sha256": "aeaf16cdf73ee336489b57ada2c2522705c78bace475073751ef5721d2125eb5",
+      "native_before_sha256": "56937001c905884d1e10a8f5d03834d9538ba0eabbe4e0ae9b6f4c52e531220b",
+      "revision": {
+        "commit": "bd6068c30e9074a90c285e47912fa0b047d07597",
+        "tree": "22a8e7959880e4457ba1c4b0eceb2e80e5f29fa5"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=src",
+        "-Dsonar.exclusions=**/tests/**,**/benches/**"
+      ],
+      "scope_sha256": "95f5b859624dfe281f2696683f257bb2fe9dabb19863a11a879e31fba8e45669",
+      "supplemental": {
+        "all-targets": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--all-targets",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 1,
+          "matched_native": 1,
+          "outside_scope": 0,
+          "report_sha256": "c89373a4445a98c02d62b6ec9003a0420a0f8c85baaaf31f0e84cd3b6d609a33"
+        }
+      }
+    },
+    "rayon": {
+      "after": {
+        "matched": 98,
+        "native_only": 6,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "src/delegate.rs",
+          66,
+          8,
+          66,
+          32
+        ],
+        [
+          "src/delegate.rs",
+          90,
+          8,
+          90,
+          32
+        ],
+        [
+          "src/iter/collect/test.rs",
+          9,
+          4,
+          9,
+          28
+        ],
+        [
+          "src/iter/find_first_last/test.rs",
+          1,
+          4,
+          1,
+          12
+        ],
+        [
+          "src/iter/test.rs",
+          3,
+          4,
+          3,
+          12
+        ],
+        [
+          "src/iter/test.rs",
+          5,
+          4,
+          5,
+          17
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 104,
+        "reference_only": 98
+      },
+      "cargo_lock_sha256": "77d5b8092d27f9356fbf920e9ec1b8d5a4c8f93199f23f73e5e6113fa7af4629",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 98,
+      "clippy_out_of_scope": 1,
+      "clippy_report_sha256": "1364634090589070eb74f9e640a78b07a49d1aa8f22c815c5995817e058aef25",
+      "direct_clippy_sha256": "3b8fb16335729df4dd8ff2577ce97684793ab8b97a9f15c04609917a5b22cb44",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "af522879-d57c-4ebe-a566-ccdeed098d22",
+        "portable_scanner_log_sha256": "ff6836acfdfa146d39d4087cecbcfc927632b3cb3eeae088e148648b0b611647",
+        "project": "hq-s2208-20261122-rayon-external",
+        "sha256": {
+          "analysis.json": "00fb0f972ab4deb74460d02e65d5a433499a5c691962749c8f8c2337b2ca4a2f",
+          "files.json": "cdb7ddb55d34c1fdbbfa6698ad79430ccef8dcf79170f080b35780f04403c644",
+          "history.json": "75f6843eccc71b146d6b54c3102174d5aa48a50bfa28a78732dcc4f341ee5a80",
+          "issues.json": "e45bbf48a7c7dc5bd979d8485b1181c6f20488992ecc3ed0c679122dc69b5c65",
+          "profile.json": "c00716cf4a76f7876aa98ad64aaa6ce89540ddd4d9582fe4c774c6a61b86524c",
+          "scanner-settings.json": "03e23fa4dbe9914fd6679158d2ad3e5021f3af8ed510bf7705366ecd4b3b07d3"
+        },
+        "task": "0217b9b4-bcf9-45be-936e-03629ffa053e"
+      },
+      "files": 99,
+      "integrated": {
+        "analysis": "09a2b35f-ae3a-429e-9991-69eba4a142af",
+        "portable_scanner_log_sha256": "8e01bf89fbd07665478698bcf85108595d58e88baa8bfe10b66e9769195fd67f",
+        "project": "hq-s2208-20261122-rayon-integrated",
+        "sha256": {
+          "analysis.json": "0941111548cc5a768e0b19f84c18917aceb94a30859ebd9ea1f045c065cc8ea4",
+          "files.json": "0515c8560d48c2d072af3fada6a2f50bc95e2519e8c4b2cf01abae126a7027cd",
+          "history.json": "66d7d77abf2547cc66234a26900a27d8725799cd359cf39938c920f499e26b2b",
+          "issues.json": "a176adf746e199b021413575abcadd8de56b5df89ded1ac5948e8fa3972e81b9",
+          "profile.json": "2c4053d38368b79f5171739a83cd1d5951d49f7a8ca6959a522d6dae9f54480e",
+          "scanner-settings.json": "7fe7ea682db9ba976f8923523455509ebfa94043e432ea87d994106010be4364"
+        },
+        "task": "392caf2b-fa52-407d-ba84-a39534bcc206"
+      },
+      "native_after_sha256": "e748fa854062f1598bc70e56af20aef72c3b9bd677ded0171eb831127eb94c42",
+      "native_before_sha256": "bfde7f988d41422f51da1887fce9396fbd7b8b4d1727a76597b5d064553e7d7f",
+      "revision": {
+        "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+        "tree": "4f0b756885a1898148017e4a55de8b406bce8f32"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=src",
+        "-Dsonar.exclusions=**/tests/**,**/benches/**"
+      ],
+      "scope_sha256": "556af3bee6927796d82d67947291ec4b95908ebee9877d19e9563e65a6858c07",
+      "supplemental": {
+        "tests": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--lib",
+            "--tests",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 98,
+          "matched_native": 98,
+          "outside_scope": 1,
+          "report_sha256": "06685a32f4624fcc8860779d60f3603cc4e1eb9a9ce547006545361c4e25aa61"
+        }
+      }
+    },
+    "serde-json": {
+      "after": {
+        "matched": 0,
+        "native_only": 31,
+        "reference_only": 0
+      },
+      "after_native_only_ranges": [
+        [
+          "src/lexical/algorithm.rs",
+          5,
+          4,
+          5,
+          20
+        ],
+        [
+          "src/lexical/algorithm.rs",
+          6,
+          4,
+          6,
+          20
+        ],
+        [
+          "src/lexical/algorithm.rs",
+          7,
+          4,
+          7,
+          20
+        ],
+        [
+          "src/lexical/algorithm.rs",
+          9,
+          4,
+          9,
+          17
+        ],
+        [
+          "src/lexical/algorithm.rs",
+          10,
+          4,
+          10,
+          26
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          8,
+          4,
+          8,
+          20
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          9,
+          4,
+          9,
+          19
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          10,
+          4,
+          10,
+          22
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          11,
+          4,
+          11,
+          19
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          12,
+          4,
+          12,
+          18
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          13,
+          4,
+          13,
+          17
+        ],
+        [
+          "src/lexical/bhcomp.rs",
+          14,
+          4,
+          14,
+          22
+        ],
+        [
+          "src/lexical/bignum.rs",
+          5,
+          4,
+          5,
+          18
+        ],
+        [
+          "src/lexical/errors.rs",
+          10,
+          4,
+          10,
+          19
+        ],
+        [
+          "src/lexical/errors.rs",
+          11,
+          4,
+          11,
+          17
+        ],
+        [
+          "src/lexical/errors.rs",
+          12,
+          4,
+          12,
+          22
+        ],
+        [
+          "src/lexical/float.rs",
+          5,
+          4,
+          5,
+          17
+        ],
+        [
+          "src/lexical/float.rs",
+          6,
+          4,
+          6,
+          22
+        ],
+        [
+          "src/lexical/float.rs",
+          7,
+          4,
+          7,
+          19
+        ],
+        [
+          "src/lexical/math.rs",
+          10,
+          4,
+          10,
+          17
+        ],
+        [
+          "src/lexical/math.rs",
+          11,
+          4,
+          11,
+          26
+        ],
+        [
+          "src/lexical/math.rs",
+          209,
+          8,
+          209,
+          16
+        ],
+        [
+          "src/lexical/math.rs",
+          273,
+          8,
+          273,
+          16
+        ],
+        [
+          "src/lexical/math.rs",
+          542,
+          8,
+          542,
+          16
+        ],
+        [
+          "src/lexical/parse.rs",
+          3,
+          4,
+          3,
+          23
+        ],
+        [
+          "src/lexical/parse.rs",
+          4,
+          4,
+          4,
+          20
+        ],
+        [
+          "src/lexical/parse.rs",
+          5,
+          4,
+          5,
+          19
+        ],
+        [
+          "src/lexical/parse.rs",
+          6,
+          4,
+          6,
+          22
+        ],
+        [
+          "src/lexical/parse.rs",
+          7,
+          4,
+          7,
+          17
+        ],
+        [
+          "src/lexical/rounding.rs",
+          6,
+          4,
+          6,
+          17
+        ],
+        [
+          "src/lexical/rounding.rs",
+          7,
+          4,
+          7,
+          19
+        ]
+      ],
+      "after_reference_only_ranges": [],
+      "before": {
+        "matched": 0,
+        "native_only": 31,
+        "reference_only": 0
+      },
+      "cargo_lock_sha256": "4f37b65b9b82d283bd3905fa1365aa20e758e4f6a9f09d659c1ff7a3ced1b3f9",
+      "clippy_exec_sha256": "04cc233d2d0bd4da4c81b62a36a3ea6812df68cec1fd5eb4b9ad4fe4f1f58888",
+      "clippy_in_scope": 0,
+      "clippy_out_of_scope": 0,
+      "clippy_report_sha256": "8a330448d374a4a077ebcc21572287537e3e94e2f8f3f6126d456d39332bed8a",
+      "direct_clippy_sha256": "5bb5b8c55a2164743474e3e66b85bfe7c2c74d2ff62d3dd4a2034ba0978cf446",
+      "direct_exec_sha256": "5ac7b7f77e9485b7cd998fda9d66c231c6a65473038a4dd47e398a73b7bc23f1",
+      "external": {
+        "analysis": "18b88297-51b4-4bfe-a872-dd1254960ba4",
+        "portable_scanner_log_sha256": "4edc201a39e79416d3aa0f3cd1ad0b80d35e139c6b2fe462668ba56ae7d7eb1f",
+        "project": "hq-s2208-20261122-serde-json-external",
+        "sha256": {
+          "analysis.json": "f2e23391c05e2f28bd8143c811c03bdf273f9cbf5be3ed41a984495099a30a2d",
+          "files.json": "46daedcf6e984a9ee397dc14dafc399a9b3d7e5914eb8b4e7620814d43ece767",
+          "history.json": "7754a4b02333833668e358833c42be897780fc202212d3f0a6f6790a62a0caac",
+          "issues.json": "126bca154eb4dd96e42f67e11b1bd03dede76fc259f4e803378840ba2d58825e",
+          "profile.json": "b5dd48d53b52ee9adb67f318bad762ee013c6722e163ad0614368a730500ca4f",
+          "scanner-settings.json": "7faeecb7c392379d2200699906bc465ec63b1069afa43f4e27f8167a01eb3e3c"
+        },
+        "task": "7c34e139-0664-41c7-9f73-59f6cc629ed5"
+      },
+      "files": 37,
+      "integrated": {
+        "analysis": "d2a21fe8-f0c5-428f-98c1-fec59e63374e",
+        "portable_scanner_log_sha256": "8ed497a213390b16f7b9d38f3ca3736dbfc3a891bab77e8469d73f72da81df08",
+        "project": "hq-s2208-20261122-serde-json-integrated",
+        "sha256": {
+          "analysis.json": "d6e5396291626f450cc7fa40388643051423bf07f8d067564dd505be9255454f",
+          "files.json": "8e72f3b85267bd05025abfb087b8e4393302e9a207d69a27c06b61a3bed94331",
+          "history.json": "b8bfc9cfdf029080a01118bf96b25647da36aef3ff521a1f2adc838948006cf3",
+          "issues.json": "fadf7aa092f54c802951dbd3fcec98d966cfecd5385fedf382556d3cb34855b9",
+          "profile.json": "ef391388aee04bf488fce678ac0782f8afb6b77b507f82830e08572fcf140b10",
+          "scanner-settings.json": "9e7a65b72db51dbd19fe74e552204cbf3ed1f5696cbe3b210bd9a434d6d7c740"
+        },
+        "task": "f669926a-fe39-4554-abdd-103fde37f1c9"
+      },
+      "native_after_sha256": "ec9595a8eab866e8caec00fccf05b522ec73fc9a72374cc5c6c15ec956014a62",
+      "native_before_sha256": "4b2a3eb0e86426f9ad57185c6e1077135824b7c1ffca7fdacb28e82491b2c051",
+      "revision": {
+        "commit": "762783414e6c4f8d670c9d87eb04913efb80d3be",
+        "tree": "5ddb43d4f9c54e31e0d0adf98cca47e34920351c"
+      },
+      "scanner_scope": [
+        "-Dsonar.sources=src",
+        "-Dsonar.exclusions="
+      ],
+      "scope_sha256": "c1182091714e1bb36197477de1c8b28575ab0fd40040a3cf04279eeb7b58679b",
+      "supplemental": {
+        "float-roundtrip": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--features",
+            "float_roundtrip",
+            "--",
+            "-A",
+            "clippy::all",
+            "-Wclippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 0,
+          "matched_native": 0,
+          "outside_scope": 0,
+          "report_sha256": "317db5d45217bcccb02de6d7228fd5799cb65ecf5ac0ab574e23579e079097b2"
+        },
+        "force-float": {
+          "arguments": [
+            "clippy",
+            "--quiet",
+            "--message-format=json",
+            "--offline",
+            "--features",
+            "float_roundtrip",
+            "--",
+            "-A",
+            "clippy::all",
+            "--force-warn=clippy::wildcard_imports"
+          ],
+          "clippy_in_scope": 31,
+          "matched_native": 31,
+          "outside_scope": 0,
+          "report_sha256": "7c73509ebdcd9a1635f7d9f497c93d35b61154180869be03b5f20c322cc88435"
+        }
+      }
+    }
+  },
+  "totals": {
+    "after": {
+      "matched": 101,
+      "native_only": 52,
+      "reference_only": 0
+    },
+    "before": {
+      "matched": 0,
+      "native_only": 153,
+      "reference_only": 101
+    }
+  }
+}
