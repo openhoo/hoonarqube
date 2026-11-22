@@ -23,8 +23,8 @@ diagnostic distinguishes active keys absent from the native profile from
 declared keys without a verified control. With full coverage the condition
 counts findings exactly like `community_26_9_violations`: a value over zero
 fails this example (exit **1**); zero passes (exit **0**). The older mapped
-condition, native conditions, hotspot reviews and assigned policies keep their
-existing behavior. Projects opt in by selecting the new metric.
+condition does not require detector controls. Projects opt in to the strict
+coverage check by selecting the new metric.
 
 ## What the real projects showed
 
@@ -39,19 +39,25 @@ period timestamps, issue keys and reference responses.
 
 | Public source, candidate | SCM lines in period | Community new issues | Mapped native | Strict native |
 | --- | ---: | --- | --- | --- |
-| [Yjs, IdSet.js](https://github.com/yjs/yjs/commit/a5e390160ca8686b9a54b3d924f37041e89407b3) | 5 | 1, ERROR: `javascript:S7724` on line 470 | 0, pass | unavailable; names `javascript:S7724` |
+| [Yjs, IdSet.js](https://github.com/yjs/yjs/commit/a5e390160ca8686b9a54b3d924f37041e89407b3) | 5 | 1, ERROR: `javascript:S7724` on line 470 | 1, fail; same rule and line | unavailable; other JavaScript keys lack evidence |
 | [chi, client_ip.go](https://github.com/go-chi/chi/commit/7f9b7448f51d28804fac98c0a17bc2a7cec1079f) | 86 | 1, ERROR: `go:S3776` on line 121 | 1, fail | 1, fail; same rule and line |
 | [chi, sunset.go](https://github.com/go-chi/chi/commit/fff8bb28cbeb658c3c916aff02a780b89532841e) | 19 | 0, OK | 0, pass | 0, pass |
 
-The Yjs change adds an ESLint suppression without naming a rule. The pinned
-native profile declares the TypeScript S7724 detector; it has no JavaScript
-S7724 key. Matching rule numbers across languages does not qualify a detector.
+The Yjs change adds an ESLint suppression without naming a rule. Native and
+Community identify the existing suppression on line 9 and the new suppression
+on line 470. Both mark the full lines, including the code or indentation before
+the directive. Only line 470 contributes to the new-code count. On a
+[separate pinned Yjs revision](../../docs/public-quality-gates-20261120.md),
+the full 32-file replay also matches all three Community S7724 findings by
+path, primary range and message; the other 30 files stay silent for this rule.
+The native catalog now includes the JavaScript key and its exercised controls.
 The strict condition also blocks a mixed Go/JavaScript scan when only Go
 changed. Ranges in the table are as reported by the analyzers.
 
 Go and Rust currently have positive and clean controls for all 22 and 78
-active violation keys respectively. Ruby has three controlled keys; the rest
-of its scope remains unavailable. Other languages are unqualified by this
+active violation keys respectively. JavaScript has one controlled key; 83 active
+keys are still absent from its native catalog. Ruby has three controlled keys;
+the rest of its scope remains unavailable. Other languages are unqualified by this
 inventory. A missing control says nothing about whether an untested
 implementation exists. A passing control establishes that a detector responds
 to these examples; it cannot establish full recall, precision, parameter

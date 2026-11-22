@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 from community_detector_controls import MANIFEST, required_rules
-from community_scm_period import check, descriptor, git, read, run_case
+from community_scm_period import check, descriptor, git, read, run_case, scan
 from project_gate_policy_replay import Client, ci, running_service
 from public_corpus_prepare import GIT_ENV
 
@@ -43,20 +43,22 @@ def verify_sources(repo, case):
         "wrong parent",
     )
     check(base["path"] == head["path"], "sources differ")
-    for scan in (base, head):
+    for revision in (base, head):
         check(
-            scan["reference_files"] == [scan["path"]],
+            revision["reference_files"] == [revision["path"]],
             "wrong reference source inventory",
         )
-        rev = scan["revision"]
+        rev = revision["revision"]
         check(
             object_bytes(repo, "rev-parse", rev + "^{tree}").decode().strip()
-            == scan["tree"],
+            == revision["tree"],
             "wrong tree",
         )
-        blob = object_bytes(repo, "show", rev + ":" + scan["path"])
-        check(hashlib.sha256(blob).hexdigest() == scan["sha256"], "wrong source bytes")
-        check(scan["ce_status"] == "SUCCESS", "reference analysis did not complete")
+        blob = object_bytes(repo, "show", rev + ":" + revision["path"])
+        check(
+            hashlib.sha256(blob).hexdigest() == revision["sha256"], "wrong source bytes"
+        )
+        check(revision["ce_status"] == "SUCCESS", "reference analysis did not complete")
 
 
 def reference(case, count, expected):
@@ -117,6 +119,98 @@ def decisions(gate, expected):
     return conds
 
 
+def native_locations(file, key):
+    points = []
+    for issue in file["issues"]:
+        if issue["rule_key"] != key:
+            continue
+        start, end = issue["range"]["start"], issue["range"]["end"]
+        points.append(
+            (
+                start["line"],
+                start["column"],
+                end["line"],
+                end["column"],
+                issue["message"],
+            )
+        )
+    return sorted(points)
+
+
+def location(loc, message):
+    return (
+        loc["startLine"],
+        loc["startOffset"],
+        loc["endLine"],
+        loc["endOffset"],
+        message,
+    )
+
+
+def check_yjs_locations(report, reference_head):
+    (file,) = report["files"]
+    key = "javascript:S7724"
+    expected = reference_head["s7724_issues"]
+    (new,) = reference_head["new_issues"]
+    check([issue["line"] for issue in expected] == [9, 470], "wrong Yjs controls")
+    check(new["textRange"] == expected[1]["textRange"], "new issue location differs")
+    check(
+        native_locations(file, key)
+        == [location(i["textRange"], i["message"]) for i in expected],
+        "Yjs directive location differs",
+    )
+
+
+def yjs_scope(cli, repo, captured):
+    scope_file = (
+        Path(__file__).resolve().parents[2] / "docs/public-quality-gates-20261120.json"
+    )
+    check(
+        captured["source_manifest"] == "docs/public-quality-gates-20261120.json",
+        "wrong reference source manifest",
+    )
+    scope = json.loads(scope_file.read_bytes())["cases"]["yjs"]
+    rev = captured["revision"]
+    check(
+        scope["source"]["commit"] == rev
+        and scope["reference"]["project_key"] == captured["project_key"],
+        "reference scope changed",
+    )
+    files = scope["file_scope"]["sha256_by_path"]
+    git(repo, "checkout", "--quiet", "--detach", rev)
+    check(
+        object_bytes(repo, "rev-parse", "HEAD^{tree}").decode().strip()
+        == scope["source"]["tree"],
+        "wrong Yjs tree",
+    )
+    check(
+        {p: hashlib.sha256((repo / p).read_bytes()).hexdigest() for p in files}
+        == files,
+        "wrong Yjs bytes",
+    )
+    code, report = scan(cli, repo, sorted(files))
+    results = {
+        f["path"]: native_locations(f, captured["rule"]) for f in report["files"]
+    }
+    check(
+        code == 0 and set(results) == set(files) and len(files) == 32,
+        "incomplete Yjs scope",
+    )
+    actual = sorted((p, *point) for p, locs in results.items() for point in locs)
+    expected = sorted(
+        (i["path"], *location(i["range"], i["message"])) for i in captured["findings"]
+    )
+    check(
+        actual == expected and len(actual) == 3,
+        "S7724 findings differ on the full pinned Yjs scope",
+    )
+    return {
+        "files": len(files),
+        "matched": len(actual),
+        "files_without_findings": sum(not locs for locs in results.values()),
+    }
+
+
 def candidate(cli, work, repo, case):
     label = case["id"]
     lang, count, expected, code = EXPECTED[label]
@@ -153,16 +247,17 @@ def candidate(cli, work, repo, case):
             == fingerprint,
             "complete scans have no matching control digest",
         )
-    native = [] if label == "missing_js" else expected
-    check(findings(report, lang) == native, "native active-rule findings differ")
-    legacy = ("fail" if native else "pass", len(native))
+    check(findings(report, lang) == expected, "native active-rule findings differ")
+    legacy = ("fail" if expected else "pass", len(expected))
     strict = ("unavailable", None) if label == "missing_js" else legacy
     conds = decisions(assessment["gate"], [legacy, strict])
     if label == "missing_js":
+        check_yjs_locations(report, head)
         absent, unproved = conds[1]["diagnostic"].split("; ")
         check(
             "absent from native profile" in absent
-            and "javascript:S7724" in absent
+            and "javascript:S5845" in absent
+            and "javascript:S7724" not in conds[1]["diagnostic"]
             and "without verified detector controls" in unproved,
             "wrong blocking detector",
         )
@@ -199,11 +294,19 @@ def submit(client, branch, source, expected):
     report = copy.deepcopy(source)
     assessment = report["assessment"]
     assessment.pop("gate", None)
-    receipt = client.ingest(report, assessment["context"]["source_revision"], branch)
+    revision = assessment["context"]["source_revision"]
+    receipt = client.ingest(report, revision, branch)
     row = receipt["analysis"]
+    check(
+        row["branch"] == branch and row["commit"] == revision, "wrong stored identity"
+    )
     check(row["gate_policy_version"] == 1, "service did not apply assigned policy")
     decisions(row["gate"], expected)
-    ci(receipt, {"pass": 0, "fail": 1, "unavailable": 2}[expected[1][0]])
+    ci(
+        receipt,
+        {"pass": 0, "fail": 1, "unavailable": 2}[expected[1][0]],
+        commit=revision,
+    )
     return row
 
 
@@ -262,7 +365,7 @@ def run(args, work):
         out[name] = candidate(args.scanner.resolve(strict=True), work, dest, case)
     check(set(out) == set(EXPECTED), "missing public cases")
     with_service(args.service.resolve(strict=True), work, out)
-    return {
+    result = {
         k: {
             "legacy": v[1][0],
             "strict": v[1][1],
@@ -272,6 +375,10 @@ def run(args, work):
         }
         for k, v in out.items()
     }
+    result["yjs_s7724_scope"] = yjs_scope(
+        args.scanner.resolve(strict=True), work / "missing_js", ref["yjs_s7724_scope"]
+    )
+    return result
 
 
 if __name__ == "__main__":

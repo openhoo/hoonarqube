@@ -71,11 +71,41 @@
             "rule": "javascript:S7724",
             "line": 470,
             "message": "Specify the rules you want to disable.",
-            "type": "CODE_SMELL"
+            "type": "CODE_SMELL",
+            "textRange": {
+              "startLine": 470,
+              "endLine": 470,
+              "startOffset": 0,
+              "endOffset": 37
+            }
           }
         ],
         "reference_files": [
           "src/utils/IdSet.js"
+        ],
+        "s7724_issues": [
+          {
+            "line": 9,
+            "message": "Specify the rules you want to disable.",
+            "textRange": {
+              "startLine": 9,
+              "endLine": 9,
+              "startOffset": 0,
+              "endOffset": 137
+            },
+            "rule": "javascript:S7724"
+          },
+          {
+            "line": 470,
+            "message": "Specify the rules you want to disable.",
+            "textRange": {
+              "startLine": 470,
+              "endLine": 470,
+              "startOffset": 0,
+              "endOffset": 37
+            },
+            "rule": "javascript:S7724"
+          }
         ]
       },
       "project_key": "hq-strict-269-yjs-idset-20261122"
@@ -216,5 +246,44 @@
       },
       "project_key": "hq-strict-269-chi-modernpass-20261122"
     }
-  ]
+  ],
+  "yjs_s7724_scope": {
+    "source_manifest": "docs/public-quality-gates-20261120.json",
+    "revision": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+    "project_key": "hq-public-gate-proof-recovery-20261120-yjs",
+    "issue_export_sha256": "5797eb52a2ceb3444ae758e999aea9a4a3fb37f99b3146f1490cebee3b635451",
+    "rule": "javascript:S7724",
+    "findings": [
+      {
+        "path": "src/utils/Renderer.js",
+        "message": "Specify the rules you want to disable.",
+        "range": {
+          "startLine": 309,
+          "endLine": 309,
+          "startOffset": 0,
+          "endOffset": 29
+        }
+      },
+      {
+        "path": "src/utils/Renderer.js",
+        "message": "Specify the rules you want to disable.",
+        "range": {
+          "startLine": 350,
+          "endLine": 350,
+          "startOffset": 0,
+          "endOffset": 37
+        }
+      },
+      {
+        "path": "src/utils/ids.js",
+        "message": "Specify the rules you want to disable.",
+        "range": {
+          "startLine": 827,
+          "endLine": 827,
+          "startOffset": 0,
+          "endOffset": 35
+        }
+      }
+    ]
+  }
 }
