@@ -195,12 +195,31 @@ module.exports = grammar({
       ),
     ),
 
+    // A command without parentheses can implement an endless method.
+    endless_command: $ => prec.right(seq(
+      choice($._call, field('method', choice($.identifier, $._function_identifier))),
+      field('arguments', alias($.endless_command_arguments, $.argument_list)),
+    )),
+
+    endless_command_arguments: $ => prec.right(seq(
+      choice($._variable, $._simple_numeric, $.string, $.simple_symbol),
+      repeat(seq(',', $._arg)),
+    )),
+
+    endless_command_rescue: $ => prec(PREC.RESCUE, seq(
+      field('body', alias($.endless_command, $.call)),
+      'rescue',
+      field('handler', $._arg),
+    )),
+
     _body_expr: $ =>
       seq(
         '=',
         field('body',
           choice(
             $._arg,
+            alias($.endless_command, $.call),
+            alias($.endless_command_rescue, $.rescue_modifier),
             alias($.rescue_modifier_arg, $.rescue_modifier),
           )),
       ),
