@@ -1,9 +1,11 @@
 """Location and multiplicity matter even if the project-wide counts are unchanged."""
 
+import gzip
+import json
 import unittest
 from collections import Counter
 
-from public_locations import difference
+from public_locations import FIXTURE, difference, retire_resolved
 
 
 class PublicLocationTest(unittest.TestCase):
@@ -27,3 +29,27 @@ class PublicLocationTest(unittest.TestCase):
             difference(
                 Counter([key, key, key]), Counter([key]), Counter(), Counter([key])
             )
+
+    def test_retired_locations_cannot_reappear_or_be_retired_twice(self):
+        data = json.loads(gzip.decompress(FIXTURE.read_bytes()))
+        records = json.loads(
+            FIXTURE.with_name("public-locations-resolved.json").read_bytes()
+        )
+        retire_resolved(data, records)
+        for record in records:
+            project = next(
+                c for c in data["projects"] if c["repository"] == record["repository"]
+            )
+            reference, missing, extra = (
+                Counter(map(tuple, project[k])) for k in ("sonar", "missing", "extra")
+            )
+            observed = reference - missing + extra
+            difference(observed, reference, missing, extra)
+            old = Counter(map(tuple, record["removed"]))
+            regression = (
+                observed + old if record["direction"] == "extra" else observed - old
+            )
+            with self.assertRaisesRegex(ValueError, "new differences"):
+                difference(regression, reference, missing, extra)
+            with self.assertRaisesRegex(ValueError, "was not allowed"):
+                retire_resolved(data, [record])

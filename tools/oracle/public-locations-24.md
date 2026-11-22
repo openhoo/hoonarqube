@@ -51,3 +51,12 @@ they are outside this comparison. It covers the listed source files rather
 than an entire built application. Java and C# are outside this cohort.
 
 The [Community 26.11 comparison](community-profiles-26.11.md) keeps the same source pins and reports three profiles separately.
+
+## Fixes enforced after the baseline
+
+The frozen fixture above preserves the original measurements. The [resolved
+locations](fixtures/public-locations-resolved.json) subtract individual allowances
+for fixes that have their own before/after replay. Ten extra S6643 locations in
+`jshttp/accepts` were removed on candidate `3825e152`. An older scanner now fails
+on these ten exact locations; the corrected scanner passes all 24 projects with
+356 matches, 42 additional locations and 34 missing locations.

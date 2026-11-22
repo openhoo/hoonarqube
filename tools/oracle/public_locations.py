@@ -32,6 +32,27 @@ def evaluate(case, report, source):
     )
 
 
+def retire_resolved(data, resolutions):
+    """Subtract only previously allowed locations, preserving the frozen measurement."""
+    by_name = {c["repository"]: c for c in data["projects"]}
+    for record in resolutions:
+        name, direction = record["repository"], record["direction"]
+        require(
+            name in by_name and direction in {"extra", "missing"}, "unknown resolution"
+        )
+        case = by_name[name]
+        require(
+            case["commit"] == record["commit"],
+            "resolved location on a different revision",
+        )
+        original = Counter(map(tuple, case[direction]))
+        removed = Counter(map(tuple, record["removed"]))
+        require(
+            bool(removed) and removed <= original, "resolved location was not allowed"
+        )
+        case[direction] = list((original - removed).elements())
+
+
 def validate(data):
     cases = data["projects"]
     require(data["format"] == 1 and data["sonar"] == "26.9.0.129388", "wrong reference")
@@ -100,6 +121,10 @@ def main():
     args = parser.parse_args()
     data = json.loads(gzip.decompress(FIXTURE.read_bytes()))
     validate(data)
+    retire_resolved(
+        data,
+        json.loads(FIXTURE.with_name("public-locations-resolved.json").read_bytes()),
+    )
     sources = json.loads(args.local_sources.read_bytes()) if args.local_sources else {}
     rows = {}
     for case in data["projects"]:
