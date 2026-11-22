@@ -37,6 +37,17 @@ The four rules below account for 545 of 2,007 one-sided primary locations. A dif
 
 [All rule-level differences](public-rule-differences-2026-11-21.json) use the same population as the table above. For JavaScript S6861, all 63 native-only findings can be paired with a reference-only finding on the same file and starting line, although none match the whole primary range. Inspect range boundaries first. For Java S1854, none of the three reference-only findings shares a starting line with a native-only finding. Same-line pairing is a triage aid, not a matching finding.
 
+### JavaScript S6861 follow-up — November 22, 2026
+
+The historical counts above still describe the original scanner. The S6861 follow-up replays 299 files from the same two pinned JavaScript selections against their retained Community Build 26.9.0.129388 results:
+
+| Selection | Files | Original matches / native only / reference only | After the fix |
+|---|---:|---:|---:|
+| jQuery `src` at `effd615f0009e927dfd1f41d04fb6073478076d4` | 138 | 0 / 50 / 56 | 56 / 0 / 0 |
+| Underscore `modules` at `5c1e5f686f8500af9c9d15614ed60289d6d35d6b` | 161 | 0 / 13 / 17 | 17 / 0 / 0 |
+
+The rule now reports the variable declaration's range, starting at `var` or `let`. It also resolves a separate named or default export to its local mutable binding, with one finding per exported name. All 73 captured primary locations match by rule, relative file and full UTF-16 range, with duplicate locations retained. The replay covers these two selections and this rule; it does not compare issue message text or change the historical corpus totals.
+
 ## What improved, and how to reproduce it
 
 [The architecture review](foundation-review.md) explains how the scanner and service came to share a gate evaluator without linking the service to every parser. The [report service guide](../../crates/hoonarqube-service/README.md) describes project access, pagination, credential rotation, backup and restore. The scan and service share a report schema; changes to parsing, measurements and gate decisions must be qualified through that boundary.
