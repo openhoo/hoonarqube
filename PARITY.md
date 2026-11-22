@@ -213,7 +213,7 @@ within-/cross-file duplication for Python, JavaScript, TypeScript, C#, Go,
 Java, Rust, and Ruby. Java/Ruby measurement support is separate from rule
 detection: catalog membership does not imply implemented detectors, and the
 implemented detector surface grows incrementally (Ruby currently implements
-`ruby:S1067`, `ruby:S1134`, `ruby:S1135`, `ruby:S1192`, `ruby:S126`,
+`ruby:S1067`, `ruby:S1134`, `ruby:S1135`, `ruby:S1186`, `ruby:S1192`, `ruby:S126`,
 `ruby:S134`, and `ruby:S1764`;
 Java implements `java:S1117`, `java:S1134`, `java:S1135`, `java:S1854`,
 `java:S2143`, and `java:S2211`).
@@ -452,7 +452,9 @@ Commons CLI and Commons CSV inventories qualify 16 additional reference TODO
 findings. Supplementary letters are surrogate boundaries in the reference;
 raw Unicode escapes remain raw in comment matching. No comment-tag action
 is provided. Ruby ships
-measurement support plus seven cataloged sonar-parity detectors. The existing
+measurement support plus eight cataloged sonar-parity detectors.
+[Empty methods (S1186)](tools/oracle/ruby-empty-methods-20261122.md) have a
+separate 45-project reference comparison. The existing
 five (`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, `ruby:S1764`)
 are oracle-exact on the pinned `rake` scan. Comment tags (`ruby:S1134`,
 `ruby:S1135`) are qualified against the SonarQube 26.9 Community Ruby
