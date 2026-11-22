@@ -1163,7 +1163,10 @@ fn normalize_sonar_contract(source: &str, issues: &mut Vec<Issue>) {
         .filter_map(|contract| {
             // These rules derive complete syntax ranges independently of frozen
             // source anchors and must not add a second calibrated identity.
-            if matches!(contract.key, "rust:S2479" | "rust:S920" | "rust:S2193") {
+            if matches!(
+                contract.key,
+                "rust:S2479" | "rust:S920" | "rust:S2193" | "rust:S2208"
+            ) {
                 return None;
             }
             if !existing.contains(contract.key) && !fallback.contains(&contract.key) {
@@ -1715,34 +1718,60 @@ fn empty_unit_block(node: Node<'_>) -> bool {
 }
 
 fn check_wildcard_import(node: Node<'_>, source: &str, code: &str, issues: &mut Vec<Issue>) {
-    let import = text(node, source).trim();
-    let Some(start) = import.find("::*") else {
+    if node
+        .named_child(0)
+        .is_some_and(|n| n.kind() == "visibility_modifier")
+    {
+        return;
+    }
+    let Some(argument) = node.child_by_field_name("argument") else {
         return;
     };
-    if import.starts_with("pub ")
-        || import.starts_with("pub(")
-        || import.contains("::prelude::*")
-        || is_test_glob_import(node, source, code, import)
-    {
-        return;
+    walk(argument, &mut |glob| {
+        if glob.kind() != "use_wildcard" {
+            return;
+        }
+        let path = wildcard_module_path(glob, source);
+        let target = path.rsplit("::").next().unwrap_or_default();
+        if target == "prelude"
+            || is_test_glob_import(node, source, code, &path)
+            || enum_glob_target(node, &path, target, source)
+            || (path.contains("::") && starts_uppercase(target))
+        {
+            return;
+        }
+        // Clippy highlights each glob's own use tree: a whole path in a simple
+        // import, or just the member (including a bare star) inside braces.
+        issues.push(node_issue(
+            "rust:S2208",
+            "Replace this wildcard import with specific imports.",
+            glob,
+            source,
+        ));
+    });
+}
+
+fn wildcard_module_path(glob: Node<'_>, source: &str) -> String {
+    // Parent prefixes select the semantic module, but are outside the range
+    // of a grouped use tree.
+    let mut parts = Vec::new();
+    if let Some(path) = glob.named_child(0) {
+        parts.push(normalized_node(path, source));
     }
-    let path = import[..start].trim().trim_start_matches("use").trim();
-    let target = path.rsplit("::").next().unwrap_or_default();
-    if enum_glob_target(node, path, target, source)
-        // Externally defined enum-variant globs (`use ignore::WalkState::*;`)
-        // cannot be resolved in-file; the capitalized-target convention
-        // distinguishes them from namespace globs.
-        || (path.contains("::") && starts_uppercase(target))
-    {
-        return;
+    let mut parent = glob.parent();
+    while let Some(node) = parent {
+        if node.kind() == "use_declaration" {
+            break;
+        }
+        if node.kind() == "scoped_use_list"
+            && let Some(path) = node.child_by_field_name("path")
+        {
+            parts.push(normalized_node(path, source));
+        }
+        parent = node.parent();
     }
-    issues.push(offset_issue(
-        "rust:S2208",
-        "Replace this wildcard import with explicit imports.",
-        source,
-        node.start_byte() + start + 2,
-        node.start_byte() + start + 3,
-    ));
+    parts.reverse();
+    parts.join("::")
 }
 
 fn starts_uppercase(segment: &str) -> bool {
@@ -1794,8 +1823,8 @@ fn enum_glob_target(node: Node<'_>, path: &str, target: &str, source: &str) -> b
     found
 }
 
-fn is_test_glob_import(node: Node<'_>, source: &str, code: &str, import: &str) -> bool {
-    if !matches!(import, "use super::*;" | "use crate::test_support::*;") {
+fn is_test_glob_import(node: Node<'_>, source: &str, code: &str, path: &str) -> bool {
+    if !matches!(path, "super" | "crate::test_support") {
         return false;
     }
     let mut ancestor = node.parent();
@@ -7718,6 +7747,46 @@ mod tests {
         ] {
             assert!(!has_rule(source, "rust:S1116"), "{source}");
         }
+    }
+
+    #[test]
+    fn wildcard_import_ranges_identify_each_imported_path() {
+        let source = concat!(
+            "use crate::iter::plumbing::*;\n",
+            "use crate::a::{\n    b::*,\n    c::*,\n};\n",
+            "use crate::b :: *;\n",
+            "use crate::c::{*};\n",
+            "// use fake::*;\n",
+            "use crate::d::Thing /* ::* */;\n",
+        );
+        let report = analyze(
+            PathBuf::from("imports.rs"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let selected: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "rust:S2208")
+            .map(|i| {
+                assert_eq!(i.range.start.line, i.range.end.line);
+                let line = source.lines().nth(i.range.start.line as usize - 1).unwrap();
+                (
+                    i.range.start.line,
+                    &line[i.range.start.column as usize..i.range.end.column as usize],
+                )
+            })
+            .collect();
+        assert_eq!(
+            selected,
+            [
+                (1, "crate::iter::plumbing::*"),
+                (3, "b::*"),
+                (4, "c::*"),
+                (6, "crate::b :: *"),
+                (7, "*")
+            ]
+        );
     }
 
     #[test]
