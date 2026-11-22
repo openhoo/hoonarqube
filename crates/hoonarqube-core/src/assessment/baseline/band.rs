@@ -50,24 +50,27 @@ impl Band {
     fn fill_prefix(&mut self, current: &[String], reference: &[String]) {
         for i in 0..self.rows {
             for j in self.columns(i) {
-                let cost = if i == 0 && j == 0 {
-                    0
-                } else {
-                    let mut best = UNREACHABLE;
-                    if i > 0 {
-                        best = best.min(self.get(i - 1, j) + 1);
-                    }
-                    if j > 0 {
-                        best = best.min(self.get(i, j - 1) + 1);
-                    }
-                    if i > 0 && j > 0 && current[i - 1] == reference[j - 1] {
-                        best = best.min(self.get(i - 1, j - 1));
-                    }
-                    best
-                };
+                let cost = self.prefix_cost(current, reference, i, j);
                 self.set(i, j, cost);
             }
         }
+    }
+
+    fn prefix_cost(&self, current: &[String], reference: &[String], i: usize, j: usize) -> u32 {
+        if i == 0 && j == 0 {
+            return 0;
+        }
+        let mut best = UNREACHABLE;
+        if i > 0 {
+            best = best.min(self.get(i - 1, j) + 1);
+        }
+        if j > 0 {
+            best = best.min(self.get(i, j - 1) + 1);
+        }
+        if i > 0 && j > 0 && current[i - 1] == reference[j - 1] {
+            best = best.min(self.get(i - 1, j - 1));
+        }
+        best
     }
 
     fn suffix(&self, current: &[String], reference: &[String]) -> Self {

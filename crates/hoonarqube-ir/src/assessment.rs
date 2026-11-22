@@ -1138,52 +1138,61 @@ impl AssessmentReport {
         if let Some(new_code) = &self.new_code {
             new_code.validate()?;
             if let Some(changed) = &new_code.changed_source_lines {
-                if !new_code
-                    .reference_context
-                    .as_ref()
-                    .is_some_and(|reference| reference.compatible_with(&self.context))
-                    || new_code
-                        .lines
-                        .windows(2)
-                        .any(|pair| pair[0].path >= pair[1].path)
-                {
-                    return Err(AssessmentError::Invalid {
-                        artifact: "new_code",
-                        reason: "exact source changes require a compatible baseline and unique sorted line paths".into(),
-                    });
-                }
-                for entry in changed {
-                    let snapshot = self
-                        .sources
-                        .binary_search_by(|s| s.path.cmp(&entry.path))
-                        .ok()
-                        .map(|i| &self.sources[i]);
-                    let union = new_code
-                        .lines
-                        .binary_search_by(|s| s.path.cmp(&entry.path))
-                        .ok()
-                        .map(|i| &new_code.lines[i].lines);
-                    if !snapshot.is_some_and(|s| {
-                        entry
-                            .lines
-                            .last()
-                            .is_some_and(|&n| n as usize <= s.line_digests.len())
-                    }) || !union
-                        .is_some_and(|all| entry.lines.iter().all(|n| all.binary_search(n).is_ok()))
-                    {
-                        return Err(AssessmentError::Invalid {
-                            artifact: "new_code",
-                            reason: format!(
-                                "exact source changes outside the snapshot or new-code lines: {}",
-                                entry.path.display()
-                            ),
-                        });
-                    }
-                }
+                self.validate_changed_source_lines(new_code, changed)?;
             }
         }
         if let Some(gate) = &self.gate {
             gate.validate()?;
+        }
+        Ok(())
+    }
+
+    fn validate_changed_source_lines(
+        &self,
+        new_code: &NewCodeReport,
+        changed: &[NewCodeLines],
+    ) -> Result<(), AssessmentError> {
+        if !new_code
+            .reference_context
+            .as_ref()
+            .is_some_and(|reference| reference.compatible_with(&self.context))
+            || new_code
+                .lines
+                .windows(2)
+                .any(|pair| pair[0].path >= pair[1].path)
+        {
+            return Err(AssessmentError::Invalid {
+                artifact: "new_code",
+                reason: "exact source changes require a compatible baseline and unique sorted line paths".into(),
+            });
+        }
+        for entry in changed {
+            let snapshot = self
+                .sources
+                .binary_search_by(|s| s.path.cmp(&entry.path))
+                .ok()
+                .map(|i| &self.sources[i]);
+            let union = new_code
+                .lines
+                .binary_search_by(|s| s.path.cmp(&entry.path))
+                .ok()
+                .map(|i| &new_code.lines[i].lines);
+            if !snapshot.is_some_and(|s| {
+                entry
+                    .lines
+                    .last()
+                    .is_some_and(|&n| n as usize <= s.line_digests.len())
+            }) || !union
+                .is_some_and(|all| entry.lines.iter().all(|n| all.binary_search(n).is_ok()))
+            {
+                return Err(AssessmentError::Invalid {
+                    artifact: "new_code",
+                    reason: format!(
+                        "exact source changes outside the snapshot or new-code lines: {}",
+                        entry.path.display()
+                    ),
+                });
+            }
         }
         Ok(())
     }

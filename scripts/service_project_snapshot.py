@@ -82,7 +82,10 @@ def initialize(db, version=3):
         "indexes_v2.sql",
     ):
         db.executescript((SCHEMA / filename).read_text(encoding="utf-8"))
-    db.execute(f"PRAGMA main.user_version = {version}")
+    if version == 3:
+        db.execute("PRAGMA main.user_version = 3")
+    else:
+        db.execute("PRAGMA main.user_version = 2")
 
 
 def verify_source(db, tables):
@@ -146,11 +149,21 @@ def verify_projection(db, restoring, counts):
     if restoring:
         # Refuse archives with rows outside the projection, even if their
         # checksums were supplied. This catches detached records as well.
-        total = tuple(
-            db.execute(f"SELECT count(*) FROM source.{name}").fetchone()[0]
-            for name in counts
+        total = dict(
+            db.execute(
+                """SELECT 'projects', count(*) FROM source.projects
+               UNION ALL SELECT 'analyses', count(*) FROM source.analyses
+               UNION ALL SELECT 'findings', count(*) FROM source.findings
+               UNION ALL SELECT 'reviews', count(*) FROM source.reviews
+               UNION ALL SELECT 'review_history', count(*) FROM source.review_history
+               UNION ALL SELECT 'deletion_audit', count(*) FROM source.deletion_audit"""
+            )
         )
-        if total != tuple(counts.values()):
+        if POLICY_TABLE in counts:
+            total[POLICY_TABLE] = db.execute(
+                "SELECT count(*) FROM source.project_gate_policies"
+            ).fetchone()[0]
+        if total != counts:
             raise SnapshotError(
                 "snapshot contains records outside the requested project"
             )

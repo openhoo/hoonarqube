@@ -630,26 +630,7 @@ fn new_security_metric(
         "security_hotspots_reviewed" | community_profile::HOTSPOTS
     );
     let sources: BTreeMap<_, _> = assessment.sources.iter().map(|s| (&s.path, s)).collect();
-    for (path, file) in &measurements.files {
-        if matches!(
-            file.classification,
-            FileClassification::Source | FileClassification::Test
-        ) && (file.status != MeasurementStatus::Complete || !sources.contains_key(path))
-        {
-            return Err(format!("incomplete finding inventory: {}", path.display()));
-        }
-    }
-    if sources.keys().any(|path| {
-        !measurements.files.get(*path).is_some_and(|file| {
-            file.status == MeasurementStatus::Complete
-                && matches!(
-                    file.classification,
-                    FileClassification::Source | FileClassification::Test
-                )
-        })
-    }) {
-        return Err("assessment contains a source outside the measured finding inventory".into());
-    }
+    validate_finding_inventory(measurements, &sources)?;
     let mut eligible = 0;
     let mut completed = 0;
     for entry in &new_code.findings {
@@ -687,6 +668,33 @@ fn new_security_metric(
     } else {
         Ok(MetricValue::Count(eligible))
     }
+}
+
+fn validate_finding_inventory(
+    measurements: &MeasurementIndex<'_>,
+    sources: &BTreeMap<&PathBuf, &hoonarqube_ir::assessment::SourceSnapshot>,
+) -> Result<(), String> {
+    for (path, file) in &measurements.files {
+        if matches!(
+            file.classification,
+            FileClassification::Source | FileClassification::Test
+        ) && (file.status != MeasurementStatus::Complete || !sources.contains_key(path))
+        {
+            return Err(format!("incomplete finding inventory: {}", path.display()));
+        }
+    }
+    if sources.keys().any(|path| {
+        !measurements.files.get(*path).is_some_and(|file| {
+            file.status == MeasurementStatus::Complete
+                && matches!(
+                    file.classification,
+                    FileClassification::Source | FileClassification::Test
+                )
+        })
+    }) {
+        return Err("assessment contains a source outside the measured finding inventory".into());
+    }
+    Ok(())
 }
 
 fn duplication_counter(

@@ -121,15 +121,16 @@ impl<'a> Qualified<'a> {
         if declared.len() != parity.active_rules.len() || expected != declared {
             return Err("native rule profile does not match the frozen mapping source".into());
         }
-        for file in &report.files {
-            for issue in &file.issues {
-                if !declared.contains(issue.rule_key.as_str()) {
-                    return Err(format!(
-                        "finding outside declared source profile: {}",
-                        issue.rule_key
-                    ));
-                }
-            }
+        if let Some(issue) = report
+            .files
+            .iter()
+            .flat_map(|file| &file.issues)
+            .find(|issue| !declared.contains(issue.rule_key.as_str()))
+        {
+            return Err(format!(
+                "finding outside declared source profile: {}",
+                issue.rule_key
+            ));
         }
         Ok(Self { files, profile: p })
     }
