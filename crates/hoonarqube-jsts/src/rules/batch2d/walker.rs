@@ -32,7 +32,7 @@ fn check_batch2d_rules(
     issues.extend(check_class_accessors(program, index, language));
     issues.extend(check_keyword_placement(program, source, index, language));
     issues.extend(check_promise_flows(program, index, language));
-    issues.extend(check_duplications(program, index, language));
+    issues.extend(check_duplications(program, index, language, semantic));
     issues.extend(check_es_idioms(program, source, index, language));
     issues.extend(check_s6594_match_calls(
         program, index, language, path, semantic,
@@ -116,6 +116,7 @@ fn check_duplications(
     program: &oxc_ast::ast::Program<'_>,
     index: &LineIndex,
     language: JstsLanguage,
+    semantic: Option<&oxc_semantic::Semantic<'_>>,
 ) -> Vec<Issue> {
     let mut collector = DuplicationCollector {
         sink: IssueSink {
@@ -123,6 +124,7 @@ fn check_duplications(
             language,
             issues: Vec::new(),
         },
+        semantic,
         function_spans: Vec::new(),
         expr_scopes: vec![ExpressionOperatorScope::default()],
     };
@@ -757,9 +759,118 @@ mod tests {
         let flagged = js_keys("export let counter = 1;\nexport var legacy = 2;\n");
         assert_eq!(count_key(&flagged, "javascript:S6861"), 2);
 
-        let clean = js_keys("export const stable = 1;\nconst renamed = 2;\nexport { renamed };\n");
+        let clean = js_keys(
+            "export const stable = 1;\nconst renamed = 2;\nexport { renamed };\nvar local = 3;\nexport function run() {}\n",
+        );
         assert_eq!(count_key(&clean, "javascript:S6861"), 0);
     }
+
+    #[test]
+    fn mutable_export_range_covers_the_variable_declaration() {
+        for (source, start, end) in [
+            ("export let renamed = 1;", (1, 7), (1, 23)),
+            (
+                "/* 🚀 */ export /* gap */ var legacy = \"😀\";",
+                (1, 25),
+                (1, 42),
+            ),
+            ("export var first = 0,\n  second = 1;", (1, 7), (2, 13)),
+            ("export\n  let moved = 2\n", (2, 2), (2, 15)),
+        ] {
+            let report = js(source);
+            let ranges: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == "javascript:S6861")
+                .map(|issue| (issue.range.start, issue.range.end))
+                .collect();
+            assert_eq!(
+                ranges,
+                [(pos(start.0, start.1), pos(end.0, end.1))],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn mutable_local_exports_keep_one_finding_per_export_name() {
+        let source = concat!(
+            "export { current, current as renamed, extra as advertised };\n",
+            "var current = 1,\n",
+            "  extra = 2;\n",
+            "export default (current);\n",
+        );
+        let report = js(source);
+        let mut findings: Vec<_> = report
+            .issues
+            .into_iter()
+            .filter(|issue| issue.rule_key == "javascript:S6861")
+            .collect();
+        assert_eq!(findings.len(), 4);
+        for finding in &findings {
+            assert_eq!(finding.range.start, pos(2, 0));
+            assert_eq!(finding.range.end, pos(3, 12));
+        }
+        // The profiles that deduplicate identical issues must retain each alias.
+        hoonarqube_ir::sort_issues(&mut findings);
+        findings.dedup();
+        assert_eq!(findings.len(), 4);
+        for export_name in ["current", "renamed", "advertised", "default"] {
+            assert!(
+                findings
+                    .iter()
+                    .any(|finding| finding.message.contains(export_name))
+            );
+        }
+    }
+
+    #[test]
+    fn mutable_local_exports_resolve_destructured_and_redeclared_bindings() {
+        let report = js("let { original } = config;\n\
+             var first = 0;\n\
+             var first = 1;\n\
+             export { original as \"modern-name\", first };\n");
+        let ranges: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|issue| issue.rule_key == "javascript:S6861")
+            .map(|issue| (issue.range.start, issue.range.end))
+            .collect();
+        assert_eq!(
+            ranges,
+            [
+                (pos(1, 0), pos(1, 26)),
+                (pos(2, 0), pos(2, 14)),
+                (pos(3, 0), pos(3, 14)),
+            ]
+        );
+    }
+
+    #[test]
+    fn local_export_checks_skip_reexports_and_default_expressions() {
+        let clean = js_keys(
+            "import { imported } from './module.js';\n\
+             let same = 1;\n\
+             const fixed = 2;\n\
+             export { imported, fixed };\n\
+             export { same } from './module.js';\n\
+             export default same + 1;\n",
+        );
+        assert_eq!(count_key(&clean, "javascript:S6861"), 0);
+    }
+
+    #[test]
+    fn local_exports_skip_typescript_type_only_specifiers() {
+        let issues = findings(
+            "let value = 1;\n\
+             export type { value };\n\
+             export { type value as TypeOnly, value as named };\n\
+             export default (value as number);\n",
+            JstsLanguage::TypeScript,
+        );
+        assert_eq!(count_key(&issues, "typescript:S6861"), 1);
+    }
+
     #[test]
     fn condition_operator_limit_is_three() {
         let at_limit = js_keys("if (a && b && c && d) {\n  g();\n}\n");

@@ -19,7 +19,9 @@ use oxc_ast::ast::ContinueStatement;
 use oxc_ast::ast::Declaration;
 use oxc_ast::ast::DoWhileStatement;
 use oxc_ast::ast::ExportDeclaration;
+use oxc_ast::ast::ExportDefaultDeclaration;
 use oxc_ast::ast::ExportDefaultDeclarationKind;
+use oxc_ast::ast::ExportNamedDeclaration;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::ForInStatement;
 use oxc_ast::ast::ForOfStatement;
@@ -54,11 +56,13 @@ use oxc_ast_visit::walk::{
     walk_arrow_function_expression, walk_binary_expression, walk_break_statement,
     walk_call_expression, walk_class, walk_conditional_expression, walk_continue_statement,
     walk_declaration, walk_do_while_statement, walk_export_declaration,
-    walk_export_default_declaration_kind, walk_expression, walk_for_in_statement,
-    walk_for_of_statement, walk_for_statement, walk_formal_parameters, walk_if_statement,
-    walk_logical_expression, walk_member_expression, walk_method_definition, walk_new_expression,
-    walk_object_expression, walk_statements, walk_try_statement, walk_while_statement,
+    walk_export_default_declaration, walk_export_default_declaration_kind,
+    walk_export_named_declaration, walk_expression, walk_for_in_statement, walk_for_of_statement,
+    walk_for_statement, walk_formal_parameters, walk_if_statement, walk_logical_expression,
+    walk_member_expression, walk_method_definition, walk_new_expression, walk_object_expression,
+    walk_statements, walk_try_statement, walk_while_statement,
 };
+use oxc_semantic::Semantic;
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
 use std::collections::BTreeSet;
@@ -730,6 +734,7 @@ pub(crate) struct ExpressionOperatorScope {
 /// `S1534`, `S1536`, `S6861`, and `S1067` in one traversal.
 pub(crate) struct DuplicationCollector<'index> {
     pub(crate) sink: IssueSink<'index>,
+    pub(crate) semantic: Option<&'index Semantic<'index>>,
     pub(crate) function_spans: Vec<Span>,
     /// `S1067` scope stack; the bottom entry is the statement level.
     pub(crate) expr_scopes: Vec<ExpressionOperatorScope>,
@@ -859,6 +864,16 @@ impl<'a> Visit<'a> for DuplicationCollector<'a> {
     fn visit_export_declaration(&mut self, it: &ExportDeclaration<'a>) {
         self.check_s6861_export_declaration(it);
         walk_export_declaration(self, it);
+    }
+
+    fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'a>) {
+        self.check_s6861_named_export(it);
+        walk_export_named_declaration(self, it);
+    }
+
+    fn visit_export_default_declaration(&mut self, it: &ExportDefaultDeclaration<'a>) {
+        self.check_s6861_default_export(it);
+        walk_export_default_declaration(self, it);
     }
 }
 
