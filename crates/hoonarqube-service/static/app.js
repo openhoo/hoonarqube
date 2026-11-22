@@ -2,6 +2,8 @@
   "use strict";
 
   const API_PREFIX = "/api/v1";
+  const HISTORY_PAGE_SIZE = 25;
+  const FINDINGS_PAGE_SIZE = 100;
   const state = {
     token: null,
     projects: [],
@@ -11,7 +13,8 @@
     branch: "",
     analysis: null,
     findings: [],
-    reviews: [],
+    analysisPages: newPager(),
+    findingPages: newPager(),
     selectedFinding: null,
     selectedReview: null,
     reviewAnalysisId: null,
@@ -43,6 +46,8 @@
     historyCount: byId("history-count"),
     historyEmpty: byId("history-empty"),
     historyError: byId("history-error"),
+    historyLoading: byId("history-loading"),
+    analysisError: byId("analysis-error"),
     detailPanel: byId("detail-panel"),
     detailCompleteness: byId("detail-completeness"),
     detailWarning: byId("detail-warning"),
@@ -70,9 +75,67 @@
     globalError: byId("global-error"),
     loading: byId("loading"),
     findingsLoading: byId("findings-loading"),
+    findingsRetry: byId("findings-retry"),
     ordinarySave: byId("ordinary-save-button"),
     hotspotSave: byId("hotspot-save-button"),
   };
+
+  const historyPager = pagination("history", elements.historyBody, elements.historyCount);
+  const findingsPager = pagination("findings", elements.findingsList, elements.findingsCount);
+
+  function pagination(id, list, count) {
+    return { container: byId(`${id}-pagination`), previous: byId(`${id}-previous`),
+      next: byId(`${id}-next`), list, count };
+  }
+
+  function newPager() {
+    return { index: 0, cursors: [null], next: null, pending: false, loaded: false };
+  }
+
+  function cursorFor(pager, index) {
+    return index === pager.index + 1 ? pager.next : pager.cursors[index];
+  }
+
+  function pageQuery(limit, cursor) {
+    const query = new URLSearchParams({ limit });
+    if (cursor !== null) query.set("cursor", cursor);
+    return query;
+  }
+
+  function readPage(payload, key, limit, currentCursor) {
+    const items = responseList(payload, key);
+    const next = payload.next_cursor;
+    if (items.length > limit || (next !== null &&
+      (typeof next !== "string" || !next || next === currentCursor || items.length !== limit))) {
+      throw new ApiError(502, "The service returned an invalid page. Try the request again.");
+    }
+    return { items, next };
+  }
+
+  function acceptPage(pager, index, cursor, next) {
+    pager.index = index;
+    pager.cursors.length = index + 1;
+    pager.cursors[index] = cursor;
+    pager.next = next;
+    pager.loaded = true;
+  }
+
+  function showPageCount(count, pager, length, singular, plural) {
+    const label = `Page ${pager.index + 1} · ${length} ${length === 1 ? singular : plural} shown`;
+    if (count.textContent !== label) count.textContent = label;
+  }
+
+  function updatePagination(controls, pager, trigger) {
+    const hadFocus = trigger && document.activeElement === trigger;
+    controls.container.hidden = !pager.loaded || (pager.index === 0 && pager.next === null);
+    controls.previous.disabled = pager.index === 0;
+    controls.next.disabled = pager.next === null;
+    for (const button of [controls.previous, controls.next]) {
+      button.setAttribute("aria-disabled", String(button.disabled || pager.pending));
+    }
+    controls.list.setAttribute("aria-busy", String(pager.pending));
+    if (hadFocus && (controls.container.hidden || trigger.disabled)) controls.count.focus();
+  }
 
   function text(value, fallback = "—") {
     if (value === null || value === undefined || value === "") return fallback;
@@ -295,14 +358,35 @@
     hideNotice(elements.reviewError);
   }
 
-  function hideResults() {
+  function resetAnalysis() {
     state.analysisRequest += 1;
-    setHidden(elements.historyPanel, true);
     setHidden(elements.detailPanel, true);
     state.analysis = null;
     state.findings = [];
-    state.reviews = [];
+    state.findingPages = newPager();
+    updatePagination(findingsPager, state.findingPages);
+    clear(elements.findingsList);
+    elements.findingsCount.textContent = "Not loaded";
+    setHidden(elements.findingsEmpty, true);
+    setHidden(elements.findingsLoading, true);
+    setHidden(elements.findingsRetry, true);
+    hideNotice(elements.findingsError);
+    hideNotice(elements.findingsIncomplete);
     clearReviewSelection();
+  }
+
+  function hideResults() {
+    state.analysisPages = newPager();
+    state.analyses = [];
+    updatePagination(historyPager, state.analysisPages);
+    setHidden(elements.historyPanel, true);
+    setHidden(elements.historyEmpty, true);
+    setHidden(elements.historyLoading, true);
+    hideNotice(elements.historyError);
+    hideNotice(elements.analysisError);
+    clear(elements.historyBody);
+    elements.historyCount.textContent = "Not loaded";
+    resetAnalysis();
   }
 
   async function loadProjects() {
@@ -358,12 +442,12 @@
 
   function renderHistory() {
     clear(elements.historyBody);
-    hideNotice(elements.historyError);
-    const analyses = state.analyses.slice();
-    setHidden(elements.historyPanel, false);
+    const analyses = state.analyses;
     setHidden(elements.historyEmpty, analyses.length !== 0);
-    clear(elements.historyCount);
-    appendText(elements.historyCount, `${analyses.length} ${analyses.length === 1 ? "analysis" : "analyses"}`);
+    elements.historyEmpty.textContent = state.analysisPages.index === 0
+      ? "No analyses are stored for this branch."
+      : "No more analyses on this page. Go back or reload the branch.";
+    showPageCount(elements.historyCount, state.analysisPages, analyses.length, "analysis", "analyses");
     for (const summary of analyses) {
       const id = analysisId(summary);
       if (!id) continue;
@@ -410,28 +494,48 @@
   async function loadAnalyses() {
     state.branch = elements.branch.value;
     hideNotice(elements.scopeError);
-    hideNotice(elements.historyError);
     hideResults();
-    clear(elements.historyBody);
-    clear(elements.historyCount);
-    setHidden(elements.historyEmpty, true);
+    await loadAnalysisPage(0);
+  }
+
+  async function loadAnalysisPage(index, trigger) {
+    const pager = state.analysisPages;
     if (!state.project || !state.branch) return;
-    const requestToken = state.analysisRequest;
+    const cursor = cursorFor(pager, index);
+    if (pager.pending || index < 0 || cursor === undefined || (index > 0 && cursor === null)) return;
+    pager.pending = true;
+    updatePagination(historyPager, pager);
+    setHidden(elements.historyPanel, false);
+    setHidden(elements.historyLoading, pager.loaded);
+    hideNotice(elements.historyError);
+    hideNotice(elements.globalError);
+    const query = pageQuery(HISTORY_PAGE_SIZE, cursor);
+    query.set("branch", state.branch);
+    let firstId;
     try {
-      const payload = await apiRequest(`${apiPath(state.project, "/analyses")}?branch=${encodeURIComponent(state.branch)}`);
-      if (requestToken !== state.analysisRequest) return;
-      state.analyses = responseList(payload, "analyses");
-      state.analyses.sort((left, right) => String(analysisField(right, "analyzed_at", "")).localeCompare(String(analysisField(left, "analyzed_at", ""))));
+      const payload = await apiRequest(`${apiPath(state.project, "/analyses/page")}?${query}`);
+      if (pager !== state.analysisPages) return;
+      const { items, next } = readPage(payload, "analyses", HISTORY_PAGE_SIZE, cursor);
+      acceptPage(pager, index, cursor, next);
+      state.analyses = items;
+      firstId = analysisId(items[0]);
+      if (!firstId) resetAnalysis();
+      hideNotice(elements.analysisError);
       renderHistory();
       clear(elements.scopeBadge);
       appendText(elements.scopeBadge, `${state.project} / ${state.branch}`);
-      if (state.analyses.length) await selectAnalysis(analysisId(state.analyses[0]));
     } catch (error) {
-      if (requestToken !== state.analysisRequest) return;
+      if (pager !== state.analysisPages) return;
       showNotice(elements.historyError, error.message || "Unable to load analysis history.");
-      setHidden(elements.historyPanel, false);
       displayError(error);
+    } finally {
+      if (pager === state.analysisPages) {
+        pager.pending = false;
+        setHidden(elements.historyLoading, true);
+        updatePagination(historyPager, pager, trigger);
+      }
     }
+    if (firstId && pager === state.analysisPages) await selectAnalysis(firstId);
   }
 
   function metadataItem(label, value, className = "") {
@@ -462,8 +566,7 @@
       metadataItem("Report version", analysisField(analysis, "report_schema_version", null)),
       metadataItem("Completeness", completeness),
     );
-    const report = analysis.report;
-    const warnings = report && report.project && Array.isArray(report.project.warnings) ? report.project.warnings : [];
+    const warnings = Array.isArray(analysis.warnings) ? analysis.warnings : [];
     if (completeness !== "complete") {
       const reason = warnings.length ? ` ${warnings.join(" ")}` : "";
       showNotice(elements.detailWarning, `This analysis is ${completeness}; metrics and findings may be incomplete.${reason}`, "warning");
@@ -582,8 +685,7 @@
   function renderFindings() {
     clear(elements.findingsList);
     const findings = Array.isArray(state.findings) ? state.findings : [];
-    clear(elements.findingsCount);
-    appendText(elements.findingsCount, `${findings.length} ${findings.length === 1 ? "finding" : "findings"}`);
+    showPageCount(elements.findingsCount, state.findingPages, findings.length, "finding", "findings");
     setHidden(elements.findingsEmpty, findings.length !== 0);
     for (const finding of findings) {
       const identity = findingIdentity(finding);
@@ -624,64 +726,70 @@
     }
   }
 
-  async function loadFindingsAndReviews(id, requestToken) {
+  async function fetchFindingPage(id, cursor) {
+    const query = pageQuery(FINDINGS_PAGE_SIZE, cursor);
+    query.set("include_review_versions", "true");
+    const payload = await apiRequest(`${apiPath(state.project, `/analyses/${pathPart(id)}/findings/page`)}?${query}`);
+    return readPage(payload, "findings", FINDINGS_PAGE_SIZE, cursor);
+  }
+
+  async function loadFindingsPage(index, trigger) {
+    const pager = state.findingPages;
+    const id = analysisId(state.analysis);
+    const cursor = cursorFor(pager, index);
+    if (!id || pager.pending || index < 0 || cursor === undefined || (index > 0 && cursor === null)) return;
+    pager.pending = true;
+    updatePagination(findingsPager, pager);
+    setHidden(elements.findingsLoading, pager.loaded);
+    hideNotice(elements.globalError);
     hideNotice(elements.findingsError);
-    hideNotice(elements.findingsIncomplete);
-    if (requestToken !== state.analysisRequest) return;
     try {
-      const suffix = `/analyses/${pathPart(id)}`;
-      const [findingPayload, reviewPayload] = await Promise.all([
-        apiRequest(`${apiPath(state.project, `${suffix}/findings`)}`),
-        apiRequest(`${apiPath(state.project, "/reviews")}?branch=${encodeURIComponent(state.branch)}`),
-      ]);
-      if (requestToken !== state.analysisRequest || !state.analysis || analysisId(state.analysis) !== id) return;
-      state.findings = responseList(findingPayload, "findings");
-      state.reviews = responseList(reviewPayload, "reviews");
-      if (completenessOf(state.analysis) !== "complete") {
-        showNotice(elements.findingsIncomplete, "Findings are shown for an incomplete analysis. Existing reviews are not automatically resolved.", "warning");
-      }
+      const { items, next } = await fetchFindingPage(id, cursor);
+      if (pager !== state.findingPages) return;
+      const retryFocused = document.activeElement === elements.findingsRetry;
+      setHidden(elements.findingsRetry, true);
+      acceptPage(pager, index, cursor, next);
+      state.findings = items;
+      clearReviewSelection();
       renderFindings();
-      setHidden(elements.findingsLoading, true);
+      if (retryFocused) elements.findingsCount.focus();
     } catch (error) {
-      if (requestToken !== state.analysisRequest) return;
-      state.findings = [];
-      state.reviews = [];
-      setHidden(elements.findingsLoading, true);
+      if (pager !== state.findingPages) return;
+      if (!pager.loaded) setHidden(elements.findingsRetry, false);
       showNotice(elements.findingsError, error.message || "Unable to load findings.");
       displayError(error);
+    } finally {
+      if (pager === state.findingPages) {
+        pager.pending = false;
+        setHidden(elements.findingsLoading, true);
+        updatePagination(findingsPager, pager, trigger);
+      }
     }
   }
 
   async function selectAnalysis(id) {
-    const requestToken = ++state.analysisRequest;
-    clearReviewSelection();
-    state.analysis = null;
+    resetAnalysis();
+    const requestToken = state.analysisRequest;
     updateHistorySelection();
-    state.findings = [];
-    state.reviews = [];
-    setHidden(elements.detailPanel, true);
-    clear(elements.findingsList);
-    clear(elements.findingsCount);
-    appendText(elements.findingsCount, "Not loaded");
-    setHidden(elements.findingsEmpty, true);
-    setHidden(elements.findingsLoading, false);
-    hideNotice(elements.findingsError);
+    hideNotice(elements.analysisError);
     if (!id) return;
     hideNotice(elements.globalError);
     try {
-      const payload = await apiRequest(`${apiPath(state.project, `/analyses/${pathPart(id)}`)}`);
+      const payload = await apiRequest(`${apiPath(state.project, `/analyses/${pathPart(id)}/overview`)}`);
       if (requestToken !== state.analysisRequest) return;
       if (!payload.analysis || analysisId(payload.analysis) !== id) {
         throw new ApiError(502, "The service returned a different analysis record than requested.");
       }
       state.analysis = payload.analysis;
-      hideNotice(elements.historyError);
       updateHistorySelection();
       renderAnalysisDetail();
-      await loadFindingsAndReviews(id, requestToken);
+      if (completenessOf(state.analysis) !== "complete") {
+        showNotice(elements.findingsIncomplete, "Findings are shown for an incomplete analysis. Existing reviews are not automatically resolved.", "warning");
+      }
+      await loadFindingsPage(0);
     } catch (error) {
       if (requestToken !== state.analysisRequest) return;
-      showNotice(elements.historyError, error.message || "Unable to load this analysis.");
+      showNotice(elements.analysisError, error.message || "Unable to load this analysis.");
       displayError(error);
     }
   }
@@ -695,17 +803,11 @@
     return control ? control.value : "";
   }
 
-  function branchReview(finding) {
-    const identity = findingIdentity(finding);
-    const kind = finding && finding.kind;
-    return state.reviews.find((review) => review.identity === identity && review.kind === kind) || null;
-  }
-
-  function fillReviewForm(form, finding, currentReview = findingReview(finding), versionReview = branchReview(finding)) {
-    const review = currentReview;
-    const reviewForVersion = review || versionReview;
+  function fillReviewForm(form, finding) {
+    const review = findingReview(finding);
+    const version = review ? reviewVersion(review) : (finding.review_version ?? 0);
     form.elements.namedItem("identity").value = findingIdentity(finding);
-    form.elements.namedItem("expected_version").value = String(reviewVersion(reviewForVersion));
+    form.elements.namedItem("expected_version").value = String(version);
     const stateControl = form.elements.namedItem("state");
     const current = review && review.state;
     const validCurrent = current && Array.from(stateControl.options).some((option) => option.value === current);
@@ -739,7 +841,7 @@
     const hotspot = findingKind(finding) === "hotspot";
     setHidden(elements.ordinaryForm, hotspot);
     setHidden(elements.hotspotForm, !hotspot);
-    fillReviewForm(hotspot ? elements.hotspotForm : elements.ordinaryForm, finding, review, branchReview(finding));
+    fillReviewForm(hotspot ? elements.hotspotForm : elements.ordinaryForm, finding);
     const form = hotspot ? elements.hotspotForm : elements.ordinaryForm;
     form.elements.namedItem("state").focus();
     elements.reviewPanel.scrollIntoView({ block: "nearest" });
@@ -790,33 +892,25 @@
 
   async function refreshSelectedReview(contextId, requestToken) {
     if (!reviewContextCurrent(contextId, requestToken)) return;
-    const id = analysisId(state.analysis);
-    if (!id) return;
     const identity = findingIdentity(state.selectedFinding);
     const kind = state.selectedFinding && state.selectedFinding.kind;
-    const [findingPayload, reviewPayload] = await Promise.all([
-      apiRequest(`${apiPath(state.project, `/analyses/${pathPart(id)}/findings`)}`),
-      apiRequest(`${apiPath(state.project, "/reviews")}?branch=${encodeURIComponent(state.branch)}`),
-    ]);
+    const pager = state.findingPages;
+    const { items } = await fetchFindingPage(contextId, pager.cursors[pager.index]);
     if (!reviewContextCurrent(contextId, requestToken)) return;
-    state.findings = responseList(findingPayload, "findings");
-    state.reviews = responseList(reviewPayload, "reviews");
-    const refreshedFinding = state.findings.find(
+    const refreshedFinding = items.find(
       (finding) => findingIdentity(finding) === identity && finding && finding.kind === kind,
     );
-    if (refreshedFinding) {
-      state.selectedFinding = refreshedFinding;
-    } else if (state.selectedFinding) {
-      state.selectedFinding.review = null;
+    if (!refreshedFinding) {
+      throw new ApiError(502, "The selected finding is missing from this page. Select it again.");
     }
-    state.selectedReview = findingReview(state.selectedFinding);
+    state.findings = items;
+    state.selectedFinding = refreshedFinding;
+    state.selectedReview = findingReview(refreshedFinding);
     renderFindings();
-    if (state.selectedFinding) {
-      const form = findingKind(state.selectedFinding) === "hotspot" ? elements.hotspotForm : elements.ordinaryForm;
-      const reason = formValue(form, "reason");
-      fillReviewForm(form, state.selectedFinding, state.selectedReview, branchReview(state.selectedFinding));
-      form.elements.namedItem("reason").value = reason;
-    }
+    const form = findingKind(refreshedFinding) === "hotspot" ? elements.hotspotForm : elements.ordinaryForm;
+    const reason = formValue(form, "reason");
+    fillReviewForm(form, refreshedFinding);
+    form.elements.namedItem("reason").value = reason;
   }
 
   async function submitReview(event) {
@@ -862,10 +956,7 @@
           || updated.version <= body.expected_version) {
         throw new ApiError(502, "The service accepted the request but returned an invalid review record. Refresh the finding before retrying to verify whether it was saved.");
       }
-      const updatedReview = updated;
-      state.reviews = state.reviews.filter((review) => !(review.identity === body.identity && review.kind === body.kind));
-      if (updatedReview) state.reviews.push(updatedReview);
-      replaceFindingReview(body.identity, body.kind, updatedReview);
+      replaceFindingReview(body.identity, body.kind, updated);
       renderFindings();
       state.selectedReview = findingReview(state.selectedFinding);
       form.elements.namedItem("expected_version").value = String(reviewVersion(state.selectedReview));
@@ -879,6 +970,7 @@
           await refreshSelectedReview(contextId, requestToken);
           if (!reviewContextCurrent(contextId, requestToken)) return;
           await loadReviewHistory(requestToken, contextId);
+          if (!reviewContextCurrent(contextId, requestToken)) return;
           showNotice(elements.reviewError, "This review changed since it was loaded (version conflict). The current version is loaded; review it and submit again.");
         } catch (refreshError) {
           if (!reviewContextCurrent(contextId, requestToken)) return;
@@ -948,6 +1040,11 @@
     event.preventDefault();
     loadAnalyses();
   });
+  historyPager.previous.addEventListener("click", () => loadAnalysisPage(state.analysisPages.index - 1, historyPager.previous));
+  historyPager.next.addEventListener("click", () => loadAnalysisPage(state.analysisPages.index + 1, historyPager.next));
+  findingsPager.previous.addEventListener("click", () => loadFindingsPage(state.findingPages.index - 1, findingsPager.previous));
+  findingsPager.next.addEventListener("click", () => loadFindingsPage(state.findingPages.index + 1, findingsPager.next));
+  elements.findingsRetry.addEventListener("click", () => loadFindingsPage(0));
   elements.ordinaryForm.addEventListener("submit", submitReview);
   elements.hotspotForm.addEventListener("submit", submitReview);
   elements.refreshHistory.addEventListener("click", () => loadReviewHistory());

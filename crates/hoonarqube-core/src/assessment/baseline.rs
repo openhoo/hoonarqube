@@ -146,6 +146,7 @@ fn indeterminate_current(
     diagnostic: impl Into<String>,
 ) -> NewCodeReport {
     NewCodeReport {
+        specific_analysis: None,
         changed_source_lines: None,
         schema_version: BASELINE_SCHEMA_VERSION,
         status,
@@ -232,6 +233,7 @@ fn classify(
         .collect::<Vec<_>>();
     let diagnostics = classification_diagnostics(line_mapping_uncertain, uncertain);
     Ok(NewCodeReport {
+        specific_analysis: None,
         changed_source_lines,
         schema_version: BASELINE_SCHEMA_VERSION,
         status: if uncertain {

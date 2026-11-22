@@ -40,7 +40,7 @@ On the older baseline Git and HoonarQube identify 48 physical changes.
 Sonar reports 49: its file API also marks the empty line after the final
 newline of `index.js` (line 22) as new. That line is not in LCOV. Both
 products count the same 48 new lines to cover. These results do not establish
-that duplication gates using physical line counts always agree.
+that duplication gates using physical line counts always agree. The opt-in [SCM period](community-scm-period.md) also reproduces the extra empty line and the four 80% gates.
 
 Each of the six reference projects has a successful base and candidate
 analysis from a full Git checkout. The main branch's selected new-code period
