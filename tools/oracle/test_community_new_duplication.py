@@ -85,9 +85,9 @@ class DuplicationComparisonTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous source must be unavailable"):
             native_result(report, 0, case, set(range(1, 87)))
 
-    def test_wrong_reference_density_is_rejected(self):
+    def test_reference_density_cannot_be_replaced_by_native_value(self):
         case = self.data["cases"][2]
-        case["reference"]["density"] = 57.142857
+        case["reference"]["density"] = case["native"]["density"]
         with self.assertRaisesRegex(ValueError, "reference counters"):
             validate_cases(self.data)
 

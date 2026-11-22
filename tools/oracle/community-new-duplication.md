@@ -19,6 +19,10 @@ as separate revisions of the same project. Values are duplicated / new lines;
 | FastAPI `fastapi/params.py` | `7cb19539 → 5d5666be` | 2/10 (20%), ignored | 2/10 (20%), ignored |
 | FastAPI `fastapi/param_functions.py` | `2bb28066 → 8b0090c3` | 14/14 (100%), ignored | 14/14 (100%), ignored |
 
+The original native receipt recorded 20/35 on the first FastAPI change. The
+current replay requires the independent Community result, 21/35, and preserves
+the original capture.
+
 The clean 19-line Yjs change passed normally, with no ignored condition.
 The two smaller FastAPI changes demonstrate suppression; the captured pairs do
 not test the live reference at exactly 20 lines. This is a comparison of five
