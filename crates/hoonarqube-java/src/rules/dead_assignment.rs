@@ -1410,36 +1410,49 @@ impl<'source, 'index> Flow<'source, 'index> {
             self.break_targets.pop();
             return vec![join];
         };
-        let mut frontier = vec![condition];
+        let mut frontier = Vec::new();
         let mut cursor = block.walk();
         let groups: Vec<Node<'_>> = block.named_children(&mut cursor).collect();
         for group in groups {
-            if group.kind() == "switch_rule" {
-                let mut rule_cursor = group.walk();
-                let bodies: Vec<Node<'_>> = group
-                    .named_children(&mut rule_cursor)
-                    .filter(|child| child.kind() != "switch_label")
-                    .collect();
-                let mut rule_frontier = vec![condition];
-                for body in bodies {
-                    rule_frontier = self.statement(body, &rule_frontier, depth + 1);
+            match group.kind() {
+                "switch_rule" => {
+                    let ends = self.switch_group(group, Vec::new(), condition, depth);
+                    self.connect(&ends, join);
                 }
-                self.connect(&rule_frontier, join);
-            } else {
-                let mut group_cursor = group.walk();
-                let statements: Vec<Node<'_>> = group
-                    .named_children(&mut group_cursor)
-                    .filter(|child| child.kind() != "switch_label")
-                    .collect();
-                for statement in statements {
-                    frontier = self.statement(statement, &frontier, depth + 1);
+                "switch_block_statement_group" => {
+                    frontier = self.switch_group(group, frontier, condition, depth);
                 }
+                _ => {}
             }
         }
         self.edge(condition, join);
         self.connect(&frontier, join);
         self.break_targets.pop();
         vec![join]
+    }
+
+    fn switch_group(
+        &mut self,
+        group: Node<'_>,
+        mut frontier: Vec<usize>,
+        selector: usize,
+        depth: usize,
+    ) -> Vec<usize> {
+        let mut cursor = group.walk();
+        let mut statements = group
+            .named_children(&mut cursor)
+            .filter(|child| child.kind() != "switch_label")
+            .peekable();
+        if statements.peek().is_none() {
+            return frontier;
+        }
+        // The selector can dispatch directly to any case. A traditional case
+        // may also inherit the previous group's ordinary exits.
+        frontier.push(selector);
+        for statement in statements {
+            frontier = self.statement(statement, &frontier, depth + 1);
+        }
+        frontier
     }
 
     /// `synchronized (expr) { … }`: the body sequences normally; the lock
@@ -2163,6 +2176,23 @@ mod tests {
             (range.start.line, range.start.column, range.end.column),
             (11, 15, 22)
         );
+    }
+
+    #[test]
+    fn colon_switch_dispatches_to_every_case_group() {
+        let source = include_str!("../../tests/fixtures/SwitchEntry.java");
+        let actual: Vec<_> = findings(source)
+            .into_iter()
+            .map(|(_, range)| {
+                (
+                    range.start.line,
+                    range.start.column,
+                    range.end.line,
+                    range.end.column,
+                )
+            })
+            .collect();
+        assert_eq!(actual, [(40, 18, 40, 28), (43, 22, 43, 32)]);
     }
 
     #[test]
