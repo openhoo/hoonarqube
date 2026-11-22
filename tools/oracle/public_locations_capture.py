@@ -25,11 +25,12 @@ def digest(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def capture(state):
+def capture(state, *, expected_version="26.9.0.129388", selected_rows=None):
     receipt = read(state / "cohort-receipt.json")
-    frozen = read(state / "cohort-frozen.json")
+    if selected_rows is None:
+        selected_rows = read(state / "cohort-frozen.json")["projects"]
     require(
-        receipt["reference"]["server"]["version"] == "26.9.0.129388",
+        receipt["reference"]["server"]["version"] == expected_version,
         "wrong Community release",
     )
     require(
@@ -44,7 +45,7 @@ def capture(state):
     effective = read(state / "profiles/effective.json")["profiles"]
     rows = {c["repository"]: c for c in receipt["projects"]}
     cases = []
-    for row in frozen["projects"]:
+    for row in selected_rows:
         name = row["name"]
         measurement = rows[row["repository"]]
         refs = [
@@ -162,7 +163,7 @@ def capture(state):
     return {
         "format": 1,
         "baseline": source,
-        "sonar": "26.9.0.129388",
+        "sonar": expected_version,
         "receipt_sha256": digest(state / "cohort-receipt.json"),
         "projects": cases,
     }

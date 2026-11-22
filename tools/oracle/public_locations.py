@@ -62,24 +62,28 @@ def validate(data):
         "incomplete language cohort",
     )
     for case in cases:
-        validate_scope(case)
+        validate_case(case)
+
+
+def validate_case(case):
+    validate_scope(case)
+    require(
+        case["parameters"]
+        and Counter(case["sources"]) == Counter(case["files"].keys()),
+        "wrong source scope",
+    )
+    sonar, missing = (Counter(map(tuple, case[k])) for k in ("sonar", "missing"))
+    require(missing <= sonar, "missing allowance outside reference")
+    for rule, path, sl, sc, el, ec in (*case["sonar"], *case["extra"]):
         require(
-            case["parameters"]
-            and Counter(case["sources"]) == Counter(case["files"].keys()),
-            "wrong source scope",
+            rule in case["parameters"]
+            and path in case["files"]
+            and all(type(n) is int for n in (sl, sc, el, ec))
+            and min(sl, el) >= 1
+            and min(sc, ec) >= 0
+            and (sl, sc) <= (el, ec),
+            "invalid primary location",
         )
-        sonar, missing = (Counter(map(tuple, case[k])) for k in ("sonar", "missing"))
-        require(missing <= sonar, "missing allowance outside reference")
-        for rule, path, sl, sc, el, ec in (*case["sonar"], *case["extra"]):
-            require(
-                rule in case["parameters"]
-                and path in case["files"]
-                and all(type(n) is int for n in (sl, sc, el, ec))
-                and min(sl, el) >= 1
-                and min(sc, ec) >= 0
-                and (sl, sc) <= (el, ec),
-                "invalid primary location",
-            )
 
 
 def main():

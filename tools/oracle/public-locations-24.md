@@ -49,3 +49,5 @@ differently configured rules and project-level findings. For example, the
 baseline produced 1,960 findings for rules inactive in the reference profile;
 they are outside this comparison. It covers the listed source files rather
 than an entire built application. Java and C# are outside this cohort.
+
+The [Community 26.11 comparison](community-profiles-26.11.md) keeps the same source pins and reports three profiles separately.

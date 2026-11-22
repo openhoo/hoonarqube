@@ -35,6 +35,8 @@ jobs:
           --case rack --case puma-puma --case dry-rb-dry-monads --case ruby-logger
       - name: Check primary locations on 24 more pinned public repositories
         run: python3 tools/oracle/public_locations.py target/release/hoonarqube
+      - name: Check current Community core, extended and comprehensive profiles
+        run: python3 tools/oracle/community_profiles.py target/release/hoonarqube
       - name: Enforce assigned gates and authorized reviews on two Redux revisions
         run: python3 tools/oracle/public_redux_gates.py target/release
       - name: Compare duplication gates on real Yjs and FastAPI changes
