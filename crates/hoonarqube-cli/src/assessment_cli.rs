@@ -12,9 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use hoonarqube_catalog::embedded;
-use hoonarqube_core::assessment::coverage::{
-    CoverageFile, CoverageFormat, CoverageSource, import_coverage,
-};
+use hoonarqube_core::assessment::coverage::{CoverageFile, CoverageSource, import_coverage};
 use hoonarqube_core::assessment::gates::{GateConfig, evaluate_gate};
 use hoonarqube_core::assessment::{build_assessment, compare_reports};
 use hoonarqube_core::{
@@ -62,7 +60,7 @@ pub(crate) fn attach_assessment(
     let gate_config = features.quality_gate.as_deref().map(load_gate_config);
     let gate_needs_new_code = gate_requests_new_code(gate_config.as_ref());
 
-    if !features.coverage_lcov.is_empty() || !features.coverage_opencover.is_empty() {
+    if features.coverage_requested() {
         attach_coverage(&mut assessment, &root, sources, features);
     }
 
@@ -475,27 +473,18 @@ fn git_source_revision() -> Option<String> {
 }
 
 fn load_coverage_inputs(features: &ProjectFeatureOptions) -> (Vec<CoverageSource>, Vec<String>) {
-    let mut inputs =
-        Vec::with_capacity(features.coverage_lcov.len() + features.coverage_opencover.len());
+    let mut inputs = Vec::new();
     let mut diagnostics = Vec::new();
-    for path in &features.coverage_lcov {
-        match read_bounded_text(path, "LCOV") {
-            Ok(content) => inputs.push(CoverageSource {
-                path: path.clone(),
-                format: CoverageFormat::Lcov,
-                content,
-            }),
-            Err(error) => diagnostics.push(error),
-        }
-    }
-    for path in &features.coverage_opencover {
-        match read_bounded_text(path, "OpenCover") {
-            Ok(content) => inputs.push(CoverageSource {
-                path: path.clone(),
-                format: CoverageFormat::OpenCover,
-                content,
-            }),
-            Err(error) => diagnostics.push(error),
+    for (format, paths) in features.coverage_artifacts() {
+        for path in paths {
+            match read_bounded_text(path, format.label()) {
+                Ok(content) => inputs.push(CoverageSource {
+                    path: path.clone(),
+                    format,
+                    content,
+                }),
+                Err(error) => diagnostics.push(error),
+            }
         }
     }
     sort_dedup(&mut diagnostics);
