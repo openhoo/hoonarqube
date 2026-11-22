@@ -2,9 +2,7 @@ Base: tree-sitter-ruby 0.23.1, crates.io revision
 71bd32fb7607035768799732addba884a37a6210 (MIT).
 The LICENSE and external scanner are from upstream tree-sitter/tree-sitter-ruby
 at ad907a69da0c8a4f7a943a7fe012712208da6dee. This includes the upstream
-heredoc serialization fix. The generated parser, node types and grammar
-are unchanged from the release. Only a trailing blank line is removed
-from the license text.
+heredoc serialization fix. Only a trailing blank line is removed from the license text.
 
 Local changes in src/scanner.c recognize anonymous block forwarding before
 a closing parenthesis across whitespace and line comments, and symbol labels
@@ -13,3 +11,10 @@ A comma directly after an anonymous block argument is invalid in MRI; the
 scanner now rejects it. The other examples in the upstream block-argument case
 retain their original trees.
 See crates/hoonarqube-ruby/src/tests/parser_syntax.rs for boundary tests.
+
+grammar.js also accepts method bodies such as `def value! = raise Error, self`
+and a rescue modifier on that call. The command starts with a plain argument;
+operators, parenthesized arguments and blocks retain their existing grammar.
+This bounded extension does not cover every Ruby command form. Generate the
+parser, node types, grammar and headers from this directory with Tree-sitter
+CLI 0.25.10: `tree-sitter generate --abi 14`. Runtime ABI remains 14.

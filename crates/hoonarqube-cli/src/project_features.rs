@@ -132,6 +132,9 @@ pub(crate) struct ProjectFeatureOptions {
     /// Pinned native assessment report used as the baseline reference.
     #[arg(long = "baseline")]
     pub(crate) baseline: Option<PathBuf>,
+    /// Use Git committer dates after the selected analysis (JSON: `analysis_id`, revision, `timestamp_ms`).
+    #[arg(long = "specific-analysis")]
+    pub(crate) specific_analysis: Option<PathBuf>,
     /// Atomically write the complete current native assessment report here.
     #[arg(long = "write-baseline")]
     pub(crate) write_baseline: Option<PathBuf>,
@@ -152,6 +155,7 @@ impl ProjectFeatureOptions {
             || !self.coverage_lcov.is_empty()
             || !self.coverage_opencover.is_empty()
             || self.baseline.is_some()
+            || self.specific_analysis.is_some()
             || self.write_baseline.is_some()
             || self.quality_gate.is_some()
     }

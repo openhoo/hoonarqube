@@ -77,9 +77,13 @@
           <p class="eyebrow">Immutable records</p>
           <h2 id="history-heading">Analysis history</h2>
         </div>
-        <span class="badge badge-muted" id="history-count">0 analyses</span>
+        <span class="badge badge-muted" id="history-count" role="status" tabindex="-1">Not loaded</span>
       </div>
       <p class="muted">Each row is a stored report for one commit. Selecting a row never changes the recorded result.</p>
+      <nav id="history-pagination" class="pagination" aria-label="Analysis history pages" hidden>
+        <button type="button" class="button button-secondary button-small" id="history-previous" aria-controls="history-body" disabled>Previous analyses</button>
+        <button type="button" class="button button-secondary button-small" id="history-next" aria-controls="history-body" disabled>Next analyses</button>
+      </nav>
       <div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable analysis history">
         <table>
           <caption class="sr-only">Analysis history for the selected project and branch</caption>
@@ -96,7 +100,9 @@
         </table>
       </div>
       <div id="history-empty" class="empty-state" hidden>No analyses are stored for this branch.</div>
+      <div id="history-loading" class="empty-state" role="status" hidden>Loading analysis history…</div>
       <div id="history-error" class="notice notice-error" role="alert" hidden></div>
+      <div id="analysis-error" class="notice notice-error" role="alert" hidden></div>
     </section>
 
     <section class="panel" aria-labelledby="detail-heading" hidden id="detail-panel">
@@ -134,12 +140,17 @@
             <h3 id="findings-heading">Findings</h3>
             <p class="muted">Ordinary findings and hotspots have separate review states and audit trails.</p>
           </div>
-          <span class="badge badge-muted" id="findings-count">0 findings</span>
+          <span class="badge badge-muted" id="findings-count" role="status" tabindex="-1">Not loaded</span>
         </div>
         <div id="findings-incomplete" class="notice notice-warning" role="status" hidden></div>
         <div id="findings-error" class="notice notice-error" role="alert" hidden></div>
-        <div id="findings-loading" class="empty-state" role="status" hidden>Loading findings and reviews…</div>
+        <div id="findings-loading" class="empty-state" role="status" hidden>Loading findings…</div>
+        <button type="button" class="button button-secondary button-small" id="findings-retry" hidden>Retry findings</button>
         <div id="findings-empty" class="empty-state" hidden>No findings were reported for this analysis.</div>
+        <nav id="findings-pagination" class="pagination" aria-label="Finding pages" hidden>
+          <button type="button" class="button button-secondary button-small" id="findings-previous" aria-controls="findings-list" disabled>Previous findings</button>
+          <button type="button" class="button button-secondary button-small" id="findings-next" aria-controls="findings-list" disabled>Next findings</button>
+        </nav>
         <div id="findings-list" class="finding-list"></div>
       </section>
     </section>
