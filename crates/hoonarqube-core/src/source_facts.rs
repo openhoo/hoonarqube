@@ -2318,6 +2318,43 @@ type ImportedKeys = keyof import("./module").Widget;
     }
 
     #[test]
+    fn typescript_type_only_wildcard_reexports_are_complete() {
+        let source = r#"export type * from "./types";
+export type * as Names from "./namespace";
+export * from "./runtime";
+export type { Local };
+type Local = number;
+"#;
+        for extension in ["ts", "tsx"] {
+            let result = facts(&format!("reexports.{extension}"), source);
+            assert!(!result.tokens.is_empty());
+            assert!(result.error.is_none(), "{extension}: {:?}", result.error);
+            let shape = typescript_shape(extension, source);
+            assert_eq!(shape.matches("(export_statement").count(), 4);
+            assert_eq!(shape.matches("(namespace_export").count(), 1);
+            assert_eq!(shape.matches("source: (string").count(), 3);
+        }
+    }
+
+    #[test]
+    fn typescript_type_only_wildcards_require_a_module_source() {
+        for path in ["reexports.ts", "reexports.tsx"] {
+            for source in [
+                "export type *;",
+                "export type * as Names;",
+                "export type * from ;",
+            ] {
+                let result = facts(path, source);
+                assert_eq!(
+                    result.error.as_deref(),
+                    Some("syntax tree contains recovered or missing nodes"),
+                    "{path}: {source}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn csharp_directive_inside_argument_expression_recovers_to_complete_facts() {
         // Minimized from Dapper's `SqlMapper.cs` static constructor (#328).
         let source = "\

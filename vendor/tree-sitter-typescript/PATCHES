@@ -30,6 +30,11 @@ Repeated or reversed modifiers (`out in`, `out out`) remain parse errors so
 that fail-closed source facts keep flagging malformed input. Upstream
 0.23.2 and master do not support these annotations (openho/hoonarqube#94).
 
+The shared export grammar accepts TypeScript's type-only wildcard re-exports,
+`export type * from "module"` and `export type * as Name from "module"`, as
+used by Got. Both wildcard forms require a `from` clause; named type exports
+retain their existing optional `from` clause.
+
 The generated TypeScript and TSX parser sources, node-type tables, and
 matching tree-sitter support headers were regenerated from this narrowed
 grammar with tree-sitter CLI 0.25.10 using ABI 14, with
