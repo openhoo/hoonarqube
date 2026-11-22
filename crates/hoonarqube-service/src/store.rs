@@ -1,7 +1,9 @@
+mod analyses;
 mod findings;
 pub(crate) mod policy;
 mod schema;
 
+pub(crate) use analyses::{AnalysisHistoryEntry, AnalysisOverview, AnalysisPage};
 pub(crate) use findings::FindingPage;
 
 use std::collections::HashMap;
@@ -23,7 +25,7 @@ pub(crate) enum StoreError {
     Sql(rusqlite::Error),
     Conflict(String),
     NotFound,
-    InvalidFindingCursor,
+    InvalidCursor,
     Invalid(String),
 }
 impl Display for StoreError {
@@ -32,7 +34,7 @@ impl Display for StoreError {
             Self::Sql(error) => write!(formatter, "database error: {error}"),
             Self::Conflict(message) => write!(formatter, "database conflict: {message}"),
             Self::NotFound => formatter.write_str("record not found"),
-            Self::InvalidFindingCursor => formatter.write_str("invalid finding cursor"),
+            Self::InvalidCursor => formatter.write_str("invalid cursor"),
             Self::Invalid(message) => write!(formatter, "invalid database state: {message}"),
         }
     }
@@ -42,9 +44,7 @@ impl std::error::Error for StoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Sql(error) => Some(error),
-            Self::Conflict(_) | Self::NotFound | Self::InvalidFindingCursor | Self::Invalid(_) => {
-                None
-            }
+            Self::Conflict(_) | Self::NotFound | Self::InvalidCursor | Self::Invalid(_) => None,
         }
     }
 }
@@ -148,6 +148,8 @@ pub(crate) struct FindingRecord {
     pub ambiguous: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review: Option<ReviewRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_version: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

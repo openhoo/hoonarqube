@@ -14,9 +14,10 @@ use std::path::PathBuf;
 use std::path::{Component, Path as FsPath};
 
 use crate::store::{
-    AnalysisDetail, AnalysisSummary, BackupAnalysis, BackupFinding, BackupHistory, BackupReview,
-    BranchSummary, FindingRecord, HistoryRecord, ProjectSummary, RestoreResult, RetentionInput,
-    RetentionResult, ReviewRecord, Store, StoreError,
+    AnalysisDetail, AnalysisHistoryEntry, AnalysisOverview, AnalysisPage, AnalysisSummary,
+    BackupAnalysis, BackupFinding, BackupHistory, BackupReview, BranchSummary, FindingRecord,
+    HistoryRecord, ProjectSummary, RestoreResult, RetentionInput, RetentionResult, ReviewRecord,
+    Store, StoreError,
 };
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, FromRequest, FromRequestParts, Path, Query, Request, State};
@@ -39,6 +40,9 @@ use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 const API_PREFIX: &str = "/api/v1";
+const DEFAULT_ANALYSIS_PAGE_SIZE: u16 = 25;
+const MAX_ANALYSIS_PAGE_SIZE: u16 = 100;
+const MAX_ANALYSIS_CURSOR_BYTES: usize = 87;
 const DEFAULT_FINDINGS_PAGE_SIZE: u16 = 100;
 const MAX_FINDINGS_PAGE_SIZE: u16 = 500;
 const MAX_FINDINGS_CURSOR_BYTES: usize = 42;
@@ -443,6 +447,13 @@ struct AnalysisQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct AnalysisPageQuery {
+    branch: Option<String>,
+    limit: Option<u16>,
+    cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ReviewQuery {
     #[serde(default)]
     branch: Option<String>,
@@ -472,8 +483,19 @@ struct AnalysesResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct AnalysisPageResponse {
+    analyses: Vec<AnalysisHistoryEntry>,
+    next_cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct AnalysisResponse {
     analysis: AnalysisDetail,
+}
+
+#[derive(Debug, Serialize)]
+struct AnalysisOverviewResponse {
+    analysis: AnalysisOverview,
 }
 
 #[derive(Debug, Serialize)]
@@ -485,6 +507,8 @@ struct FindingsResponse {
 struct FindingsPageQuery {
     limit: Option<u16>,
     cursor: Option<String>,
+    #[serde(default)]
+    include_review_versions: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -669,8 +693,16 @@ fn router(state: AppState) -> Router {
             get(list_analyses).post(ingest_analysis),
         )
         .route(
+            &format!("{API_PREFIX}/projects/{{project}}/analyses/page"),
+            get(get_analysis_page),
+        )
+        .route(
             &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}"),
             get(get_analysis).delete(delete_analysis),
+        )
+        .route(
+            &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}/overview"),
+            get(get_analysis_overview),
         )
         .route(
             &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}/gate"),
@@ -768,6 +800,62 @@ async fn list_analyses(
     Ok(Json(AnalysesResponse { analyses }))
 }
 
+async fn get_analysis_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath(project): SafePath<String>,
+    SafeQuery(query): SafeQuery<AnalysisPageQuery>,
+) -> Result<Json<AnalysisPageResponse>, ApiError> {
+    authorize_project(&state, &headers, &project, Role::Reader)?;
+    validate_project(&project)?;
+    let branch = query.branch.as_deref();
+    if let Some(branch) = branch {
+        validate_branch(branch)?;
+    }
+    let limit = query.limit.unwrap_or(DEFAULT_ANALYSIS_PAGE_SIZE);
+    if !(1..=MAX_ANALYSIS_PAGE_SIZE).contains(&limit) {
+        return Err(ApiError::bad_request());
+    }
+    // Bind cursors to the project and branch filter. Authorization and
+    // membership of the cursor's analysis are checked independently.
+    let scope = hex::encode(
+        Sha256::new()
+            .chain_update(&project)
+            .chain_update([0])
+            .chain_update(branch.unwrap_or_default())
+            .finalize(),
+    );
+    let after_id = query
+        .cursor
+        .as_deref()
+        .map(|cursor| parse_analysis_cursor(&scope, cursor))
+        .transpose()?;
+    let AnalysisPage { analyses, next_id } = state
+        .store
+        .analysis_page(&project, branch, after_id, limit)
+        .map_err(|error| store_error(&error))?;
+    Ok(Json(AnalysisPageResponse {
+        analyses,
+        next_cursor: next_id.map(|id| encode_analysis_cursor(&scope, id)),
+    }))
+}
+
+fn encode_analysis_cursor(scope: &str, id: i64) -> String {
+    format!("v1.{scope}.{id}")
+}
+
+fn parse_analysis_cursor(scope: &str, cursor: &str) -> Result<i64, ApiError> {
+    if cursor.len() > MAX_ANALYSIS_CURSOR_BYTES {
+        return Err(ApiError::bad_request());
+    }
+    let (_, id) = cursor.rsplit_once('.').ok_or_else(ApiError::bad_request)?;
+    let id: i64 = id.parse().map_err(|_| ApiError::bad_request())?;
+    if id <= 0 || encode_analysis_cursor(scope, id) != cursor {
+        return Err(ApiError::bad_request());
+    }
+    Ok(id)
+}
+
 async fn get_analysis(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -784,6 +872,23 @@ async fn get_analysis(
         .get_analysis(&project, analysis_id)
         .map_err(|error| store_error(&error))?;
     Ok(Json(AnalysisResponse { analysis }))
+}
+
+async fn get_analysis_overview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
+) -> Result<Json<AnalysisOverviewResponse>, ApiError> {
+    authorize_project(&state, &headers, &project, Role::Reader)?;
+    validate_project(&project)?;
+    if analysis_id <= 0 {
+        return Err(ApiError::bad_request());
+    }
+    let analysis = state
+        .store
+        .analysis_overview(&project, analysis_id)
+        .map_err(|error| store_error(&error))?;
+    Ok(Json(AnalysisOverviewResponse { analysis }))
 }
 
 #[derive(Deserialize)]
@@ -904,7 +1009,13 @@ async fn get_findings_page(
         .transpose()?;
     let store::FindingPage { findings, next_id } = state
         .store
-        .findings_page(&project, analysis_id, after_id, limit)
+        .findings_page(
+            &project,
+            analysis_id,
+            after_id,
+            limit,
+            query.include_review_versions,
+        )
         .map_err(|error| store_error(&error))?;
     Ok(Json(FindingsPageResponse {
         findings,
@@ -1266,7 +1377,7 @@ fn store_error(error: &StoreError) -> ApiError {
     match error {
         StoreError::Conflict(_) => ApiError::conflict(),
         StoreError::NotFound => ApiError::not_found(),
-        StoreError::InvalidFindingCursor => ApiError::bad_request(),
+        StoreError::InvalidCursor => ApiError::bad_request(),
         StoreError::Sql(_) | StoreError::Invalid(_) => ApiError::internal(),
     }
 }
@@ -3651,6 +3762,132 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_analysis_history_seeks_through_active_rows_in_the_original_order() {
+        const LIST: &str = "/api/v1/projects/demo/analyses";
+        let (address, server) = spawn_test_service().await;
+        let page = format!("{LIST}/page");
+        let get = async |path: &str| api_request(address, "GET", path, None, "").await;
+        assert_api_error(&get(&page).await, 404, "not_found");
+        let ids = |value: &Value| {
+            value["analyses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|analysis| analysis["id"].as_i64().unwrap())
+                .collect::<Vec<_>>()
+        };
+        let ingest = async |branch: &str, commit: &str, analyzed_at: &str| {
+            let body = format!(
+                r#"{{"schema_version":1,"branch":"{branch}","commit":"{commit}","analyzed_at":"{analyzed_at}","report":{}}}"#,
+                reviewable_report()
+            );
+            let response =
+                api_request(address, "POST", LIST, Some("application/json"), &body).await;
+            assert_eq!(response.status, 200);
+            json_body(&response)["analysis"]["id"].as_i64().unwrap()
+        };
+        let older = ingest("main", "old", "2026-10-07T08:00:00Z").await;
+        let anchor = ingest("main", "fraction", "2026-10-07T08:00:00.01Z").await;
+        let tie = ingest("main", "tie", "2026-10-07T09:00:00+01:00").await;
+        let alternate = ingest("feature/only", "other", "2026-10-07T08:00:01Z").await;
+        let newest = ingest("main", "new", "2026-10-07T08:00:02Z").await;
+        let first = get(&format!("{page}?branch=main&limit=2")).await;
+        assert_eq!(first.status, 200);
+        let first = json_body(&first);
+        assert_eq!(ids(&first), [newest, anchor]);
+        let cursor = first["next_cursor"].as_str().unwrap();
+        let second_path = format!("{page}?branch=main&limit=2&cursor={cursor}");
+        let second = json_body(&get(&second_path).await);
+        assert_eq!(ids(&second), [tie, older]);
+        assert!(second["next_cursor"].is_null());
+        let legacy = json_body(&get(&format!("{LIST}?branch=main")).await);
+        assert_eq!(ids(&legacy), [newest, anchor, tie, older]);
+        assert!(legacy.get("next_cursor").is_none());
+        assert!(legacy["analyses"][0].get("metrics").is_some());
+        assert!(first["analyses"][0].get("metrics").is_none());
+        assert_eq!(
+            ids(&json_body(&get(&page).await)),
+            [newest, alternate, anchor, tie, older]
+        );
+        assert_eq!(
+            json_body(&get(&format!("{page}?branch=missing")).await),
+            json!({"analyses": [], "next_cursor": null})
+        );
+        for filter in [
+            "limit=0",
+            "limit=101",
+            "branch=..",
+            "limit=hey",
+            "cursor=bad",
+        ] {
+            assert_api_error(
+                &get(&format!("{page}?{filter}")).await,
+                400,
+                "invalid_request",
+            );
+        }
+        for branch in ["", "branch=feature%2Fonly&"] {
+            assert_api_error(
+                &get(&format!("{page}?{branch}cursor={cursor}")).await,
+                400,
+                "invalid_request",
+            );
+        }
+        let scope = cursor.rsplit_once('.').unwrap().0;
+        for id in [i64::MAX, alternate] {
+            assert_api_error(
+                &get(&format!("{page}?branch=main&cursor={scope}.{id}")).await,
+                400,
+                "invalid_request",
+            );
+        }
+        assert_api_error(
+            &get("/api/v1/projects/foreign/analyses/page").await,
+            403,
+            "forbidden",
+        );
+        let deleted = api_request(
+            address,
+            "DELETE",
+            &format!("{LIST}/{anchor}?reason=retained"),
+            None,
+            "",
+        )
+        .await;
+        assert_eq!(deleted.status, 204);
+        let later = ingest("main", "later", "2026-10-08T08:00:00Z").await;
+        assert_eq!(json_body(&get(&second_path).await), second);
+        assert_eq!(
+            ids(&json_body(&get(&format!("{page}?branch=main")).await)),
+            [later, newest, tie, older]
+        );
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn http_analysis_overview_keeps_summary_and_warnings_without_the_report() {
+        let (address, server) = spawn_test_service().await;
+        let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
+        report["project"]["complete"] = json!(false);
+        report["project"]["warnings"] = json!(["a source was unavailable"]);
+        let response = ingest_report(address, "overview", report.clone()).await;
+        assert_eq!(response.status, 200);
+        let mut expected = json_body(&response)["analysis"].clone();
+        expected["warnings"] = report["project"]["warnings"].clone();
+        let id = expected["id"].as_i64().unwrap();
+        let path = format!("/api/v1/projects/demo/analyses/{id}");
+        let overview = api_request(address, "GET", &format!("{path}/overview"), None, "").await;
+        assert_eq!(overview.status, 200);
+        assert_eq!(json_body(&overview), json!({"analysis": expected}));
+        let full = api_request(address, "GET", &path, None, "").await;
+        assert_eq!(full.status, 200);
+        assert_eq!(json_body(&full)["analysis"]["report"], report);
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn http_findings_pages_preserve_order_and_validate_cursors() {
         let (address, server) = spawn_test_service().await;
         let mut report: Value = serde_json::from_str(reviewable_report()).unwrap();
@@ -3824,6 +4061,23 @@ mod tests {
             let item = &json_body(&result)["findings"][0];
             assert_eq!(item["identity"], expected);
             assert_eq!(item.get("review").is_some(), inherits, "{commit}");
+            assert!(item.get("review_version").is_none());
+            let result = api_request(
+                address,
+                "GET",
+                &format!(
+                    "/api/v1/projects/demo/analyses/{id}/findings/page?include_review_versions=true"
+                ),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(result.status, 200);
+            let mut expected_item = item.clone();
+            if !inherits && branch == "main" {
+                expected_item["review_version"] = backup["reviews"][0]["version"].clone();
+            }
+            assert_eq!(json_body(&result)["findings"][0], expected_item, "{commit}");
         }
         server.abort();
         let _ = server.await;
