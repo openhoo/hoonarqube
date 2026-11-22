@@ -913,6 +913,18 @@ fn augment_assessment_fingerprints(
         project_options.features.baseline.as_deref(),
     );
     let mut coverage_parts = vec![assessment];
+    let reference = if project_options.features.specific_analysis.is_some() {
+        let period = artifact_fingerprint(
+            "assessment-specific-analysis-v1",
+            project_options.features.specific_analysis.as_deref(),
+        );
+        digest_feature_values(
+            "assessment-scm-reference-v1",
+            &[reference.as_bytes(), period.as_bytes()],
+        )
+    } else {
+        reference
+    };
     let mut coverage_fingerprints = Vec::with_capacity(
         project_options.features.coverage_lcov.len()
             + project_options.features.coverage_opencover.len(),

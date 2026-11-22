@@ -275,10 +275,19 @@ pub struct SourceSnapshot {
     pub path: PathBuf,
     pub content_digest: String,
     pub line_digests: Vec<String>,
+    /// Git omits the terminal empty line; Community assigns it the preceding line's date.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ends_with_lf: bool,
     pub findings: Vec<FindingIdentity>,
 }
 
 impl SourceSnapshot {
+    /// Whether bytes read from an immutable Git blob match the analyzed snapshot.
+    #[must_use]
+    pub fn matches_content(&self, bytes: &[u8]) -> bool {
+        self.content_digest == digest_parts(&[b"content", bytes])
+    }
+
     /// Builds a snapshot from source bytes and a report whose path identifies
     /// the same file. The bytes must be the exact bytes read for analysis.
     ///
@@ -358,6 +367,7 @@ impl SourceSnapshot {
         Ok(Self {
             path: path.to_path_buf(),
             content_digest,
+            ends_with_lf: source.ends_with(b"\n"),
             line_digests,
             findings,
         })
@@ -443,9 +453,44 @@ pub enum AssessmentStatus {
     Incomplete,
 }
 
+/// Selected Community analysis. The caller supplies the actual analysis timestamp,
+/// which can be years later than the Git commit it analyzed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpecificAnalysis {
+    pub analysis_id: String,
+    pub revision: String,
+    pub timestamp_ms: i64,
+}
+
+impl SpecificAnalysis {
+    /// True for a stable nonempty analysis ID, a full Git object ID and a Unix date.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        !self.analysis_id.is_empty()
+            && self.analysis_id.len() <= 128
+            && self
+                .analysis_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            && git_object_id(&self.revision)
+            && self.timestamp_ms >= 0
+    }
+}
+
+fn git_object_id(value: &str) -> bool {
+    matches!(value.len(), 40 | 64)
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 /// Versioned new-code baseline result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewCodeReport {
+    /// Absent on content-diff reports, including reports produced before SCM support.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specific_analysis: Option<SpecificAnalysis>,
     pub schema_version: u32,
     pub status: AssessmentStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -462,6 +507,24 @@ pub struct NewCodeReport {
 }
 
 impl NewCodeReport {
+    /// These SCM metrics use exact source membership regardless of finding identity.
+    #[must_use]
+    pub fn has_scm_source_metric(&self, metric: &str) -> bool {
+        self.specific_analysis.is_some()
+            && matches!(
+                metric,
+                "lines"
+                    | "files"
+                    | "coverage"
+                    | "line_coverage"
+                    | "branch_coverage"
+                    | "duplicated_lines"
+                    | "duplicated_blocks"
+                    | "duplicated_files"
+                    | "duplicated_lines_density"
+            )
+    }
+
     /// Validates the independently versioned new-code artifact.
     ///
     /// # Errors
@@ -477,6 +540,21 @@ impl NewCodeReport {
         }
         if let Some(context) = &self.reference_context {
             context.validate()?;
+        }
+        if let Some(period) = &self.specific_analysis
+            && (!period.is_valid()
+                || self
+                    .reference_context
+                    .as_ref()
+                    .and_then(|c| c.source_revision.as_ref())
+                    != Some(&period.revision)
+                || self.changed_source_lines.as_ref() != Some(&self.lines))
+        {
+            return Err(AssessmentError::Invalid {
+                artifact: "new_code",
+                reason: "SCM period requires a pinned baseline revision and exact line membership"
+                    .into(),
+            });
         }
         for finding in &self.findings {
             if finding.path.as_os_str().is_empty() || !is_digest(&finding.identity) {
@@ -1152,6 +1230,18 @@ impl AssessmentReport {
         new_code: &NewCodeReport,
         changed: &[NewCodeLines],
     ) -> Result<(), AssessmentError> {
+        if new_code.specific_analysis.is_some()
+            && !self
+                .context
+                .source_revision
+                .as_deref()
+                .is_some_and(git_object_id)
+        {
+            return Err(AssessmentError::Invalid {
+                artifact: "new_code",
+                reason: "SCM period requires a full candidate revision".into(),
+            });
+        }
         if !new_code
             .reference_context
             .as_ref()
@@ -1178,10 +1268,14 @@ impl AssessmentReport {
                 .ok()
                 .map(|i| &new_code.lines[i].lines);
             if !snapshot.is_some_and(|s| {
-                entry
-                    .lines
-                    .last()
-                    .is_some_and(|&n| n as usize <= s.line_digests.len())
+                entry.lines.last().is_some_and(|&n| {
+                    n as usize <= s.line_digests.len()
+                        || (new_code.specific_analysis.is_some()
+                            && s.ends_with_lf
+                            && n as usize == s.line_digests.len() + 1
+                            && n > 1
+                            && entry.lines.binary_search(&(n - 1)).is_ok())
+                })
             }) || !union
                 .is_some_and(|all| entry.lines.iter().all(|n| all.binary_search(n).is_ok()))
             {
@@ -2188,6 +2282,7 @@ mod tests {
         assert!(report.validate().is_err());
 
         let new_code = NewCodeReport {
+            specific_analysis: None,
             changed_source_lines: None,
             schema_version: ASSESSMENT_SCHEMA_VERSION,
             status: AssessmentStatus::Complete,

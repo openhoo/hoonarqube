@@ -1,0 +1,42 @@
+{
+  "hq-fastapi-duplication-20261122-4d5730-e0f8cadf-b78c8226": {
+    "capture_sha256": "601ab834801cce4e0c9bc0c83d12de48a75ec052850238dca4f12dcf81620d63",
+    "period": {
+      "date": "2026-06-15T10:55:32+0000",
+      "mode": "SPECIFIC_ANALYSIS",
+      "parameter": "19bb738a-0beb-4070-8981-1cf89c9e25e6"
+    }
+  },
+  "hq-fastapi-duplication-20261122-d9b3d8-2bb28066-8b0090c3": {
+    "capture_sha256": "c7bf3c9da6ddee482533022c592fc207bd7f1061c9fb7a05200e3a4a6c9d2cc2",
+    "period": {
+      "date": "2026-03-04T10:57:54+0000",
+      "mode": "SPECIFIC_ANALYSIS",
+      "parameter": "0c41cb40-f3df-4084-819a-f321dce5f011"
+    }
+  },
+  "hq-fastapi-duplication-20261122-e764e3-7cb19539-5d5666be": {
+    "capture_sha256": "458cbeb4d9bf6c10fbb31b1ade6fc6b6cf2720e49f40409b160f87dbcf8c3761",
+    "period": {
+      "date": "2026-05-11T11:58:59+0000",
+      "mode": "SPECIFIC_ANALYSIS",
+      "parameter": "e722ef4f-588f-4188-9f5d-731eb006f8a9"
+    }
+  },
+  "hq-yjs-duplication-20261122-040e4a-53fd0285-486d5677": {
+    "capture_sha256": "845c44d72702e903b1b4f8f3c42cac923d90319ab6fb1c1600c8d9544504afee",
+    "period": {
+      "date": "2026-07-04T14:03:01+0000",
+      "mode": "SPECIFIC_ANALYSIS",
+      "parameter": "81f6e42f-2616-497c-a0a8-c1f143d4fbfb"
+    }
+  },
+  "hq-yjs-duplication-20261122-8e03df-ebae7a3e-ee37f0a0": {
+    "capture_sha256": "c21586461c06d24a33e1548fd3c0dec8596fcd0a7e924233bfcf5592a2fcdc43",
+    "period": {
+      "date": "2026-04-11T16:27:01+0000",
+      "mode": "SPECIFIC_ANALYSIS",
+      "parameter": "444f915f-88b9-4ce6-a155-b82b5268f8fd"
+    }
+  }
+}
