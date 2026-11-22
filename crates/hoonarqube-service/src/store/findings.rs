@@ -34,6 +34,7 @@ pub(crate) struct FindingPage {
 struct FindingWindow {
     after_id: Option<i64>,
     limit: u16,
+    include_review_versions: bool,
 }
 
 struct FindingPosition {
@@ -107,11 +108,16 @@ impl Store {
         analysis_id: i64,
         after_id: Option<i64>,
         limit: u16,
+        include_review_versions: bool,
     ) -> Result<FindingPage, StoreError> {
         self.finding_window(
             project,
             analysis_id,
-            Some(FindingWindow { after_id, limit }),
+            Some(FindingWindow {
+                after_id,
+                limit,
+                include_review_versions,
+            }),
         )
     }
 
@@ -137,7 +143,12 @@ impl Store {
         if page.findings.iter().any(|f| !f.ambiguous) {
             attach_reviews(&tx, project, &branch, &mut page.findings)?;
         }
-        filter_inherited_reviews(&tx, &mut page.findings, analysis_id)?;
+        filter_inherited_reviews(
+            &tx,
+            &mut page.findings,
+            analysis_id,
+            window.is_some_and(|window| window.include_review_versions),
+        )?;
         tx.commit()?;
         Ok(page)
     }
@@ -192,7 +203,7 @@ fn finding_position(
         }),
     )
     .optional()?
-    .ok_or(StoreError::InvalidFindingCursor)
+    .ok_or(StoreError::InvalidCursor)
 }
 
 fn read_findings(
@@ -228,6 +239,7 @@ fn read_findings(
             status: "open".into(),
             ambiguous: row.get::<_, i64>(8)? != 0,
             review: None,
+            review_version: None,
         });
     }
     Ok(FindingPage {
@@ -277,6 +289,7 @@ fn filter_inherited_reviews(
     db: &Connection,
     findings: &mut [FindingRecord],
     current: i64,
+    include_review_versions: bool,
 ) -> Result<(), StoreError> {
     let compatible = compatible_sources(
         db,
@@ -286,11 +299,14 @@ fn filter_inherited_reviews(
             .filter_map(|f| f.review.as_ref().map(|r| r.analysis_id)),
     )?;
     for finding in findings {
-        if finding
+        if let Some(incompatible_review) = finding
             .review
             .as_ref()
-            .is_some_and(|r| !compatible.contains(&r.analysis_id))
+            .filter(|r| !compatible.contains(&r.analysis_id))
         {
+            if include_review_versions {
+                finding.review_version = Some(incompatible_review.version);
+            }
             finding.review = None;
         }
     }
