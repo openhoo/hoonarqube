@@ -17,6 +17,7 @@ const MAX_CREDENTIAL_FILE_BYTES: u64 = 1024 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     Reader,
+    Scanner,
     Reviewer,
     Admin,
 }
@@ -26,6 +27,7 @@ impl Role {
         matches!(
             (self, required),
             (Role::Admin, _)
+                | (Role::Scanner, Role::Reader | Role::Scanner)
                 | (Role::Reviewer, Role::Reader | Role::Reviewer)
                 | (Role::Reader, Role::Reader)
         )

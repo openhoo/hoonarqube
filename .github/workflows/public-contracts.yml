@@ -25,7 +25,9 @@ jobs:
         with:
           shared-key: ci
           save-if: false
-      - name: Build the candidate analyzer
-        run: cargo build --locked --release -p hoonarqube-cli
+      - name: Build the candidate analyzer and service
+        run: cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
       - name: Check pinned source blobs and selected Sonar primary locations
         run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube
+      - name: Enforce assigned gates and authorized reviews on two Redux revisions
+        run: python3 tools/oracle/public_redux_gates.py target/release

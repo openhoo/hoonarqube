@@ -2,7 +2,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use super::StoreError;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const CREATE_V1: &str = include_str!("schema_v1.sql");
 const MIGRATE_V2: &str = include_str!("migrate_v2.sql");
 const ENSURE_V1_INDEXES: &str = include_str!("indexes_v1.sql");
@@ -28,7 +28,7 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> 
             }
             tx.execute_batch(CREATE_V1)?;
         }
-        1 | SCHEMA_VERSION => {
+        1..=SCHEMA_VERSION => {
             // Legacy v1 databases have no application_id. Verify that their
             // service tables exist before changing the persistent journal mode.
             let complete: bool = tx.query_row(
@@ -49,9 +49,25 @@ pub(super) fn initialize(connection: &mut Connection) -> Result<(), StoreError> 
             )));
         }
     }
-    if version < SCHEMA_VERSION {
+    if version < 2 {
         tx.execute_batch(MIGRATE_V2)?;
+    }
+    if version < SCHEMA_VERSION {
+        tx.execute_batch(include_str!("migrate_v3.sql"))?;
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    let has_policy_schema: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='project_gate_policies')
+         AND (SELECT count(*) FROM pragma_table_info('project_gate_policies')
+              WHERE name IN ('project','version','config_json','updated_by','updated_at')) = 5
+         AND (SELECT count(*) FROM pragma_table_info('analyses')
+              WHERE name IN ('gate_policy_version','assigned_gate_json')) = 2",
+        [], |row| row.get(0),
+    )?;
+    if !has_policy_schema {
+        return Err(StoreError::Invalid(
+            "missing project gate policy schema".into(),
+        ));
     }
     // Releases through 0.11.1 re-created missing service indexes on open.
     // IF NOT EXISTS keeps an intact schema unchanged on ordinary restarts.
@@ -106,6 +122,31 @@ mod tests {
                 .unwrap(),
             "existing"
         );
+    }
+
+    #[test]
+    fn v2_migration_preserves_unassigned_analyses_and_reports() {
+        let mut db = Connection::open_in_memory().unwrap();
+        db.execute_batch(CREATE_V1).unwrap();
+        db.execute_batch(MIGRATE_V2).unwrap();
+        db.pragma_update(None, "user_version", 2).unwrap();
+        db.execute_batch(
+            "INSERT INTO projects(project, created_at) VALUES('legacy','before');
+             INSERT INTO analyses(project,branch,commit_sha,analyzed_at,analyzed_epoch,
+                 report_schema_version,complete,metrics_json,gate_json,report_json,content_hash,exact_floats)
+             VALUES('legacy','main','base','before',1,1,1,'{}','{}','original bytes','original hash',1);"
+        ).unwrap();
+        initialize(&mut db).unwrap();
+        assert_eq!(version(&db), 3);
+        let untouched: bool = db.query_row(
+            "SELECT report_json='original bytes' AND content_hash='original hash' AND gate_json='{}'
+             AND exact_floats=1 AND gate_policy_version IS NULL AND assigned_gate_json IS NULL
+             FROM analyses WHERE project='legacy'", [], |row| row.get(0),
+        ).unwrap();
+        assert!(untouched);
+        db.execute_batch("DROP TABLE project_gate_policies")
+            .unwrap();
+        assert!(matches!(initialize(&mut db), Err(StoreError::Invalid(_))));
     }
 
     #[test]

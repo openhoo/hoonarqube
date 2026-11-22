@@ -558,12 +558,17 @@ are explicit inputs:
   `gte`, or `gt`), and a finite non-negative `threshold`. Supported metrics are
   `files`, `lines`, `code_lines`, `comment_lines`, `issues`,
   `duplicated_lines`, `duplicated_blocks`, `duplicated_files`,
-  `duplicated_lines_density`, `line_coverage`, and `branch_coverage`.
+  `duplicated_lines_density`, `coverage`, `line_coverage`, and `branch_coverage`.
   `new_code` does not support `code_lines` or `comment_lines`, and any
   `new_code` condition requires `--baseline`.
 
-By default, gate comparisons use the full measured value. For overall
-`line_coverage` only, add `"precision":"one_decimal"` to a condition to round
+The `coverage` metric counts covered lines and covered branch outcomes together,
+then divides by the total number of measured lines and branch outcomes. On new
+code, it selects observations on changed lines before calculating the ratio.
+A missing observation on a changed line makes the value unavailable.
+
+By default, gate comparisons use the full measured value. For `coverage` in
+either scope, or for overall `line_coverage`, add `"precision":"one_decimal"` to a condition to round
 the measured percentage to the nearest tenth before comparing it with the
 unchanged threshold. Exact halves round up: 1 covered line out of 16 becomes
 6.3% instead of 6.25%. For example:
@@ -573,11 +578,24 @@ unchanged threshold. Exact halves round up: 1 covered line out of 16 becomes
 ```
 
 The condition reports the value it compared in `actual`; the original
-covered and eligible counts remain in `assessment.coverage.lines`. Omitting
+covered and eligible counts remain in `assessment.coverage.lines` and
+`assessment.coverage.branches`. Omitting
 `precision` or specifying `"full"` keeps the original behavior. Missing or
-incomplete coverage, or zero eligible lines, still yields `unavailable`.
+incomplete coverage, or an empty denominator for the selected metric, yields
+`unavailable`.
 See the [Commander.js coverage comparison](tools/oracle/public-line-coverage-gates-20261120.md)
-for measured examples and a replay with the CLI and report service.
+for measured examples and a replay with the CLI and report service. The
+[combined-coverage contract](tools/oracle/community-combined-coverage.md) also
+checks two real changes against Git, raw LCOV and six captured Community Build
+gate decisions through a service restart.
+
+For a new-code coverage or duplication condition, set
+`"small_change_policy":"community20"` to allow a measured failure below 20
+eligible lines. Coverage counts new lines to cover; duplication counts physical
+new lines. At exactly 20 the threshold applies. When an exception changes the
+decision, the report keeps the measured value and adds the count in
+`ignored_on_small_change`. A proven empty scope reports `no_value`; a missing
+required artifact remains `unavailable`. The policy is off by default.
 
 Coverage, baseline, and gate results are versioned under the native
 `assessment` object. Missing, invalid, or incomplete assessment data, an
@@ -840,7 +858,7 @@ The service binary has three environment variables:
   `hoonarqube-service.sqlite3`.
 - `HOONARQUBE_SERVICE_CREDENTIALS` is required and contains a JSON array of
   unique credentials. Each entry has `user_id` and `token`, with an optional
-  `projects` map (`project` to `reader`, `reviewer`, or `admin`) and optional
+  `projects` map (`project` to `reader`, `scanner`, `reviewer`, or `admin`) and optional
   `global_admin: true`. Tokens are static startup configuration; keep them
   outside source control.
 - `HOONARQUBE_SERVICE_BIND` selects the listen address; it defaults to
@@ -892,8 +910,10 @@ reviews. Ingestion and administrative operations remain API-only:
   /api/v1/projects/{project}?reason=...` are administrative and retain
   deletion/audit records.
 
-`reader` may read project data, `reviewer` may also mutate review state, and
-`admin` may ingest, delete, export, restore, and apply retention. A
+`reader` may read project data. `scanner` can also upload analyses;
+`reviewer` can instead submit reviews. `admin` can do both, assign project
+gates, delete, export, restore, and apply retention. See
+[project gate assignment and CI enforcement](crates/hoonarqube-service/README.md#assign-a-project-gate). A
 `global_admin` bypasses per-project mappings. There is no login or external
 identity-provider flow: credentials are static bearer tokens, project-scoped
 unless global admin, and every API request is authenticated. The SQLite store

@@ -453,6 +453,11 @@ pub struct NewCodeReport {
     pub findings: Vec<FindingMatch>,
     pub resolved: Vec<FindingIdentity>,
     pub lines: Vec<NewCodeLines>,
+    /// Exact changed source lines before new finding ranges are added. None
+    /// means that file pairing or membership in the change set is unknown,
+    /// or that the report predates this field. Some([]) is a proven empty diff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_source_lines: Option<Vec<NewCodeLines>>,
     pub diagnostics: Vec<String>,
 }
 
@@ -490,7 +495,26 @@ impl NewCodeReport {
         for finding in &self.resolved {
             validate_finding(finding)?;
         }
-        for lines in &self.lines {
+        if let Some(changed) = &self.changed_source_lines
+            && (self.reference_context.is_none()
+                || !matches!(
+                    self.status,
+                    AssessmentStatus::Complete | AssessmentStatus::Incomplete
+                )
+                || changed.windows(2).any(|p| p[0].path >= p[1].path)
+                || changed.iter().any(|entry| entry.lines.is_empty()))
+        {
+            return Err(AssessmentError::Invalid {
+                artifact: "new_code",
+                reason: "exact source changes require a baseline and sorted, nonempty file entries"
+                    .to_string(),
+            });
+        }
+        for lines in self
+            .lines
+            .iter()
+            .chain(self.changed_source_lines.iter().flatten())
+        {
             if lines.path.as_os_str().is_empty()
                 || normalize_path(&lines.path).ok().as_ref() != Some(&lines.path)
                 || lines.lines.contains(&0)
@@ -744,7 +768,9 @@ impl GatePrecision {
 
     #[must_use]
     pub fn supports(self, scope: GateScope, metric: &str) -> bool {
-        self.is_full() || (scope == GateScope::Overall && metric == "line_coverage")
+        self.is_full()
+            || metric == "coverage"
+            || (scope == GateScope::Overall && metric == "line_coverage")
     }
 }
 
@@ -763,9 +789,44 @@ pub enum GateOperator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GateStatus {
+    /// A complete inventory proves the condition has no applicable items.
+    /// Only valid on eligible conditions, never as an aggregate gate status.
+    NoValue,
     Pass,
     Fail,
     Unavailable,
+}
+
+/// Optional Community gate policy for small source changes. The threshold is
+/// strictly below 20: coverage uses lines to cover, duplication uses new lines.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SmallChangePolicy {
+    #[default]
+    Off,
+    Community20,
+}
+
+impl SmallChangePolicy {
+    #[must_use]
+    pub const fn is_off(&self) -> bool {
+        matches!(self, Self::Off)
+    }
+
+    #[must_use]
+    pub fn supports(self, scope: GateScope, metric: &str) -> bool {
+        self.is_off()
+            || (scope == GateScope::NewCode
+                && matches!(
+                    metric,
+                    "coverage"
+                        | "line_coverage"
+                        | "branch_coverage"
+                        | "duplicated_lines_density"
+                        | "duplicated_lines"
+                        | "duplicated_blocks"
+                ))
+    }
 }
 
 /// One evaluated quality-gate condition.
@@ -777,6 +838,11 @@ pub struct GateConditionResult {
     pub threshold: f64,
     #[serde(default, skip_serializing_if = "GatePrecision::is_full")]
     pub precision: GatePrecision,
+    #[serde(default, skip_serializing_if = "SmallChangePolicy::is_off")]
+    pub small_change_policy: SmallChangePolicy,
+    /// Applicable count that changed a measured failure to pass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignored_on_small_change: Option<u64>,
     pub actual: Option<f64>,
     pub status: GateStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -791,6 +857,10 @@ struct GateConditionResultRepr {
     threshold: f64,
     #[serde(default)]
     precision: GatePrecision,
+    #[serde(default)]
+    small_change_policy: SmallChangePolicy,
+    #[serde(default)]
+    ignored_on_small_change: Option<u64>,
     #[serde(default)]
     actual: Option<f64>,
     status: GateStatus,
@@ -818,6 +888,8 @@ impl<'de> Deserialize<'de> for GateConditionResult {
             operator: raw.operator,
             threshold: raw.threshold,
             precision: raw.precision,
+            small_change_policy: raw.small_change_policy,
+            ignored_on_small_change: raw.ignored_on_small_change,
             actual: raw.actual,
             status: raw.status,
             diagnostic: raw.diagnostic,
@@ -860,16 +932,34 @@ impl GateReport {
             {
                 return Err(AssessmentError::Invalid {
                     artifact: "gate",
-                    reason: "one_decimal precision requires overall line_coverage".to_string(),
+                    reason: "one_decimal precision requires coverage or overall line_coverage"
+                        .to_string(),
                 });
             }
-            if condition.metric.trim().is_empty()
+            if !condition
+                .small_change_policy
+                .supports(condition.scope, &condition.metric)
+                || condition.ignored_on_small_change.is_some_and(|n| {
+                    n >= 20
+                        || condition.small_change_policy.is_off()
+                        || condition.status != GateStatus::Pass
+                })
+                || condition.metric.trim().is_empty()
                 || !condition.threshold.is_finite()
                 || condition.threshold < 0.0
                 || condition
                     .actual
                     .is_some_and(|actual| !actual.is_finite() || actual < 0.0)
-                || (condition.status != GateStatus::Unavailable && condition.actual.is_none())
+                || (matches!(condition.status, GateStatus::Pass | GateStatus::Fail)
+                    && condition.actual.is_none())
+                || (condition.status == GateStatus::NoValue
+                    && (condition.actual.is_some()
+                        || condition.scope != GateScope::NewCode
+                        || (!matches!(
+                            condition.metric.as_str(),
+                            "security_hotspots_reviewed"
+                                | "community_26_9_security_hotspots_reviewed"
+                        ) && condition.small_change_policy.is_off())))
             {
                 return Err(AssessmentError::Invalid {
                     artifact: "gate",
@@ -1047,6 +1137,50 @@ impl AssessmentReport {
         }
         if let Some(new_code) = &self.new_code {
             new_code.validate()?;
+            if let Some(changed) = &new_code.changed_source_lines {
+                if !new_code
+                    .reference_context
+                    .as_ref()
+                    .is_some_and(|reference| reference.compatible_with(&self.context))
+                    || new_code
+                        .lines
+                        .windows(2)
+                        .any(|pair| pair[0].path >= pair[1].path)
+                {
+                    return Err(AssessmentError::Invalid {
+                        artifact: "new_code",
+                        reason: "exact source changes require a compatible baseline and unique sorted line paths".into(),
+                    });
+                }
+                for entry in changed {
+                    let snapshot = self
+                        .sources
+                        .binary_search_by(|s| s.path.cmp(&entry.path))
+                        .ok()
+                        .map(|i| &self.sources[i]);
+                    let union = new_code
+                        .lines
+                        .binary_search_by(|s| s.path.cmp(&entry.path))
+                        .ok()
+                        .map(|i| &new_code.lines[i].lines);
+                    if !snapshot.is_some_and(|s| {
+                        entry
+                            .lines
+                            .last()
+                            .is_some_and(|&n| n as usize <= s.line_digests.len())
+                    }) || !union
+                        .is_some_and(|all| entry.lines.iter().all(|n| all.binary_search(n).is_ok()))
+                    {
+                        return Err(AssessmentError::Invalid {
+                            artifact: "new_code",
+                            reason: format!(
+                                "exact source changes outside the snapshot or new-code lines: {}",
+                                entry.path.display()
+                            ),
+                        });
+                    }
+                }
+            }
         }
         if let Some(gate) = &self.gate {
             gate.validate()?;
@@ -2045,6 +2179,7 @@ mod tests {
         assert!(report.validate().is_err());
 
         let new_code = NewCodeReport {
+            changed_source_lines: None,
             schema_version: ASSESSMENT_SCHEMA_VERSION,
             status: AssessmentStatus::Complete,
             reference_context: Some(invalid_contexts[0].clone()),

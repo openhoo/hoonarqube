@@ -26,8 +26,10 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use hoonarqube_catalog::{embedded, native_rule};
-use hoonarqube_gates::{GATE_CONFIG_SCHEMA_VERSION, GateCondition, GateConfig, evaluate_gate};
+use hoonarqube_gates::{
+    GATE_CONFIG_SCHEMA_VERSION, GateCondition, GateConfig, evaluate_gate,
+    evaluate_gate_with_reviews, is_security_hotspot,
+};
 use hoonarqube_ir::assessment::{ASSESSMENT_SCHEMA_VERSION, GateReport};
 use hoonarqube_ir::{AnalysisReport, FileClassification, FileReport, Issue, MeasurementStatus};
 use serde::de::DeserializeOwned;
@@ -345,8 +347,10 @@ pub(crate) struct IngestData {
 }
 type AssessmentClaims = HashMap<(String, usize), (Option<String>, bool)>;
 
+type FindingLocation = (String, hoonarqube_ir::Pos, hoonarqube_ir::Pos);
+
 struct FindingAccumulator<'a> {
-    keys: &'a BTreeMap<String, usize>,
+    keys: &'a BTreeMap<FindingLocation, usize>,
     claims: &'a AssessmentClaims,
     matched_claims: &'a mut BTreeSet<(String, usize)>,
     claimed_identity_indexes: &'a mut HashMap<String, Vec<usize>>,
@@ -369,6 +373,8 @@ struct FindingBackupKeyInput<'a> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct BackupEnvelope {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) gate_policies: Vec<store::policy::Policy>,
     pub(crate) schema_version: u32,
     pub(crate) kind: String,
     pub(crate) project: String,
@@ -651,6 +657,10 @@ fn router(state: AppState) -> Router {
     Router::new()
         .route(&format!("{API_PREFIX}/projects"), get(list_projects))
         .route(
+            &format!("{API_PREFIX}/projects/{{project}}/gate-policy"),
+            get(get_project_gate_policy).put(put_project_gate_policy),
+        )
+        .route(
             &format!("{API_PREFIX}/projects/{{project}}/branches"),
             get(list_branches),
         )
@@ -661,6 +671,10 @@ fn router(state: AppState) -> Router {
         .route(
             &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}"),
             get(get_analysis).delete(delete_analysis),
+        )
+        .route(
+            &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}/gate"),
+            get(get_live_gate),
         )
         .route(
             &format!("{API_PREFIX}/projects/{{project}}/analyses/{{analysis_id}}/findings"),
@@ -772,6 +786,87 @@ async fn get_analysis(
     Ok(Json(AnalysisResponse { analysis }))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssignGatePolicy {
+    schema_version: u32,
+    expected_version: u64,
+    #[serde(deserialize_with = "store::policy::deserialize_config")]
+    config: GateConfig,
+}
+
+async fn get_project_gate_policy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath(project): SafePath<String>,
+) -> Result<Json<Value>, ApiError> {
+    authorize_project(&state, &headers, &project, Role::Reader)?;
+    validate_project(&project)?;
+    let policy = state
+        .store
+        .project_policy(&project)
+        .map_err(|err| store_error(&err))?;
+    Ok(Json(json!({"policy":policy})))
+}
+
+async fn put_project_gate_policy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath(project): SafePath<String>,
+    SafeJson(request): SafeJson<AssignGatePolicy>,
+) -> Result<Json<Value>, ApiError> {
+    let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
+    validate_project(&project)?;
+    if request.schema_version != 1 || !store::policy::valid_config(&request.config) {
+        return Err(ApiError::bad_request());
+    }
+    let policy = state
+        .store
+        .assign_policy(
+            &project,
+            request.expected_version,
+            request.config,
+            &principal.user_id,
+            &now_timestamp(),
+        )
+        .map_err(|err| store_error(&err))?;
+    Ok(Json(json!({"policy":policy})))
+}
+
+/// Re-evaluates the bound gate against current authorized reviews.
+async fn get_live_gate(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    SafePath((project, analysis_id)): SafePath<(String, i64)>,
+) -> Result<Json<GateReport>, ApiError> {
+    authorize_project(&state, &headers, &project, Role::Reader)?;
+    validate_project(&project)?;
+    if analysis_id <= 0 {
+        return Err(ApiError::bad_request());
+    }
+    let inputs = state
+        .store
+        .live_gate_inputs(&project, analysis_id)
+        .map_err(|error| store_error(&error))?;
+    let report: AnalysisReport =
+        serde_json::from_value(inputs.report).map_err(|_| ApiError::internal())?;
+    let config = match inputs.assigned {
+        Some(config) => config,
+        None => config_for_gate(
+            report
+                .assessment
+                .as_ref()
+                .and_then(|a| a.gate.as_ref())
+                .ok_or_else(ApiError::not_found)?,
+        ),
+    };
+    Ok(Json(evaluate_gate_with_reviews(
+        &config,
+        &report,
+        &inputs.reviewed,
+    )))
+}
+
 async fn get_findings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -839,7 +934,7 @@ async fn ingest_analysis(
     SafePath(project): SafePath<String>,
     SafeBytes(body): SafeBytes,
 ) -> Result<Json<IngestResponse>, ApiError> {
-    let principal = authorize_project(&state, &headers, &project, Role::Admin)?;
+    let principal = authorize_project(&state, &headers, &project, Role::Scanner)?;
     let _ = principal;
     validate_project(&project)?;
     if body.len() > state.limits.max_body_bytes {
@@ -1500,15 +1595,8 @@ fn validate_assessment_binding(assessment: Option<&Value>, commit: &str) -> Resu
     }
     Ok(())
 }
-fn validate_gate_claim_against_report(
-    gate: Option<&GateReport>,
-    report: &AnalysisReport,
-) -> Result<(), ApiError> {
-    let Some(gate) = gate else {
-        return Ok(());
-    };
-    gate.validate().map_err(|_| ApiError::conflict())?;
-    let config = GateConfig {
+fn config_for_gate(gate: &GateReport) -> GateConfig {
+    GateConfig {
         schema_version: GATE_CONFIG_SCHEMA_VERSION,
         conditions: gate
             .conditions
@@ -1519,9 +1607,21 @@ fn validate_gate_claim_against_report(
                 operator: condition.operator,
                 threshold: condition.threshold,
                 precision: condition.precision,
+                small_change_policy: condition.small_change_policy,
             })
             .collect(),
+    }
+}
+
+fn validate_gate_claim_against_report(
+    gate: Option<&GateReport>,
+    report: &AnalysisReport,
+) -> Result<(), ApiError> {
+    let Some(gate) = gate else {
+        return Ok(());
     };
+    gate.validate().map_err(|_| ApiError::conflict())?;
+    let config = config_for_gate(gate);
     let evaluated = evaluate_gate(&config, report);
     if evaluated.schema_version != gate.schema_version
         || evaluated.status != gate.status
@@ -1536,6 +1636,8 @@ fn validate_gate_claim_against_report(
                     || expected.operator != claimed.operator
                     || expected.threshold.partial_cmp(&claimed.threshold) != Some(Ordering::Equal)
                     || expected.precision != claimed.precision
+                    || expected.ignored_on_small_change != claimed.ignored_on_small_change
+                    || expected.small_change_policy != claimed.small_change_policy
                     || expected.actual != claimed.actual
                     || expected.status != claimed.status
             })
@@ -1569,11 +1671,17 @@ fn validate_gate_claim(gate: Option<&Value>) -> Result<(), ApiError> {
     }
     for condition in conditions {
         let condition = condition.as_object().ok_or_else(ApiError::bad_request)?;
-        if condition
-            .get("status")
-            .and_then(Value::as_str)
-            .is_some_and(|status| status != "pass")
-            || condition.get("actual").is_none_or(Value::is_null)
+        let status = condition.get("status").and_then(Value::as_str);
+        let no_value = status == Some("no_value")
+            && condition.get("scope").and_then(Value::as_str) == Some("new_code")
+            && (matches!(
+                condition.get("metric").and_then(Value::as_str),
+                Some("security_hotspots_reviewed" | "community_26_9_security_hotspots_reviewed")
+            ) || condition.get("small_change_policy").and_then(Value::as_str)
+                == Some("community20"))
+            && condition.get("actual").is_some_and(Value::is_null);
+        if !no_value
+            && (status != Some("pass") || condition.get("actual").is_none_or(Value::is_null))
         {
             return Err(ApiError::conflict());
         }
@@ -1618,13 +1726,17 @@ fn extract_findings(
     Ok(findings)
 }
 
-fn finding_key_counts(report: &AnalysisReport) -> Result<BTreeMap<String, usize>, ApiError> {
-    let mut keys = BTreeMap::<String, usize>::new();
+fn finding_key_counts(
+    report: &AnalysisReport,
+) -> Result<BTreeMap<FindingLocation, usize>, ApiError> {
+    let mut keys = BTreeMap::new();
     for file in &report.files {
         let path = path_string(&file.path)?;
         for issue in &file.issues {
             let key = finding_key(&path, &file.language, issue);
-            *keys.entry(key).or_default() += 1;
+            *keys
+                .entry((key, issue.range.start, issue.range.end))
+                .or_default() += 1;
         }
     }
     Ok(keys)
@@ -1663,7 +1775,14 @@ fn append_finding(
 ) -> Result<(), ApiError> {
     let key = finding_key(path, language, issue);
     let fallback_identity = format!("sha256:{}", hash_bytes(key.as_bytes()));
-    let duplicate = accumulator.keys.get(&key).copied().unwrap_or_default() > 1;
+    // The fallback identity remains stable for legacy reports. Claims also bind
+    // the source occurrence, so only the same location is a duplicate here.
+    let duplicate = accumulator
+        .keys
+        .get(&(key, issue.range.start, issue.range.end))
+        .copied()
+        .unwrap_or_default()
+        > 1;
     let kind = issue_kind(issue)?;
     let (identity, claimed, claim_present) = {
         let claim = accumulator
@@ -1773,15 +1892,10 @@ fn assessment_claims(assessment: Option<&Value>) -> Result<AssessmentClaims, Api
     Ok(claims)
 }
 fn issue_kind(issue: &Issue) -> Result<FindingKind, ApiError> {
-    let rule_type = embedded()
-        .rule(&issue.rule_key)
-        .map(|rule| rule.rule_type.as_str())
-        .or_else(|| native_rule(&issue.rule_key).map(|rule| rule.rule_type));
-    match rule_type {
-        Some("SECURITY_HOTSPOT") => Ok(FindingKind::Hotspot),
-        Some("BUG" | "CODE_SMELL" | "VULNERABILITY") => Ok(FindingKind::Finding),
-
-        Some(_) | None => Err(ApiError::bad_request()),
+    match is_security_hotspot(&issue.rule_key) {
+        Some(true) => Ok(FindingKind::Hotspot),
+        Some(false) => Ok(FindingKind::Finding),
+        None => Err(ApiError::bad_request()),
     }
 }
 fn history_chain_matches<'a>(
@@ -1810,8 +1924,9 @@ fn validate_restore(
     limits: Limits,
 ) -> Result<ValidatedRestore, ApiError> {
     validate_restore_header(project, &backup)?;
-    let derived = validate_restore_analyses(project, &backup.analyses, limits)?;
-    validate_restore_findings(&backup.findings, &derived)?;
+    store::policy::validate_backup(&backup)?;
+    let mut derived = validate_restore_analyses(project, &backup.analyses, limits)?;
+    validate_restore_findings(&backup.findings, &mut derived)?;
     {
         let reviews_by_id = validate_restore_reviews(project, &backup.reviews, &derived)?;
         let history_by_review =
@@ -1830,7 +1945,7 @@ fn validate_restore(
 }
 
 fn validate_restore_header(project: &str, backup: &BackupEnvelope) -> Result<(), ApiError> {
-    if backup.schema_version != 1
+    if !matches!(backup.schema_version, 1 | 2)
         || backup.kind != "hoonarqube_service_backup"
         || backup.project != project
     {
@@ -1918,14 +2033,52 @@ fn validate_restore_analysis_match(
 
 fn validate_restore_findings(
     findings: &[BackupFinding],
-    derived: &HashMap<i64, (String, Vec<FindingRecordInput>)>,
+    derived: &mut HashMap<i64, (String, Vec<FindingRecordInput>)>,
 ) -> Result<(), ApiError> {
-    let expected = expected_restore_findings(derived);
     let actual = actual_restore_findings(findings, derived)?;
-    if expected != actual {
+    if expected_restore_findings(derived) == actual {
+        return Ok(());
+    }
+    // Older services marked every repeated message in a file ambiguous, even
+    // with distinct locations and scanner identities. Preserve that stricter
+    // result for each legacy analysis, including its review-history checks.
+    for (id, (_, rows)) in derived.iter_mut() {
+        let needs_legacy = rows
+            .iter()
+            .any(|f| !f.ambiguous && actual.contains_key(&restore_finding_key(*id, f, true)));
+        if needs_legacy {
+            let mut seen = BTreeSet::new();
+            let mut duplicates = BTreeSet::new();
+            for f in rows.iter() {
+                let key = (&f.path, &f.rule_key, &f.message);
+                if !seen.insert(key) {
+                    duplicates.insert((f.path.clone(), f.rule_key.clone(), f.message.clone()));
+                }
+            }
+            for f in rows {
+                f.ambiguous |=
+                    duplicates.contains(&(f.path.clone(), f.rule_key.clone(), f.message.clone()));
+            }
+        }
+    }
+    if expected_restore_findings(derived) != actual {
         return Err(ApiError::conflict());
     }
     Ok(())
+}
+
+fn restore_finding_key(id: i64, f: &FindingRecordInput, ambiguous: bool) -> (i64, String) {
+    finding_backup_key(&FindingBackupKeyInput {
+        analysis_id: id,
+        identity: &f.identity,
+        occurrence: f.occurrence,
+        kind: f.kind,
+        path: &f.path,
+        rule_key: &f.rule_key,
+        message: &f.message,
+        range_json: &f.range_json,
+        ambiguous,
+    })
 }
 
 fn expected_restore_findings(
@@ -1934,17 +2087,7 @@ fn expected_restore_findings(
     let mut expected = HashMap::<(i64, String), usize>::new();
     for (analysis_id, (_, findings)) in derived {
         for finding in findings {
-            let key = finding_backup_key(&FindingBackupKeyInput {
-                analysis_id: *analysis_id,
-                identity: &finding.identity,
-                occurrence: finding.occurrence,
-                kind: finding.kind,
-                path: &finding.path,
-                rule_key: &finding.rule_key,
-                message: &finding.message,
-                range_json: &finding.range_json,
-                ambiguous: finding.ambiguous,
-            });
+            let key = restore_finding_key(*analysis_id, finding, finding.ambiguous);
             *expected.entry(key).or_default() += 1;
         }
     }
@@ -2484,6 +2627,33 @@ mod tests {
         assert_eq!(findings.len(), 2);
         assert!(findings.iter().all(|finding| finding.ambiguous));
         assert_eq!(findings[0].identity, findings[1].identity);
+    }
+
+    #[test]
+    fn claimed_occurrences_need_both_unique_locations_and_unique_identities() {
+        let mut report: AnalysisReport = serde_json::from_str(reviewable_report()).unwrap();
+        let first = report.files[0].issues[0].clone();
+        let mut second = first.clone();
+        second.range.start.line += 1;
+        second.range.end.line += 1;
+        report.files[0].issues.push(second);
+        let mut claims = json!({"sources":[{"path":"a.py","findings":[
+            {"issue_index":0,"identity":"a".repeat(64)},
+            {"issue_index":1,"identity":"b".repeat(64)}
+        ]}]});
+        let extract = |report: &AnalysisReport, claims: &Value| {
+            extract_findings(report, Some(claims))
+                .unwrap()
+                .into_iter()
+                .map(|f| f.ambiguous)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(extract(&report, &claims), [false, false]);
+        claims["sources"][0]["findings"][1]["identity"] = json!("a".repeat(64));
+        assert_eq!(extract(&report, &claims), [true, true]);
+        claims["sources"][0]["findings"][1]["identity"] = json!("b".repeat(64));
+        report.files[0].issues[1] = first;
+        assert_eq!(extract(&report, &claims), [true, true]);
     }
 
     #[test]
@@ -3342,6 +3512,78 @@ mod tests {
         assert_api_error(&conflict, 409, "conflict");
         source_server.abort();
         destination_server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn assigned_threshold_equal_to_measured_density_survives_restore() {
+        // The legacy serde path rounds this decimal down by one ULP: equality would fail.
+        let density = "9.586466165413533";
+        let (source, source_server) = spawn_test_service().await;
+        let (target, target_server) = spawn_test_service().await;
+        let project = "/api/v1/projects/demo";
+        let config = format!(
+            r#"{{"schema_version":1,"expected_version":0,"config":{{"schema_version":1,"conditions":[{{"scope":"overall","metric":"duplicated_lines_density","operator":"eq","threshold":{density}}}]}}}}"#
+        );
+        let assigned = api_request(
+            source,
+            "PUT",
+            &format!("{project}/gate-policy"),
+            Some("application/json"),
+            &config,
+        )
+        .await;
+        assert_eq!(assigned.status, 200);
+        let report = reviewable_report().replace(
+            r#""duplicated_lines_density":0.0"#,
+            &format!(r#""duplicated_lines_density":{density}"#),
+        );
+        let envelope = format!(
+            r#"{{"schema_version":1,"branch":"main","commit":"policy-precision","analyzed_at":"2026-11-20T12:00:00Z","report":{report}}}"#
+        );
+        let created = api_request(
+            source,
+            "POST",
+            &format!("{project}/analyses"),
+            Some("application/json"),
+            &envelope,
+        )
+        .await;
+        assert_eq!(created.status, 200);
+        let row = &json_body(&created)["analysis"];
+        assert_eq!(row["gate"]["status"], "pass");
+        let id = row["id"].as_i64().unwrap();
+        let backup = api_request(source, "GET", &format!("{project}/export"), None, "").await;
+        let data = std::str::from_utf8(&backup.body).unwrap();
+        let restored = api_request(
+            target,
+            "POST",
+            &format!("{project}/restore"),
+            Some("application/json"),
+            data,
+        )
+        .await;
+        assert_eq!(restored.status, 200);
+        for server in [source, target] {
+            let gate = api_request(
+                server,
+                "GET",
+                &format!("{project}/analyses/{id}/gate"),
+                None,
+                "",
+            )
+            .await;
+            assert_eq!(gate.status, 200);
+            assert_eq!(json_body(&gate)["status"], "pass");
+            assert_eq!(
+                std::str::from_utf8(&gate.body)
+                    .unwrap()
+                    .matches(density)
+                    .count(),
+                2
+            );
+        }
+        source_server.abort();
+        target_server.abort();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

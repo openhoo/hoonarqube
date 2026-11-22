@@ -8,10 +8,10 @@ The [readback](community-default-gate.json) comes from the built-in, default **S
 
 | Failure predicate read from the reference | What Hoonarqube can establish today |
 |---|---|
-| Coverage on new code below 80% | Native gates expose line and branch coverage separately. A passing whole-project line-coverage test does not prove that the combined reference measure or changed-line selection is equivalent. |
-| Duplicated line density on new code above 3% | Native gates support duplication on new code when given a compatible prior report. The Picomatch and Yjs comparisons exercise **overall** duplication. |
-| Reviewed hotspots on new code below 100% | The native metric gate has no reviewed-hotspot percentage. A project that requires this condition cannot switch its blocking gate yet. |
-| More than zero new issues | The native gate can count new issues. Equivalence depends on the active rules, native finding identities and the selected baseline. The [public project comparison](public-projects-2026-11-21.md) records one-sided findings. |
+| Coverage on new code below 80% | The [six Commander decisions](../../tools/oracle/community-combined-coverage.md) match for the two Git baselines on measured lines and branch outcomes. At 95%, 5 new lines to cover triggered the exception and 48 did not. |
+| Duplicated line density on new code above 3% | Native gates support duplication on new code when given a compatible prior report. Picomatch and Yjs qualify **overall** duplication. Commander exposed a one-line difference in physical SCM counts; a coverage comparison does not qualify a duplication exception. |
+| Reviewed hotspots on new code below 100% | The [Redux replay](../../tools/oracle/community-hotspot-review.md) tests authorized reviews, restart and historical decisions. Sonar 26.9 classifies its two S2245 findings as vulnerabilities and omits the empty hotspot condition. A matching nonempty Community hotspot population is still needed. |
+| More than zero new issues | The versioned 26.9 gate counts two new violations on Redux while the reference counts zero: the Git revision diff and reference SCM definition disagree. Equivalence depends on the active rules, native finding identities and the selected baseline. The [public project comparison](public-projects-2026-11-21.md) records one-sided findings. |
 
 The small-change exception is another input to verify. The [Community Build 26.1 release notes](https://docs.sonarsource.com/sonarqube-community-build/server-update-and-maintenance/release-notes) distinguish the number of new lines for duplication from new *lines to cover* for coverage. Record the project's override and test both sides of the 20-line boundary with different numbers of changed and coverable lines. Check each condition's status and the reference's `ignoredConditions` field.
 

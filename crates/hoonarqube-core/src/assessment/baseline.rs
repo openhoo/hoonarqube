@@ -16,6 +16,9 @@ use hoonarqube_ir::assessment::{
 
 /// Schema version emitted by the pinned-reference baseline result.
 pub const BASELINE_SCHEMA_VERSION: u32 = ASSESSMENT_SCHEMA_VERSION;
+mod band;
+
+const MAX_ALIGNMENT_CELLS: usize = 4_000_000;
 const MAX_NEW_CODE_LINES: u64 = 4_000_000;
 const MAX_NEW_CODE_WORK: u64 = 64_000_000;
 
@@ -143,6 +146,7 @@ fn indeterminate_current(
     diagnostic: impl Into<String>,
 ) -> NewCodeReport {
     NewCodeReport {
+        changed_source_lines: None,
         schema_version: BASELINE_SCHEMA_VERSION,
         status,
         reference_context,
@@ -182,7 +186,7 @@ fn classify(
     let mut total_new_lines = 0_u64;
     let mut new_line_work = 0_u64;
     let pairing = assign_counterparts(current, reference)?;
-    let line_mapping_uncertain = add_changed_source_lines(
+    let (line_mapping_uncertain, membership_uncertain) = add_changed_source_lines(
         current,
         reference,
         &pairing,
@@ -190,6 +194,15 @@ fn classify(
         &mut total_new_lines,
         &mut new_line_work,
     )?;
+    let changed_source_lines = (!membership_uncertain).then(|| {
+        new_lines
+            .iter()
+            .map(|(path, lines)| NewCodeLines {
+                path: path.clone(),
+                lines: lines.iter().copied().collect(),
+            })
+            .collect()
+    });
     let mut uncertain = line_mapping_uncertain;
     let (current_content_keys, current_identity_counts) = current_identity_data(current);
     let findings = {
@@ -219,6 +232,7 @@ fn classify(
         .collect::<Vec<_>>();
     let diagnostics = classification_diagnostics(line_mapping_uncertain, uncertain);
     Ok(NewCodeReport {
+        changed_source_lines,
         schema_version: BASELINE_SCHEMA_VERSION,
         status: if uncertain {
             AssessmentStatus::Incomplete
@@ -734,7 +748,6 @@ fn line_overlap_score(
 }
 
 fn matrix_cells(left_len: usize, right_len: usize) -> Result<usize, String> {
-    const MAX_ALIGNMENT_CELLS: usize = 4_000_000;
     let cells = left_len
         .checked_add(1)
         .and_then(|left| {
@@ -773,7 +786,9 @@ fn lcs_length(
     line_work: &mut usize,
     max_line_work: usize,
 ) -> Result<usize, String> {
-    let cells = matrix_cells(left.len(), right.len())?;
+    let Ok(cells) = matrix_cells(left.len(), right.len()) else {
+        return band::lcs_length(left, right, line_work, max_line_work);
+    };
     reserve_alignment_work(line_work, max_line_work, cells, 1)?;
     let mut previous = vec![0_u32; right.len() + 1];
     let mut current = vec![0_u32; right.len() + 1];
@@ -794,6 +809,8 @@ fn lcs_length(
 struct LineAlignment {
     new_line_indices: Vec<usize>,
     uncertain: bool,
+    /// Some equally good alignments include the current line and some skip it.
+    membership_uncertain: bool,
 }
 
 fn align_lines(
@@ -802,7 +819,9 @@ fn align_lines(
     line_work: &mut usize,
     max_line_work: usize,
 ) -> Result<LineAlignment, String> {
-    let cells = matrix_cells(current.len(), reference.len())?;
+    let Ok(cells) = matrix_cells(current.len(), reference.len()) else {
+        return band::align_lines(current, reference, line_work, max_line_work);
+    };
     reserve_alignment_work(line_work, max_line_work, cells, 3)?;
     let columns = reference.len() + 1;
     let prefix = alignment_prefix(current, reference, cells, columns);
@@ -810,6 +829,7 @@ fn align_lines(
     let global = prefix[current.len() * columns + reference.len()];
     let mut new_line_indices = Vec::new();
     let mut uncertain = false;
+    let mut membership_uncertain = false;
     for current_index in 0..current.len() {
         let decision = aligned_line_decision(
             current,
@@ -824,10 +844,12 @@ fn align_lines(
             new_line_indices.push(current_index);
         }
         uncertain |= decision.uncertain;
+        membership_uncertain |= decision.uncertain && decision.new_line;
     }
     Ok(LineAlignment {
         new_line_indices,
         uncertain,
+        membership_uncertain,
     })
 }
 
@@ -937,8 +959,9 @@ fn add_changed_source_lines(
     line_sets: &mut BTreeMap<PathBuf, BTreeSet<u32>>,
     total_new_lines: &mut u64,
     new_line_work: &mut u64,
-) -> Result<bool, String> {
+) -> Result<(bool, bool), String> {
     let mut uncertain = pairing.ambiguous;
+    let mut membership_uncertain = pairing.ambiguous;
     let mut line_work = 0_usize;
     for (current_index, source) in current.iter().enumerate() {
         let mut add_line = |index: usize| -> Result<(), String> {
@@ -979,11 +1002,12 @@ fn add_changed_source_lines(
             64_000_000,
         )?;
         uncertain |= alignment.uncertain;
+        membership_uncertain |= alignment.membership_uncertain;
         for index in alignment.new_line_indices {
             add_line(index)?;
         }
     }
-    Ok(uncertain)
+    Ok((uncertain, membership_uncertain))
 }
 
 fn add_new_lines(
@@ -1063,6 +1087,83 @@ mod tests {
 
     fn clean(path: &str, source: &str) -> AssessmentReport {
         assessment(path, source, Vec::new())
+    }
+
+    #[test]
+    fn band_agrees_with_the_full_matrix_on_all_short_binary_sequences() {
+        let sequences = (0..=5)
+            .flat_map(|len| {
+                (0..(1 << len)).map(move |bits| {
+                    (0..len)
+                        .map(|shift| {
+                            if bits & (1 << shift) == 0 {
+                                "a".to_owned()
+                            } else {
+                                "b".to_owned()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        for a in &sequences {
+            for b in &sequences {
+                let full = align_lines(a, b, &mut 0, 100_000).unwrap();
+                let band = band::align_lines(a, b, &mut 0, 100_000).unwrap();
+                assert_eq!(
+                    (
+                        band.new_line_indices,
+                        band.uncertain,
+                        band.membership_uncertain
+                    ),
+                    (
+                        full.new_line_indices,
+                        full.uncertain,
+                        full.membership_uncertain
+                    ),
+                    "{a:?}/{b:?}"
+                );
+                assert_eq!(
+                    band::lcs_length(a, b, &mut 0, 100_000).unwrap(),
+                    lcs_length(a, b, &mut 0, 100_000).unwrap()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sparse_edits_on_long_files_stay_exact_and_respect_the_work_budget() {
+        let before = (0..3000).map(|n| format!("line {n}")).collect::<Vec<_>>();
+        let mut after = before.clone();
+        after[37] = "first change".into();
+        after[2190] = "second change".into();
+        let aligned = align_lines(&after, &before, &mut 0, 1_000_000).unwrap();
+        assert_eq!(aligned.new_line_indices, [37, 2190]);
+        assert!(!aligned.uncertain);
+        assert!(align_lines(&after, &before, &mut 0, 100).is_err());
+        after.insert(110, after[110].clone());
+        let uncertain = align_lines(&after, &before, &mut 0, 1_000_000).unwrap();
+        assert!(uncertain.uncertain);
+        assert_eq!(uncertain.new_line_indices, [37, 110, 111, 2191]);
+    }
+
+    #[test]
+    fn exact_source_membership_is_independent_of_finding_and_position_identity() {
+        let before = clean("a.py", "same\nsame\n");
+        let after = clean("a.py", "same\n");
+        let deleted_duplicate = compare_reports(&after, Some(&before));
+        assert_eq!(deleted_duplicate.status, AssessmentStatus::Incomplete);
+        assert_eq!(deleted_duplicate.changed_source_lines, Some(vec![]));
+        let inserted_duplicate = compare_reports(&before, Some(&after));
+        assert_eq!(inserted_duplicate.changed_source_lines, None);
+
+        let before = clean("a.py", "bad\n");
+        let after = report("a.py", "bad\n", "new finding");
+        let finding_only = compare_reports(&after, Some(&before));
+        assert_eq!(finding_only.findings[0].status, FindingStatus::New);
+        assert_eq!(finding_only.lines[0].lines, vec![1]);
+        assert_eq!(finding_only.changed_source_lines, Some(vec![]));
+        assert!(compare_reports(&after, None).changed_source_lines.is_none());
     }
 
     #[test]

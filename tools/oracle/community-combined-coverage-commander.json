@@ -1,0 +1,137 @@
+{
+  "repository": "tj/commander.js",
+  "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+  "baselines": [
+    "987f28966c71baecb0ef4a36780e727bcd575b31",
+    "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75"
+  ],
+  "reference": "Git diff, raw LCOV and captured project gates on SonarQube Community Build 26.9.0.129388",
+  "reference_analysis_ids": {
+    "focused-987f2896": "1504f616-d757-4659-9033-4c14cb3473c7",
+    "focused-b51c0ea3": "b9611c6c-9fbb-4ccf-a242-494f2af40d50",
+    "broad-987f2896": "d2980953-43e6-4dbe-89de-d18d54356db0",
+    "broad-b51c0ea3": "94f760ba-d107-49b9-be4b-d3982a7af6a5",
+    "policy-987f2896": "9d242b49-1821-4637-8f8a-bff0aa165790",
+    "policy-b51c0ea3": "18e4c509-f223-4a7b-9bec-a022004efce8"
+  },
+  "cases": [
+    {
+      "case": "focused-987f2896",
+      "changed_lines": 5,
+      "overall": [
+        2485,
+        4201,
+        148,
+        232
+      ],
+      "new_code": [
+        4,
+        5,
+        0,
+        0
+      ],
+      "percent": [
+        59.4,
+        80.0
+      ],
+      "cli_exit": 1,
+      "finding_comparison": "incomplete"
+    },
+    {
+      "case": "focused-b51c0ea3",
+      "changed_lines": 48,
+      "overall": [
+        2485,
+        4201,
+        148,
+        232
+      ],
+      "new_code": [
+        45,
+        48,
+        6,
+        6
+      ],
+      "percent": [
+        59.4,
+        94.4
+      ],
+      "cli_exit": 1,
+      "finding_comparison": "incomplete"
+    },
+    {
+      "case": "broad-987f2896",
+      "changed_lines": 5,
+      "overall": [
+        3907,
+        4201,
+        754,
+        816
+      ],
+      "new_code": [
+        5,
+        5,
+        1,
+        1
+      ],
+      "percent": [
+        92.9,
+        100.0
+      ],
+      "cli_exit": 0,
+      "finding_comparison": "incomplete"
+    },
+    {
+      "case": "broad-b51c0ea3",
+      "changed_lines": 48,
+      "overall": [
+        3907,
+        4201,
+        754,
+        816
+      ],
+      "new_code": [
+        48,
+        48,
+        9,
+        9
+      ],
+      "percent": [
+        92.9,
+        100.0
+      ],
+      "cli_exit": 0,
+      "finding_comparison": "incomplete"
+    }
+  ],
+  "policy_cases": [
+    {
+      "base": "987f28966c71baecb0ef4a36780e727bcd575b31",
+      "actual": 80.0,
+      "ignored_count": 5,
+      "exit": 0
+    },
+    {
+      "base": "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75",
+      "actual": 94.4,
+      "ignored_count": null,
+      "exit": 1
+    }
+  ],
+  "negative_cases": [
+    "missing-policy-coverage",
+    "without-coverage",
+    "without-baseline",
+    "uncertain-findings"
+  ],
+  "http": {
+    "persisted_and_retried": 15,
+    "rejected": 6,
+    "assigned": {
+      "small": "pass",
+      "large": "fail",
+      "empty": "pass",
+      "missing": "unavailable"
+    }
+  }
+}

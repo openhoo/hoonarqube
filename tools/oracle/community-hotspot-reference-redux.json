@@ -1,0 +1,121 @@
+{
+  "server_version": "26.9.0.129388",
+  "repository": "reduxjs/redux",
+  "project": "hq-community-269-redux-hotspots-live-20261122",
+  "branch": "main",
+  "revisions": [
+    "0b6d794effa9da5080bfb4c6865a324357b85018",
+    "e6f6c7da7b39ed46273d05d150cf1f578973ac3c"
+  ],
+  "source": "src/utils/actionTypes.js",
+  "public_source_sha256": {
+    "0b6d794effa9da5080bfb4c6865a324357b85018": "8c9eef6d0b9ceae64357de9e01cb4df0f3e826990017f20b2dfc5589d6f54388",
+    "e6f6c7da7b39ed46273d05d150cf1f578973ac3c": "505b660b824a71a0486a18d32d4b3bfb9f243262048d77aa6cb20dcb89c2744c"
+  },
+  "ce_task_ids": [
+    "754fdca0-8735-4a1b-9da3-d8979c19bb4b",
+    "53448538-f8bd-4ed5-b589-9c80fd5bb0cc"
+  ],
+  "analysis_ids": [
+    "917dc346-8e62-4dcc-87b8-0d4213b92141",
+    "65ef163e-c4d0-4fdd-88c3-3f837e713768"
+  ],
+  "reference_profile": "41ea3ebd-b476-4c5c-aa48-1a620608de6b",
+  "rule": "javascript:S2245",
+  "rule_type": "VULNERABILITY",
+  "occurrences": [
+    [
+      8,
+      "VULNERABILITY",
+      "2017-11-16T14:57:06+0000"
+    ],
+    [
+      9,
+      "VULNERABILITY",
+      "2017-11-16T14:57:06+0000"
+    ]
+  ],
+  "total_issues": 4,
+  "new_issues": 0,
+  "hotspots": 0,
+  "new_hotspots": 0,
+  "new_code_period": {
+    "projectKey": "hq-community-269-redux-hotspots-live-20261122",
+    "branchKey": "main",
+    "type": "SPECIFIC_ANALYSIS",
+    "value": "917dc346-8e62-4dcc-87b8-0d4213b92141",
+    "updatedAt": 1795350989446
+  },
+  "base_gate": {
+    "status": "OK",
+    "conditions": [],
+    "ignoredConditions": false,
+    "caycStatus": "compliant"
+  },
+  "candidate_gate": {
+    "status": "OK",
+    "conditions": [
+      {
+        "status": "OK",
+        "metricKey": "new_violations",
+        "comparator": "GT",
+        "errorThreshold": "0",
+        "actualValue": "0"
+      }
+    ],
+    "ignoredConditions": false,
+    "period": {
+      "mode": "SPECIFIC_ANALYSIS",
+      "date": "2026-11-22T12:36:18+0000",
+      "parameter": "917dc346-8e62-4dcc-87b8-0d4213b92141"
+    },
+    "caycStatus": "compliant"
+  },
+  "measures": [
+    {
+      "metric": "new_lines",
+      "period": {
+        "index": 1,
+        "value": "0"
+      }
+    },
+    {
+      "metric": "new_security_hotspots",
+      "period": {
+        "index": 1,
+        "value": "0",
+        "bestValue": true
+      }
+    },
+    {
+      "metric": "new_violations",
+      "period": {
+        "index": 1,
+        "value": "0",
+        "bestValue": true
+      }
+    }
+  ],
+  "inputs_sha256": {
+    "server.json": "3bccbe6c6f0814608f2b022bfefd9235a81fe0b519369ee6ad136559f48d55d5",
+    "base-task.json": "91e1c0aba36047e3d4e4246fa0cc226f71cade5bd1c628e48845f74d4315b200",
+    "head-task.json": "f8a3da849468248b1da0bc1f2dbe56efebedd8f409e8381bca720508225542f2",
+    "analysis-1.json": "9c2eac0bb4a6f8e612a28a7bffa1fd35e1140445ab167e175f246fb11e97266f",
+    "period.json": "d7cb66c862c37ba526d6cf852144672a06f6b83ab295abece330bb7388a81393",
+    "head-gate.json": "464fa119412ebb837341b8f665b505e9baed315ff784260eb32d20f3e407d0d3",
+    "base-gate.json": "9cb4deacf77615bc3499281c79f97be9f71a2b0039d539326ae7ec2bce1cdebd",
+    "assignment.json": "169b5b8c8d111b3a4864e59be4815200194bb11f5fd43538fdaf65edc7edcbbe",
+    "gate-config.json": "db844f22d4b5b2dc457922baa1ec72e9ea35fb0d5e8df800455d19682d7177a5",
+    "small-change.json": "fafb9e6cae9a7d0084071f8661f133469da31419ed17e4a267c2ca6ef9e62f61",
+    "files-1.json": "ae424fc09ea7d0ad06328e79b0e1fd733538d13df261dce92240e3eaddc31a2c",
+    "profiles.json": "94db407cad49f192c5353ad89da04df95410104a44ae63daa4d38123c13cf243",
+    "rules-1.json": "b65ec3abb50d00759692e37b470b78cb1ded362c6b73cf663d13352e87354f43",
+    "rule.json": "984490f8d0153b5a83ee37e4699ba9ee15f31ab8fda9ded7a23ceaa00f5be0c3",
+    "issues-1.json": "53b202d1352dfc7ea4edcc78ebfa08af5631e1a3fad84e72c4acc7f3b4a9eaf6",
+    "new-issues-1.json": "6e7f1bdb23fcecf3240529b4673cfd9e06ed2a7277b62b867d7ae010f402dc6b",
+    "hotspots-1.json": "8ab48457efd91bf38a63bc452425c8b2f67ab9755aa72842e95ace5e5a733a8e",
+    "new-hotspots-1.json": "8ab48457efd91bf38a63bc452425c8b2f67ab9755aa72842e95ace5e5a733a8e",
+    "measures.json": "5999edff4f47441fc14e95961697f8daf4de7448f86ec5b77205a8c0cd7e9912",
+    "analysis-final-1.json": "9c2eac0bb4a6f8e612a28a7bffa1fd35e1140445ab167e175f246fb11e97266f"
+  }
+}

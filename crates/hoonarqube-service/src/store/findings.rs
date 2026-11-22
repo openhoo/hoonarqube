@@ -5,6 +5,10 @@ use rusqlite::{Connection, OptionalExtension, Params, params};
 
 use super::{FindingKind, FindingRecord, Store, StoreError, parse_json, review_from_row};
 
+fn wire_report(raw: &str) -> Result<serde_json::Value, StoreError> {
+    crate::wire_json::parse(raw).map_err(|err| StoreError::Invalid(err.to_string()))
+}
+
 const FIRST_FINDINGS: &str =
     "SELECT id, identity, occurrence, kind, path, rule_key, message, range_json, ambiguous
      FROM findings WHERE analysis_id = ?1
@@ -14,6 +18,12 @@ const NEXT_FINDINGS: &str =
      FROM findings WHERE analysis_id = ?1 AND (path, rule_key, identity, occurrence, id) >
         (?3, ?4, ?5, ?6, ?7)
      ORDER BY path, rule_key, identity, occurrence, id LIMIT ?2";
+
+pub(crate) struct LiveGateInputs {
+    pub report: serde_json::Value,
+    pub assigned: Option<hoonarqube_gates::GateConfig>,
+    pub reviewed: BTreeSet<String>,
+}
 
 pub(crate) struct FindingPage {
     pub findings: Vec<FindingRecord>,
@@ -34,6 +44,55 @@ struct FindingPosition {
 }
 
 impl Store {
+    /// Read the immutable scanner report and matching authorized decisions in a
+    /// single snapshot. Only unambiguous hotspots with a completed review query
+    /// participate; open, reopened, other-branch and other-project rows cannot.
+    pub(crate) fn live_gate_inputs(
+        &self,
+        project: &str,
+        current: i64,
+    ) -> Result<LiveGateInputs, StoreError> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let (branch, report, version, config): (String, String, Option<i64>, Option<String>) = tx.query_row(
+            "SELECT a.branch, a.report_json, a.gate_policy_version, gp.config_json FROM analyses a JOIN projects p ON p.project = a.project
+             LEFT JOIN project_gate_policies gp ON gp.project = a.project AND gp.version=a.gate_policy_version
+             WHERE a.id = ?1 AND a.project = ?2 AND a.deleted_at IS NULL AND p.deleted_at IS NULL
+             AND (a.gate_json IS NOT NULL OR a.gate_policy_version IS NOT NULL)", params![current, project],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).optional()?.ok_or(StoreError::NotFound)?;
+        let mut statement = tx.prepare(
+            "SELECT f.identity, r.analysis_id FROM findings f JOIN reviews r
+             ON r.identity = f.identity AND r.kind = f.kind
+             WHERE f.analysis_id = ?1 AND f.ambiguous = 0 AND f.kind = 'hotspot'
+             AND r.project = ?2 AND r.branch = ?3 AND r.state IN ('safe', 'confirmed_risk')",
+        )?;
+        let claims = statement
+            .query_map(params![current, project, branch], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let allowed = compatible_sources(&tx, current, claims.iter().map(|(_, id)| *id))?;
+        let reviewed = claims
+            .into_iter()
+            .filter(|(_, id)| allowed.contains(id))
+            .filter_map(|(id, _)| id.strip_prefix("sha256:").map(str::to_owned))
+            .collect();
+        tx.commit()?;
+        let assigned = config
+            .map(|json| super::policy::parse_config(&json))
+            .transpose()?;
+        if version.is_some() != assigned.is_some() {
+            return Err(StoreError::Invalid("missing assigned policy".into()));
+        }
+        Ok(LiveGateInputs {
+            report: wire_report(&report)?,
+            assigned,
+            reviewed,
+        })
+    }
+
     pub(crate) fn findings(
         &self,
         project: &str,
@@ -219,17 +278,34 @@ fn filter_inherited_reviews(
     findings: &mut [FindingRecord],
     current: i64,
 ) -> Result<(), StoreError> {
-    let mut ids: BTreeSet<_> = findings
-        .iter()
-        .filter_map(|f| {
-            f.review
-                .as_ref()
-                .map(|r| r.analysis_id)
-                .filter(|id| *id != current)
-        })
-        .collect();
+    let compatible = compatible_sources(
+        db,
+        current,
+        findings
+            .iter()
+            .filter_map(|f| f.review.as_ref().map(|r| r.analysis_id)),
+    )?;
+    for finding in findings {
+        if finding
+            .review
+            .as_ref()
+            .is_some_and(|r| !compatible.contains(&r.analysis_id))
+        {
+            finding.review = None;
+        }
+    }
+    Ok(())
+}
+
+fn compatible_sources(
+    db: &Connection,
+    current: i64,
+    sources: impl Iterator<Item = i64>,
+) -> Result<BTreeSet<i64>, StoreError> {
+    let mut ids: BTreeSet<_> = sources.filter(|id| *id != current).collect();
+    let mut compatible = BTreeSet::from([current]);
     if ids.is_empty() {
-        return Ok(());
+        return Ok(compatible);
     }
     ids.insert(current);
     let ids = serde_json::to_string(&ids).map_err(|e| StoreError::Invalid(e.to_string()))?;
@@ -250,18 +326,14 @@ fn filter_inherited_reviews(
             contexts.insert(row.get::<_, i64>(0)?, context);
         }
     }
-    for finding in findings {
-        if let Some(review) = &finding.review
-            && review.analysis_id != current
-            && !contexts
-                .get(&current)
-                .zip(contexts.get(&review.analysis_id))
-                .is_some_and(|(a, b)| a.compatible_with(b))
-        {
-            finding.review = None;
-        }
+    if let Some(target) = contexts.get(&current) {
+        compatible.extend(
+            contexts
+                .iter()
+                .filter_map(|(id, source)| target.compatible_with(source).then_some(*id)),
+        );
     }
-    Ok(())
+    Ok(compatible)
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ class ProjectSnapshotTests(unittest.TestCase):
         self.owner = self.enterContext(
             closing(sqlite3.connect(self.live, isolation_level=None))
         )
-        subject.initialize(self.owner)
+        subject.initialize(self.owner, version=2)
         self.owner.execute("PRAGMA journal_mode = WAL")
         self.owner.execute("PRAGMA wal_autocheckpoint = 0")
         self.owner.execute("PRAGMA foreign_keys = ON")
@@ -204,9 +204,9 @@ class ProjectSnapshotTests(unittest.TestCase):
         backup = subject.snapshot(self.live, self.archive, "alpha")
         original = subject.initialize
 
-        def tiny_target(db):
+        def tiny_target(db, version):
             db.execute("PRAGMA main.page_size = 4096")
-            original(db)
+            original(db, version)
             pages = db.execute("PRAGMA main.page_count").fetchone()[0]
             self.assertLess(pages, 25)
             db.execute("PRAGMA main.max_page_count = 25")
