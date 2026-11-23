@@ -94,7 +94,7 @@ pub(crate) fn check_assignment_rules(
             it.left.span(),
         );
     }
-    if prototype_link {
+    if builtin_root && prototype_link {
         sink.emit_span(
             RuleScope::Both,
             "S6643",
@@ -134,6 +134,28 @@ mod tests {
         assert_eq!(count_key(&findings, "javascript:S2424"), 1);
         assert_eq!(count_key(&findings, "javascript:S6643"), 1);
         assert_eq!(count_key(&findings, "javascript:S2757"), 1);
+    }
+
+    #[test]
+    fn s6643_flags_builtin_prototype_and_allows_local_constructor() {
+        let source = concat!(
+            "function Accepts() {}\n",
+            "Accepts.prototype.type =\n",
+            "  Accepts.prototype.types = function () { return 'text'; };\n",
+            "Array.prototype.extraMethod = function () { return this.length; };\n",
+        );
+        for (report, rule) in [
+            (js(source), "javascript:S6643"),
+            (ts(source), "typescript:S6643"),
+        ] {
+            let ranges: Vec<_> = report
+                .issues
+                .iter()
+                .filter(|issue| issue.rule_key == rule)
+                .map(|issue| (issue.range.start, issue.range.end))
+                .collect();
+            assert_eq!(ranges, [(pos(4, 0), pos(4, 27))], "{rule}");
+        }
     }
 
     #[test]

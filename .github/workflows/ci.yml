@@ -298,6 +298,11 @@ jobs:
       - name: Build current CLI and service
         run: cargo build --locked -p hoonarqube-cli -p hoonarqube-service
 
+      - name: Exercise every claimed Community violation detector on pinned positive and clean sources
+        run: |
+          python3 tools/oracle/community_detector_controls.py target/debug/hoonarqube
+          python3 tools/oracle/community_qualified_smoke.py target/debug
+
       - name: Scan, ingest and reopen a persisted analysis
         run: python3 scripts/smoke_cli_service.py target/debug
 

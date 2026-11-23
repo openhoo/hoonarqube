@@ -4,6 +4,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -26,6 +27,10 @@ from smoke_cli_service import request, running_service
 
 REF = json.loads((HERE / "reference.json").read_bytes())
 METRICS = ("coverage", "line_coverage")
+COVERAGE_SUFFIXES = {"lcov": "lcov", "cobertura": "xml"}
+XML_TIMESTAMP = re.compile(
+    rb'(\A<\?xml [^>\r\n]*>\n<coverage\b[^>\r\n]*? timestamp=")[0-9]+(")'
+)
 CONFIG = {
     "schema_version": 1,
     "conditions": [
@@ -73,17 +78,16 @@ def check_reference(case):
     return {c["metricKey"]: float(c["actualValue"]) for c in cs}
 
 
-def verify_coverage(report, case):
+def verify_coverage(report, case, provenance):
     coverage = report["assessment"].get("coverage")
-    if case == "missing":
+    if provenance is None:
         require(coverage is None, "an absent coverage report produced measurements")
         return
     require(
         coverage["status"] == "complete"
         and not coverage["diagnostics"]
-        and len(coverage["inputs"]) == 1
-        and coverage["inputs"][0]["content_digest"] == REF[case]["lcov_sha256"],
-        "coverage skipped or input changed",
+        and coverage["inputs"] == [provenance],
+        f"{case}: coverage skipped or input changed: {provenance}",
     )
     files = {f["path"]: f["lines"] for f in coverage["files"]}
     ref_files = REF[case]["files"]["components"]
@@ -114,12 +118,28 @@ def verify_coverage(report, case):
         require(
             actual == expected, f"{case}: reference coverage differs in {ref['path']}"
         )
+    return coverage
 
 
-def scan(cli, src, git_dir, case, lcov):
+def verify_artifact(case, kind, artifact):
+    raw_sha256 = digest(artifact)
+    if kind == "lcov":
+        require(raw_sha256 == REF[case]["lcov_sha256"], f"{case}: raw LCOV differs")
+        return raw_sha256, None
+    normalized, replacements = XML_TIMESTAMP.subn(rb"\g<1>0\2", artifact)
+    normalized_sha256 = digest(normalized)
+    require(
+        replacements == 1
+        and normalized_sha256 == REF[case]["cobertura_timestamp_normalized_sha256"],
+        f"{case}: Cobertura XML differs after normalizing the root timestamp",
+    )
+    return raw_sha256, normalized_sha256
+
+
+def scan(cli, src, git_dir, case, kind, artifact):
     expected_values = check_reference(case)
-    path = src / "measured.lcov"
-    path.unlink(missing_ok=True)
+    for suffix in COVERAGE_SUFFIXES.values():
+        (src / f"measured.{suffix}").unlink(missing_ok=True)
     args = [
         str(cli),
         "analyze",
@@ -130,10 +150,18 @@ def scan(cli, src, git_dir, case, lcov):
         "--format",
         "json",
     ]
-    if lcov is not None:
-        require(digest(lcov) == REF[case]["lcov_sha256"], f"{case}: raw LCOV differs")
-        path.write_bytes(lcov)
-        args += ["--coverage-lcov", path.name]
+    provenance = None
+    normalized_sha256 = None
+    if kind is not None:
+        path = src / f"measured.{COVERAGE_SUFFIXES[kind]}"
+        raw_sha256, normalized_sha256 = verify_artifact(case, kind, artifact)
+        provenance = {
+            "path": path.name,
+            "format": kind,
+            "content_digest": raw_sha256,
+        }
+        path.write_bytes(artifact)
+        args += [f"--coverage-{kind}", path.name]
     env = {
         **os.environ,
         "GIT_DIR": str(git_dir),
@@ -143,7 +171,12 @@ def scan(cli, src, git_dir, case, lcov):
 
     def invoke(extra, exit_code):
         result = subprocess.run(
-            [*args, *extra], cwd=src, env=env, capture_output=True, timeout=90
+            [*args, *extra],
+            check=False,
+            cwd=src,
+            env=env,
+            capture_output=True,
+            timeout=90,
         )
         require(
             result.returncode == exit_code,
@@ -173,7 +206,7 @@ def scan(cli, src, git_dir, case, lcov):
         and "gate" not in report["assessment"],
         "wrong source, profile or scanner gate",
     )
-    verify_coverage(report, case)
+    coverage = verify_coverage(report, case, provenance)
     code, state = {
         "full": (0, "pass"),
         "focused": (1, "fail"),
@@ -197,7 +230,17 @@ def scan(cli, src, git_dir, case, lcov):
         and all(c["status"] == state for c in gate["conditions"]),
         f"{case}: {gate}",
     )
-    return report, gate, code
+    evidence = {"exit": code, "gate": state, "values": actual}
+    if coverage is not None:
+        evidence.update(
+            input=provenance,
+            lines=coverage["lines"],
+            branches=coverage["branches"],
+            files_verified=sorted(file["path"] for file in coverage["files"]),
+        )
+    if normalized_sha256 is not None:
+        evidence["timestamp_normalized_sha256"] = normalized_sha256
+    return report, gate, evidence
 
 
 def replay(binaries, work, mirror, cache, architecture):
@@ -208,8 +251,13 @@ def replay(binaries, work, mirror, cache, architecture):
     db.mkdir()
     token = secrets.token_urlsafe(32)
     srv = binaries / "hoonarqube-service"
-    rows = {}
-    summary = {}
+    rows = []
+    summary = {
+        "revision": MANIFEST["commit"],
+        "linux_architecture": built["architecture"],
+        "wheel_sha256": built["wheel_sha256"],
+        "cases": {},
+    }
     with running_service(srv, db, token) as port:
         assignment = request(
             port,
@@ -223,38 +271,49 @@ def replay(binaries, work, mirror, cache, architecture):
             "policy assignment failed",
         )
         for case in ("full", "focused", "missing"):
-            lcov = (
-                base64.b64decode(built[case]["lcov"], validate=True)
-                if case in built
-                else None
-            )
-            report, gate, code = scan(binaries / "hoonarqube", src, git_dir, case, lcov)
-            body = {
-                "schema_version": 1,
-                "branch": case,
-                "commit": MANIFEST["commit"],
-                "analyzed_at": "2026-11-22T00:00:00Z",
-                "report": report,
-            }
-            result = request(port, token, "/smoke/analyses", body)
-            row = result["analysis"]
-            rid = row["id"]
-            stored = request(port, token, f"/smoke/analyses/{rid}/gate")
-            require(
-                not result["idempotent"]
-                and row["gate_policy_version"] == 1
-                and row["gate"] == stored == gate,
-                "server-assigned gate differs from CLI",
-            )
-            rows[case] = (rid, body, gate)
-            summary[case] = {
+            reports = {}
+            summary["cases"][case] = {
                 "tests": built.get(case, {}).get("passed"),
-                "exit": code,
-                "gate": gate["status"],
-                "values": {c["metric"]: c.get("actual") for c in gate["conditions"]},
+                "reports": reports,
             }
+            measurements = None
+            for kind in COVERAGE_SUFFIXES if case != "missing" else (None,):
+                artifact = (
+                    base64.b64decode(built[case][kind], validate=True)
+                    if kind is not None
+                    else None
+                )
+                report, gate, evidence = scan(
+                    binaries / "hoonarqube", src, git_dir, case, kind, artifact
+                )
+                if kind is not None:
+                    files = report["assessment"]["coverage"]["files"]
+                    require(
+                        measurements is None or files == measurements,
+                        f"{case}: per-line coverage differs between XML and LCOV",
+                    )
+                    measurements = files
+                body = {
+                    "schema_version": 1,
+                    "branch": f"{case}-{kind}" if kind else case,
+                    "commit": MANIFEST["commit"],
+                    "analyzed_at": "2026-11-22T00:00:00Z",
+                    "report": report,
+                }
+                result = request(port, token, "/smoke/analyses", body)
+                row = result["analysis"]
+                rid = row["id"]
+                stored = request(port, token, f"/smoke/analyses/{rid}/gate")
+                require(
+                    not result["idempotent"]
+                    and row["gate_policy_version"] == 1
+                    and row["gate"] == stored == gate,
+                    f"{case}/{kind}: server-assigned gate differs from CLI",
+                )
+                rows.append((rid, body, gate))
+                reports[kind or "none"] = evidence
     with running_service(srv, db, token) as port:
-        for rid, body, gate in rows.values():
+        for rid, body, gate in rows:
             require(
                 request(port, token, f"/smoke/analyses/{rid}/gate") == gate,
                 "restart changed gate",
