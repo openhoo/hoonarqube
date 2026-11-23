@@ -11,6 +11,7 @@ from pathlib import Path
 
 from community_new_duplication import CONFIG, check, git
 from community_scm_period import descriptor, run_case
+from fastapi_default_gate import replay_default
 
 CAPTURE = Path(__file__).with_name("fixtures") / "fastapi-package-scm-20261122.json.gz"
 UPSTREAM = "https://github.com/fastapi/fastapi.git"
@@ -88,7 +89,7 @@ def check_locations(report, capture):
     )
 
 
-def replay(binary, repository, work):
+def replay(binary, repository, work, *, current_default=False):
     cap = json.loads(gzip.decompress(CAPTURE.read_bytes()))
     root = checkout(work, repository, cap["pins"]["candidate"]["revision"])
     for stage in ("base", "candidate"):
@@ -129,7 +130,7 @@ def replay(binary, repository, work):
         and math.isclose(cond["actual"], float(c["actualValue"]), abs_tol=0.000005),
         "blocking gate differs",
     )
-    return {
+    result = {
         "files": len(cap["files"]),
         "all_duplicated_lines": sum(
             len(v["duplicated"]) for v in cap["source_locations"].values()
@@ -139,11 +140,19 @@ def replay(binary, repository, work):
         "native_status": native["status"],
         "reference_analysis": cap["analyses"]["candidate"],
     }
+    if current_default:
+        result["community_26_11_default"] = replay_default(binary, root, work, cap)
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
+    parser.add_argument(
+        "--current-default",
+        action="store_true",
+        help="Also check each Community 26.11 default condition.",
+    )
     parser.add_argument(
         "--repository", type=Path, help="Optional local full FastAPI Git mirror"
     )
@@ -151,7 +160,12 @@ def main():
     with tempfile.TemporaryDirectory() as folder:
         print(
             json.dumps(
-                replay(args.binary.resolve(), args.repository, Path(folder).resolve()),
+                replay(
+                    args.binary.resolve(),
+                    args.repository,
+                    Path(folder).resolve(),
+                    current_default=args.current_default,
+                ),
                 indent=2,
             )
         )

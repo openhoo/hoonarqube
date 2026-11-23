@@ -53,7 +53,7 @@ pub(crate) fn attach_assessment(
     }
 
     let root = assessment_root(report);
-    let context = analysis_context(options, project_options, &report.project.roots);
+    let context = analysis_context(options, project_options, report);
     let source_inputs = assessment_source_inputs(sources);
     let (mut assessment, assessment_build_error) =
         build_assessment_artifact(report, &context, &source_inputs);
@@ -256,19 +256,23 @@ fn write_requested_baseline(
 fn analysis_context(
     options: &AnalyzerOptionsBundle,
     project_options: &ProjectAnalysisOptions,
-    roots: &[PathBuf],
+    report: &AnalysisReport,
 ) -> AnalysisContext {
     let catalog_digest = embedded().snapshot().catalog_sha256.clone();
     let options_digest = analyzer_options_digest(options, &project_options.features.semantics);
-    let scope_digest = project_options.assessment_scope_digest(roots);
+    let scope_digest = project_options.assessment_scope_digest(&report.project.roots);
     let source_revision = git_source_revision();
-    AnalysisContext::new(
+    let mut context = AnalysisContext::new(
         concat!("hoonarqube-cli/", env!("CARGO_PKG_VERSION")),
         catalog_digest,
         options_digest,
         scope_digest,
         source_revision,
-    )
+    );
+    context.community_detector_controls_sha256 =
+        hoonarqube_core::assessment::gates::qualified_community_detector_digest(report)
+            .map(str::to_owned);
+    context
 }
 
 /// Canonically encodes every effective analyzer option and hashes the typed
@@ -503,7 +507,7 @@ fn load_gate_config(path: &Path) -> Result<GateConfig, String> {
 
 fn load_reference_report(path: &Path) -> Result<AnalysisReport, String> {
     let content = read_bounded_text(path, "baseline")?;
-    let reference: AnalysisReport = serde_json::from_str(&content)
+    let mut reference: AnalysisReport = serde_json::from_str(&content)
         .map_err(|error| format!("invalid baseline {}: {error}", path.display()))?;
     if reference.schema_version != 1 {
         return Err(format!(
@@ -521,6 +525,18 @@ fn load_reference_report(path: &Path) -> Result<AnalysisReport, String> {
     assessment
         .validate_against(&reference.files)
         .map_err(|error| format!("invalid baseline assessment/native report match: {error}"))?;
+    // Old metrics can still use this report. A missing or incomplete parity
+    // contract cannot provide baseline provenance for the strict condition.
+    if assessment
+        .context
+        .community_detector_controls_sha256
+        .is_some()
+        && hoonarqube_core::assessment::gates::qualified_community_detector_digest(&reference)
+            .is_none()
+        && let Some(assessment) = &mut reference.assessment
+    {
+        assessment.context.community_detector_controls_sha256 = None;
+    }
     Ok(reference)
 }
 

@@ -35,6 +35,10 @@ jobs:
         run: >-
           python3 tools/oracle/ruby_empty_methods.py --binary target/release/hoonarqube
           --case rack --case puma-puma --case dry-rb-dry-monads --case ruby-logger
+      - name: Check primary locations on 24 more pinned public repositories
+        run: python3 tools/oracle/public_locations.py target/release/hoonarqube
+      - name: Check current Community core, extended and comprehensive profiles
+        run: python3 tools/oracle/community_profiles.py target/release/hoonarqube
       - name: Enforce assigned gates and authorized reviews on two Redux revisions
         run: python3 tools/oracle/public_redux_gates.py target/release
       - name: Compare Python duplication blocks and line ranges on public packages
@@ -42,6 +46,17 @@ jobs:
           python3 tools/oracle/python_duplication.py --binary target/release/hoonarqube
           --case starlette --case httpx --case idna --case Textualize-rich
       - name: Check each new and duplicated line in the shipped FastAPI package
-        run: python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube
+        run: python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube --current-default
       - name: Compare duplication gates on real Yjs and FastAPI changes
         run: python3 tools/oracle/community_new_duplication.py target/release
+      - name: Compare qualified violation gates with one Community failure, one pass and one missing detector
+        run: |
+          git init --quiet "$RUNNER_TEMP/hq-yjs"
+          git -C "$RUNNER_TEMP/hq-yjs" fetch --quiet --no-tags https://github.com/yjs/yjs.git a5e390160ca8686b9a54b3d924f37041e89407b3
+          git -C "$RUNNER_TEMP/hq-yjs" update-ref refs/heads/captured FETCH_HEAD
+          git init --quiet "$RUNNER_TEMP/hq-chi"
+          git -C "$RUNNER_TEMP/hq-chi" fetch --quiet --no-tags https://github.com/go-chi/chi.git fff8bb28cbeb658c3c916aff02a780b89532841e
+          git -C "$RUNNER_TEMP/hq-chi" update-ref refs/heads/captured FETCH_HEAD
+          python3 tools/oracle/community_qualified_violations.py \
+            --scanner target/release/hoonarqube --service target/release/hoonarqube-service \
+            --yjs "$RUNNER_TEMP/hq-yjs" --chi "$RUNNER_TEMP/hq-chi"
