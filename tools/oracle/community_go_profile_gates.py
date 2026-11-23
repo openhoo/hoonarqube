@@ -215,13 +215,17 @@ def controls(cli, work):
     result(r["assessment"]["gate"], "extended", 1)
     code, r = scan(cli, stage, ["."], "--quality-gate", gate)
     check(
-        code == 2 and "explicit" in result(r["assessment"]["gate"], "extended", None),
+        code == 2
+        and "go_gate_evidence" not in r["parity"]
+        and "explicit" in result(r["assessment"]["gate"], "extended", None),
         "directory scan silently narrowed the selected sources",
     )
     (stage / "extra.js").write_text("export const x = 1;\n")
     code, r = scan(cli, stage, ["declared.go", "extra.js"], "--quality-gate", gate)
     check(
-        code == 2 and "Go-only" in result(r["assessment"]["gate"], "extended", None),
+        code == 2
+        and "go_gate_evidence" not in r["parity"]
+        and "Go-only" in result(r["assessment"]["gate"], "extended", None),
         "mixed scope became qualified",
     )
     (stage / "broken.go").write_text("package fail\nfunc run( {\n")

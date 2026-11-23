@@ -149,7 +149,6 @@ pub(super) fn count(metric: &str, report: &AnalysisReport) -> Result<u64, String
     {
         return Err("incomplete or incompatible native parity report".into());
     }
-    let declared = require_rules(profile, parity)?;
     let mut files = super::measurement_index(report)?.files;
     // A directory walk may omit files of unknown languages. A Go-only gate
     // must account for each selected file, including an unmeasured one.
@@ -170,6 +169,7 @@ pub(super) fn count(metric: &str, report: &AnalysisReport) -> Result<u64, String
     {
         return Err("assessment catalog differs from gate evaluator".into());
     }
+    let declared = require_rules(profile, parity)?;
     let mut count = 0;
     for file in &report.files {
         let path = normalize_path(&file.path).map_err(|e| e.to_string())?;
