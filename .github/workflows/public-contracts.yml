@@ -27,6 +27,8 @@ jobs:
           save-if: false
       - name: Build the candidate analyzer and service
         run: cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
+      - name: Check Community 26.11 Go gate decisions against measured profile settings
+        run: python3 tools/oracle/community_go_profile_gates.py target/release
       - name: Build and test a pinned Blinker wheel and compare assigned coverage gates
         run: python3 tools/oracle/blinker_build/replay.py target/release
       - name: Check pinned source blobs and selected Sonar primary locations

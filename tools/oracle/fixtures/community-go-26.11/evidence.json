@@ -1,0 +1,217 @@
+{
+  "server": "26.11.0.134175",
+  "server_image": "sonarqube@sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba",
+  "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "boundary": {
+    "core": {
+      "server": "26.11.0.134175",
+      "project": "hq-go2611-runtime-20261123-core-01323276",
+      "profile": {
+        "key": "aed2dbec-185d-4155-960a-72a77c982b71",
+        "name": "Sonar way core",
+        "language": "go",
+        "activeRuleCount": 6
+      },
+      "source_sha256": "01323276e676fe7d6ab90fdc830b7a3d67b58a1c7cea9b1652657b84a6327f04",
+      "task": "f60ec45c-5f0b-4fec-b1b0-9f24d0a30826",
+      "analysis": "1a754ed0-5f69-4914-b5ba-e82c590a889f",
+      "findings": []
+    },
+    "extended": {
+      "server": "26.11.0.134175",
+      "project": "hq-go2611-runtime-20261123-extended-01323276",
+      "profile": {
+        "key": "f8cc6c7b-63d1-4577-a113-3ab55509ad31",
+        "name": "Sonar way extended",
+        "language": "go",
+        "activeRuleCount": 9
+      },
+      "source_sha256": "01323276e676fe7d6ab90fdc830b7a3d67b58a1c7cea9b1652657b84a6327f04",
+      "task": "f0f73714-7ec6-4b3c-a575-94fa210fbe8b",
+      "analysis": "5d4e6877-4768-4354-88e2-92e23b9f35ff",
+      "findings": [
+        {
+          "rule": "go:S1192",
+          "line": 8,
+          "message": "Define a constant instead of duplicating this literal \"duplicate control thrice\" 3 times.",
+          "textRange": {
+            "startLine": 8,
+            "endLine": 8,
+            "startOffset": 8,
+            "endOffset": 34
+          }
+        },
+        {
+          "rule": "go:S3776",
+          "line": 62,
+          "message": "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed.",
+          "textRange": {
+            "startLine": 62,
+            "endLine": 62,
+            "startOffset": 5,
+            "endOffset": 19
+          }
+        }
+      ]
+    },
+    "comprehensive": {
+      "server": "26.11.0.134175",
+      "project": "hq-go2611-runtime-20261123-comprehensive-01323276",
+      "profile": {
+        "key": "ed977583-4f06-47ab-9bc9-e3dfc5f5abe0",
+        "name": "Sonar way comprehensive",
+        "language": "go",
+        "activeRuleCount": 23
+      },
+      "source_sha256": "01323276e676fe7d6ab90fdc830b7a3d67b58a1c7cea9b1652657b84a6327f04",
+      "task": "6e886191-b9e6-4823-b643-85b0f53484b0",
+      "analysis": "28685ddf-8025-4a18-8754-547055956574",
+      "findings": [
+        {
+          "rule": "go:S1192",
+          "line": 8,
+          "message": "Define a constant instead of duplicating this literal \"duplicate control thrice\" 3 times.",
+          "textRange": {
+            "startLine": 8,
+            "endLine": 8,
+            "startOffset": 8,
+            "endOffset": 34
+          }
+        },
+        {
+          "rule": "go:S3776",
+          "line": 62,
+          "message": "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed.",
+          "textRange": {
+            "startLine": 62,
+            "endLine": 62,
+            "startOffset": 5,
+            "endOffset": 19
+          }
+        }
+      ]
+    }
+  },
+  "public": {
+    "repository": "tidwall/match",
+    "revision": "afc69bce52e08c02e78156a7697bd808fc868ec5",
+    "tree": "54a8bf0917cf9412222e111a5e2a8e0f46c2e8a6",
+    "sources": {
+      "match.go": {
+        "git_blob": "d855a03fc60aad97a4ed5967ab2b4a2445867dae",
+        "sha256": "d538adf80b175c60a663a91379707ad13edb0a2a79c6bd182d70ff430c8bd649",
+        "bytes": 6370
+      }
+    },
+    "profiles": {
+      "core": {
+        "project": "openhoo-2611-cohort-tidwall-match",
+        "analysis": "67e5a8e0-17d1-48e0-83bf-dd504e520158",
+        "task": "5b06694b-56f1-46bf-9e8e-46f1fe2834fe",
+        "findings": []
+      },
+      "extended": {
+        "project": "openhoo-2611-extended-tidwall-match",
+        "analysis": "5bafd39a-f2ec-43ae-99a3-b32fd5a1dfa2",
+        "task": "ab7bec3b-7921-4acb-b93c-ee092282f053",
+        "findings": [
+          {
+            "rule": "go:S3776",
+            "line": 85,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 54 to the 15 allowed.",
+            "textRange": {
+              "startLine": 85,
+              "endLine": 85,
+              "startOffset": 5,
+              "endOffset": 10
+            }
+          },
+          {
+            "rule": "go:S3776",
+            "line": 186,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed.",
+            "textRange": {
+              "startLine": 186,
+              "endLine": 186,
+              "startOffset": 5,
+              "endOffset": 20
+            }
+          },
+          {
+            "rule": "go:S3776",
+            "line": 226,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed.",
+            "textRange": {
+              "startLine": 226,
+              "endLine": 226,
+              "startOffset": 5,
+              "endOffset": 14
+            }
+          }
+        ]
+      },
+      "comprehensive": {
+        "project": "openhoo-2611-comprehensive-tidwall-match",
+        "analysis": "2c64b1f6-a0e4-46fc-9335-4f5b1b4cb934",
+        "task": "2190b759-2cee-4933-8951-f7162c0a1d45",
+        "findings": [
+          {
+            "rule": "go:S3776",
+            "line": 85,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 54 to the 15 allowed.",
+            "textRange": {
+              "startLine": 85,
+              "endLine": 85,
+              "startOffset": 5,
+              "endOffset": 10
+            }
+          },
+          {
+            "rule": "go:S3776",
+            "line": 186,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed.",
+            "textRange": {
+              "startLine": 186,
+              "endLine": 186,
+              "startOffset": 5,
+              "endOffset": 20
+            }
+          },
+          {
+            "rule": "go:S3776",
+            "line": 226,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed.",
+            "textRange": {
+              "startLine": 226,
+              "endLine": 226,
+              "startOffset": 5,
+              "endOffset": 14
+            }
+          },
+          {
+            "rule": "go:S978",
+            "line": 226,
+            "message": "Rename this identifier, \"max\" shadows a predeclared identifier.",
+            "textRange": {
+              "startLine": 226,
+              "endLine": 226,
+              "startOffset": 37,
+              "endOffset": 40
+            }
+          },
+          {
+            "rule": "go:S978",
+            "line": 226,
+            "message": "Rename this identifier, \"min\" shadows a predeclared identifier.",
+            "textRange": {
+              "startLine": 226,
+              "endLine": 226,
+              "startOffset": 32,
+              "endOffset": 35
+            }
+          }
+        ]
+      }
+    }
+  }
+}

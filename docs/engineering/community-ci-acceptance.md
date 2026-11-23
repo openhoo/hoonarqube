@@ -1,5 +1,7 @@
 # Community Build and CI gate acceptance
 
+For measured Community 26.11 Go rule selections, see [overall Go profile gates](community-go-profile-gates.md) for the supported conditions, runtime settings and limits.
+
 Current verification uses public source revisions and Hoonarqube's own CI. No team repository or production migration is selected. Before a future team uses Hoonarqube to block merges, compare its assigned **SonarQube Community Build gate** on actual revisions and keep the existing gate authoritative during the comparison. Commercial analyzers, portfolios and single sign-on are outside this first acceptance decision.
 
 ## Which gate do we need to reproduce?

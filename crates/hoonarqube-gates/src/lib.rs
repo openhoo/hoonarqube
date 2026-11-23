@@ -5,6 +5,7 @@
 //! typed input API and the metric derivations that can be proved from that
 //! artifact.  A gate never turns missing or partial data into a zero.
 
+mod community_go;
 mod community_profile;
 
 pub use community_profile::qualified_community_detector_digest;
@@ -33,6 +34,9 @@ pub const GATE_REPORT_SCHEMA_VERSION: u32 = ASSESSMENT_SCHEMA_VERSION;
 pub const SUPPORTED_METRICS: &[&str] = &[
     "files",
     "lines",
+    community_go::CORE,
+    community_go::EXTENDED,
+    community_go::COMPREHENSIVE,
     "code_lines",
     "comment_lines",
     "issues",
@@ -158,6 +162,9 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
             metric,
             "files"
                 | "lines"
+                | community_go::CORE
+                | community_go::EXTENDED
+                | community_go::COMPREHENSIVE
                 | "code_lines"
                 | "comment_lines"
                 | "issues"
@@ -454,6 +461,9 @@ fn overall_metric(
 
     let metrics = &report.project.metrics;
     match metric {
+        community_go::CORE | community_go::EXTENDED | community_go::COMPREHENSIVE => {
+            community_go::count(metric, report).map(MetricValue::Count)
+        }
         "files" => Ok(MetricValue::Count(metrics.files)),
         "lines" => Ok(MetricValue::Count(metrics.lines)),
         "code_lines" => Ok(MetricValue::Count(metrics.code_lines)),
