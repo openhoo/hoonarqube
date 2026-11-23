@@ -1402,13 +1402,13 @@ fn validate_ingest(
         .get("schema_version")
         .and_then(Value::as_u64)
         .ok_or_else(ApiError::bad_request)?;
-    if report_schema != 1 {
+    if !matches!(report_schema, 1 | 2) {
         return Err(ApiError::bad_request());
     }
     validate_report_shape(&request.report, limits)?;
     let report: AnalysisReport =
         serde_json::from_value(request.report.clone()).map_err(|_| ApiError::bad_request())?;
-    if report.schema_version != 1 {
+    if !report.valid_measurement_schema() {
         return Err(ApiError::bad_request());
     }
     validate_report_consistency(&report)?;
@@ -1461,7 +1461,7 @@ fn validate_ingest(
         commit: request.commit,
         analyzed_at,
         analyzed_epoch,
-        report_schema_version: 1,
+        report_schema_version: report.schema_version,
         complete: report.project.complete,
         metrics_json,
         duplication_json,
@@ -2100,7 +2100,12 @@ fn validate_restore_analysis(
     }
     validate_identity_component(&analysis.content_hash, 128, "content_hash")
         .map_err(|_| ApiError::bad_request())?;
-    if analysis.report_schema_version != 1 {
+    if analysis
+        .report
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        != Some(u64::from(analysis.report_schema_version))
+    {
         return Err(ApiError::bad_request());
     }
     let data = validate_ingest(

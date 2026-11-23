@@ -19,6 +19,9 @@ use crate::Language;
 
 mod python;
 
+mod web;
+pub use web::community_web_facts;
+
 /// A normalized syntax token.  Lines are one-based and inclusive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedToken {

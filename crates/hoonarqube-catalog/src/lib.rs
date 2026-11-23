@@ -33,6 +33,8 @@ pub enum RuleProfile {
     Extended,
     Strict,
     GithubCodeQuality,
+    #[serde(rename = "community-26.11-web-duplication")]
+    Community2611WebDuplication,
 }
 
 impl RuleProfile {
@@ -41,10 +43,15 @@ impl RuleProfile {
     #[must_use]
     pub const fn includes(self, minimum_profile: Self) -> bool {
         match self {
-            Self::SonarParity | Self::GithubCodeQuality => false,
+            Self::SonarParity | Self::GithubCodeQuality | Self::Community2611WebDuplication => {
+                false
+            }
             Self::Recommended => matches!(minimum_profile, Self::Recommended),
             Self::Extended => matches!(minimum_profile, Self::Recommended | Self::Extended),
-            Self::Strict => !matches!(minimum_profile, Self::SonarParity | Self::GithubCodeQuality),
+            Self::Strict => matches!(
+                minimum_profile,
+                Self::Recommended | Self::Extended | Self::Strict
+            ),
         }
     }
 }
@@ -59,8 +66,9 @@ impl std::str::FromStr for RuleProfile {
             "extended" => Ok(Self::Extended),
             "strict" => Ok(Self::Strict),
             "github-code-quality" => Ok(Self::GithubCodeQuality),
+            "community-26.11-web-duplication" => Ok(Self::Community2611WebDuplication),
             _ => Err(format!(
-                "unknown profile {value:?}; expected sonar-parity, recommended, extended, strict, or github-code-quality"
+                "unknown profile {value:?}; expected sonar-parity, recommended, extended, strict, github-code-quality, or community-26.11-web-duplication"
             )),
         }
     }
@@ -74,6 +82,7 @@ impl std::fmt::Display for RuleProfile {
             Self::Extended => "extended",
             Self::Strict => "strict",
             Self::GithubCodeQuality => "github-code-quality",
+            Self::Community2611WebDuplication => "community-26.11-web-duplication",
         })
     }
 }

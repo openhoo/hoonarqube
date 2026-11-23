@@ -1143,6 +1143,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: hoonarqube_ir::ProjectReport {
+                measurement_scope: None,
                 metrics: hoonarqube_ir::ProjectMetrics {
                     files: 0,
                     lines: 0,
@@ -1198,6 +1199,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: hoonarqube_ir::ProjectReport {
+                measurement_scope: None,
                 metrics: hoonarqube_ir::ProjectMetrics {
                     files: 0,
                     lines: 0,
@@ -1261,6 +1263,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: hoonarqube_ir::ProjectReport {
+                measurement_scope: None,
                 metrics: hoonarqube_ir::ProjectMetrics {
                     files: 0,
                     lines: 0,
@@ -1326,6 +1329,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: hoonarqube_ir::ProjectReport {
+                measurement_scope: None,
                 metrics: hoonarqube_ir::ProjectMetrics {
                     files: 0,
                     lines: 0,
@@ -1377,6 +1381,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: hoonarqube_ir::ProjectReport {
+                measurement_scope: None,
                 metrics: hoonarqube_ir::ProjectMetrics {
                     files: 1,
                     lines: 1,

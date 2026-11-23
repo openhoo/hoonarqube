@@ -53,3 +53,5 @@ jobs:
         run: python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube --current-default
       - name: Compare duplication gates on real Yjs and FastAPI changes
         run: python3 tools/oracle/community_new_duplication.py target/release
+      - name: Compare the assigned Web duplication gate on the full Haml tree and positive controls
+        run: python3 tools/oracle/community_web_duplication.py target/release

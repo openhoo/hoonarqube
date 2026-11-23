@@ -78,7 +78,7 @@ enum Command {
         python_require_type_hints: bool,
         /// Analyzer profile: `sonar-parity` (default), cumulative native
         /// profiles `recommended`/`extended`/`strict`, or isolated
-        /// `github-code-quality`.
+        /// `github-code-quality`. Use `community-26.11-web-duplication` for the bounded Web metric.
         #[arg(long, default_value = "sonar-parity")]
         profile: RuleProfile,
         /// Exclude paths from analysis and project measurements.
@@ -1160,6 +1160,10 @@ fn fix_plans(
 /// under `--diff`, write-and-verify under `--apply`. Exits nonzero on any
 /// warning or unverified finding.
 fn run_fix(paths: &[std::path::PathBuf], config: &FixOptions, json: bool) -> ExitCode {
+    if config.profile == RuleProfile::Community2611WebDuplication {
+        eprintln!("community-26.11-web-duplication only measures project duplication");
+        return ExitCode::from(2);
+    }
     let selections = match suggestion_selections(&config.suggestion) {
         Ok(selections) => selections,
         Err(error) => {

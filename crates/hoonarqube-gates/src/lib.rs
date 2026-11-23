@@ -240,9 +240,9 @@ pub fn evaluate_gate_with_reviews(
         };
     }
 
-    if report.schema_version != 1 {
+    if !report.valid_measurement_schema() {
         let diagnostic = format!(
-            "unsupported analysis report schema_version {}; expected 1",
+            "unsupported analysis report schema_version {} or inconsistent measurement scope",
             report.schema_version
         );
         diagnostics.push(diagnostic.clone());
@@ -313,6 +313,14 @@ fn evaluate_condition(
         return result;
     }
 
+    if report.project.measurement_scope.is_some()
+        && (condition.scope != GateScope::Overall || condition.metric != "duplicated_lines_density")
+    {
+        return unavailable_condition(
+            condition,
+            "the selected Web measurement covers only overall duplicated_lines_density".to_owned(),
+        );
+    }
     let value = match &condition.scope {
         GateScope::Overall => {
             overall_metric(&condition.metric, condition.precision, report).map(|v| (v, None))
@@ -1445,6 +1453,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: ProjectReport {
+                measurement_scope: None,
                 metrics: ProjectMetrics {
                     files: 1,
                     lines: 10,
