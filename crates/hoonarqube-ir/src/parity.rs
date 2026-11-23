@@ -28,6 +28,10 @@ pub struct ParityReport {
     /// membership for the languages present in the analyzed scope, in
     /// ascending key order.
     pub active_rules: Vec<ParityActiveRule>,
+    /// Implemented Go detectors with verified runtime settings for gate projections.
+    /// Older scanners omit these settings and cannot qualify the projection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub go_gate_evidence: Option<GoGateEvidence>,
     /// Normalized analysis scope so a reference scan can be replayed against
     /// the same inputs.
     pub scope: ParityScope,
@@ -44,6 +48,27 @@ pub struct ParityReport {
     /// supplied through `--parity-reference`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comparison: Option<ParityComparison>,
+}
+
+/// Go rules exercised by the version-one gate projection. Adding a key requires
+/// positive, negative, applicable-scope and parameter controls.
+pub const GO_GATE_DETECTORS_V1: &[&str] = &[
+    "go:S1186", "go:S1192", "go:S1656", "go:S1763", "go:S1764", "go:S1862", "go:S2757", "go:S3776",
+    "go:S3923",
+];
+
+/// Scanner evidence for projecting findings without changing the analysis profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoGateEvidence {
+    pub catalog_sha256: String,
+    pub detectors: BTreeMap<String, GoGateDetector>,
+}
+
+/// Actual applicability and options read from the Go analyzer for a scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoGateDetector {
+    pub main_only: bool,
+    pub parameters: BTreeMap<String, String>,
 }
 
 /// Provenance of the pinned `SonarQube` capture behind the frozen catalog.
@@ -208,6 +233,7 @@ mod tests {
                 parameters: Vec::new(),
                 fidelity: "community-base".to_owned(),
             }],
+            go_gate_evidence: None,
             scope: ParityScope {
                 roots: vec![PathBuf::from(".")],
                 test_include: vec!["**/tests/**".to_owned()],

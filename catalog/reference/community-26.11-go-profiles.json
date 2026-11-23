@@ -1,0 +1,236 @@
+{
+  "server": "26.11.0.134175",
+  "profiles": {
+    "core": {
+      "name": "Sonar way core",
+      "active_count": 6,
+      "go_rules_page_sha256": "1fe168ec680e8066525c5ea53865f5e32280502ef1a47d83b58b3b2205e5cd3d",
+      "configuration_sha256": "b47ad080144b7e640f471a714b201b63451c30347108dc007b43c42bc7b891fc",
+      "rules": {
+        "go:S1656": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1763": {
+          "type": "BUG",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S1764": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1862": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S2757": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S3923": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        }
+      }
+    },
+    "extended": {
+      "name": "Sonar way extended",
+      "active_count": 9,
+      "go_rules_page_sha256": "938855cab1861457108d3273799e894f22e05943116fe4a5a8d457bc95c40e62",
+      "configuration_sha256": "1cd406c54e32dafb6308f4b00ef4cbaec5fdf201d8e59507430e617785eecc49",
+      "rules": {
+        "go:S1186": {
+          "type": "CODE_SMELL",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S1192": {
+          "type": "CODE_SMELL",
+          "scope": "MAIN",
+          "parameters": {
+            "threshold": "3"
+          }
+        },
+        "go:S1656": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1763": {
+          "type": "BUG",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S1764": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1862": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S2757": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S3776": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {
+            "threshold": "15"
+          }
+        },
+        "go:S3923": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        }
+      }
+    },
+    "comprehensive": {
+      "name": "Sonar way comprehensive",
+      "active_count": 23,
+      "go_rules_page_sha256": "5133b0964c063c1b40dd24a09b476be69fd26920e296e7e3f47f487eaab95846",
+      "configuration_sha256": "37787aaa28d5a763afd08b4b286d1db84f51315d7614296ab6dc1523e0d9ffed",
+      "rules": {
+        "go:S100": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {
+            "format": "^(_|[a-zA-Z0-9]+)$",
+            "formatForTests": "^(_|[a-zA-Z0-9_]+)$"
+          }
+        },
+        "go:S107": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {
+            "Max": "7"
+          }
+        },
+        "go:S108": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1110": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1125": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1134": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1135": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S117": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {
+            "format": "^(_|[a-zA-Z0-9]+)$"
+          }
+        },
+        "go:S1186": {
+          "type": "CODE_SMELL",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S1192": {
+          "type": "CODE_SMELL",
+          "scope": "MAIN",
+          "parameters": {
+            "threshold": "3"
+          }
+        },
+        "go:S1479": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {
+            "maximum": "30"
+          }
+        },
+        "go:S1656": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1763": {
+          "type": "BUG",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S1764": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1862": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S1871": {
+          "type": "CODE_SMELL",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S1940": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S2757": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S3776": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {
+            "threshold": "15"
+          }
+        },
+        "go:S3923": {
+          "type": "BUG",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S4144": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        },
+        "go:S4663": {
+          "type": "CODE_SMELL",
+          "scope": "MAIN",
+          "parameters": {}
+        },
+        "go:S978": {
+          "type": "CODE_SMELL",
+          "scope": "ALL",
+          "parameters": {}
+        }
+      }
+    }
+  }
+}

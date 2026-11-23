@@ -58,6 +58,12 @@ pub(crate) fn attach_parity_contract(
             captured_at_utc: catalog.snapshot().captured_at_utc.clone(),
             capture_sha256: catalog.snapshot().capture_sha256.clone(),
         },
+        go_gate_evidence: report.files.iter().any(|f| f.language == "go").then(|| {
+            hoonarqube_ir::parity::GoGateEvidence {
+                catalog_sha256: catalog.snapshot().catalog_sha256.clone(),
+                detectors: options.go.gate_detectors(),
+            }
+        }),
         active_rules,
         scope,
         semantic_context,

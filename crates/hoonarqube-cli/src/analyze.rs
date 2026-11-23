@@ -131,6 +131,7 @@ pub(crate) struct ProjectAnalysisOptions {
     pub(crate) patterns: ProjectPatterns,
     pub(crate) duplication: DuplicationOptions,
     pub(crate) cache_dir: Option<PathBuf>,
+    pub(crate) parity_reference: Option<PathBuf>,
     pub(crate) features: ProjectFeatureOptions,
     pub(crate) raw_patterns: OwnedProjectPatternLists,
 }
@@ -224,6 +225,7 @@ pub(crate) fn project_analysis_options(
         patterns,
         duplication,
         cache_dir: None,
+        parity_reference: None,
         features: ProjectFeatureOptions::default(),
         raw_patterns: OwnedProjectPatternLists::from_lists(lists),
     })
@@ -346,6 +348,12 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     normalized
 }
 
+#[derive(Debug)]
+pub(crate) enum ProjectError {
+    Analysis(String),
+    Reference(String),
+}
+
 /// Runs project analysis. Retained snapshots feed both project context and
 /// individual findings; streaming C# scans use a preliminary index pass.
 pub(crate) fn analyze_project_paths(
@@ -354,7 +362,7 @@ pub(crate) fn analyze_project_paths(
     options: &AnalyzerOptionsBundle,
     project_options: &ProjectAnalysisOptions,
     warnings: &mut Vec<String>,
-) -> Result<hoonarqube_ir::AnalysisReport, String> {
+) -> Result<hoonarqube_ir::AnalysisReport, ProjectError> {
     let mut collected = collect_project_inputs(paths, project_options, options.profile, warnings);
     let options = &with_csharp_project_index(options, &collected);
     let semantic = load_project_semantic_context(
@@ -397,7 +405,8 @@ pub(crate) fn analyze_project_paths(
         paths.to_vec(),
         warnings.clone(),
         &project_options.duplication,
-    )?;
+    )
+    .map_err(ProjectError::Analysis)?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
     crate::parity_cli::attach_parity_contract(
         &mut report,
@@ -406,6 +415,12 @@ pub(crate) fn analyze_project_paths(
         project_options,
         semantic.as_ref(),
     );
+    // The scanner, saved baseline and assigned service gate must all evaluate
+    // the same finalized parity evidence.
+    if let Some(reference) = &project_options.parity_reference {
+        crate::parity_cli::attach_comparison(&mut report, catalog, reference)
+            .map_err(ProjectError::Reference)?;
+    }
     attach_project_assessment(
         &mut report,
         &collected.source_inventory,
