@@ -94,6 +94,30 @@ the service still relies on an authorized scanner for its source scope,
 measurements, and baseline evidence. It does not independently check out code
 or authenticate coverage producers.
 
+### Prepare the native report for upload
+
+For an assigned gate that only checks **overall duplication density**, the
+ordinary native JSON report contains the file findings, project inventory and
+duplication measurements that the service needs. Start in the Hoonarqube
+checkout; set `SOURCE_DIR` to the project to scan and `RUNNER_TEMP` to an
+existing directory **outside** it:
+
+```sh
+set -eu
+(cd "$SOURCE_DIR" && hoonarqube analyze . --profile sonar-parity --format json) \
+  > "$RUNNER_TEMP/report.json"
+python3 scripts/prepare_analysis_upload.py --report "$RUNNER_TEMP/report.json" \
+  --branch "$BRANCH" --commit "$COMMIT" --analyzed-at "$ANALYZED_AT" \
+  > "$RUNNER_TEMP/ingest.json"
+```
+
+Use the scan's original UTC timestamp; keep the envelope for idempotent retries.
+The helper preserves the original JSON bytes and rejects envelopes above the
+standalone service's 16 MiB limit before sending anything. If the policy or
+workflow needs coverage, new-code or assessment evidence, generate the report
+with those inputs. An oversized report is a failed upload; do not discard
+findings, strip required evidence, or change the scan scope to make it fit.
+
 ### Enforce the upload verdict in CI
 
 HTTP 200 acknowledges storage. A failing or unavailable gate is still stored.
@@ -103,11 +127,11 @@ gate, and **2** for unavailable, unassigned, malformed, or mismatched results.
 
 ```sh
 # Use a trusted service URL and the scanner credential from the CI secret store.
-# ingest.json contains the analysis envelope described in the root README.
+# Use the prepared envelope from the previous step.
 set -eu
 curl --fail --silent --show-error \
   --oauth2-bearer "$SCANNER_TOKEN" -H 'Content-Type: application/json' \
-  --data-binary @ingest.json "$SERVICE_URL/api/v1/projects/$PROJECT/analyses" \
+  --data-binary "@$RUNNER_TEMP/ingest.json" "$SERVICE_URL/api/v1/projects/$PROJECT/analyses" \
   -o ingest-receipt.json
 python3 scripts/check_project_gate.py --project "$PROJECT" --branch "$BRANCH" \
   --commit "$COMMIT" < ingest-receipt.json
