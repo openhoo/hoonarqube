@@ -5,7 +5,7 @@ use crate::engine::calls::LocalSignatures;
 use crate::engine::file_context::FileContext;
 use crate::engine::project_context::PythonProjectContext;
 use crate::engine::rx::collect_regex_sites;
-use crate::engine::rx::parse_regex;
+use crate::engine::rx::parse_regex_with_multiline;
 
 use crate::rules::all_exports_exist::check_all_exports_exist;
 use crate::rules::any_all_list_comprehension::check_any_all_list_comprehension;
@@ -719,7 +719,7 @@ pub(crate) fn check_regex_battery(
         let Some(units) = &site.pattern else {
             continue;
         };
-        match parse_regex(units) {
+        match parse_regex_with_multiline(units, site.multiline) {
             Err(err) => issues.push(issue_at(
                 "python:S5856",
                 "Fix the syntax error inside this regex.",

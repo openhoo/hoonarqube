@@ -89,6 +89,9 @@ pub(crate) struct RxSeq {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RxItem {
+    /// A literal spelled with an octal, hex, Unicode, or named control escape.
+    /// Keep the spelling even when it decodes to the same character.
+    pub(crate) code_point_escape: bool,
     pub(crate) atom: RxAtom,
     pub(crate) quant: Option<RxQuant>,
     pub(crate) span: TextRange,
@@ -219,20 +222,21 @@ impl RxEscClass {
 pub(crate) enum RxAnchor {
     Caret,
     Dollar,
+    LineStart,
+    LineEnd,
     StringStart,
-    StringEnd,
-    StringEndNl,
+    EndOrFinalTerminator,
+    AbsoluteEnd,
     WordBoundary,
     NotWordBoundary,
 }
 
 impl RxAnchor {
-    pub(crate) fn is_start(self) -> bool {
-        matches!(self, Self::Caret | Self::StringStart)
-    }
-
     pub(crate) fn is_end(self) -> bool {
-        matches!(self, Self::Dollar | Self::StringEnd | Self::StringEndNl)
+        matches!(
+            self,
+            Self::Dollar | Self::LineEnd | Self::EndOrFinalTerminator | Self::AbsoluteEnd
+        )
     }
 }
 
@@ -288,14 +292,20 @@ pub(crate) struct RxParser<'a> {
     pub(crate) visible_numbers: Vec<u32>,
     pub(crate) visible_names: Vec<String>,
     all_names: Vec<String>,
+    multiline: bool,
     pub(crate) backrefs: Vec<RxBackrefRecord>,
     pub(crate) octals: Vec<RxOctalRecord>,
 }
 
 const RX_MAX_DEPTH: u32 = 48;
 
+/// The flag parser calls this only for validated ASCII flag letters.
+fn flag_bit(ch: char) -> u32 {
+    1 << (ch.to_ascii_lowercase() as u8 - b'a')
+}
+
 impl<'a> RxParser<'a> {
-    fn new(units: &'a [RxUnit]) -> Self {
+    fn new(units: &'a [RxUnit], multiline: bool) -> Self {
         Self {
             units,
             pos: 0,
@@ -304,6 +314,7 @@ impl<'a> RxParser<'a> {
             visible_numbers: Vec::new(),
             visible_names: Vec::new(),
             all_names: Vec::new(),
+            multiline,
             backrefs: Vec::new(),
             octals: Vec::new(),
         }
@@ -413,12 +424,23 @@ impl<'a> RxParser<'a> {
     }
 
     fn parse_item(&mut self) -> RxResult<RxItem> {
+        let code_point_escape = self.peek().is_some_and(|u| u.ch == '\\')
+            && self.peek_second().is_some_and(|u| {
+                matches!(
+                    u.ch,
+                    '0'..='7' | 'x' | 'u' | 'U' | 'N' | 'a' | 'f' | 'n' | 'r' | 't'
+                )
+            });
         let (atom, start) = self.parse_atom()?;
+        let atom_end = if matches!(atom, RxAtom::Anchor(_)) {
+            self.consumed_end(start)
+        } else {
+            atom_span_end(&atom, start)
+        };
         let quant = self.parse_quantifier()?;
-        let end = quant
-            .as_ref()
-            .map_or_else(|| atom_span_end(&atom, start), |q| q.span.end());
+        let end = quant.as_ref().map_or(atom_end, |q| q.span.end());
         Ok(RxItem {
+            code_point_escape,
             atom,
             quant,
             span: TextRange::new(start, end),
@@ -592,7 +614,9 @@ impl<'a> RxParser<'a> {
             '(' => return self.parse_group(start),
             '[' => RxAtom::Class(self.parse_class(start)?),
             '.' => RxAtom::Dot,
+            '^' if self.multiline => RxAtom::Anchor(RxAnchor::LineStart),
             '^' => RxAtom::Anchor(RxAnchor::Caret),
+            '$' if self.multiline => RxAtom::Anchor(RxAnchor::LineEnd),
             '$' => RxAtom::Anchor(RxAnchor::Dollar),
             '\\' => return self.parse_escape(start),
             other => RxAtom::Literal(other),
@@ -610,6 +634,7 @@ impl<'a> RxParser<'a> {
             .copied()
             .ok_or_else(|| self.err_at(None))?;
         self.enter(open)?;
+        let outer_multiline = self.multiline;
         let head = if self.peek().is_some_and(|u| u.ch == '?') {
             self.bump();
             self.parse_group_head()?
@@ -648,6 +673,9 @@ impl<'a> RxParser<'a> {
                 })
             }
         };
+        if !matches!(atom, RxAtom::GlobalFlags) {
+            self.multiline = outer_multiline;
+        }
         self.leave();
         Ok((atom, start))
     }
@@ -686,7 +714,7 @@ impl<'a> RxParser<'a> {
             },
             'P' => self.parse_p_extension(marker),
             '(' => self.parse_conditional_head(marker),
-            'a' | 'i' | 'L' | 'm' | 's' | 'u' | 'x' => self.parse_flag_group(marker),
+            'a' | 'i' | 'L' | 'm' | 's' | 'u' | 'x' | '-' => self.parse_flag_group(marker),
             _ => Err(self.err_at(Some(marker))),
         }
     }
@@ -760,22 +788,36 @@ impl<'a> RxParser<'a> {
 
     /// `(?flags)` global settings or `(?flags:body)` scoped groups.
     fn parse_flag_group(&mut self, marker: RxUnit) -> RxResult<GroupHead> {
-        // The dispatcher already consumed the first flag letter.
-        while self
-            .peek()
-            .is_some_and(|u| matches!(u.ch, 'a' | 'i' | 'L' | 'm' | 's' | 'u' | 'x'))
-        {
-            self.bump();
+        let mut enabled = 0u32;
+        if marker.ch != '-' {
+            enabled |= flag_bit(marker.ch);
+            while let Some(next) = self.peek().filter(|u| "aiLmsux".contains(u.ch)) {
+                enabled |= flag_bit(next.ch);
+                self.bump();
+            }
         }
-        match self.peek().map(|u| u.ch) {
-            Some(':') => {
+        let mut disabled = 0u32;
+        let removal = marker.ch == '-' || self.peek().is_some_and(|u| u.ch == '-');
+        if removal {
+            if marker.ch != '-' {
                 self.bump();
-                Ok(GroupHead::Kind(RxGroupKind::FlagScope))
             }
-            Some(')') => {
+            while let Some(next) = self.peek().filter(|u| "imsx".contains(u.ch)) {
+                disabled |= flag_bit(next.ch);
                 self.bump();
-                Ok(GroupHead::Complete(RxAtom::GlobalFlags))
             }
+            if disabled == 0 || enabled & disabled != 0 {
+                return Err(self.err_at(Some(marker)));
+            }
+        }
+        if enabled & flag_bit('m') != 0 {
+            self.multiline = true;
+        } else if disabled & flag_bit('m') != 0 {
+            self.multiline = false;
+        }
+        match self.bump().map(|u| u.ch) {
+            Some(':') => Ok(GroupHead::Kind(RxGroupKind::FlagScope)),
+            Some(')') if !removal => Ok(GroupHead::Complete(RxAtom::GlobalFlags)),
             _ => Err(self.err_at(Some(marker))),
         }
     }
@@ -827,11 +869,11 @@ impl<'a> RxParser<'a> {
             }
             'Z' => {
                 self.bump();
-                done(RxAtom::Anchor(RxAnchor::StringEnd))
+                done(RxAtom::Anchor(RxAnchor::EndOrFinalTerminator))
             }
             'z' => {
                 self.bump();
-                done(RxAtom::Anchor(RxAnchor::StringEndNl))
+                done(RxAtom::Anchor(RxAnchor::AbsoluteEnd))
             }
             'x' => self.parse_hex_escape(start, 2),
             'u' => self.parse_hex_escape(start, 4),
@@ -1142,7 +1184,11 @@ pub(crate) struct RxParsed {
 }
 
 pub(crate) fn parse_regex(units: &[RxUnit]) -> RxResult<RxParsed> {
-    RxParser::new(units).parse_root()
+    parse_regex_with_multiline(units, false)
+}
+
+pub(crate) fn parse_regex_with_multiline(units: &[RxUnit], multiline: bool) -> RxResult<RxParsed> {
+    RxParser::new(units, multiline).parse_root()
 }
 
 // ---------------------------------------------------------------------------
@@ -1176,6 +1222,7 @@ pub(crate) struct RegexSite {
     pub(crate) pattern: Option<Vec<RxUnit>>,
     pub(crate) repl: Option<RegexLiteral>,
     pub(crate) verbose: bool,
+    pub(crate) multiline: bool,
     pub(crate) match_type: RxMatchType,
 }
 
@@ -1252,6 +1299,27 @@ fn site_match_type(path: &str, call: &ruff_python_ast::ExprCall, body: &[Stmt]) 
     }
 }
 
+fn regex_multiline(path: &str, args: &ruff_python_ast::Arguments) -> bool {
+    let position = match path {
+        "re.compile" => 1,
+        "re.split" => 3,
+        "re.sub" | "re.subn" => 4,
+        _ => 2,
+    };
+    keyword_value(args, "flags")
+        .or_else(|| args.args.get(position))
+        .is_some_and(multiline_operand)
+}
+
+fn multiline_operand(expr: &Expr) -> bool {
+    if let Expr::BinOp(bin) = expr
+        && bin.op == ruff_python_ast::Operator::BitOr
+    {
+        return multiline_operand(&bin.left) || multiline_operand(&bin.right);
+    }
+    crate::support::dotted_name_in(expr, &["re.M", "re.MULTILINE"])
+}
+
 pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite> {
     let mut sites = Vec::new();
     for_each_call(body, &mut |call| {
@@ -1304,6 +1372,7 @@ pub(crate) fn collect_regex_sites(body: &[Stmt], source: &str) -> Vec<RegexSite>
             }),
             repl,
             verbose,
+            multiline: regex_multiline(&path, &call.arguments),
             match_type: site_match_type(&path, call, body),
         });
     });

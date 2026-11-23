@@ -11,7 +11,6 @@ use crate::engine::rx::rx_node_first_set;
 use crate::engine::rx::rx_positive_lookahead_body;
 use crate::engine::rx::rx_sets_intersect;
 use crate::rules::rx_alternation_nodes::check_rx_alternation_nodes;
-use crate::rules::rx_anchor_order::check_rx_anchor_order;
 use crate::rules::rx_space_runs::check_rx_space_runs;
 use ruff_text_size::TextRange;
 
@@ -42,8 +41,6 @@ pub(crate) fn check_rx_alternation_shapes(
     for_each_rx_seq_deep(&parsed.root, &mut |seq| {
         // python:S6002 — contradictory lookarounds.
         check_contradictory_lookaheads(&seq.items, push);
-        // python:S5996 — anchors that can never match.
-        check_rx_anchor_order(seq, push);
         // python:S6326 — multiple consecutive literal spaces; skipped under
         // the extended/verbose flag where whitespace is formatting.
         if !verbose {

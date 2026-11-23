@@ -31,7 +31,7 @@ jobs:
         run: python3 tools/oracle/blinker_build/replay.py target/release
       - name: Check pinned source blobs and selected Sonar primary locations
         run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube
-      - name: Check Python regex alternation locations on 16 pinned public packages
+      - name: Check Python regex alternatives and boundaries on 16 pinned public packages
         run: python3 tools/oracle/python_empty_alternatives/replay.py target/release/hoonarqube
       - name: Compare Ruby empty methods against positive and silent Community references
         run: >-

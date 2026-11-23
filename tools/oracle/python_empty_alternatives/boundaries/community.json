@@ -1,0 +1,559 @@
+[
+  {
+    "fixture": "flags.fixture",
+    "sha256": "bf0e3899449252a00bb875bc3092e45961e50e85b20602c3cfa3ee9a8bc98128",
+    "analysis": "7ce57b98-ebda-4a20-b9e4-0f5f1216641f",
+    "patterns": 25,
+    "locations": [
+      [
+        3,
+        14,
+        3,
+        15,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        4,
+        14,
+        4,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        11,
+        15,
+        11,
+        16,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        13,
+        14,
+        13,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        14,
+        15,
+        14,
+        16,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        17,
+        14,
+        17,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        18,
+        15,
+        18,
+        17,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        19,
+        19,
+        19,
+        20,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ]
+    ]
+  },
+  {
+    "fixture": "sequences.fixture",
+    "sha256": "b15d6790a7d6584a0a54ffdbee1ad204a7aaa3139bdcd1c2634eec370da3b1e7",
+    "analysis": "834bbf65-5e94-4caa-81f8-bc2f3356dc2b",
+    "patterns": 42,
+    "locations": [
+      [
+        3,
+        14,
+        3,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        6,
+        14,
+        6,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        7,
+        14,
+        7,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        15,
+        14,
+        15,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        17,
+        14,
+        17,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        18,
+        14,
+        18,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        18,
+        15,
+        18,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        19,
+        14,
+        19,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        19,
+        16,
+        19,
+        17,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        20,
+        14,
+        20,
+        15,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        20,
+        15,
+        20,
+        16,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        21,
+        14,
+        21,
+        16,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        21,
+        16,
+        21,
+        17,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        23,
+        22,
+        23,
+        23,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        24,
+        23,
+        24,
+        24,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        25,
+        23,
+        25,
+        24,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        26,
+        18,
+        26,
+        19,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        27,
+        18,
+        27,
+        20,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        28,
+        18,
+        28,
+        19,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        29,
+        14,
+        29,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        30,
+        17,
+        30,
+        18,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        33,
+        14,
+        33,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        35,
+        14,
+        35,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        36,
+        14,
+        36,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        38,
+        14,
+        38,
+        15,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        39,
+        14,
+        39,
+        15,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        41,
+        14,
+        41,
+        15,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        42,
+        13,
+        42,
+        14,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ]
+    ]
+  },
+  {
+    "fixture": "groups.fixture",
+    "sha256": "9ec897ea453c6cd4396e84f4614d5d1da6980bbf6bbfdba06ebb2c934e7735f9",
+    "analysis": "9d280846-b9f1-483b-a4f7-58059e9da009",
+    "patterns": 38,
+    "locations": [
+      [
+        3,
+        17,
+        3,
+        18,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        4,
+        17,
+        4,
+        18,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        5,
+        15,
+        5,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        6,
+        15,
+        6,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        7,
+        15,
+        7,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        8,
+        15,
+        8,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        9,
+        20,
+        9,
+        21,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        10,
+        19,
+        10,
+        20,
+        "Remove or replace this boundary that can only match if the previous part matched the empty string because it appears after mandatory input."
+      ],
+      [
+        11,
+        20,
+        11,
+        21,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        12,
+        24,
+        12,
+        25,
+        "Remove or replace this boundary that can only match if the previous part matched the empty string because it appears after mandatory input."
+      ],
+      [
+        13,
+        17,
+        13,
+        18,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        16,
+        14,
+        16,
+        15,
+        "Remove or replace this boundary that can only match if the previous part matched the empty string because it appears before mandatory input."
+      ],
+      [
+        17,
+        14,
+        17,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        18,
+        14,
+        18,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        21,
+        14,
+        21,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        28,
+        14,
+        28,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        31,
+        15,
+        31,
+        16,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        32,
+        19,
+        32,
+        20,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        33,
+        23,
+        33,
+        24,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        35,
+        21,
+        35,
+        22,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        36,
+        15,
+        36,
+        17,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        37,
+        15,
+        37,
+        16,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        38,
+        19,
+        38,
+        20,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        39,
+        14,
+        39,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        39,
+        16,
+        39,
+        17,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        40,
+        14,
+        40,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        40,
+        15,
+        40,
+        16,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        40,
+        16,
+        40,
+        17,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        40,
+        17,
+        40,
+        18,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ]
+    ]
+  },
+  {
+    "fixture": "escapes.fixture",
+    "sha256": "1fb0090ecc959792420f730bcae211ffb3e5733dca581b6041ff370f3ba162f5",
+    "analysis": "00582a52-9289-4d96-bd7e-680d6bedf144",
+    "patterns": 29,
+    "locations": [
+      [
+        3,
+        14,
+        3,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        4,
+        14,
+        4,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        11,
+        14,
+        11,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        14,
+        14,
+        14,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        22,
+        14,
+        22,
+        15,
+        "Remove or replace this boundary that can only match if the previous part matched the empty string because it appears before mandatory input."
+      ],
+      [
+        23,
+        14,
+        23,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        24,
+        14,
+        24,
+        15,
+        "Remove or replace this boundary that can only match if the previous part matched the empty string because it appears before mandatory input."
+      ],
+      [
+        27,
+        17,
+        27,
+        18,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ],
+      [
+        28,
+        17,
+        28,
+        18,
+        "Remove or replace this boundary that will never match because it appears after mandatory input."
+      ],
+      [
+        31,
+        14,
+        31,
+        15,
+        "Remove or replace this boundary that will never match because it appears before mandatory input."
+      ]
+    ]
+  }
+]
