@@ -21,6 +21,7 @@ mod analyze;
 mod assessment_cli;
 mod cache;
 mod notebook;
+mod notebook_gate;
 mod parity_cli;
 mod project_features;
 mod reports;
@@ -55,6 +56,15 @@ enum Command {
     Notebook {
         /// Original nbformat 4 .ipynb file, in saved cell order.
         path: std::path::PathBuf,
+    },
+    /// Check an explicit notebook file set against an ipython:S7502 violation limit.
+    NotebookGate {
+        /// Fail when the number of ipython:S7502 findings exceeds this value.
+        #[arg(long)]
+        max_violations: u32,
+        /// All original notebook files in the selected scope. Directories are unsupported.
+        #[arg(required = true)]
+        paths: Vec<std::path::PathBuf>,
     },
     /// Analyze supported sources under the given files or directories.
     Analyze {
@@ -240,6 +250,10 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let catalog = embedded();
     match &cli.command {
+        Command::NotebookGate {
+            paths,
+            max_violations,
+        } => notebook_gate::run(paths, *max_violations, cli.json),
         Command::Notebook { path } => notebook::run(path, cli.json),
         Command::Snapshot => print_snapshot(catalog, cli.json),
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),

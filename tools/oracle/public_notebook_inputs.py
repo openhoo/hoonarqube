@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 
 from community_new_duplication import git
+from notebook_gate_replay import compare as compare_gate
+from notebook_gate_replay import scopes as gate_scopes
 from notebook_layouts import replay as replay_layouts
 from public_coverage_gate_replay import check
 from public_empty_inventory_gate import select
@@ -237,6 +239,8 @@ def main():
         and {case["repository"] for case in captures["projects"]} == REPOS,
         "unexpected reference capture",
     )
+    gate_rows = gate_scopes()
+    decisions = []
     total = positives = missing = native = refused = 0
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
@@ -270,6 +274,11 @@ def main():
             )
             git(root, "fetch", "-q", "--no-tags", "--depth=1", source, case["commit"])
             check_scope(root, binary, case, policy)
+            decisions.extend(
+                compare_gate(root, binary, case, row, UNAVAILABLE)
+                for row in gate_rows
+                if row["repository"] == repo
+            )
             for path, expected in case["files"].items():
                 hits, unavailable = compare_notebook(root, binary, path, expected)
                 native += hits
@@ -285,6 +294,12 @@ def main():
                 f"{repo} {case['commit']}: explicit and mixed gates unavailable; exclusion passes"
             )
     check((total, positives, missing) == (21, 1, 1), "different qualification cohort")
+    check(
+        sorted(decisions)
+        == ["fail", "pass", "pass", "pass", "unavailable", "unavailable"],
+        "wrong set of assigned notebook decisions",
+    )
+    print("Assigned one-rule notebook gates: three pass, one fail, two unavailable.")
     check((native, refused) == (1, 3), "different native notebook scope")
     print(
         "Notebook rule: one exact primary range, 17 inspected silent files, three unavailable."

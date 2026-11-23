@@ -537,7 +537,11 @@ covers Python files only, select those inputs or pass `--exclude '**/*.ipynb'`.
 Inspect a saved Python notebook for the independently qualified `ipython:S7502`
 diagnostic with `hoonarqube notebook --json example.ipynb`. Its JSON reports
 the cell index and physical UTF-16 range, or why inspection was unavailable.
-This command does not participate in a project gate.
+For a CI job that explicitly checks only this rule, use
+`hoonarqube notebook-gate --max-violations 0 --json -- first.ipynb second.ipynb`.
+It returns 0 for pass, 1 for fail and 2 for unavailable, with a SHA-256 digest
+for each inspected input. The regular project gate still treats notebooks as
+unmeasured.
 See the [measured notebook behavior](docs/engineering/notebook-scope-26.11.md).
 
 Facts collection limits individual inputs to 16 MiB.
