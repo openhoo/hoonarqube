@@ -209,7 +209,7 @@ impl ProjectSemanticContext {
                 let mut report = hoonarqube_python::analyze_with_context(
                     module_path.to_path_buf(),
                     source,
-                    &options.python,
+                    &hoonarqube_core::python_options_for_profile(options.profile, &options.python),
                     context,
                 );
                 // Module identity follows the selected import namespace;

@@ -39,12 +39,15 @@ pub enum RuleProfile {
 }
 
 impl RuleProfile {
-    /// Identity of the rule selection; frozen activation changes invalidate
-    /// both cached reports and assessment baselines.
+    /// Identity of the rule selection; changes to the frozen activations or
+    /// their native mapping invalidate cached reports and assessment baselines.
     #[must_use]
     pub fn selection_identity(self) -> String {
         if self == Self::Community2611PythonCore {
-            format!("{self}@{}", python_core::PythonCoreSelection::digest())
+            format!(
+                "{self}@{}+s905-v1",
+                python_core::PythonCoreSelection::digest()
+            )
         } else {
             self.to_string()
         }

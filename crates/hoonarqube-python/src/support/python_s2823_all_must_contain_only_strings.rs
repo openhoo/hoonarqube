@@ -146,9 +146,9 @@ pub(crate) fn visit_suites_for_no_effect(
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
-    report_on_strings: bool,
+    options: &crate::AnalyzerOptions,
 ) {
-    visit_suite_for_no_effect(suite, issues, index, source, report_on_strings, false);
+    visit_suite_for_no_effect(suite, issues, index, source, options, false);
 }
 
 fn visit_suite_for_no_effect(
@@ -156,7 +156,7 @@ fn visit_suite_for_no_effect(
     issues: &mut Vec<Issue>,
     index: &LineIndex,
     source: &str,
-    report_on_strings: bool,
+    options: &crate::AnalyzerOptions,
     in_function_body: bool,
 ) {
     for (position, stmt) in suite.iter().enumerate() {
@@ -167,8 +167,14 @@ fn visit_suite_for_no_effect(
             // and a bare ellipsis directly in a function body is a valid
             // overload/protocol stub, not a no-effect statement.
             let exempt = match value_expr {
-                Expr::StringLiteral(_) => !report_on_strings || position == 0,
-                Expr::EllipsisLiteral(_) => in_function_body,
+                Expr::StringLiteral(_) => !options.report_on_strings || position == 0,
+                Expr::EllipsisLiteral(_) => options.s905_ignore_ellipsis || in_function_body,
+                // Ignore the statement itself; an operator nested inside a
+                // different expression doesn't exempt that statement.
+                Expr::BinOp(binary) => options
+                    .s905_ignored_operators
+                    .iter()
+                    .any(|operator| operator == binary.op.as_str()),
                 _ => false,
             };
             if !exempt && statement_has_no_effect(value_expr) {
@@ -183,14 +189,7 @@ fn visit_suite_for_no_effect(
         }
         let nested_function = matches!(stmt, Stmt::FunctionDef(_));
         for body in child_bodies(stmt) {
-            visit_suite_for_no_effect(
-                body,
-                issues,
-                index,
-                source,
-                report_on_strings,
-                nested_function,
-            );
+            visit_suite_for_no_effect(body, issues, index, source, options, nested_function);
         }
     }
 }

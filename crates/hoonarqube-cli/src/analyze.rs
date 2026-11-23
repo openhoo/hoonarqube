@@ -427,7 +427,7 @@ pub(crate) fn analyze_project_paths(
                 .filter(|key| catalog.rule(key).is_none())
                 .cloned()
                 .collect(),
-            unmapped_parameter_keys: selection.parameters.keys().cloned().collect(),
+            unmapped_parameter_keys: selection.unmapped_parameter_keys().cloned().collect(),
         });
     }
     crate::parity_cli::attach_parity_contract(
