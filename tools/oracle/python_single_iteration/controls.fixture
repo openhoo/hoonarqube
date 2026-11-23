@@ -1,0 +1,94 @@
+from collections import Counter
+
+x = 1
+x = x
+x: int = x
+external: Counter = external
+
+def assigns(arg, obj):
+    arg = arg
+    arg: int = arg
+    obj.value = obj.value
+    obj.value: int = obj.value
+    obj[0] = obj[0]
+    obj[0]: int = obj[0]
+
+def plain_loop(values):
+    for x in values:
+        print(x)
+        break
+    while values:
+        print(values)
+        break
+
+def continue_inside(values, groups):
+    for x in values:
+        for group in groups:
+            if group:
+                continue
+        break
+
+def continue_else(values, groups):
+    for x in values:
+        for group in groups:
+            if group:
+                break
+        else:
+            continue
+        break
+
+def continue_while_else(values, groups):
+    for x in values:
+        while groups:
+            if groups.pop():
+                break
+        else:
+            if x:
+                continue
+        break
+
+def other_exit(values, flag):
+    for x in values:
+        if flag:
+            return 1
+        break
+    for x in values:
+        if flag:
+            break
+        else:
+            return 2
+    for x in values:
+        return x
+    for x in values:
+        raise ValueError(x)
+
+def noop():
+    print("ok")
+
+def annotated_noop() -> None:
+    print("ok")
+
+def raise_only():
+    raise ValueError()
+
+def direct_return():
+    return noop()
+
+def annotated_return() -> None:
+    return noop()
+
+def direct_annotated():
+    return annotated_noop()
+
+def consume():
+    a = noop()
+    b = annotated_noop()
+    c = raise_only()
+    print(noop())
+    return (noop(),)
+
+def branches(flag):
+    return noop() if flag else noop()
+
+def expression():
+    return not noop()

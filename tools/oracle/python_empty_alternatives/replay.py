@@ -6,61 +6,17 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-from public_contract import git, require, safe_path, stage  # noqa: E402
+from public_contract import require, safe_path  # noqa: E402
+from public_python_core import analyze, package_findings  # noqa: E402
 
 ALTERNATIVES = "python:S6323"
 BOUNDARIES = "python:S5996"
-
-
-def analyze(binary, root, files):
-    proc = subprocess.run(
-        [
-            binary,
-            "analyze",
-            *sorted(files),
-            "--profile",
-            "community-26.11-python-core",
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        cwd=root,
-        timeout=120,
-    )
-    report = json.loads(proc.stdout)
-    require(
-        report["project"]["complete"]
-        and len(report["files"]) == len(files)
-        and {f["path"] for f in report["files"]} == set(files),
-        "native inventory changed",
-    )
-    require(
-        proc.returncode == 2
-        and report["partial_rule_selection"]["profile"] == "community-26.11-python-core"
-        and report["partial_rule_selection"]["reference_version"] == "26.11.0.134175"
-        and report["partial_rule_selection"]["reference_active_rules"] == 232,
-        "profile completion and exit disagree",
-    )
-    return Counter(
-        (
-            i["rule_key"],
-            f["path"],
-            *[
-                i["range"][pos][key]
-                for pos in ("start", "end")
-                for key in ("line", "column")
-            ],
-            i["message"],
-        )
-        for f in report["files"]
-        for i in f["issues"]
-    )
+PACKAGE_RULES = {ALTERNATIVES, BOUNDARIES, "python:S1751"}
 
 
 def probe(binary):
@@ -112,35 +68,13 @@ def boundary_probes(binary):
 
 
 def check_case(binary, case, local):
-    safe_path(case["repository"])
-    for path in case["files"]:
-        safe_path(path)
-    with tempfile.TemporaryDirectory() as tmp:
-        root = stage(case, Path(tmp), local)
-        entries = (
-            git(
-                local or Path(tmp) / "objects",
-                "ls-tree",
-                "-rz",
-                "--name-only",
-                case["commit"],
-                "--",
-                case["scope"],
-            )
-            .decode()
-            .split("\0")
-        )
-        require(
-            {p for p in entries if p.endswith(".py")} == set(case["files"]),
-            "reference inventory differs from pinned source scope",
-        )
-        native = analyze(binary, root, case["files"])
+    native = package_findings(binary, case, local)
     ref = Counter(tuple(x) for x in case["issues"])
     require(not case["hotspots"], "hotspots require a separate comparison")
     require(
-        {k: v for k, v in native.items() if k[0] in (ALTERNATIVES, BOUNDARIES)}
-        == {k: v for k, v in ref.items() if k[0] in (ALTERNATIVES, BOUNDARIES)},
-        f"{case['repository']}: S6323/S5996 differs",
+        {k: v for k, v in native.items() if k[0] in PACKAGE_RULES}
+        == {k: v for k, v in ref.items() if k[0] in PACKAGE_RULES},
+        f"{case['repository']}: S6323/S5996/S1751 differs",
     )
     return dict(
         files=len(case["files"]),

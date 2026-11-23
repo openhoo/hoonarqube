@@ -789,7 +789,9 @@ pub(crate) fn check_tier_b_battery(
         table, facts, options, index, source,
     ));
     issues.extend(check_unreachable_except_blocks(index, source, file_ctx));
-    issues.extend(check_single_iteration_loops(index, source, file_ctx));
+    if !test_scope {
+        issues.extend(check_single_iteration_loops(index, source, file_ctx));
+    }
     issues.extend(check_infinite_recursion(parsed, index, source, file_ctx));
     issues.extend(check_explicit_test_skips(index, source, file_ctx));
     issues.extend(check_tf_function_recursion(index, source, file_ctx));

@@ -356,7 +356,15 @@ pub(crate) fn analyze_project_paths(
     warnings: &mut Vec<String>,
 ) -> Result<hoonarqube_ir::AnalysisReport, String> {
     let mut collected = collect_project_inputs(paths, project_options, options.profile, warnings);
-    let options = &with_csharp_project_index(options, &collected);
+    let mut project_analyzers = with_csharp_project_index(options, &collected);
+    // On the Community Python profile an explicit test selection replaces
+    // filename inference. Matching inputs are set to TEST per file below.
+    if project_analyzers.profile == hoonarqube_catalog::RuleProfile::Community2611PythonCore
+        && !project_options.raw_patterns.test_include.is_empty()
+    {
+        project_analyzers.python.test_scope = Some(false);
+    }
+    let options = &project_analyzers;
     let semantic = load_project_semantic_context(
         project_options,
         options,
