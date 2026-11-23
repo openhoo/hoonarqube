@@ -291,7 +291,13 @@ def coverage_cases(root, basepaths, receipt, reference, reference_ids, run_gate,
             hashlib.sha256(raw).hexdigest() == receipt["cases"][suite]["lcov_sha256"],
             "wrong LCOV",
         )
-        lcov = Path(".hoonarqube-replay") / (suite + ".lcov")
+        # CI can store test artifacts beside the checkout. Send an external
+        # report through the same ingestion and restart checks as the local one.
+        lcov = (
+            root.parent / "broad.lcov"
+            if suite == "broad"
+            else Path(".hoonarqube-replay/focused.lcov")
+        )
         (root / lcov).write_bytes(raw)
         for base, expected_lines in zip(BASES, (5, 48), strict=True):
             changed = changed_lines(root, base)
