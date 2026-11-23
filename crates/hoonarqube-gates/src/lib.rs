@@ -240,11 +240,7 @@ pub fn evaluate_gate_with_reviews(
         };
     }
 
-    if report.schema_version != 1 {
-        let diagnostic = format!(
-            "unsupported analysis report schema_version {}; expected 1",
-            report.schema_version
-        );
+    if let Some(diagnostic) = report_prerequisite_error(report) {
         diagnostics.push(diagnostic.clone());
         conditions.extend(
             config
@@ -288,6 +284,31 @@ pub fn evaluate_gate_with_reviews(
         conditions,
         diagnostics,
     }
+}
+
+fn report_prerequisite_error(report: &AnalysisReport) -> Option<String> {
+    if report.schema_version != 1 {
+        return Some(format!(
+            "unsupported analysis report schema_version {}; expected 1",
+            report.schema_version
+        ));
+    }
+    // A directory walk may complete without discovering any analyzable input.
+    // Project size counts only source files; a measured test also proves input.
+    if report.project.complete
+        && !report.project.files.iter().any(|file| {
+            matches!(
+                file.classification,
+                FileClassification::Source | FileClassification::Test
+            ) && file.status == MeasurementStatus::Complete
+                && file.metrics.is_some()
+        })
+    {
+        return Some(
+            "project has no measured source or test files; gate metrics are unavailable".into(),
+        );
+    }
+    None
 }
 
 fn evaluate_condition(
@@ -1735,6 +1756,56 @@ mod tests {
         assert_eq!(evaluated.conditions[0].status, GateStatus::Fail);
         assert_eq!(evaluated.conditions[1].status, GateStatus::Unavailable);
         assert!(evaluated.conditions[1].actual.is_none());
+    }
+
+    #[test]
+    fn gate_requires_a_measured_file_even_when_discovery_completed() {
+        let mut report = report(true);
+        report.project.metrics.files = 0;
+        report.project.files.clear();
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![
+                condition(
+                    GateScope::Overall,
+                    "duplicated_lines",
+                    GateOperator::Lte,
+                    0.0,
+                ),
+                condition(GateScope::NewCode, "lines", GateOperator::Gte, 0.0),
+            ],
+        };
+        // No matching files, then only an excluded path.
+        for excluded in [false, true] {
+            if excluded {
+                let mut file = project_file("vendor/lib.rs", 1);
+                file.classification = FileClassification::Vendor;
+                file.status = MeasurementStatus::Excluded;
+                file.metrics = None;
+                file.duplication = None;
+                report.project.files.push(file);
+            }
+            let gate = evaluate_gate(&config, &report);
+            for result in &gate.conditions {
+                assert_eq!(result.status, GateStatus::Unavailable);
+                assert_eq!(result.actual, None);
+                assert!(
+                    result
+                        .diagnostic
+                        .as_deref()
+                        .unwrap()
+                        .contains("no measured")
+                );
+            }
+        }
+        // Test files are analyzed, even though the project source counter is zero.
+        let mut test = project_file("tests/example.rs", 0);
+        test.classification = FileClassification::Test;
+        report.project.files.push(test);
+        assert_eq!(
+            evaluate_gate(&config, &report).conditions[0].status,
+            GateStatus::Pass
+        );
     }
 
     #[test]
