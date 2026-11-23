@@ -1,0 +1,213 @@
+{
+  "community_version": "26.11.0.134175",
+  "reference_image": "sonarqube@sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba",
+  "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "repository": "github-linguist/linguist",
+  "github_id": 1725199,
+  "commit": "cfd7a0113aa1efab99faeff38756f0ed4d48add8",
+  "tree": "5ee09afd58c8f2a51e70e674aac9769658dd3cdb",
+  "files": {
+    "samples/JavaScript/hello.js": {
+      "git_blob": "c1c58ec210cb224e9c64ff739f0316650f187028",
+      "bytes": 61,
+      "sha256": "8055a50c4eeb4f0fc46e99de50bb333939141041d40aecd3058a8c6946b04621"
+    },
+    "samples/Jupyter Notebook/JupyterNotebook.ipynb": {
+      "git_blob": "2ca740860979dfa34cef80e5c904ddcfde9fc738",
+      "bytes": 198905,
+      "sha256": "189f1d6019818f7d5bd9b301327e1c58958efcdd901b2a317123674b73640e5b"
+    },
+    "samples/PHP/root.php": {
+      "git_blob": "8f8be56328b5707e0872aee9b4c7e7ccce3fe2d1",
+      "bytes": 127,
+      "sha256": "3771e2e43d57c2302b5a2ac88177d8524b978648d9a4fcd398973f553127e8a9"
+    },
+    "samples/ActionScript/HelloWorld.as": {
+      "git_blob": "0586fd0db4a99c1d54207017260b133fc1dfafde",
+      "bytes": 215,
+      "sha256": "8b0e51d05cbc007cbc714b1a7bd1fb30d3340fde68bcde2b82ecfe35277bce90"
+    },
+    "samples/Kotlin/Foo.kt": {
+      "git_blob": "59291333a9f0f64059dfdcdf463702107effd737",
+      "bytes": 971,
+      "sha256": "b522d44c928d59b3f0bc5fd76acaa9ede041b204527eeb0ab7d9e8dc97e6cfc5"
+    },
+    "samples/HCL/example.tf": {
+      "git_blob": "976c2e07554bdeda9e2edb0b99ad92ce3fdb4b57",
+      "bytes": 313,
+      "sha256": "59c003f4adf1e516eb787350b78e7288446f8755e620b32bedb2ce965f0264e2"
+    },
+    "samples/HCL/example.hcl": {
+      "git_blob": "276b171e06ea751a594aca47bf63811cdc19b1dd",
+      "bytes": 74,
+      "sha256": "2936478c0d51e311e588f02695b36429a195857d3c7f6880e1fa888cd1a7335b"
+    },
+    "samples/JSON/product.json": {
+      "git_blob": "2d5611a3c7ee53cbaf0e2db5e331d90937d8eb74",
+      "bytes": 146,
+      "sha256": "4234cad67e11c4e87fe07cccbf87bbefcdedc5622775c0b5c4a99f908df9aad3"
+    },
+    "samples/XML/pt_BR.xml": {
+      "git_blob": "bfaf00157b60b5250d295712686f1ccc4c38fd45",
+      "bytes": 1522,
+      "sha256": "d82a8219ab56e569e364a31e1c1797aa80e5305252080b71c47eb80658e05bda"
+    },
+    "samples/YAML/229Q.yaml": {
+      "git_blob": "e4f92cedd21ef47b900da36b839f4788102e6a2a",
+      "bytes": 939,
+      "sha256": "31c0193b774c5ee5c61ae813138a948d68d0dcc444628c995fea9a8018117657"
+    },
+    "samples/YAML/vcr_cassette.yml": {
+      "git_blob": "cf21a3fbfbfc0ba6aa34f0b54d5e65c5f156f13f",
+      "bytes": 396,
+      "sha256": "564da1081b006d637279cdf30259a92e66d7a00d8b98ce68e078a58b9e5a0258"
+    },
+    "samples/Dockerfile/filenames/Dockerfile": {
+      "git_blob": "46f9b585c8251756ad6c36e5144d6f0907419c1b",
+      "bytes": 1503,
+      "sha256": "1be7d51f8877db0b7459687955b03b6d37978e281e0b46dab57fd29fcfb17403"
+    },
+    "samples/CSS/bootstrap.css": {
+      "git_blob": "6b2ba3098aa9739eee0509256aa49993a4c5f6e0",
+      "bytes": 146970,
+      "sha256": "8597ae6731f9dc9bdbc3d77e2ce0a651351b61a2811d624c1f009d39e665aa51"
+    },
+    "samples/SCSS/screen.scss": {
+      "git_blob": "7deebf32debe7c3e4542ba55cd04e5ef9aa743e3",
+      "bytes": 194,
+      "sha256": "e8a0959a84931ba31cdb65f43f67f72719b506a9d30e692901e379f48735d366"
+    },
+    "samples/Sass/screen.sass": {
+      "git_blob": "7182195d6f72272437ac3c8e58f2391c25b15620",
+      "bytes": 175,
+      "sha256": "844ae9f68f83c2459edd164832e5b4b258d5193124ef8c32069ee56e6d3677d4"
+    },
+    "samples/Less/screen.less": {
+      "git_blob": "89a252a397f8178a2215dc3c1d5c210f777f6c94",
+      "bytes": 194,
+      "sha256": "f50ebfcfa03b9d3605c84fa742bf8a1f730e1808b858a2568411a6fec6e60f3f"
+    },
+    "samples/HTML/pages.html": {
+      "git_blob": "e068e4fa7f43baa07561bf31067a0f509e29b541",
+      "bytes": 1551,
+      "sha256": "8d3af7b03055d9bc8280765c2eb2c49517d40818ec02a3ee5c8af1f215458d3e"
+    },
+    "samples/Markdown/tender.md": {
+      "git_blob": "82d3a02b3c93df9b2ffb57364e45d84f362b1db1",
+      "bytes": 14,
+      "sha256": "5119730a4920a999dbb2662980412cce6f1f32d310fc912a5229d55bd3765083"
+    },
+    "samples/Visual Basic .NET/Module1.vb": {
+      "git_blob": "caa091957733ec0a726c4eb8c35848e01d7c9606",
+      "bytes": 261,
+      "sha256": "923034eb85abbb86a79da6492d485680d0baf66aa2541b04bc5e4b403e632c83"
+    },
+    "samples/Gradle Kotlin DSL/build.gradle.kts": {
+      "git_blob": "82242563acbeec02acddcf09001ddc9a36b8e748",
+      "bytes": 5987,
+      "sha256": "a5a736d8f7c1b82ab9ce23dfc7bd621a91139257de5337915da03f1f418b3da9"
+    }
+  },
+  "gate": {
+    "metric": "files",
+    "comparator": "GT",
+    "error": "1",
+    "assigned": "HQ Linguist mixed scope files 20261123"
+  },
+  "cases": {
+    "mixed": {
+      "project_key": "hq-linguist-extent-v2-2611-mixed-cfd7a011",
+      "analysis": "2f74f7de-eab0-40a6-82b1-ef03319f4df2",
+      "task": "25184e08-b2b2-4fc8-af27-140a3f3a4749",
+      "indexed": {
+        "samples/CSS/bootstrap.css": "css",
+        "samples/Gradle Kotlin DSL/build.gradle.kts": "kotlin",
+        "samples/Dockerfile/filenames/Dockerfile": "docker",
+        "samples/HCL/example.tf": "terraform",
+        "samples/Kotlin/Foo.kt": "kotlin",
+        "samples/JavaScript/hello.js": "js",
+        "samples/ActionScript/HelloWorld.as": "flex",
+        "samples/Jupyter Notebook/JupyterNotebook.ipynb": "ipynb",
+        "samples/Visual Basic .NET/Module1.vb": "vbnet",
+        "samples/HTML/pages.html": "web",
+        "samples/XML/pt_BR.xml": "xml",
+        "samples/PHP/root.php": "php",
+        "samples/Less/screen.less": "css",
+        "samples/Sass/screen.sass": "css",
+        "samples/SCSS/screen.scss": "css"
+      },
+      "status": "ERROR",
+      "actual_files": 15,
+      "exclusions": []
+    },
+    "control": {
+      "project_key": "hq-linguist-extent-v2-2611-control-cfd7a011",
+      "analysis": "7b564494-a3d6-4a85-8a92-92963ac2e113",
+      "task": "dcdabc97-81bd-46d9-a4a6-afe58b92766f",
+      "indexed": {
+        "samples/JavaScript/hello.js": "js"
+      },
+      "status": "OK",
+      "actual_files": 1,
+      "exclusions": [
+        "samples/Jupyter Notebook/JupyterNotebook.ipynb",
+        "samples/PHP/root.php",
+        "samples/ActionScript/HelloWorld.as",
+        "samples/Kotlin/Foo.kt",
+        "samples/HCL/example.tf",
+        "samples/HCL/example.hcl",
+        "samples/JSON/product.json",
+        "samples/XML/pt_BR.xml",
+        "samples/YAML/229Q.yaml",
+        "samples/YAML/vcr_cassette.yml",
+        "samples/Dockerfile/filenames/Dockerfile",
+        "samples/CSS/bootstrap.css",
+        "samples/SCSS/screen.scss",
+        "samples/Sass/screen.sass",
+        "samples/Less/screen.less",
+        "samples/HTML/pages.html",
+        "samples/Markdown/tender.md",
+        "samples/Visual Basic .NET/Module1.vb",
+        "samples/Gradle Kotlin DSL/build.gradle.kts"
+      ]
+    }
+  },
+  "extension_settings": {
+    "sonar.ipynb.file.suffixes": [
+      "ipynb"
+    ],
+    "sonar.terraform.file.suffixes": [
+      ".tf"
+    ],
+    "sonar.css.file.suffixes": [
+      ".css",
+      ".less",
+      ".scss",
+      ".sass"
+    ],
+    "sonar.vbnet.file.suffixes": [
+      ".vb"
+    ],
+    "sonar.kotlin.file.suffixes": [
+      ".kt",
+      ".kts"
+    ],
+    "sonar.php.file.suffixes": [
+      "php",
+      "php3",
+      "php4",
+      "php5",
+      "phtml",
+      "inc"
+    ],
+    "sonar.xml.file.suffixes": [
+      ".xml",
+      ".xsd",
+      ".xsl",
+      ".config"
+    ],
+    "sonar.flex.file.suffixes": [
+      "as"
+    ]
+  }
+}
