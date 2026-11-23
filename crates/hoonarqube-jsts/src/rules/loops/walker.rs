@@ -1,4 +1,7 @@
 // Family walker for 'loops' (generated).
+use std::collections::HashSet;
+
+use super::invariant_condition::{self, Condition};
 use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::rules::shared::call_property;
@@ -24,12 +27,14 @@ use oxc_ast_visit::walk::{
     walk_switch_case, walk_this_expression, walk_unary_expression, walk_update_expression,
     walk_variable_declarator, walk_while_statement,
 };
+use oxc_semantic::{Semantic, SymbolId};
 use oxc_span::{GetSpan, Span};
 use oxc_syntax::scope::ScopeFlags;
 
-fn check_loop_rules(
-    program: &oxc_ast::ast::Program<'_>,
-    source: &str,
+fn check_loop_rules<'a>(
+    program: &oxc_ast::ast::Program<'a>,
+    semantic: Option<&Semantic<'a>>,
+    source: &'a str,
     index: &LineIndex,
     language: JstsLanguage,
 ) -> Vec<Issue> {
@@ -40,6 +45,8 @@ fn check_loop_rules(
             issues: Vec::new(),
         },
         source,
+        semantic,
+        reported_condition_bindings: HashSet::new(),
         frames: Vec::new(),
         case_depth: 0,
         break_targets: Vec::new(),
@@ -58,9 +65,11 @@ enum BreakTarget {
 }
 
 /// Loop-shape rules in one traversal.
-struct LoopFlowCollector<'a, 'index> {
+struct LoopFlowCollector<'a, 'index, 'semantic> {
     sink: IssueSink<'index>,
     source: &'a str,
+    semantic: Option<&'semantic Semantic<'a>>,
+    reported_condition_bindings: HashSet<SymbolId>,
     /// One frame per lexically enclosing visited loop.
     frames: Vec<LoopFrame>,
     /// Nesting depth of switch cases; unlabeled breaks inside them target
@@ -71,7 +80,7 @@ struct LoopFlowCollector<'a, 'index> {
     break_targets: Vec<BreakTarget>,
 }
 
-impl<'a> LoopFlowCollector<'a, '_> {
+impl<'a> LoopFlowCollector<'a, '_, '_> {
     fn push_frame(&mut self) {
         self.frames.push(LoopFrame::default());
     }
@@ -145,6 +154,19 @@ impl<'a> LoopFlowCollector<'a, '_> {
                     span.start
                         .saturating_add(u32::try_from(keyword_len).unwrap_or_default()),
                 ),
+            );
+        }
+    }
+
+    fn check_invariant_condition(&mut self, condition: Condition<'a, '_>) {
+        if self.sink.language == JstsLanguage::JavaScript
+            && let Some(semantic) = self.semantic
+        {
+            invariant_condition::check(
+                condition,
+                semantic,
+                &mut self.reported_condition_bindings,
+                &mut self.sink,
             );
         }
     }
@@ -535,7 +557,7 @@ fn identifier_tokens(source: &str) -> Vec<&str> {
     names
 }
 
-impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
+impl<'a> Visit<'a> for LoopFlowCollector<'a, '_, '_> {
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         self.with_function_boundary(|collector| walk_function(collector, it, flags));
     }
@@ -662,6 +684,15 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
             }
             self.check_counter_updated(it, counter_name);
         }
+        if let Some(test) = &it.test {
+            self.check_invariant_condition(Condition {
+                test,
+                body: &it.body,
+                init: it.init.as_ref().map(GetSpan::span),
+                update: it.update.as_ref(),
+                span: it.span(),
+            });
+        }
         let endless = it.test.is_none();
         self.push_frame();
         self.break_targets.push(BreakTarget::Loop);
@@ -678,6 +709,13 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
     fn visit_while_statement(&mut self, it: &WhileStatement<'a>) {
         self.check_constant_test(Some(&it.test), it.span());
         self.check_single_iteration_body(&it.body);
+        self.check_invariant_condition(Condition {
+            test: &it.test,
+            body: &it.body,
+            init: None,
+            update: None,
+            span: it.span(),
+        });
         let endless = is_constant_true(Some(&it.test));
         self.push_frame();
         self.break_targets.push(BreakTarget::Loop);
@@ -689,6 +727,13 @@ impl<'a> Visit<'a> for LoopFlowCollector<'a, '_> {
     fn visit_do_while_statement(&mut self, it: &DoWhileStatement<'a>) {
         self.check_constant_test(Some(&it.test), it.span());
         self.check_single_iteration_body(&it.body);
+        self.check_invariant_condition(Condition {
+            test: &it.test,
+            body: &it.body,
+            init: None,
+            update: None,
+            span: it.span(),
+        });
         let endless = is_constant_true(Some(&it.test));
         self.push_frame();
         self.break_targets.push(BreakTarget::Loop);
@@ -856,7 +901,13 @@ fn is_own_property_guard(call: &CallExpression<'_>) -> bool {
 }
 
 pub(crate) fn run(ctx: &AnalysisContext) -> Vec<Issue> {
-    check_loop_rules(ctx.program, ctx.source, ctx.index, ctx.language)
+    check_loop_rules(
+        ctx.program,
+        ctx.semantic,
+        ctx.source,
+        ctx.index,
+        ctx.language,
+    )
 }
 
 #[cfg(test)]
@@ -991,6 +1042,112 @@ mod tests {
 
         let ordinary = js_keys("while (x) {\n  f();\n}\n");
         assert_eq!(count_key(&ordinary, "javascript:S1751"), 0);
+    }
+
+    #[test]
+    fn s2189_reports_invariant_compound_condition() {
+        let source = "function drain(queue, count, limit) {\n    while (queue.length && count < limit) { const run = queue.shift(); run(); }\n}\n";
+        let findings = js(source)
+            .issues
+            .into_iter()
+            .filter(|finding| finding.rule_key == "javascript:S2189")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            findings,
+            [
+                issue(
+                    "javascript:S2189",
+                    "'count' is not modified in this loop.",
+                    (2, 27),
+                    (2, 32)
+                ),
+                issue(
+                    "javascript:S2189",
+                    "'limit' is not modified in this loop.",
+                    (2, 35),
+                    (2, 40)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn s2189_respects_iteration_writes_and_exit_paths() {
+        let controls = [
+            "while (queue.length && count < limit) { queue.shift(); count += 1; }",
+            "while (count < limit) { ({count} = queue); }",
+            "while (count++ < limit) { work(); }",
+            "while (queue.length) { queue.shift(); }",
+            "while (queue.length < limit) { queue.shift(); }",
+            "while (check(count)) { work(); }",
+            "while (unknown < external) { work(); }",
+            "while (count < limit) { if (stop) break; work(); }",
+            "while (count < limit) { if (stop) return; work(); }",
+            "while (count < limit) { if (stop) throw new Error(); work(); }",
+            "while (count < limit) { while (queue.length) { if (stop) return; work(); } }",
+            "outer: while (count < limit) { while (queue.length) { if (stop) break outer; work(); } }",
+            "while (count < limit) { switch (stop) { case true: break; } work(); }",
+            "for (let i = 0; i < limit; i++) { work(); }",
+            "do { count += 1; } while (count < limit);",
+        ];
+        for body in controls {
+            let source = format!("function f(queue, count, limit, check, work, stop) {{ {body} }}");
+            assert_eq!(
+                count_key(&js_keys(&source), "javascript:S2189"),
+                0,
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn s2189_distinguishes_condition_bindings_and_nested_loop_breaks() {
+        let source = "
+function f(count, limit, queue) {
+    while (count < limit && count > 0) {
+        let count = 0;
+        count++;
+        while (queue.length) { break; }
+    }
+}";
+        let findings = js(source)
+            .issues
+            .into_iter()
+            .filter(|finding| finding.rule_key == "javascript:S2189")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            findings,
+            [
+                issue(
+                    "javascript:S2189",
+                    "'count' is not modified in this loop.",
+                    (3, 11),
+                    (3, 16)
+                ),
+                issue(
+                    "javascript:S2189",
+                    "'limit' is not modified in this loop.",
+                    (3, 19),
+                    (3, 24)
+                ),
+            ]
+        );
+        assert_eq!(count_key(&ts_keys(source), "typescript:S2189"), 0);
+    }
+
+    #[test]
+    fn s2189_recognizes_a_direct_call_that_changes_a_comparison_operand() {
+        for body in [
+            "const bump = () => count++; while (count < limit) { bump(); }",
+            "function bump() { count++; } while (count < limit) { bump(); }",
+        ] {
+            let source = format!("function f(count, limit) {{ {body} }}");
+            assert_eq!(
+                count_key(&js_keys(&source), "javascript:S2189"),
+                0,
+                "{body}"
+            );
+        }
     }
 
     #[test]
