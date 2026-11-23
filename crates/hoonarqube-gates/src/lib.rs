@@ -99,7 +99,7 @@ impl GateCondition {
         }
         if !self.precision.supports(self.scope, &self.metric) {
             return Err(
-                "one_decimal precision requires coverage or overall line_coverage".to_string(),
+                "one_decimal precision requires coverage, overall line_coverage or overall duplicated_lines_density".to_string(),
             );
         }
         if !metric_supported(&self.scope, &self.metric) {
@@ -464,17 +464,7 @@ fn overall_metric(
         "duplicated_lines" => duplication_counter(report, |metrics| metrics.duplicated_lines),
         "duplicated_blocks" => duplication_counter(report, |metrics| metrics.duplicated_blocks),
         "duplicated_files" => duplication_counter(report, |metrics| metrics.duplicated_files),
-        "duplicated_lines_density" => {
-            let duplication = complete_duplication(report)?;
-            let density = duplication
-                .duplicated_lines_density
-                .ok_or_else(|| "duplication density has no denominator".to_string())?;
-            if density.is_finite() && (0.0..=100.0).contains(&density) {
-                Ok(MetricValue::Percentage(density))
-            } else {
-                Err("duplication density is invalid or non-finite".to_string())
-            }
-        }
+        "duplicated_lines_density" => overall_duplication_density(report, precision),
         "coverage" => {
             let coverage = complete_coverage(report)?;
             combined_coverage(&coverage.lines, &coverage.branches, precision)
@@ -704,6 +694,57 @@ fn validate_finding_inventory(
         return Err("assessment contains a source outside the measured finding inventory".into());
     }
     Ok(())
+}
+
+fn overall_duplication_density(
+    report: &AnalysisReport,
+    precision: GatePrecision,
+) -> Result<MetricValue, String> {
+    let duplication = complete_duplication(report)?;
+    let density = duplication
+        .duplicated_lines_density
+        .ok_or("duplication density has no denominator")?;
+    if !density.is_finite() || !(0.0..=100.0).contains(&density) {
+        return Err("duplication density is invalid or non-finite".into());
+    }
+    if precision.is_full() {
+        return Ok(MetricValue::Percentage(density));
+    }
+    // Only files included in duplication analysis contribute to its denominator.
+    // Rounding the stored f64 would lose information at exact half-tenths.
+    let (lines, duplicates) = eligible_duplication_counts(report)?;
+    if duplicates != duplication.duplicated_lines || lines == 0 {
+        return Err("project duplication counters do not match the measured inventory".into());
+    }
+    let measured = counter_as_f64(duplicates) / counter_as_f64(lines) * 100.0;
+    if (density - measured).abs() > 100.0 * f64::EPSILON {
+        return Err("project duplication density does not match the measured inventory".into());
+    }
+    percentage_counter_with_precision(lines, duplicates, "duplication density", precision)
+}
+
+fn eligible_duplication_counts(report: &AnalysisReport) -> Result<(u64, u64), String> {
+    let mut lines = 0_u64;
+    let mut duplicates = 0_u64;
+    for file in &report.project.files {
+        let Some(d) = &file.duplication else { continue };
+        let Some(m) = &file.metrics else {
+            return Err("missing measured lines for duplication".into());
+        };
+        if file.classification != FileClassification::Source
+            || file.status != MeasurementStatus::Complete
+            || d.duplicated_lines > u64::from(m.lines)
+        {
+            return Err("invalid measured file for duplication density".into());
+        }
+        lines = lines
+            .checked_add(u64::from(m.lines))
+            .ok_or("duplication line count overflows")?;
+        duplicates = duplicates
+            .checked_add(d.duplicated_lines)
+            .ok_or("duplicated line count overflows")?;
+    }
+    Ok((lines, duplicates))
 }
 
 fn duplication_counter(
@@ -1628,7 +1669,55 @@ mod tests {
     }
 
     #[test]
-    fn one_decimal_requires_overall_line_coverage_and_complete_inputs() {
+    fn overall_duplication_precision_uses_eligible_lines_and_preserves_the_threshold() {
+        let mut r = report(true);
+        r.project.files = vec![
+            project_file("nbformat/a.py", 5433),
+            project_file("omitted.py", 2000),
+        ];
+        r.project.files[1].duplication = None;
+        let n = 184;
+        let full = 184.0 / 5433.0 * 100.0;
+        for d in [
+            r.project.duplication.as_mut().unwrap(),
+            r.project.files[0].duplication.as_mut().unwrap(),
+        ] {
+            d.duplicated_lines = n;
+            d.duplicated_lines_density = Some(full);
+        }
+        let cond = condition(
+            GateScope::Overall,
+            "duplicated_lines_density",
+            GateOperator::Lte,
+            3.39,
+        );
+        let rounded = GateCondition {
+            precision: GatePrecision::OneDecimal,
+            ..cond.clone()
+        };
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: vec![cond, rounded],
+        };
+        let actual = evaluate_gate(&config, &r);
+        assert_eq!(actual.conditions[0].status, GateStatus::Pass);
+        assert_eq!(actual.conditions[0].actual, Some(full));
+        assert_eq!(actual.conditions[1].status, GateStatus::Fail);
+        assert_eq!(actual.conditions[1].actual, Some(3.4));
+        assert_eq!(actual.conditions[1].threshold.to_bits(), 3.39_f64.to_bits());
+        r.project.files[0]
+            .duplication
+            .as_mut()
+            .unwrap()
+            .duplicated_lines = 0;
+        assert_eq!(
+            evaluate_gate(&config, &r).conditions[1].status,
+            GateStatus::Unavailable
+        );
+    }
+
+    #[test]
+    fn one_decimal_rejects_unsupported_metrics_and_incomplete_coverage() {
         let opt = GateCondition {
             precision: GatePrecision::OneDecimal,
             ..condition(GateScope::Overall, "line_coverage", GateOperator::Gte, 0.0)

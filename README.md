@@ -576,10 +576,11 @@ code, it selects observations on changed lines before calculating the ratio.
 A missing observation on a changed line makes the value unavailable.
 
 By default, gate comparisons use the full measured value. For `coverage` in
-either scope, or for overall `line_coverage`, add `"precision":"one_decimal"` to a condition to round
+either scope, or for overall `line_coverage` or `duplicated_lines_density`, add `"precision":"one_decimal"` to a condition to round
 the measured percentage to the nearest tenth before comparing it with the
 unchanged threshold. Exact halves round up: 1 covered line out of 16 becomes
-6.3% instead of 6.25%. For example:
+6.3% instead of 6.25%. For overall duplication, 184 duplicated lines among
+5,433 eligible lines become 3.4%; a 3.39% upper limit therefore fails. For example:
 
 ```json
 {"schema_version":1,"conditions":[{"scope":"overall","metric":"line_coverage","operator":"gte","threshold":6.3,"precision":"one_decimal"}]}

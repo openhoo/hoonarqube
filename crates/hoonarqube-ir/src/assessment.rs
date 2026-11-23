@@ -848,7 +848,8 @@ impl GatePrecision {
     pub fn supports(self, scope: GateScope, metric: &str) -> bool {
         self.is_full()
             || metric == "coverage"
-            || (scope == GateScope::Overall && metric == "line_coverage")
+            || (scope == GateScope::Overall
+                && matches!(metric, "line_coverage" | "duplicated_lines_density"))
     }
 }
 
@@ -1010,7 +1011,7 @@ impl GateReport {
             {
                 return Err(AssessmentError::Invalid {
                     artifact: "gate",
-                    reason: "one_decimal precision requires coverage or overall line_coverage"
+                    reason: "one_decimal precision requires coverage, overall line_coverage or overall duplicated_lines_density"
                         .to_string(),
                 });
             }
