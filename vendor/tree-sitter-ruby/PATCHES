@@ -18,3 +18,6 @@ operators, parenthesized arguments and blocks retain their existing grammar.
 This bounded extension does not cover every Ruby command form. Generate the
 parser, node types, grammar and headers from this directory with Tree-sitter
 CLI 0.25.10: `tree-sitter generate --abi 14`. Runtime ABI remains 14.
+
+The external scanner also accepts an equals delimiter after an explicit percent
+literal type (for example %r=...=). Bare %= still belongs to modulo assignment.

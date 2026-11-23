@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 
 use clap::Args;
+use hoonarqube_core::assessment::CoverageFormat;
 use hoonarqube_ir::FileClassification;
 
 /// One exact source snapshot retained for an assessment or semantic run.
@@ -129,6 +130,9 @@ pub(crate) struct ProjectFeatureOptions {
     /// `OpenCover` XML coverage artifacts.  Repeat the option for multiple inputs.
     #[arg(long = "coverage-opencover")]
     pub(crate) coverage_opencover: Vec<PathBuf>,
+    /// Cobertura XML from coverage.py. Prefer one combined report if runs overlap.
+    #[arg(long = "coverage-cobertura")]
+    pub(crate) coverage_cobertura: Vec<PathBuf>,
     /// Pinned native assessment report used as the baseline reference.
     #[arg(long = "baseline")]
     pub(crate) baseline: Option<PathBuf>,
@@ -147,13 +151,26 @@ pub(crate) struct ProjectFeatureOptions {
 }
 
 impl ProjectFeatureOptions {
+    pub(crate) fn coverage_artifacts(&self) -> [(CoverageFormat, &[PathBuf]); 3] {
+        [
+            (CoverageFormat::Lcov, &self.coverage_lcov),
+            (CoverageFormat::OpenCover, &self.coverage_opencover),
+            (CoverageFormat::Cobertura, &self.coverage_cobertura),
+        ]
+    }
+
+    pub(crate) const fn coverage_requested(&self) -> bool {
+        !self.coverage_lcov.is_empty()
+            || !self.coverage_opencover.is_empty()
+            || !self.coverage_cobertura.is_empty()
+    }
+
     /// Returns true when analysis must retain source snapshots and build the
     /// optional assessment artifact.
     #[must_use]
     pub(crate) const fn assessment_requested(&self) -> bool {
         self.assessment
-            || !self.coverage_lcov.is_empty()
-            || !self.coverage_opencover.is_empty()
+            || self.coverage_requested()
             || self.baseline.is_some()
             || self.specific_analysis.is_some()
             || self.write_baseline.is_some()

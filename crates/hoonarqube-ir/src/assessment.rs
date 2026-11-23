@@ -91,6 +91,10 @@ impl std::error::Error for AssessmentError {}
 /// provenance, not a compatibility requirement across different commits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalysisContext {
+    /// Qualified Community gates require both scans to declare the installed detector controls.
+    /// Older contexts and other profiles omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub community_detector_controls_sha256: Option<String>,
     pub analyzer_version: String,
     pub catalog_digest: String,
     pub options_digest: String,
@@ -110,6 +114,7 @@ impl AnalysisContext {
         source_revision: Option<impl Into<String>>,
     ) -> Self {
         Self {
+            community_detector_controls_sha256: None,
             analyzer_version: analyzer_version.into(),
             catalog_digest: catalog_digest.into(),
             options_digest: options_digest.into(),

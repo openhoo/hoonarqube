@@ -2501,7 +2501,7 @@ def _search_page(request, label):
 
 
 def _issue_page(proj, page, *, rules=None, severities=None):
-    params = {"componentKeys": proj, "resolved": "false", "ps": 500, "p": page}
+    params = {"components": proj, "resolved": "false", "ps": 500, "p": page}
     if rules:
         params["rules"] = ",".join(rules)
     if severities:
@@ -2525,7 +2525,7 @@ def _fetch_standard_issues(proj, *, project_issues=None, project_rules=()):
     severities = ("BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO")
     baseline = sq_api(
         "/api/issues/search",
-        {"componentKeys": proj, "resolved": "false", "ps": 1, "p": 1},
+        {"components": proj, "resolved": "false", "ps": 1, "p": 1},
     )
     baseline_total = baseline.get("total")
     if not isinstance(baseline_total, int):
@@ -2534,7 +2534,7 @@ def _fetch_standard_issues(proj, *, project_issues=None, project_rules=()):
         sq_api(
             "/api/issues/search",
             {
-                "componentKeys": proj,
+                "components": proj,
                 "resolved": "false",
                 "severities": severity,
                 "ps": 1,
@@ -2569,7 +2569,7 @@ def _fetch_standard_issues(proj, *, project_issues=None, project_rules=()):
 
 
 def _hotspot_page(proj, page):
-    q = urllib.parse.urlencode({"projectKey": proj, "ps": 500, "p": page})
+    q = urllib.parse.urlencode({"project": proj, "ps": 500, "p": page})
     req = urllib.request.Request(f"{SONAR_URL}/api/hotspots/search?{q}")
     req.add_header("Authorization", auth_header())
     return _search_page(req, "hotspots")

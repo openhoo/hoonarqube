@@ -918,6 +918,8 @@ dependencies = [
  "hoonarqube-catalog",
  "hoonarqube-ir",
  "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
