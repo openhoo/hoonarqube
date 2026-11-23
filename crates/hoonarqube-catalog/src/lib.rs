@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 pub mod github_quality;
+pub mod javascript_core;
 pub mod python_core;
 
 /// Analyzer profile controlling whether Hoonarqube-native rules run in
@@ -34,6 +35,8 @@ pub enum RuleProfile {
     Extended,
     Strict,
     GithubCodeQuality,
+    #[serde(rename = "community-26.11-javascript-core")]
+    Community2611JavaScriptCore,
     #[serde(rename = "community-26.11-python-core")]
     Community2611PythonCore,
 }
@@ -43,6 +46,12 @@ impl RuleProfile {
     /// both cached reports and assessment baselines.
     #[must_use]
     pub fn selection_identity(self) -> String {
+        if self == Self::Community2611JavaScriptCore {
+            return format!(
+                "{self}@{}",
+                javascript_core::JavaScriptCoreSelection::digest()
+            );
+        }
         if self == Self::Community2611PythonCore {
             format!("{self}@{}", python_core::PythonCoreSelection::digest())
         } else {
@@ -55,7 +64,10 @@ impl RuleProfile {
     #[must_use]
     pub const fn includes(self, minimum_profile: Self) -> bool {
         match self {
-            Self::SonarParity | Self::GithubCodeQuality | Self::Community2611PythonCore => false,
+            Self::SonarParity
+            | Self::GithubCodeQuality
+            | Self::Community2611JavaScriptCore
+            | Self::Community2611PythonCore => false,
             Self::Recommended => matches!(minimum_profile, Self::Recommended),
             Self::Extended => matches!(minimum_profile, Self::Recommended | Self::Extended),
             Self::Strict => matches!(
@@ -76,9 +88,10 @@ impl std::str::FromStr for RuleProfile {
             "extended" => Ok(Self::Extended),
             "strict" => Ok(Self::Strict),
             "github-code-quality" => Ok(Self::GithubCodeQuality),
+            javascript_core::PROFILE_NAME => Ok(Self::Community2611JavaScriptCore),
             python_core::PROFILE_NAME => Ok(Self::Community2611PythonCore),
             _ => Err(format!(
-                "unknown profile {value:?}; expected sonar-parity, recommended, extended, strict, github-code-quality, or community-26.11-python-core"
+                "unknown profile {value:?}; expected sonar-parity, recommended, extended, strict, github-code-quality, community-26.11-javascript-core, or community-26.11-python-core"
             )),
         }
     }
@@ -92,6 +105,7 @@ impl std::fmt::Display for RuleProfile {
             Self::Extended => "extended",
             Self::Strict => "strict",
             Self::GithubCodeQuality => "github-code-quality",
+            Self::Community2611JavaScriptCore => javascript_core::PROFILE_NAME,
             Self::Community2611PythonCore => python_core::PROFILE_NAME,
         })
     }

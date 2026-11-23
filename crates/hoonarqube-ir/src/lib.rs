@@ -811,6 +811,9 @@ pub struct PartialRuleSelection {
     pub selected_catalog_keys: usize,
     pub missing_catalog_keys: Vec<String>,
     pub unmapped_parameter_keys: Vec<String>,
+    /// Languages found in the report that retain the compatibility selection.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback_languages: Vec<String>,
 }
 
 /// Complete result of analyzing one target and its project inventory.

@@ -378,11 +378,19 @@ pub use hoonarqube_catalog::SONAR_PARITY_INACTIVE_RULE_KEYS;
 
 /// Drops findings whose rules are inactive in the selected profile.
 ///
-/// The Community Python selection uses a release-scoped activation snapshot.
-/// Other languages use the `sonar-parity` filter under that selection. Matches
+/// The Community Core selections use release-scoped activation snapshots.
+/// Languages outside the selected snapshot use the `sonar-parity` filter. Matches
 /// are on emitted keys, before findings enter a cache or an assessment.
 pub fn retain_profile_active_issues(profile: RuleProfile, report: &mut hoonarqube_ir::FileReport) {
     match profile {
+        RuleProfile::Community2611JavaScriptCore if report.language == "javascript" => {
+            let selection =
+                hoonarqube_catalog::javascript_core::JavaScriptCoreSelection::embedded();
+            let catalog = hoonarqube_catalog::embedded();
+            report
+                .issues
+                .retain(|issue| selection.selects(&issue.rule_key, catalog));
+        }
         RuleProfile::Community2611PythonCore if report.language == "python" => {
             let selection = hoonarqube_catalog::python_core::PythonCoreSelection::embedded();
             let catalog = hoonarqube_catalog::embedded();
@@ -390,7 +398,9 @@ pub fn retain_profile_active_issues(profile: RuleProfile, report: &mut hoonarqub
                 .issues
                 .retain(|issue| selection.selects(&issue.rule_key, catalog));
         }
-        RuleProfile::SonarParity | RuleProfile::Community2611PythonCore => {
+        RuleProfile::SonarParity
+        | RuleProfile::Community2611JavaScriptCore
+        | RuleProfile::Community2611PythonCore => {
             report.issues.retain(|issue| {
                 !SONAR_PARITY_INACTIVE_RULE_KEYS.contains(&issue.rule_key.as_str())
             });
