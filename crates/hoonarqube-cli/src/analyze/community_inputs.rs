@@ -3,6 +3,7 @@
 //! file preserves the historical informational row without changing the gate.
 use std::path::Path;
 
+#[derive(Clone, Copy)]
 pub(super) enum UnsupportedInput {
     CommunitySource,
     InventoryOnly,
