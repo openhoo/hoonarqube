@@ -1,8 +1,10 @@
 """Replay native Java and Yjs scans and the native review service against public Git objects."""
 
 import argparse
+import copy
 import hashlib
 import json
+from functools import partial
 import subprocess
 import tempfile
 from pathlib import Path
@@ -30,6 +32,8 @@ from community_hotspot_replay import (
 )
 from community_scm_period import descriptor, run_case
 from public_corpus_prepare import GIT_ENV
+from hotspot_populations_2611 import verify_capture
+from project_gate_policy_replay import Client, ci
 
 YBASE = "3dc67e075bad9760c178f51e0a40083e3aabcf85"
 YHEAD = "20913920310f4b1f4dbbd088f3a29b00f1592fe7"
@@ -85,7 +89,11 @@ def unknown(cli, root, args, expected_status, fragment):
     return result.returncode
 
 
-def java_case(cli, source, work, data):
+UNBOUND = {**CONDITION, "metric": "security_hotspots_reviewed"}
+CORE_2611 = {**CONDITION, "metric": "community_26_11_core_security_hotspots_reviewed"}
+
+
+def java_case(cli, source, work, data, current):
     root = work / "apache"
     work.mkdir()
     clone_at(root, source, BASE, HEAD, [SOURCE, CONTROL])
@@ -98,17 +106,17 @@ def java_case(cli, source, work, data):
     )
     selection = descriptor(data["head-gate"]["projectStatus"]["period"], BASE_ID, BASE)
     code, report, _ = run_case(
-        cli, root, work, [str(Path(SOURCE).parent)], BASE, HEAD, selection, [CONDITION]
+        cli, root, work, [str(Path(SOURCE).parent)], BASE, HEAD, selection, [UNBOUND]
     )
     require(
-        code == 0
+        code == 2
         and {
             m["path"]
             for m in report["project"]["files"]
             if m["classification"] == "source" and m["status"] == "complete"
         }
         == {CONTROL, SOURCE},
-        "wrong native Java inventory",
+        "an unbound mandatory Java hotspot gate must exit 2 on this verified inventory",
     )
     counted = [
         issue
@@ -117,9 +125,34 @@ def java_case(cli, source, work, data):
         if issue["rule_key"] == RULE
     ]
     require(not counted, "custom Java rule now supported; requalify this comparison")
-    result = check_gate(report["assessment"]["gate"], None, "no_value")
+    result = check_gate(
+        report["assessment"]["gate"], None, "unavailable", UNBOUND["metric"]
+    )
     profile = data["custom-profile"]["profiles"][0]["name"]
-    return {
+    passes = {}
+    for kind, condition, expected_exit, expected_status in (
+        ("custom", UNBOUND, 2, "unavailable"),
+        ("default", CORE_2611, 0, "no_value"),
+    ):
+        captured = current["profiles"][kind]
+        base = captured["scans"]["base"]["analysis"]
+        selected = descriptor(captured["initial"]["historical"]["period"], base, BASE)
+        rc, measured, _ = run_case(
+            cli,
+            root,
+            work,
+            [str(Path(SOURCE).parent)],
+            BASE,
+            HEAD,
+            selected,
+            [condition],
+        )
+        require(rc == expected_exit, f"wrong {kind} CLI exit: {rc}")
+        check_gate(
+            measured["assessment"]["gate"], None, expected_status, condition["metric"]
+        )
+        passes[kind] = measured
+    return passes, {
         "source": SOURCE,
         "custom_rule_issues": len(counted),
         "native_gate": result,
@@ -132,7 +165,76 @@ def java_case(cli, source, work, data):
     }
 
 
-def yjs_case(cli, source, work):
+def assigned_java(service, work, reports, yjs):
+    work.mkdir()
+    start, _, roles = service_clients(service, work)
+    stages = {}
+    ids = {}
+    target = {
+        "custom": (UNBOUND, 2, "unavailable"),
+        "default": (CORE_2611, 0, "no_value"),
+    }
+    with start() as port:
+        client = Client(port, roles)
+        for version, (kind, (condition, exit_code, expected)) in enumerate(
+            target.items(), 1
+        ):
+            client.assign(
+                "admin", version - 1, {"schema_version": 1, "conditions": [condition]}
+            )
+            # Project policy owns the decision, even when the uploaded scanner
+            # has no gate at all or claims a valid, weaker policy of its own.
+            report = copy.deepcopy(reports[kind])
+            report["assessment"].pop("gate")
+            receipt = client.ingest(report, HEAD, branch=kind, role="admin")
+            row = receipt["analysis"]
+            require(row["gate_policy_version"] == version, "wrong historical policy")
+            ids[kind] = row["id"]
+            ci(receipt, exit_code)
+            stages[kind] = check_gate(row["gate"], None, expected, condition["metric"])
+            if kind == "custom":
+                forged = copy.deepcopy(receipt)
+                forged["analysis"]["gate"]["status"] = "pass"
+                forged["analysis"]["gate"]["conditions"][0]["status"] = "no_value"
+                ci(forged, 2)
+                false_green = copy.deepcopy(report)
+                false_green["assessment"]["gate"] = forged["analysis"]["gate"]
+                reject(
+                    partial(
+                        client.ingest, false_green, HEAD, branch="stale", role="admin"
+                    ),
+                    409,
+                )
+        outside = client.ingest(yjs, YHEAD, branch="unmapped-language", role="admin")
+        check_gate(
+            outside["analysis"]["gate"], None, "unavailable", CORE_2611["metric"]
+        )
+        ci(outside, 2)
+        for modifier in ("missing-profile", "wrong-active-rules", "missing-baseline"):
+            broken = copy.deepcopy(reports["default"])
+            broken["assessment"].pop("gate")
+            if modifier == "missing-profile":
+                broken.pop("parity")
+            elif modifier == "wrong-active-rules":
+                broken["parity"]["active_rules"].pop()
+            else:
+                broken["assessment"].pop("new_code")
+            blocked = client.ingest(broken, HEAD, branch=modifier, role="admin")
+            check_gate(
+                blocked["analysis"]["gate"], None, "unavailable", CORE_2611["metric"]
+            )
+            ci(blocked, 2)
+    with start() as port:
+        client = Client(port, roles)
+        for kind, (condition, rc, expected) in target.items():
+            receipt = client.call("reader", f"/analyses/{ids[kind]}")
+            ci(receipt, rc)
+            check_gate(receipt["analysis"]["gate"], None, expected, condition["metric"])
+            check_gate(client.current(ids[kind]), None, expected, condition["metric"])
+    return stages
+
+
+def yjs_case(cli, source, work, condition=CONDITION):
     root = work / "yjs"
     work.mkdir()
     clone_at(root, source, YBASE, YHEAD, [YFILE])
@@ -149,13 +251,13 @@ def yjs_case(cli, source, work):
         "timestamp_ms": ts,
     }
     code, report, _ = run_case(
-        cli, root, work, [YFILE], YBASE, YHEAD, selection, [CONDITION]
+        cli, root, work, [YFILE], YBASE, YHEAD, selection, [condition]
     )
     require(
         code == 1 and [f["path"] for f in report["files"]] == [YFILE],
         "wrong native Yjs inventory",
     )
-    check_gate(report["assessment"]["gate"], 0, "fail")
+    check_gate(report["assessment"]["gate"], 0, "fail", condition["metric"])
     issues = report["files"][0]["issues"]
     classified = [
         (issues[m["issue_index"]], m["status"])
@@ -258,6 +360,11 @@ def main():
     parser.add_argument(
         "--capture", type=Path, default=Path(__file__).with_name("fixtures") / ARCHIVE
     )
+    parser.add_argument(
+        "--previous-binaries",
+        type=Path,
+        help="Also verify upgrade and restore from pre-binding binaries with a compatible catalog.",
+    )
     args = parser.parse_args()
     data = load(args.capture)
     stages = verify(data)
@@ -265,12 +372,29 @@ def main():
     service = args.service.resolve(strict=True)
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp).resolve(strict=True)
-        java = java_case(cli, args.apache, work / "java", data)
+        reports, java = java_case(
+            cli, args.apache, work / "java", data, verify_capture()
+        )
         report = yjs_case(cli, args.yjs, work / "js")
         result = service_case(service, work / "service", report)
+        java["assigned_26_11"] = assigned_java(
+            service, work / "assigned-java", reports, report
+        )
+        summary = {"community_java": stages, "native_java": java, "native_yjs": result}
+        if args.previous_binaries:
+            from hotspot_upgrade_replay import upgrade
+
+            summary["upgrade"] = upgrade(
+                args.previous_binaries.resolve(strict=True),
+                service,
+                args.apache,
+                args.yjs,
+                data,
+                work / "upgrade",
+            )
     print(
         json.dumps(
-            {"community_java": stages, "native_java": java, "native_yjs": result},
+            summary,
             indent=2,
         )
     )

@@ -62,3 +62,13 @@ jobs:
           python3 tools/oracle/community_qualified_violations.py \
             --scanner target/release/hoonarqube --service target/release/hoonarqube-service \
             --yjs "$RUNNER_TEMP/hq-yjs" --chi "$RUNNER_TEMP/hq-chi"
+      - name: Compare assigned hotspot populations on Commons Lang and review an actual Yjs finding
+        run: |
+          git init --quiet --bare "$RUNNER_TEMP/hq-hotspot-apache"
+          git -C "$RUNNER_TEMP/hq-hotspot-apache" fetch --quiet --no-tags https://github.com/apache/commons-lang.git 6a4979ba028a257401b9fdfcc23f42d9419fff6f
+          git -C "$RUNNER_TEMP/hq-hotspot-apache" update-ref refs/heads/captured FETCH_HEAD
+          git -C "$RUNNER_TEMP/hq-yjs" fetch --quiet --no-tags https://github.com/yjs/yjs.git 20913920310f4b1f4dbbd088f3a29b00f1592fe7
+          git -C "$RUNNER_TEMP/hq-yjs" update-ref refs/heads/hotspot-captured FETCH_HEAD
+          python3 tools/oracle/community_custom_hotspot_native.py \
+            --scanner target/release/hoonarqube --service target/release/hoonarqube-service \
+            --apache "$RUNNER_TEMP/hq-hotspot-apache" --yjs "$RUNNER_TEMP/hq-yjs"

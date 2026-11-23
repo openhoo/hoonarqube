@@ -21,6 +21,12 @@ def main():
         gate = row["gate"]
         if gate["schema_version"] != 3 or not gate["conditions"]:
             raise ValueError("missing or unsupported gate decision")
+        if any(
+            c["metric"] == "security_hotspots_reviewed"
+            and (c["status"] != "unavailable" or gate["status"] != "unavailable")
+            for c in gate["conditions"]
+        ):
+            raise ValueError("hotspot condition has no assigned population")
         status = gate["status"]
         if status not in ("pass", "fail", "unavailable"):
             raise ValueError("unknown gate decision")

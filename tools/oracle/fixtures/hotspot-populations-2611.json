@@ -1,0 +1,941 @@
+{
+  "core": {
+    "java": {
+      "profile": {
+        "activeRuleCount": 263,
+        "isBuiltIn": true,
+        "isDefault": true,
+        "key": "85caa9ca-30a0-49d9-8e24-dab7c86e5192",
+        "language": "java",
+        "name": "Sonar way core",
+        "rulesUpdatedAt": "2026-11-22T16:54:04+0000"
+      },
+      "rules": {
+        "java:S1111": "BUG",
+        "java:S1143": "BUG",
+        "java:S1175": "BUG",
+        "java:S1190": "CODE_SMELL",
+        "java:S1201": "BUG",
+        "java:S1217": "BUG",
+        "java:S1219": "CODE_SMELL",
+        "java:S1221": "BUG",
+        "java:S128": "CODE_SMELL",
+        "java:S1313": "CODE_SMELL",
+        "java:S1314": "CODE_SMELL",
+        "java:S1317": "BUG",
+        "java:S1656": "BUG",
+        "java:S1751": "BUG",
+        "java:S1764": "BUG",
+        "java:S1845": "CODE_SMELL",
+        "java:S1849": "BUG",
+        "java:S1860": "BUG",
+        "java:S1862": "BUG",
+        "java:S1872": "BUG",
+        "java:S1989": "VULNERABILITY",
+        "java:S2053": "VULNERABILITY",
+        "java:S2060": "BUG",
+        "java:S2061": "BUG",
+        "java:S2068": "VULNERABILITY",
+        "java:S2077": "VULNERABILITY",
+        "java:S2092": "VULNERABILITY",
+        "java:S2109": "BUG",
+        "java:S2110": "BUG",
+        "java:S2111": "BUG",
+        "java:S2114": "BUG",
+        "java:S2115": "VULNERABILITY",
+        "java:S2116": "BUG",
+        "java:S2118": "BUG",
+        "java:S2119": "BUG",
+        "java:S2121": "BUG",
+        "java:S2122": "BUG",
+        "java:S2123": "BUG",
+        "java:S2127": "BUG",
+        "java:S2134": "BUG",
+        "java:S2142": "BUG",
+        "java:S2151": "BUG",
+        "java:S2154": "BUG",
+        "java:S2159": "BUG",
+        "java:S2168": "BUG",
+        "java:S2175": "BUG",
+        "java:S2177": "BUG",
+        "java:S2178": "CODE_SMELL",
+        "java:S2187": "CODE_SMELL",
+        "java:S2188": "CODE_SMELL",
+        "java:S2201": "BUG",
+        "java:S2204": "BUG",
+        "java:S2206": "BUG",
+        "java:S2225": "BUG",
+        "java:S2226": "BUG",
+        "java:S2229": "BUG",
+        "java:S2230": "BUG",
+        "java:S2236": "BUG",
+        "java:S2245": "VULNERABILITY",
+        "java:S2251": "BUG",
+        "java:S2252": "BUG",
+        "java:S2254": "VULNERABILITY",
+        "java:S2257": "VULNERABILITY",
+        "java:S2273": "BUG",
+        "java:S2275": "BUG",
+        "java:S2276": "BUG",
+        "java:S2387": "CODE_SMELL",
+        "java:S2390": "BUG",
+        "java:S2437": "CODE_SMELL",
+        "java:S2441": "BUG",
+        "java:S2445": "BUG",
+        "java:S2446": "BUG",
+        "java:S2612": "VULNERABILITY",
+        "java:S2639": "BUG",
+        "java:S2654": "BUG",
+        "java:S2677": "BUG",
+        "java:S2695": "BUG",
+        "java:S2699": "CODE_SMELL",
+        "java:S2757": "BUG",
+        "java:S2761": "BUG",
+        "java:S2789": "BUG",
+        "java:S2885": "BUG",
+        "java:S2886": "BUG",
+        "java:S2970": "CODE_SMELL",
+        "java:S2975": "CODE_SMELL",
+        "java:S3014": "CODE_SMELL",
+        "java:S3034": "BUG",
+        "java:S3037": "BUG",
+        "java:S3039": "BUG",
+        "java:S3046": "BUG",
+        "java:S3064": "BUG",
+        "java:S3078": "BUG",
+        "java:S3329": "VULNERABILITY",
+        "java:S3330": "VULNERABILITY",
+        "java:S3346": "BUG",
+        "java:S3436": "BUG",
+        "java:S3551": "BUG",
+        "java:S3752": "VULNERABILITY",
+        "java:S3753": "BUG",
+        "java:S3923": "BUG",
+        "java:S3981": "BUG",
+        "java:S3984": "BUG",
+        "java:S3986": "BUG",
+        "java:S4036": "VULNERABILITY",
+        "java:S4143": "BUG",
+        "java:S4275": "BUG",
+        "java:S4347": "VULNERABILITY",
+        "java:S4348": "BUG",
+        "java:S4351": "BUG",
+        "java:S4423": "VULNERABILITY",
+        "java:S4426": "VULNERABILITY",
+        "java:S4433": "VULNERABILITY",
+        "java:S4434": "VULNERABILITY",
+        "java:S4502": "VULNERABILITY",
+        "java:S4507": "VULNERABILITY",
+        "java:S4512": "VULNERABILITY",
+        "java:S4517": "BUG",
+        "java:S4544": "VULNERABILITY",
+        "java:S4601": "VULNERABILITY",
+        "java:S4602": "BUG",
+        "java:S4684": "VULNERABILITY",
+        "java:S4790": "VULNERABILITY",
+        "java:S4830": "VULNERABILITY",
+        "java:S4973": "BUG",
+        "java:S5122": "VULNERABILITY",
+        "java:S5164": "BUG",
+        "java:S5247": "VULNERABILITY",
+        "java:S5301": "VULNERABILITY",
+        "java:S5320": "VULNERABILITY",
+        "java:S5322": "VULNERABILITY",
+        "java:S5324": "VULNERABILITY",
+        "java:S5332": "VULNERABILITY",
+        "java:S5344": "VULNERABILITY",
+        "java:S5443": "VULNERABILITY",
+        "java:S5445": "VULNERABILITY",
+        "java:S5527": "VULNERABILITY",
+        "java:S5542": "VULNERABILITY",
+        "java:S5547": "VULNERABILITY",
+        "java:S5659": "VULNERABILITY",
+        "java:S5679": "VULNERABILITY",
+        "java:S5689": "VULNERABILITY",
+        "java:S5693": "VULNERABILITY",
+        "java:S5779": "BUG",
+        "java:S5783": "BUG",
+        "java:S5790": "BUG",
+        "java:S5804": "VULNERABILITY",
+        "java:S5808": "VULNERABILITY",
+        "java:S5810": "BUG",
+        "java:S5831": "BUG",
+        "java:S5833": "BUG",
+        "java:S5845": "BUG",
+        "java:S5850": "BUG",
+        "java:S5852": "VULNERABILITY",
+        "java:S5855": "BUG",
+        "java:S5856": "BUG",
+        "java:S5863": "BUG",
+        "java:S5866": "BUG",
+        "java:S5868": "BUG",
+        "java:S5876": "VULNERABILITY",
+        "java:S5917": "BUG",
+        "java:S5960": "BUG",
+        "java:S5967": "BUG",
+        "java:S5973": "CODE_SMELL",
+        "java:S5994": "BUG",
+        "java:S5996": "BUG",
+        "java:S5998": "BUG",
+        "java:S6001": "BUG",
+        "java:S6002": "BUG",
+        "java:S6070": "BUG",
+        "java:S6103": "BUG",
+        "java:S6104": "BUG",
+        "java:S6209": "BUG",
+        "java:S6216": "BUG",
+        "java:S6218": "BUG",
+        "java:S6263": "VULNERABILITY",
+        "java:S6288": "VULNERABILITY",
+        "java:S6293": "VULNERABILITY",
+        "java:S6301": "VULNERABILITY",
+        "java:S6363": "VULNERABILITY",
+        "java:S6418": "VULNERABILITY",
+        "java:S6432": "VULNERABILITY",
+        "java:S6437": "VULNERABILITY",
+        "java:S6804": "CODE_SMELL",
+        "java:S6806": "BUG",
+        "java:S6810": "BUG",
+        "java:S6813": "CODE_SMELL",
+        "java:S6814": "CODE_SMELL",
+        "java:S6816": "BUG",
+        "java:S6817": "BUG",
+        "java:S6818": "BUG",
+        "java:S6829": "CODE_SMELL",
+        "java:S6831": "BUG",
+        "java:S6832": "CODE_SMELL",
+        "java:S6838": "BUG",
+        "java:S6856": "BUG",
+        "java:S6857": "BUG",
+        "java:S6863": "BUG",
+        "java:S6881": "BUG",
+        "java:S6901": "BUG",
+        "java:S6906": "BUG",
+        "java:S6913": "BUG",
+        "java:S6915": "BUG",
+        "java:S7177": "CODE_SMELL",
+        "java:S7178": "CODE_SMELL",
+        "java:S7179": "CODE_SMELL",
+        "java:S7180": "CODE_SMELL",
+        "java:S7183": "CODE_SMELL",
+        "java:S7184": "BUG",
+        "java:S7185": "BUG",
+        "java:S7186": "CODE_SMELL",
+        "java:S7190": "CODE_SMELL",
+        "java:S7409": "VULNERABILITY",
+        "java:S7435": "VULNERABILITY",
+        "java:S7438": "BUG",
+        "java:S8218": "BUG",
+        "java:S8220": "BUG",
+        "java:S8346": "CODE_SMELL",
+        "java:S8447": "BUG",
+        "java:S8465": "BUG",
+        "java:S8696": "BUG",
+        "java:S8700": "BUG",
+        "java:S8745": "BUG",
+        "java:S8786": "CODE_SMELL",
+        "java:S8909": "BUG",
+        "java:S8911": "BUG",
+        "java:S8912": "BUG",
+        "java:S8913": "CODE_SMELL",
+        "java:S8947": "BUG",
+        "java:S8954": "BUG",
+        "java:S8975": "BUG",
+        "java:S8983": "BUG",
+        "java:S8989": "CODE_SMELL",
+        "java:S9017": "BUG",
+        "java:S9021": "BUG",
+        "java:S9130": "BUG",
+        "java:S9146": "VULNERABILITY",
+        "java:S9147": "BUG",
+        "java:S9148": "BUG",
+        "java:S9342": "BUG",
+        "java:S9344": "BUG",
+        "java:S9346": "BUG",
+        "java:S9350": "BUG",
+        "java:S9351": "BUG",
+        "java:S9352": "BUG",
+        "java:S9353": "BUG",
+        "java:S9354": "BUG",
+        "java:S9361": "BUG",
+        "java:S9362": "BUG",
+        "java:S9363": "BUG",
+        "java:S9365": "BUG",
+        "java:S9366": "BUG",
+        "java:S9388": "BUG",
+        "java:S9389": "BUG",
+        "java:S9393": "BUG",
+        "java:S9394": "BUG",
+        "java:S9400": "BUG",
+        "java:S9401": "BUG",
+        "java:S9402": "BUG",
+        "java:S9403": "BUG",
+        "java:S9427": "BUG",
+        "java:S9428": "BUG",
+        "java:S9436": "BUG",
+        "java:S9437": "BUG"
+      },
+      "version": "26.11.0.134175"
+    },
+    "python": {
+      "profile": {
+        "activeRuleCount": 232,
+        "isBuiltIn": true,
+        "isDefault": true,
+        "key": "2a269c09-2857-48f6-b2f0-4aa1f2114abf",
+        "language": "py",
+        "name": "Sonar way core",
+        "rulesUpdatedAt": "2026-11-22T16:54:04+0000"
+      },
+      "rules": {
+        "python:BackticksUsage": "CODE_SMELL",
+        "python:ExecStatementUsage": "CODE_SMELL",
+        "python:PreIncrementDecrement": "BUG",
+        "python:S1045": "BUG",
+        "python:S1143": "BUG",
+        "python:S1244": "BUG",
+        "python:S1313": "CODE_SMELL",
+        "python:S1656": "BUG",
+        "python:S1716": "BUG",
+        "python:S1751": "BUG",
+        "python:S1763": "BUG",
+        "python:S1764": "BUG",
+        "python:S1845": "CODE_SMELL",
+        "python:S1862": "BUG",
+        "python:S2053": "VULNERABILITY",
+        "python:S2068": "VULNERABILITY",
+        "python:S2077": "VULNERABILITY",
+        "python:S2092": "VULNERABILITY",
+        "python:S2115": "VULNERABILITY",
+        "python:S2159": "BUG",
+        "python:S2190": "BUG",
+        "python:S2201": "BUG",
+        "python:S2245": "VULNERABILITY",
+        "python:S2257": "VULNERABILITY",
+        "python:S2275": "BUG",
+        "python:S2612": "VULNERABILITY",
+        "python:S2711": "BUG",
+        "python:S2734": "BUG",
+        "python:S2755": "VULNERABILITY",
+        "python:S2757": "BUG",
+        "python:S2823": "BUG",
+        "python:S2876": "BUG",
+        "python:S3329": "VULNERABILITY",
+        "python:S3330": "VULNERABILITY",
+        "python:S3403": "BUG",
+        "python:S3516": "CODE_SMELL",
+        "python:S3699": "BUG",
+        "python:S3752": "VULNERABILITY",
+        "python:S3827": "BUG",
+        "python:S3862": "BUG",
+        "python:S3923": "BUG",
+        "python:S3981": "BUG",
+        "python:S3984": "BUG",
+        "python:S4143": "BUG",
+        "python:S4423": "VULNERABILITY",
+        "python:S4426": "VULNERABILITY",
+        "python:S4433": "VULNERABILITY",
+        "python:S4502": "VULNERABILITY",
+        "python:S4507": "VULNERABILITY",
+        "python:S4790": "VULNERABILITY",
+        "python:S4830": "VULNERABILITY",
+        "python:S5122": "VULNERABILITY",
+        "python:S5247": "VULNERABILITY",
+        "python:S5332": "VULNERABILITY",
+        "python:S5344": "VULNERABILITY",
+        "python:S5443": "VULNERABILITY",
+        "python:S5445": "VULNERABILITY",
+        "python:S5527": "VULNERABILITY",
+        "python:S5542": "VULNERABILITY",
+        "python:S5547": "VULNERABILITY",
+        "python:S5549": "BUG",
+        "python:S5607": "BUG",
+        "python:S5632": "BUG",
+        "python:S5642": "BUG",
+        "python:S5644": "BUG",
+        "python:S5659": "VULNERABILITY",
+        "python:S5707": "BUG",
+        "python:S5708": "BUG",
+        "python:S5714": "BUG",
+        "python:S5719": "BUG",
+        "python:S5722": "BUG",
+        "python:S5724": "BUG",
+        "python:S5756": "BUG",
+        "python:S5779": "BUG",
+        "python:S5796": "BUG",
+        "python:S5807": "BUG",
+        "python:S5828": "BUG",
+        "python:S5845": "BUG",
+        "python:S5850": "BUG",
+        "python:S5852": "VULNERABILITY",
+        "python:S5855": "BUG",
+        "python:S5863": "BUG",
+        "python:S5868": "BUG",
+        "python:S5905": "BUG",
+        "python:S5915": "BUG",
+        "python:S5994": "BUG",
+        "python:S5996": "BUG",
+        "python:S6001": "BUG",
+        "python:S6002": "BUG",
+        "python:S6249": "VULNERABILITY",
+        "python:S6252": "VULNERABILITY",
+        "python:S6265": "VULNERABILITY",
+        "python:S6270": "VULNERABILITY",
+        "python:S6275": "VULNERABILITY",
+        "python:S6281": "VULNERABILITY",
+        "python:S6302": "VULNERABILITY",
+        "python:S6303": "VULNERABILITY",
+        "python:S6304": "VULNERABILITY",
+        "python:S6308": "VULNERABILITY",
+        "python:S6317": "VULNERABILITY",
+        "python:S6319": "VULNERABILITY",
+        "python:S6321": "VULNERABILITY",
+        "python:S6323": "BUG",
+        "python:S6327": "VULNERABILITY",
+        "python:S6328": "BUG",
+        "python:S6329": "VULNERABILITY",
+        "python:S6330": "VULNERABILITY",
+        "python:S6332": "VULNERABILITY",
+        "python:S6333": "VULNERABILITY",
+        "python:S6377": "VULNERABILITY",
+        "python:S6418": "VULNERABILITY",
+        "python:S6437": "VULNERABILITY",
+        "python:S6463": "VULNERABILITY",
+        "python:S6468": "BUG",
+        "python:S6552": "BUG",
+        "python:S6560": "BUG",
+        "python:S6662": "BUG",
+        "python:S6663": "BUG",
+        "python:S6709": "CODE_SMELL",
+        "python:S6725": "BUG",
+        "python:S6727": "BUG",
+        "python:S6729": "CODE_SMELL",
+        "python:S6734": "CODE_SMELL",
+        "python:S6741": "CODE_SMELL",
+        "python:S6779": "VULNERABILITY",
+        "python:S6781": "VULNERABILITY",
+        "python:S6785": "VULNERABILITY",
+        "python:S6786": "VULNERABILITY",
+        "python:S6863": "BUG",
+        "python:S6882": "CODE_SMELL",
+        "python:S6883": "CODE_SMELL",
+        "python:S6887": "CODE_SMELL",
+        "python:S6890": "CODE_SMELL",
+        "python:S6894": "CODE_SMELL",
+        "python:S6900": "CODE_SMELL",
+        "python:S6903": "CODE_SMELL",
+        "python:S6908": "CODE_SMELL",
+        "python:S6911": "CODE_SMELL",
+        "python:S6918": "CODE_SMELL",
+        "python:S6919": "CODE_SMELL",
+        "python:S6925": "CODE_SMELL",
+        "python:S6928": "CODE_SMELL",
+        "python:S6929": "CODE_SMELL",
+        "python:S6971": "BUG",
+        "python:S6972": "CODE_SMELL",
+        "python:S6974": "CODE_SMELL",
+        "python:S6978": "BUG",
+        "python:S6982": "CODE_SMELL",
+        "python:S6984": "BUG",
+        "python:S6985": "VULNERABILITY",
+        "python:S7484": "CODE_SMELL",
+        "python:S7487": "BUG",
+        "python:S7488": "BUG",
+        "python:S7489": "BUG",
+        "python:S7490": "BUG",
+        "python:S7493": "BUG",
+        "python:S7497": "BUG",
+        "python:S7499": "BUG",
+        "python:S7501": "BUG",
+        "python:S7502": "BUG",
+        "python:S7506": "CODE_SMELL",
+        "python:S7507": "CODE_SMELL",
+        "python:S7514": "BUG",
+        "python:S7608": "VULNERABILITY",
+        "python:S7609": "CODE_SMELL",
+        "python:S7613": "BUG",
+        "python:S7617": "CODE_SMELL",
+        "python:S7618": "BUG",
+        "python:S7619": "CODE_SMELL",
+        "python:S7620": "BUG",
+        "python:S7621": "CODE_SMELL",
+        "python:S7625": "VULNERABILITY",
+        "python:S7931": "BUG",
+        "python:S7942": "BUG",
+        "python:S7943": "BUG",
+        "python:S8371": "BUG",
+        "python:S8374": "BUG",
+        "python:S8375": "BUG",
+        "python:S8385": "BUG",
+        "python:S8389": "VULNERABILITY",
+        "python:S8392": "VULNERABILITY",
+        "python:S8396": "CODE_SMELL",
+        "python:S8397": "CODE_SMELL",
+        "python:S8400": "BUG",
+        "python:S8401": "BUG",
+        "python:S8405": "CODE_SMELL",
+        "python:S8411": "BUG",
+        "python:S8413": "CODE_SMELL",
+        "python:S8414": "CODE_SMELL",
+        "python:S8490": "BUG",
+        "python:S8493": "BUG",
+        "python:S8494": "BUG",
+        "python:S8495": "CODE_SMELL",
+        "python:S8500": "CODE_SMELL",
+        "python:S8503": "BUG",
+        "python:S8504": "BUG",
+        "python:S8505": "BUG",
+        "python:S8508": "BUG",
+        "python:S8510": "CODE_SMELL",
+        "python:S8511": "BUG",
+        "python:S8514": "CODE_SMELL",
+        "python:S8515": "BUG",
+        "python:S8516": "BUG",
+        "python:S8519": "CODE_SMELL",
+        "python:S8520": "CODE_SMELL",
+        "python:S8685": "BUG",
+        "python:S8786": "CODE_SMELL",
+        "python:S8903": "CODE_SMELL",
+        "python:S8904": "BUG",
+        "python:S8905": "CODE_SMELL",
+        "python:S8906": "BUG",
+        "python:S8953": "BUG",
+        "python:S8966": "BUG",
+        "python:S8973": "BUG",
+        "python:S8974": "BUG",
+        "python:S8978": "BUG",
+        "python:S8992": "BUG",
+        "python:S8994": "BUG",
+        "python:S8998": "BUG",
+        "python:S8999": "CODE_SMELL",
+        "python:S9000": "BUG",
+        "python:S905": "BUG",
+        "python:S9134": "BUG",
+        "python:S9136": "CODE_SMELL",
+        "python:S9152": "CODE_SMELL",
+        "python:S9156": "CODE_SMELL",
+        "python:S9158": "CODE_SMELL",
+        "python:S9160": "CODE_SMELL",
+        "python:S930": "BUG",
+        "python:S935": "BUG",
+        "python:S9405": "BUG",
+        "python:S9408": "BUG"
+      },
+      "version": "26.11.0.134175"
+    }
+  },
+  "reference": {
+    "profiles": {
+      "custom": {
+        "indexed_files": {
+          "src/test/java/org/apache/commons/lang3/CharSetTest.java": "java",
+          "src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java": "java"
+        },
+        "initial": {
+          "historical": {
+            "caycStatus": "non-compliant",
+            "conditions": [
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "new_security_hotspots_reviewed",
+                "status": "ERROR"
+              },
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "security_hotspots_reviewed",
+                "status": "ERROR"
+              }
+            ],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+            },
+            "status": "ERROR"
+          },
+          "live": {
+            "caycStatus": "non-compliant",
+            "conditions": [
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "new_security_hotspots_reviewed",
+                "status": "ERROR"
+              },
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "security_hotspots_reviewed",
+                "status": "ERROR"
+              }
+            ],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+            },
+            "status": "ERROR"
+          },
+          "new": [
+            {
+              "component": "hq-hotspot-population-2611-20261123-custom:src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java",
+              "key": "4af6b4ee-7bad-42aa-b942-262d051f890a",
+              "line": 643,
+              "ruleKey": "java:hqrngpopulation261120261123",
+              "status": "TO_REVIEW"
+            }
+          ],
+          "overall": [
+            {
+              "component": "hq-hotspot-population-2611-20261123-custom:src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java",
+              "key": "4af6b4ee-7bad-42aa-b942-262d051f890a",
+              "line": 643,
+              "ruleKey": "java:hqrngpopulation261120261123",
+              "status": "TO_REVIEW"
+            }
+          ]
+        },
+        "policy": {
+          "conditions": [
+            {
+              "error": "100",
+              "metric": "new_security_hotspots_reviewed",
+              "op": "LT"
+            },
+            {
+              "error": "100",
+              "metric": "security_hotspots_reviewed",
+              "op": "LT"
+            }
+          ],
+          "gate": "HQ hotspot population 2611 20261123 gate",
+          "hotspot_rules": [
+            [
+              "java:hqrngpopulation261120261123",
+              "SECURITY_HOTSPOT"
+            ]
+          ],
+          "profile": {
+            "activeRuleCount": 1,
+            "isBuiltIn": false,
+            "isDefault": false,
+            "key": "536e7ad1-810d-4795-b8ac-69887bdddc6d",
+            "name": "HQ hotspot population 2611 20261123"
+          }
+        },
+        "project": "hq-hotspot-population-2611-20261123-custom",
+        "reopened": {
+          "historical": {
+            "caycStatus": "non-compliant",
+            "conditions": [
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "new_security_hotspots_reviewed",
+                "status": "ERROR"
+              },
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "security_hotspots_reviewed",
+                "status": "ERROR"
+              }
+            ],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+            },
+            "status": "ERROR"
+          },
+          "live": {
+            "caycStatus": "non-compliant",
+            "conditions": [
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "new_security_hotspots_reviewed",
+                "status": "ERROR"
+              },
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "security_hotspots_reviewed",
+                "status": "ERROR"
+              }
+            ],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+            },
+            "status": "ERROR"
+          },
+          "new": [
+            {
+              "component": "hq-hotspot-population-2611-20261123-custom:src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java",
+              "key": "4af6b4ee-7bad-42aa-b942-262d051f890a",
+              "line": 643,
+              "ruleKey": "java:hqrngpopulation261120261123",
+              "status": "TO_REVIEW"
+            }
+          ],
+          "overall": [
+            {
+              "component": "hq-hotspot-population-2611-20261123-custom:src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java",
+              "key": "4af6b4ee-7bad-42aa-b942-262d051f890a",
+              "line": 643,
+              "ruleKey": "java:hqrngpopulation261120261123",
+              "status": "TO_REVIEW"
+            }
+          ]
+        },
+        "safe": {
+          "historical": {
+            "caycStatus": "non-compliant",
+            "conditions": [
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "new_security_hotspots_reviewed",
+                "status": "ERROR"
+              },
+              {
+                "actualValue": "0.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "security_hotspots_reviewed",
+                "status": "ERROR"
+              }
+            ],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+            },
+            "status": "ERROR"
+          },
+          "live": {
+            "caycStatus": "non-compliant",
+            "conditions": [
+              {
+                "actualValue": "100.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "new_security_hotspots_reviewed",
+                "status": "OK"
+              },
+              {
+                "actualValue": "100.0",
+                "comparator": "LT",
+                "errorThreshold": "100",
+                "metricKey": "security_hotspots_reviewed",
+                "status": "OK"
+              }
+            ],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+            },
+            "status": "OK"
+          },
+          "new": [
+            {
+              "component": "hq-hotspot-population-2611-20261123-custom:src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java",
+              "key": "4af6b4ee-7bad-42aa-b942-262d051f890a",
+              "line": 643,
+              "resolution": "SAFE",
+              "ruleKey": "java:hqrngpopulation261120261123",
+              "status": "REVIEWED"
+            }
+          ],
+          "overall": [
+            {
+              "component": "hq-hotspot-population-2611-20261123-custom:src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java",
+              "key": "4af6b4ee-7bad-42aa-b942-262d051f890a",
+              "line": 643,
+              "resolution": "SAFE",
+              "ruleKey": "java:hqrngpopulation261120261123",
+              "status": "REVIEWED"
+            }
+          ]
+        },
+        "scans": {
+          "base": {
+            "analysis": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c",
+            "gate": {
+              "caycStatus": "non-compliant",
+              "conditions": [],
+              "ignoredConditions": false,
+              "status": "OK"
+            },
+            "revision": "8eff0a40639a3c010b2bf720ccf89f49844de067",
+            "sha256": {
+              "src/test/java/org/apache/commons/lang3/CharSetTest.java": "97fc1bca71f704289eb030f3a47f94cba37d8027457b60a46a8888327f1d4d93"
+            },
+            "task": "b3e6f3c9-2525-4e32-88cf-05bf7563bdfa",
+            "tree": "2c96f0ac10553f3e483f8ff79923526f6bf38d53"
+          },
+          "candidate": {
+            "analysis": "3f30b5dc-af6e-4cb0-8249-fb1a769cd066",
+            "gate": {
+              "caycStatus": "non-compliant",
+              "conditions": [
+                {
+                  "actualValue": "0.0",
+                  "comparator": "LT",
+                  "errorThreshold": "100",
+                  "metricKey": "new_security_hotspots_reviewed",
+                  "status": "ERROR"
+                },
+                {
+                  "actualValue": "0.0",
+                  "comparator": "LT",
+                  "errorThreshold": "100",
+                  "metricKey": "security_hotspots_reviewed",
+                  "status": "ERROR"
+                }
+              ],
+              "ignoredConditions": false,
+              "period": {
+                "date": "2025-12-24T13:48:37+0000",
+                "mode": "SPECIFIC_ANALYSIS",
+                "parameter": "4f6d08fc-8ab8-42d3-998f-ea860d0cb11c"
+              },
+              "status": "ERROR"
+            },
+            "revision": "6a4979ba028a257401b9fdfcc23f42d9419fff6f",
+            "sha256": {
+              "src/test/java/org/apache/commons/lang3/CharSetTest.java": "97fc1bca71f704289eb030f3a47f94cba37d8027457b60a46a8888327f1d4d93",
+              "src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java": "61647662238b2431c67e6970b16dc4e6499236c46005ef247fe66f401ec59191"
+            },
+            "task": "f4e370a7-6380-43ca-80fa-a9849cac957a",
+            "tree": "19952fc6c30169e8f597324c80d7eb212f46e280"
+          }
+        }
+      },
+      "default": {
+        "indexed_files": {
+          "src/test/java/org/apache/commons/lang3/CharSetTest.java": "java",
+          "src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java": "java"
+        },
+        "initial": {
+          "historical": {
+            "caycStatus": "non-compliant",
+            "conditions": [],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "d4a5146b-7a79-4bfb-90c9-0bec8a148117"
+            },
+            "status": "OK"
+          },
+          "live": {
+            "caycStatus": "non-compliant",
+            "conditions": [],
+            "ignoredConditions": false,
+            "period": {
+              "date": "2025-12-24T13:48:37+0000",
+              "mode": "SPECIFIC_ANALYSIS",
+              "parameter": "d4a5146b-7a79-4bfb-90c9-0bec8a148117"
+            },
+            "status": "OK"
+          },
+          "new": [],
+          "overall": []
+        },
+        "policy": {
+          "conditions": [
+            {
+              "error": "100",
+              "metric": "new_security_hotspots_reviewed",
+              "op": "LT"
+            },
+            {
+              "error": "100",
+              "metric": "security_hotspots_reviewed",
+              "op": "LT"
+            }
+          ],
+          "gate": "HQ hotspot population 2611 20261123 gate",
+          "hotspot_rules": [],
+          "profile": {
+            "activeRuleCount": 263,
+            "isBuiltIn": true,
+            "isDefault": true,
+            "key": "85caa9ca-30a0-49d9-8e24-dab7c86e5192",
+            "name": "Sonar way core"
+          }
+        },
+        "project": "hq-hotspot-population-2611-20261123-default",
+        "scans": {
+          "base": {
+            "analysis": "d4a5146b-7a79-4bfb-90c9-0bec8a148117",
+            "gate": {
+              "caycStatus": "non-compliant",
+              "conditions": [],
+              "ignoredConditions": false,
+              "status": "OK"
+            },
+            "revision": "8eff0a40639a3c010b2bf720ccf89f49844de067",
+            "sha256": {
+              "src/test/java/org/apache/commons/lang3/CharSetTest.java": "97fc1bca71f704289eb030f3a47f94cba37d8027457b60a46a8888327f1d4d93"
+            },
+            "task": "7a2c01fb-f8cf-4261-bba0-334307d44e11",
+            "tree": "2c96f0ac10553f3e483f8ff79923526f6bf38d53"
+          },
+          "candidate": {
+            "analysis": "fe2c38cd-8e4d-4915-a4fb-d9ed07a50d27",
+            "gate": {
+              "caycStatus": "non-compliant",
+              "conditions": [],
+              "ignoredConditions": false,
+              "period": {
+                "date": "2025-12-24T13:48:37+0000",
+                "mode": "SPECIFIC_ANALYSIS",
+                "parameter": "d4a5146b-7a79-4bfb-90c9-0bec8a148117"
+              },
+              "status": "OK"
+            },
+            "revision": "6a4979ba028a257401b9fdfcc23f42d9419fff6f",
+            "sha256": {
+              "src/test/java/org/apache/commons/lang3/CharSetTest.java": "97fc1bca71f704289eb030f3a47f94cba37d8027457b60a46a8888327f1d4d93",
+              "src/test/java/org/apache/commons/lang3/StringUtilsJoinBenchmark.java": "61647662238b2431c67e6970b16dc4e6499236c46005ef247fe66f401ec59191"
+            },
+            "task": "b9f63c8a-ad27-42f5-a827-494bb3c09a6e",
+            "tree": "19952fc6c30169e8f597324c80d7eb212f46e280"
+          }
+        }
+      }
+    },
+    "rule": "java:hqrngpopulation261120261123",
+    "rule_parameters": {
+      "allOverloads": "true",
+      "argumentTypes": null,
+      "className": "java.util.Random"
+    },
+    "scanner": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+    "server": "sonarqube@sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba",
+    "template": "java:S4011",
+    "version": "26.11.0.134175"
+  }
+}
