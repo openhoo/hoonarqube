@@ -399,8 +399,8 @@ pub(crate) fn analyze_project_paths(
         &project_options.duplication,
     )?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
-    if options.profile == hoonarqube_catalog::RuleProfile::Community2611JavaScriptCore {
-        attach_javascript_core_selection(&mut report, catalog);
+    if let Some(script) = options.profile.script_core() {
+        attach_script_core_selection(&mut report, catalog, script);
     } else if options.profile == hoonarqube_catalog::RuleProfile::Community2611PythonCore {
         use hoonarqube_catalog::python_core::PythonCoreSelection;
         let selection = PythonCoreSelection::embedded();
@@ -440,22 +440,25 @@ pub(crate) fn analyze_project_paths(
     Ok(report)
 }
 
-fn attach_javascript_core_selection(report: &mut hoonarqube_ir::AnalysisReport, catalog: &Catalog) {
-    use hoonarqube_catalog::javascript_core::{JavaScriptCoreSelection, PROFILE_NAME};
-    let selection = JavaScriptCoreSelection::embedded();
+fn attach_script_core_selection(
+    report: &mut hoonarqube_ir::AnalysisReport,
+    catalog: &Catalog,
+    script: hoonarqube_catalog::script_core::ScriptCore,
+) {
+    let selection = script.selection();
     let fallback_languages = report
         .files
         .iter()
         .map(|file| &file.language)
-        .filter(|language| language.as_str() != "javascript")
+        .filter(|language| language.as_str() != script.language())
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .cloned()
         .collect();
     report.partial_rule_selection = Some(hoonarqube_ir::PartialRuleSelection {
-        profile: PROFILE_NAME.to_owned(),
+        profile: script.profile_name().to_owned(),
         reference_version: selection.version.clone(),
-        membership_sha256: JavaScriptCoreSelection::digest().to_owned(),
+        membership_sha256: selection.digest.clone(),
         reference_active_rules: selection.active_keys.len(),
         selected_catalog_keys: selection
             .active_keys

@@ -1,0 +1,253 @@
+{
+  "reference_version": "26.11.0.134175",
+  "snapshot_sha256": "3b413831ab4e252defd92a3005bb594df90ff9dfeb254e0ef9784cc01bfdc468",
+  "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "legacy_baseline_commit": "86071ab5b34d0cc964d38676f9ddf62f18af934c",
+  "projects": [
+    {
+      "repository": "vercel/ms",
+      "github_id": 3655872,
+      "new_to_235": true,
+      "commit": "4ff48cec099f0514c3e9bbca18706c9c21122bfb",
+      "tree": "97b2713a417f56c08721d88cfd339d652bc48c98",
+      "scope": "src/index.ts",
+      "files": {
+        "src/index.ts": "e1a602896c1433dcebc88cb0e075733c51ea036533296d4df513e417cf9d387e"
+      },
+      "analysis": "0fc81590-b291-412f-893f-8f5278b3fc5a",
+      "compute_task": "adffd30e-d9a2-4349-a5ea-158594f6e50f",
+      "native_compiler_context": "missing",
+      "reference_unresolved_tsconfig": false,
+      "reference_hotspots": 0,
+      "legacy_findings": 17,
+      "removed_inactive_findings": 15,
+      "matching": [
+        {
+          "rule": "typescript:S7773",
+          "path": "src/index.ts",
+          "utf16": [
+            83,
+            11,
+            83,
+            14
+          ],
+          "message": "Prefer `Number.NaN` over `NaN`."
+        },
+        {
+          "rule": "typescript:S7773",
+          "path": "src/index.ts",
+          "utf16": [
+            93,
+            12,
+            93,
+            22
+          ],
+          "message": "Prefer `Number.parseFloat` over `parseFloat`."
+        }
+      ],
+      "native_only": [],
+      "reference_only": [
+        {
+          "rule": "typescript:S8786",
+          "path": "src/index.ts",
+          "utf16": [
+            78,
+            4,
+            78,
+            155
+          ],
+          "message": "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
+        }
+      ]
+    },
+    {
+      "repository": "scopsy/await-to-js",
+      "github_id": 76895772,
+      "new_to_235": true,
+      "commit": "59811c1338a3b7879222360cff71d3a9c6453104",
+      "tree": "3fe1de76fe315e4f44d013ccde07988b23dd2cdb",
+      "scope": "src",
+      "files": {
+        "src/await-to-js.ts": "6debadf2a8de091eefb9f6a0eb0846cbf22cb51caf8a07cf59de05dc213f375b"
+      },
+      "analysis": "c70a90a6-0a4c-4473-9ab9-4e3e9bd6fdf6",
+      "compute_task": "46e126ae-1fec-4199-b5a2-86300534fb93",
+      "native_compiler_context": "missing",
+      "reference_unresolved_tsconfig": false,
+      "reference_hotspots": 0,
+      "legacy_findings": 4,
+      "removed_inactive_findings": 4,
+      "matching": [],
+      "native_only": [],
+      "reference_only": []
+    },
+    {
+      "repository": "developit/mitt",
+      "github_id": 78983309,
+      "new_to_235": false,
+      "commit": "6b41670516ed8e8b738612f60491995470aa63b3",
+      "tree": "5f98b4adf03cd9837d138103ece5a0848e386c9d",
+      "scope": "src",
+      "files": {
+        "src/index.ts": "1536a2dd71d64785d811076beee6d970583ca555dd34ce839face641a200054b"
+      },
+      "analysis": "4962e265-09f4-43fd-a7c3-bdfdd6e161bf",
+      "compute_task": "35d02bc5-f74a-4b94-a2ae-47dba2f29e45",
+      "native_compiler_context": "missing",
+      "reference_unresolved_tsconfig": false,
+      "reference_hotspots": 0,
+      "legacy_findings": 22,
+      "removed_inactive_findings": 20,
+      "matching": [
+        {
+          "rule": "typescript:S2201",
+          "path": "src/index.ts",
+          "utf16": [
+            106,
+            4,
+            110,
+            7
+          ],
+          "message": "Consider using \"forEach\" instead of \"map\" as its return value is not being used here."
+        },
+        {
+          "rule": "typescript:S2201",
+          "path": "src/index.ts",
+          "utf16": [
+            115,
+            4,
+            119,
+            7
+          ],
+          "message": "Consider using \"forEach\" instead of \"map\" as its return value is not being used here."
+        }
+      ],
+      "native_only": [],
+      "reference_only": []
+    },
+    {
+      "repository": "sindresorhus/ky",
+      "github_id": 147375544,
+      "new_to_235": false,
+      "commit": "3541888878c4d303a8bc2ad61815f4e048f55a5d",
+      "tree": "2563212e6be0e3dcdc2f09412d3beb01fa78127e",
+      "scope": "source",
+      "files": {
+        "source/core/Ky.ts": "6b11f976881846307db3e857904c84dcd2728515c8c616d35047fb2f89423dfa",
+        "source/core/constants.ts": "2951964010c96ebc7dba3df6a0a38c64a3856d2afb7bc01f15f9647cefacc312",
+        "source/core/retry-timing.ts": "86bc4ee98316abb1fff8d8cdeffbee069c39a211c3693e9d44185146619ccd72",
+        "source/errors/ForceRetryError.ts": "168d48467fef3026efaafebe28e97161470026773ea444e48bb1f02d565e4708",
+        "source/errors/HTTPError.ts": "7a78df4fde7beaa0b1d2dca8da8fbcb144af9060d8beee2b25599ed50d971e4e",
+        "source/errors/KyError.ts": "a661da0280c4d2aeed971d433237ffd38d1c4f8293ca5be878456c24347a35a5",
+        "source/errors/NetworkError.ts": "5e662ebec835bc252e7a1d4a573521adcc2a94bc4e74b4f28abeb4f781d9b147",
+        "source/errors/NonError.ts": "c5cfb18f2113bc5881a362416e2cdc50358a3abb753d3fc682866d5be0dc1c92",
+        "source/errors/ResponseSizeError.ts": "66442c7b8f521352865b12b3182bdc94e9e7c61a0593135f4e49b41f8964dee2",
+        "source/errors/SchemaValidationError.ts": "9898f840cb3ee5dfc3a071ef377ddfe4e8ad057fe9409adf7ce7c40268ec2ec0",
+        "source/errors/TimeoutError.ts": "1bbafdd078ac08e7b0dff920fee713716897e2d39178f6c364be48221342a1d4",
+        "source/index.ts": "d988bde0416a6488b099e63dbdf1beb09aaf8f970b702ea6209b168adf29ff6d",
+        "source/types/ResponsePromise.ts": "804afb5d13cc2d1f312a4b7915df23c39d96f18812c6ecf4769f043ef4713638",
+        "source/types/common.ts": "e54ee08ce7a9a84ab1ccf46d5e224afd020f2e759b8d4f3917741d1b678abeb4",
+        "source/types/hooks.ts": "c319aaf61d8df59e74c568d90edfa98addb85505194e5e1e6ec6183bdf1ee568",
+        "source/types/ky.ts": "4ae943bc2f7a84eba2090814c554f2c5ce55360f212220e0d805fad7f97b9a9c",
+        "source/types/options.ts": "4172d5f872e91ad43f0ff6790935acac2a4d49b84b94b64f3ea5faaff3a123fc",
+        "source/types/request.ts": "5e667d2b8b4e2876614d2c82927c560da73d913699e42bdac81b3579d5a98838",
+        "source/types/response.ts": "fc81ea656a945c5bcb17f5d39be0cd06f9cab7a558576b2936b7e8c5392a5b98",
+        "source/types/retry.ts": "0b8d6c75ee71e8563a722495cd630da1bc52ec35dd8db09e58e12a09818b3bb7",
+        "source/types/standard-schema.ts": "7d91cbfe25fb3c6d6a9ae21af45122fdef26c03f54cde2b276b68a0c569e5b98",
+        "source/utils/body.ts": "ac395fac6252fd1d6a14201cbbabbd7fcda72e469ee012cd77651499162819ad",
+        "source/utils/delay.ts": "2ce1012c8cba206dfca65b5b9ce54c8e6ba8a06e5e87aca74f3c97cfdf2caa9b",
+        "source/utils/is-network-error.ts": "b466ec76fd3e8206e039cdc5d9e49a6ed7c2f1b933b4bf01c8df01ce967d8537",
+        "source/utils/is.ts": "06a3b24e410eb256602bf82250f40fae79ea21cd2f66058c82c0259ae34ed510",
+        "source/utils/merge.ts": "3df5d33022ceff5dc6363d0c6648c53094026a33b69cfe38917e8a60289a5258",
+        "source/utils/normalize.ts": "d355eabbf311fb0e94a7e14a0db0fff07a9f92af9faf8cef5ebf29a66b92c874",
+        "source/utils/options.ts": "fa585ca84728454a2202021385b07cdb412d41830a48916f09f29d55fbe5ffaa",
+        "source/utils/timeout.ts": "06d8df0754e87bc4aabfb4a0030d964ff54b5990ccc076d81c5846cdbed847d2",
+        "source/utils/type-guards.ts": "a5ee087ff19cb189745c79988f61a85d743c3f24261c99ec19f13ebb9f6b30f9",
+        "source/utils/types.ts": "915a9033bcf7890de630ade5d9d1f99becbfb16324c03b1a41169e2e3324a27e"
+      },
+      "analysis": "60857a95-e513-433e-bd91-e7cf70847c5c",
+      "compute_task": "7284b9af-e18d-4637-94c1-45424ce8d5ff",
+      "native_compiler_context": "missing",
+      "reference_unresolved_tsconfig": true,
+      "reference_hotspots": 0,
+      "legacy_findings": 423,
+      "removed_inactive_findings": 421,
+      "matching": [
+        {
+          "rule": "typescript:S8786",
+          "path": "source/core/Ky.ts",
+          "utf16": [
+            252,
+            42,
+            252,
+            48
+          ],
+          "message": "Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking."
+        }
+      ],
+      "native_only": [
+        {
+          "rule": "typescript:S2245",
+          "path": "source/core/Ky.ts",
+          "utf16": [
+            676,
+            19,
+            676,
+            32
+          ],
+          "message": "Make sure that using this pseudorandom number generator is safe here."
+        }
+      ],
+      "reference_only": [
+        {
+          "rule": "typescript:S6544",
+          "path": "source/core/Ky.ts",
+          "utf16": [
+            986,
+            8,
+            986,
+            24
+          ],
+          "message": "Expected non-Promise value in a boolean conditional."
+        },
+        {
+          "rule": "typescript:S7733",
+          "path": "source/utils/body.ts",
+          "utf16": [
+            236,
+            2,
+            236,
+            6
+          ],
+          "message": "\"body\" is not allowed when method is \"GET\"."
+        }
+      ]
+    }
+  ],
+  "native_gate_control": {
+    "repository": "vercel/ms",
+    "scope": "src/index.ts",
+    "assigned_condition": {
+      "scope": "overall",
+      "metric": "files",
+      "operator": "eq",
+      "threshold": 1
+    },
+    "results": [
+      {
+        "profile": "sonar-parity",
+        "exit": 0,
+        "status": "pass",
+        "actual": 1.0,
+        "same_service_gate_after_restart": true
+      },
+      {
+        "profile": "community-26.11-typescript-core",
+        "exit": 2,
+        "status": "unavailable",
+        "actual": null,
+        "same_service_gate_after_restart": true
+      }
+    ]
+  }
+}

@@ -278,6 +278,21 @@ languages listed in `partial_rule_selection.fallback_languages`. Use a baseline
 created with the same profile. The scanner exits **2**, and CLI and service
 gate conditions remain unavailable while this selection is partial.
 
+### TypeScript Community 26.11 Core selection
+
+Use `hoonarqube analyze --format json --profile community-26.11-typescript-core <paths>`
+to select TypeScript findings against the pinned [Sonar way core
+profile](catalog/reference/typescript-core-community-26.11.json). Of the 199
+active reference keys, 46 are absent from the catalog and five have unmapped
+parameters. The scanner applies the remaining 148 keys to detector output.
+JavaScript and other languages keep their compatibility profile in mixed scans.
+The report names those languages and lists the missing and unmapped keys.
+
+This partial selection returns exit 2 and keeps CLI and service gates
+unavailable. See the [34-file public comparison and replay
+instructions](docs/engineering/typescript-core-public-26.11.md) for observed
+matches and remaining detector differences.
+
 ### Python Community 26.11 Core selection
 
 Run `hoonarqube analyze --format json --profile community-26.11-python-core <paths>`

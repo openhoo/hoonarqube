@@ -78,7 +78,7 @@ enum Command {
         python_require_type_hints: bool,
         /// Analyzer profile: `sonar-parity` (default), cumulative native
         /// profiles `recommended`/`extended`/`strict`, or isolated
-        /// `github-code-quality`, or partial `community-26.11-python-core`.
+        /// `github-code-quality`, or `community-26.11-<language>-core` for Python, JavaScript, and TypeScript.
         #[arg(long, default_value = "sonar-parity")]
         profile: RuleProfile,
         /// Exclude paths from analysis and project measurements.
@@ -1160,10 +1160,9 @@ fn fix_plans(
 /// under `--diff`, write-and-verify under `--apply`. Exits nonzero on any
 /// warning or unverified finding.
 fn run_fix(paths: &[std::path::PathBuf], config: &FixOptions, json: bool) -> ExitCode {
-    if matches!(
-        config.profile,
-        RuleProfile::Community2611JavaScriptCore | RuleProfile::Community2611PythonCore
-    ) {
+    if config.profile.script_core().is_some()
+        || config.profile == RuleProfile::Community2611PythonCore
+    {
         eprintln!("{} is a partial selection for analyze only", config.profile);
         return ExitCode::from(2);
     }
