@@ -9,8 +9,6 @@ use hoonarqube_ir::{
     AnalysisReport, FileClassification, MeasurementStatus, ProjectFileMeasurement,
 };
 
-use super::ProjectAnalysisOptions;
-
 pub(super) fn measure(path: &Path) -> Option<DockerfileLines> {
     if path.file_name()? != "Dockerfile" || !fs::symlink_metadata(path).ok()?.is_file() {
         return None;
@@ -38,14 +36,13 @@ pub(super) fn measure(path: &Path) -> Option<DockerfileLines> {
 pub(super) fn attach(
     report: &mut AnalysisReport,
     dockerfiles: Vec<DockerfileLines>,
-    options: &ProjectAnalysisOptions,
+    default_duplication: bool,
 ) {
     if dockerfiles.is_empty() {
         return;
     }
     let p = &mut report.project;
-    let native_complete = p.complete
-        && options.duplication == hoonarqube_core::duplication::DuplicationOptions::default();
+    let native_complete = p.complete && default_duplication;
     let go_duplicated_lines = p.duplication.take().map(|d| d.duplicated_lines);
     p.duplications.clear();
     let mut go_files = Vec::new();
@@ -83,4 +80,35 @@ pub(super) fn attach(
             report.project.docker_duplication = Some(evidence);
         }
     }
+}
+
+/// Only an evaluated density-only policy can determine exit status in an
+/// otherwise incomplete scan. Preserve output, assessment and parity failures.
+pub(crate) fn gate_exit(
+    output_ok: bool,
+    report: &AnalysisReport,
+    assessment_status: u8,
+) -> Option<std::process::ExitCode> {
+    use hoonarqube_ir::assessment::{GateScope, GateStatus};
+    use hoonarqube_ir::parity::ParityComparisonStatus;
+    if !output_ok || assessment_status > 1 || report.project.docker_duplication.is_none() {
+        return None;
+    }
+    if report
+        .parity
+        .as_ref()
+        .and_then(|p| p.comparison.as_ref())
+        .is_some_and(|c| c.status == ParityComparisonStatus::Diverged)
+    {
+        return None;
+    }
+    let gate = report.assessment.as_ref()?.gate.as_ref()?;
+    let proven = !gate.conditions.is_empty()
+        && gate.conditions.iter().all(|c| {
+            c.scope == GateScope::Overall
+                && c.metric == "duplicated_lines_density"
+                && c.actual.is_some()
+                && matches!(c.status, GateStatus::Pass | GateStatus::Fail)
+        });
+    proven.then(|| std::process::ExitCode::from(assessment_status))
 }

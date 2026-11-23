@@ -7,7 +7,7 @@
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
 mod community_inputs;
-mod docker_duplication;
+pub(crate) mod docker_duplication;
 use community_inputs::UnsupportedInput;
 mod csharp_index;
 use csharp_index::with_csharp_project_index;
@@ -394,7 +394,11 @@ pub(crate) fn analyze_project_paths(
         .map(|(_, project_file)| project_file),
     );
     append_project_warnings(&collected.project_files, warnings);
-    let unsupported_inventory = std::mem::take(&mut collected.unsupported_inventory);
+    let unsupported_inventory = UnsupportedInventory {
+        files: std::mem::take(&mut collected.unsupported_inventory),
+        dockerfiles: collected.dockerfiles,
+        default_duplication: project_options.duplication == DuplicationOptions::default(),
+    };
     let mut report = build_project_report(
         collected.project_files,
         paths.to_vec(),
@@ -402,7 +406,6 @@ pub(crate) fn analyze_project_paths(
         &project_options.duplication,
     )?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
-    docker_duplication::attach(&mut report, collected.dockerfiles, project_options);
     crate::parity_cli::attach_parity_contract(
         &mut report,
         catalog,
@@ -421,14 +424,14 @@ pub(crate) fn analyze_project_paths(
 
 fn append_unsupported_inventory(
     report: &mut hoonarqube_ir::AnalysisReport,
-    unsupported_inventory: Vec<(PathBuf, FileClassification)>,
+    inventory: UnsupportedInventory,
 ) {
     let mut existing = std::collections::BTreeSet::new();
     for file in &report.project.files {
         existing.insert(normalized_input_path(&file.path));
     }
     let mut unique = std::collections::BTreeMap::new();
-    for (path, classification) in unsupported_inventory {
+    for (path, classification) in inventory.files {
         let key = normalized_input_path(&path);
         if existing.contains(&key) {
             continue;
@@ -458,6 +461,13 @@ fn append_unsupported_inventory(
         .project
         .files
         .sort_by(|left, right| left.path.cmp(&right.path));
+    docker_duplication::attach(report, inventory.dockerfiles, inventory.default_duplication);
+}
+
+struct UnsupportedInventory {
+    files: Vec<(PathBuf, FileClassification)>,
+    dockerfiles: Vec<hoonarqube_ir::docker_duplication::DockerfileLines>,
+    default_duplication: bool,
 }
 
 struct CollectedProjectInputs {

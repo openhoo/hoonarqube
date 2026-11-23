@@ -2039,6 +2039,10 @@ fn analyze_exit_code(
     report: &hoonarqube_ir::AnalysisReport,
     assessment_status: u8,
 ) -> ExitCode {
+    if let Some(exit) = analyze::docker_duplication::gate_exit(output_ok, report, assessment_status)
+    {
+        return exit;
+    }
     let parity_diverged = report
         .parity
         .as_ref()
@@ -2046,27 +2050,9 @@ fn analyze_exit_code(
         .is_some_and(|comparison| {
             comparison.status == hoonarqube_ir::parity::ParityComparisonStatus::Diverged
         });
-    let only_proven_density = report.project.docker_duplication.is_some()
-        && report
-            .assessment
-            .as_ref()
-            .and_then(|a| a.gate.as_ref())
-            .is_some_and(|g| {
-                !g.conditions.is_empty()
-                    && g.conditions.iter().all(|c| {
-                        c.scope == hoonarqube_ir::assessment::GateScope::Overall
-                            && c.metric == "duplicated_lines_density"
-                            && c.actual.is_some()
-                            && matches!(
-                                c.status,
-                                hoonarqube_ir::assessment::GateStatus::Pass
-                                    | hoonarqube_ir::assessment::GateStatus::Fail
-                            )
-                    })
-            });
     if !output_ok || parity_diverged {
         ExitCode::FAILURE
-    } else if (!report.project.complete && !only_proven_density) || assessment_status == 2 {
+    } else if !report.project.complete || assessment_status == 2 {
         ExitCode::from(2)
     } else if assessment_status == 1 {
         ExitCode::FAILURE
