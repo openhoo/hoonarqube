@@ -1596,7 +1596,6 @@ pub(crate) fn collect_project_input_files(
             collect_project_input_path(path, patterns, &mut state, &mut failures);
         }
     }
-    let files = deduplicate_input_files(files);
     let mut unique_failures = std::collections::BTreeMap::new();
     for (path, reason) in failures {
         unique_failures
@@ -1605,6 +1604,13 @@ pub(crate) fn collect_project_input_files(
     }
     let mut unique_unsupported = std::collections::BTreeMap::new();
     for (path, classification) in unsupported_inventory {
+        // Community indexes notebooks as source. Use the same project input
+        // path as an explicitly named notebook, so a mixed directory cannot
+        // silently turn unmeasured cells into a successful quality gate.
+        if is_notebook(&path) {
+            files.push(path);
+            continue;
+        }
         let key = normalized_input_path(&path);
         match unique_unsupported.entry(key) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -1618,7 +1624,7 @@ pub(crate) fn collect_project_input_files(
         }
     }
     (
-        files,
+        deduplicate_input_files(files),
         unique_failures.into_values().collect(),
         unique_unsupported.into_values().collect(),
         unsupported_inventory_bytes,
@@ -2181,12 +2187,20 @@ fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }
 
-/// Recognizes Sonar-shaped CSS, web-template, and Docker paths that have no
+fn is_notebook(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ipynb"))
+}
+
+/// Recognizes notebook, CSS, web-template, and Docker paths that have no
 /// native analyzer yet. Native dispatch wins first so a future or overlapping
 /// extension can never be reclassified as unsupported.
 fn is_recognized_unsupported_file(path: &Path) -> bool {
     if is_analyzable_file(path) {
         return false;
+    }
+    if is_notebook(path) {
+        return true;
     }
     let extension = path.extension().and_then(|extension| extension.to_str());
     if extension.is_some_and(|extension| {
@@ -2954,6 +2968,37 @@ mod tests {
             hoonarqube_ir::MeasurementStatus::Unsupported
         );
         assert!(measurement.metrics.is_none());
+    }
+
+    #[test]
+    fn notebooks_in_mixed_directories_keep_the_explicit_input_contract() {
+        let fix = TempDir::new("notebook-scope");
+        let main = fix.write("control.py", "value = 1\n");
+        let notebook = fix.write("demo.IPYNB", "unmeasured notebook content");
+        let options = project_options();
+        let direct = run_project(&[main.clone(), notebook.clone()], &options, &mut Vec::new());
+        let mixed = run_project(std::slice::from_ref(&fix.0), &options, &mut Vec::new());
+        // Directory plus explicit overlap must still produce just one entry.
+        let overlap = run_project(
+            &[fix.0.clone(), notebook.clone()],
+            &options,
+            &mut Vec::new(),
+        );
+        assert_eq!(overlap.project.files, mixed.project.files);
+        assert!(!mixed.project.complete);
+        assert_eq!(mixed.project.files, direct.project.files);
+        assert_eq!(mixed.project.metrics.files, 1);
+        assert!(mixed.project.duplication.is_none());
+        let row = mixed
+            .project
+            .files
+            .iter()
+            .find(|f| f.path == notebook)
+            .unwrap();
+        assert_eq!(row.classification, FileClassification::Source);
+        assert_eq!(row.status, MeasurementStatus::Unsupported);
+        assert!(row.metrics.is_none() && row.duplication.is_none());
+        assert!(mixed.files.iter().any(|f| f.path == main));
     }
 
     #[test]

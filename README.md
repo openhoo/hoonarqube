@@ -527,7 +527,16 @@ with no metrics, so they leave metrics unchanged and do not make the project
 incomplete (`complete: true`, exit 0). Passing one directly as a file (without
 an explicit excluded/generated/vendor classification) retains it as
 `Source`/`Unsupported`, makes `complete: false`, and exits **2**. The CLI
-still emits the report. Facts collection limits individual inputs to 16 MiB.
+still emits the report.
+
+Jupyter notebooks (`.ipynb`) count as requested source whether named directly
+or discovered in a directory. Notebook measurements are not implemented. A
+mixed Python/notebook scope retains the Python findings, lists the notebook
+as unsupported, and returns exit **2** for an unavailable gate. If your policy
+covers Python files only, select those inputs or pass `--exclude '**/*.ipynb'`.
+See the [measured notebook behavior](docs/engineering/notebook-scope-26.11.md).
+
+Facts collection limits individual inputs to 16 MiB.
 The default project matcher accepts up to 2,000,000 normalized units and
 1,000,000 candidate pairs, with an additional bounded comparison budget. Limit
 failures are explicit, never silently truncated results.
