@@ -204,6 +204,7 @@ struct GroupState {
     representative: TokenOccurrence,
     occurrences: Vec<TokenOccurrence>,
     occurrence_set: HashSet<TokenOccurrence>,
+    relation_only_files: HashSet<usize>,
 }
 
 #[derive(Debug)]
@@ -895,7 +896,15 @@ impl MatchEngine<'_> {
             self.process_bucket(key, references)?;
         }
         self.complete_token_line_relations(index)?;
-        Ok(std::mem::take(&mut self.groups))
+        let mut groups = Vec::with_capacity(self.groups.len());
+        for mut group in std::mem::take(&mut self.groups) {
+            if group.language != Language::Go
+                || qualify_go_origins(&mut group, self.files, self.options, &mut self.budget)?
+            {
+                groups.push(group);
+            }
+        }
+        Ok(groups)
     }
 
     fn complete_token_line_relations(
@@ -961,13 +970,13 @@ impl MatchEngine<'_> {
             candidate.start,
             length,
             &mut self.budget,
-        )? || (file.language != Language::Python
+        )? || (!matches!(file.language, Language::Python | Language::Go)
             && !eligible_span(file.language, file, candidate.start, length, self.options)?)
         {
             return Ok(());
         }
         // A token-line group already qualified on its original pair. Sonar
-        // keeps its other matching Python copies, even if a shorter run of
+        // keeps other matching copies in Python and Go, even if a shorter run of
         // repeated rows in one copy gives it fewer original tokens.
         let group = &mut self.groups[group_index];
         group.occurrence_set.insert(occurrence);
@@ -1050,9 +1059,14 @@ impl MatchEngine<'_> {
 
         let left_file = &self.files[left.file];
         let right_file = &self.files[right.file];
-        if !eligible_span(key.language, left_file, left_start, length, self.options)?
-            || !eligible_span(key.language, right_file, right_start, length, self.options)?
-        {
+        let left_ok = eligible_span(key.language, left_file, left_start, length, self.options)?;
+        let right_ok = eligible_span(key.language, right_file, right_start, length, self.options)?;
+        let qualifies = if key.language == Language::Go {
+            left_ok || right_ok
+        } else {
+            left_ok && right_ok
+        };
+        if !qualifies {
             return Ok(());
         }
         let full_key = WindowKey {
@@ -1109,10 +1123,38 @@ impl MatchEngine<'_> {
             representative: left,
             occurrences: vec![left, right],
             occurrence_set,
+            relation_only_files: HashSet::new(),
         });
         self.groups_by_key.entry(key).or_default().push(group_index);
         Ok(())
     }
+}
+
+/// Community evaluates a token-line relation once from each participating
+/// file. The first local copy is the origin. If it clears the lexical
+/// threshold, every local copy counts; copies in other files remain visible
+/// as related locations even when those files have no qualifying origin.
+fn qualify_go_origins(
+    group: &mut GroupState,
+    files: &[PreparedFile],
+    options: &DuplicationOptions,
+    budget: &mut WorkBudget,
+) -> Result<bool, String> {
+    let mut first = HashMap::<usize, usize>::new();
+    for copy in &group.occurrences {
+        budget.charge(1)?;
+        let start = first.entry(copy.file).or_insert(copy.start);
+        *start = (*start).min(copy.start);
+    }
+    let mut counted = false;
+    for (index, start) in first {
+        if eligible_span(Language::Go, &files[index], start, group.length, options)? {
+            counted = true;
+        } else {
+            group.relation_only_files.insert(index);
+        }
+    }
+    Ok(counted)
 }
 
 fn validate_tokens(file: &DuplicationFile) -> Result<(), String> {
@@ -1468,6 +1510,11 @@ fn group_is_covered_by(
     budget: &mut WorkBudget,
 ) -> Result<bool, String> {
     for short in &group.occurrences {
+        if !group.relation_only_files.contains(&short.file)
+            && earlier.relation_only_files.contains(&short.file)
+        {
+            return Ok(false);
+        }
         let mut occurrence_covered = false;
         for long in &earlier.occurrences {
             budget.charge(1)?;
@@ -1724,11 +1771,15 @@ fn append_projected_group(
         let end_byte = projected_occurrence.end_byte;
         let start_line = projected_occurrence.start_line;
         let end_line = projected_occurrence.end_line;
-        per_file_ranges[file_index].insert((start_line, end_line));
-        per_file_spans[file_index].insert((start_byte, end_byte));
-        project_ranges.insert((path.clone(), start_line, end_line));
-        project_spans.insert((path.clone(), start_byte, end_byte));
+        let relation_only = group.relation_only_files.contains(&file_index);
+        if !relation_only {
+            per_file_ranges[file_index].insert((start_line, end_line));
+            per_file_spans[file_index].insert((start_byte, end_byte));
+            project_ranges.insert((path.clone(), start_line, end_line));
+            project_spans.insert((path.clone(), start_byte, end_byte));
+        }
         occurrences.push(hoonarqube_ir::DuplicateOccurrence {
+            relation_only,
             path,
             start_byte,
             end_byte,
@@ -1878,9 +1929,86 @@ mod tests {
     use crate::Language;
     use crate::source_facts::{NormalizedToken, SourceFacts, collect_source_facts};
     use hoonarqube_ir::FileMetrics;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::{BTreeMap, HashMap, HashSet};
     use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
+
+    fn go_copy(name: &str, repeats: usize) -> String {
+        let mut source = format!("func {name}() {{\n");
+        for index in 0..5 {
+            writeln!(source, " call({index})").unwrap();
+        }
+        source.push_str(&" call(101)\n".repeat(repeats));
+        for index in 5..10 {
+            writeln!(source, " call({index})").unwrap();
+        }
+        source.push_str("}\n");
+        source
+    }
+
+    fn go_copies(files: &[Vec<usize>]) -> super::DuplicationResult {
+        let inputs = files
+            .iter()
+            .enumerate()
+            .map(|(i, counts)| {
+                let path = format!("file{i}.go");
+                let mut source = String::from("package example\n");
+                for (j, &count) in counts.iter().enumerate() {
+                    source.push_str(&go_copy(&format!("copy{i}_{j}"), count));
+                }
+                DuplicationFile {
+                    facts: collect_source_facts(Path::new(&path), &source).unwrap(),
+                    path: path.into(),
+                    language: Language::Go,
+                }
+            })
+            .collect::<Vec<_>>();
+        detect_duplications(&inputs, &DuplicationOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn go_short_external_copy_is_related_but_only_long_files_contribute() {
+        for (copies, lines) in [
+            (vec![vec![28], vec![2]], vec![39, 0]),
+            (vec![vec![2], vec![28]], vec![0, 39]),
+            (vec![vec![28], vec![28], vec![2]], vec![39, 39, 0]),
+        ] {
+            let found = go_copies(&copies);
+            assert_eq!(
+                found
+                    .files
+                    .iter()
+                    .map(|f| f.metrics.duplicated_lines)
+                    .collect::<Vec<_>>(),
+                lines
+            );
+            assert_eq!(found.groups.len(), 1);
+            assert_eq!(found.groups[0].occurrences.len(), copies.len());
+            for (occurrence, count) in found.groups[0].occurrences.iter().zip(lines) {
+                assert_eq!(occurrence.relation_only, count == 0);
+            }
+        }
+        assert!(go_copies(&[vec![2], vec![2]]).groups.is_empty());
+    }
+
+    #[test]
+    fn go_same_file_group_depends_on_the_first_copy_qualifying() {
+        for (copies, lines, blocks) in [
+            (vec![28, 2], 52, 2),
+            (vec![2, 28], 0, 0),
+            (vec![28, 28], 78, 2),
+            (vec![2, 2], 0, 0),
+        ] {
+            let found = go_copies(&[copies]);
+            assert_eq!(
+                (
+                    found.metrics.duplicated_lines,
+                    found.metrics.duplicated_blocks
+                ),
+                (lines, blocks)
+            );
+        }
+    }
 
     fn go_literal_pair(delimiters: (&str, &str), wrap_second: bool) -> u64 {
         let inputs = ["a", "b"].map(|side| {
@@ -2231,6 +2359,7 @@ mod tests {
             hash_b: 0,
             representative: occurrences[0],
             occurrence_set: occurrences.iter().copied().collect(),
+            relation_only_files: HashSet::new(),
             occurrences,
         }
     }

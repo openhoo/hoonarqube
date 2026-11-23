@@ -165,6 +165,15 @@ class TreeIdentity(unittest.TestCase):
 
 
 class Measurement(unittest.TestCase):
+    def test_relation_only_companion_is_checked_but_does_not_count(self):
+        reference, project, limits = example()
+        companion = {"path": "./a.go", "start_line": 60, "end_line": 62, "relation_only": True}
+        project["duplications"][0]["occurrences"].append(companion)
+        self.assertEqual(tree.compare(reference, project, limits)["regressions"], [])
+        companion["relation_only"] = "true"
+        with self.assertRaisesRegex(ValueError, "invalid duplication relation flag"):
+            tree.compare(reference, project, limits)
+
     def test_unchanged_density_cannot_hide_a_line_shift(self):
         ref, project, limits = example()
         self.assertEqual(tree.compare(ref, project, limits)["regressions"], [])
@@ -254,7 +263,7 @@ class Measurement(unittest.TestCase):
         self.assertEqual(len({c["community"]["analysis"] for c in projects}), 32)
         self.assertEqual(
             sum(not Decimal(c["allowed_residual"]["density_delta"]) for c in projects),
-            29,
+            31,
         )
         self.assertEqual(
             sum(
@@ -263,7 +272,7 @@ class Measurement(unittest.TestCase):
                 )
                 for c in projects
             ),
-            30,
+            32,
         )
 
 

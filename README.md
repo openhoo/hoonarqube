@@ -520,7 +520,13 @@ array for findings. Its `project` object contains:
 - `duplication`: duplicated line/block/file counts and
   `duplicated_lines_density`, also available for eligible individual files.
 
-Duplicated lines are the union of matching line ranges within each file;
+In Go, repeated identical token lines can produce matching copies of different
+physical lengths. The first local copy must meet the thresholds for that file
+to contribute to duplication. A related copy in another file can still appear
+with `relation_only: true`. It contributes no lines, blocks or files to overall
+or new-code metrics. When the flag is absent, the occurrence counts.
+
+Duplicated lines are the union of counted line ranges within each file;
 overlapping groups cannot count a line twice. Blocks count distinct source
 byte spans, not groups. Project density uses the total physical lines of
 duplication-eligible source files, rather than averaging file percentages.

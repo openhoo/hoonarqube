@@ -1003,11 +1003,9 @@
         "locations_capture_sha256": "de6b9e958b84610d74b19818bf3c0553ea51ff7d2dc255d842955f8ee4673703"
       },
       "allowed_residual": {
-        "density_delta": "0.3",
+        "density_delta": "0.0",
         "missing_files": [],
-        "missing_lines": {
-          "mapstructure_test.go": "234-251"
-        },
+        "missing_lines": {},
         "extra_lines": {}
       }
     },
@@ -1957,11 +1955,9 @@
         "locations_capture_sha256": "c6564d8dc976ef158f24483c132bae5f954c98e70cd59ab7db3f076ceb2610c1"
       },
       "allowed_residual": {
-        "density_delta": "0.2",
+        "density_delta": "0.0",
         "missing_files": [],
-        "missing_lines": {
-          "bytes_test.go": "83-100"
-        },
+        "missing_lines": {},
         "extra_lines": {}
       }
     },

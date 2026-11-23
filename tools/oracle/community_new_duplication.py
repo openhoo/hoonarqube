@@ -165,7 +165,8 @@ def duplicate_lines(report, path):
                 <= report["project"]["files"][0]["metrics"]["lines"],
                 "invalid duplication occurrence",
             )
-            duplicate.update(range(first, last + 1))
+            if not occurrence.get("relation_only", False):
+                duplicate.update(range(first, last + 1))
     return duplicate
 
 

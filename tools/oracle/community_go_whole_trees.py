@@ -293,7 +293,10 @@ def observed(project, limits):
                 and 1 <= a <= b <= min(limits[path], MAX_LINES),
                 f"invalid duplicated lines: {path} {a}:{b}",
             )
-            lines.update((path, n) for n in range(a, b + 1))
+            related_only = item.get("relation_only", False)
+            require(type(related_only) is bool, "invalid duplication relation flag")
+            if not related_only:
+                lines.update((path, n) for n in range(a, b + 1))
             require(len(lines) <= MAX_LINES, "too many native duplicated lines")
     measures = project["duplication"]
     require(
