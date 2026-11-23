@@ -475,6 +475,8 @@ heuristics are enabled implicitly.
 The resulting default project classification is source-only; opt into other
 scopes with the explicit include/exclude flags above.
 
+Directory scans retain unmeasured `.php` files as unsupported source. A mixed PHP/JavaScript directory therefore produces an unavailable overall gate (CI exit 2) until PHP measurements exist. An explicit exclusion such as `--exclude '**/*.php'` keeps PHP outside the measured scope. See the [assigned Laravel gate comparison](docs/engineering/php-directory-gate.md).
+
 Classification precedence is **excluded → vendor → generated → test → source**.
 Source files contribute to project size and duplication. Tests retain their
 findings and individual measurements, but do not contribute to those source

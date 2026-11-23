@@ -1719,7 +1719,13 @@ fn retain_unsupported_project_inventory(
         return;
     }
     *state.unsupported_inventory_bytes = total;
-    state.unsupported_inventory.push((path, classification));
+    if is_php_file(&path) {
+        // Community measures PHP. Keep the same scope as an explicitly named
+        // file so missing native measurements cannot satisfy an assigned gate.
+        state.files.push(path);
+    } else {
+        state.unsupported_inventory.push((path, classification));
+    }
 }
 
 fn is_inventory_class(classification: FileClassification) -> bool {
@@ -2181,12 +2187,20 @@ fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }
 
-/// Recognizes Sonar-shaped CSS, web-template, and Docker paths that have no
+fn is_php_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("php"))
+}
+
+/// Recognizes Sonar-shaped PHP, CSS, web-template, and Docker paths that have no
 /// native analyzer yet. Native dispatch wins first so a future or overlapping
 /// extension can never be reclassified as unsupported.
 fn is_recognized_unsupported_file(path: &Path) -> bool {
     if is_analyzable_file(path) {
         return false;
+    }
+    if is_php_file(path) {
+        return true;
     }
     let extension = path.extension().and_then(|extension| extension.to_str());
     if extension.is_some_and(|extension| {
@@ -3036,6 +3050,49 @@ mod tests {
             Some(MeasurementStatus::Unsupported)
         );
     }
+    #[test]
+    fn directory_php_keeps_explicit_source_and_exclusion_classification() {
+        use hoonarqube_ir::{FileClassification, MeasurementStatus};
+
+        let fixture = TempDir::new("php-directory");
+        let js = fixture.write("entry.js", "export const value = 1;\n");
+        let php = fixture.write("route.PHP", "<?php echo 1;\n");
+        fixture.write("notes.txt", "ordinary text\n");
+        let scope = std::slice::from_ref(&fixture.0);
+        let direct = run_project(&[js, php.clone()], &project_options(), &mut Vec::new());
+        let mixed = run_project(scope, &project_options(), &mut Vec::new());
+        assert_eq!(mixed.project.files, direct.project.files);
+        assert_eq!(mixed.project.metrics.files, 1);
+        assert!(!mixed.project.complete);
+        let row = mixed.project.files.iter().find(|f| f.path == php).unwrap();
+        assert_eq!(
+            (row.classification, row.status),
+            (FileClassification::Source, MeasurementStatus::Unsupported)
+        );
+        let exclude = vec![String::from("**/*.PHP")];
+        let options = project_analysis_options(
+            ProjectPatternLists {
+                exclude: &exclude,
+                test_include: &[],
+                generated_include: &[],
+                vendor_include: &[],
+                duplication_exclude: &[],
+            },
+            100,
+            10,
+            10,
+        )
+        .unwrap();
+        let scoped = run_project(scope, &options, &mut Vec::new());
+        assert!(scoped.project.complete);
+        assert_eq!(scoped.project.metrics.files, 1);
+        let row = scoped.project.files.iter().find(|f| f.path == php).unwrap();
+        assert_eq!(
+            (row.classification, row.status),
+            (FileClassification::Excluded, MeasurementStatus::Excluded)
+        );
+    }
+
     #[test]
     fn scope_globs_only_prune_explicit_recursive_roots() {
         let named = project_analysis_options(
