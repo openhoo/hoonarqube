@@ -1,6 +1,6 @@
 //! Tolerant Go analyzer for the frozen `SonarQube` Community Go catalog.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use hoonarqube_dataflow::{
@@ -272,6 +272,37 @@ const RULE_KEYS: &[&str] = &[
 const MAIN_SCOPE_RULE_KEYS: &[&str] = &[
     "go:S1151", "go:S1186", "go:S1192", "go:S122", "go:S138", "go:S1763", "go:S1871", "go:S4663",
 ];
+
+impl AnalyzerOptions {
+    /// Runtime settings for the bounded Community Go gate projection. Read the
+    /// same options and scope registry as the detectors, never catalog defaults.
+    #[must_use]
+    pub fn gate_detectors(&self) -> BTreeMap<String, hoonarqube_ir::parity::GoGateDetector> {
+        use hoonarqube_ir::parity::{GO_GATE_DETECTORS_V1, GoGateDetector};
+        GO_GATE_DETECTORS_V1
+            .iter()
+            .filter(|key| RULE_KEYS.contains(key))
+            .map(|&key| {
+                let threshold = match key {
+                    "go:S3776" => Some(self.maximum_cognitive_complexity),
+                    "go:S1192" => Some(self.duplicate_string_threshold.max(2)),
+                    _ => None,
+                };
+                let parameters = threshold
+                    .into_iter()
+                    .map(|value| ("threshold".into(), value.to_string()))
+                    .collect();
+                (
+                    key.into(),
+                    GoGateDetector {
+                        main_only: MAIN_SCOPE_RULE_KEYS.contains(&key),
+                        parameters,
+                    },
+                )
+            })
+            .collect()
+    }
+}
 
 /// Mirrors `SonarQube`'s default Go test-source categorization: a file is a
 /// test file when its file name ends with `_test.go`.
@@ -4849,6 +4880,24 @@ mod s126_tests;
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn gate_report_uses_the_same_effective_thresholds_as_the_go_detectors() {
+        let source = include_str!("../../../tools/oracle/fixtures/community-go-26.11/boundary.go");
+        for (cognitive, literals, expected) in [(15, 3, true), (16, 4, false)] {
+            let options = AnalyzerOptions {
+                maximum_cognitive_complexity: cognitive,
+                duplicate_string_threshold: literals,
+                ..AnalyzerOptions::default()
+            };
+            let report = analyze(PathBuf::from("boundary.go"), source, &options);
+            let runtime = options.gate_detectors();
+            for (key, value) in [("go:S3776", cognitive), ("go:S1192", literals)] {
+                assert_eq!(report.issues.iter().any(|i| i.rule_key == key), expected);
+                assert_eq!(runtime[key].parameters["threshold"], value.to_string());
+            }
+        }
+    }
 
     const TEST_RULE_KEYS: &[&str] = &[
         "go:S100", "go:S103", "go:S104", "go:S1067", "go:S107", "go:S108", "go:S1110", "go:S1125",

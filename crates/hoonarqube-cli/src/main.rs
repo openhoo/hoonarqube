@@ -274,6 +274,9 @@ fn main() -> ExitCode {
                 }
             };
             project_options.cache_dir.clone_from(cache_dir);
+            project_options
+                .parity_reference
+                .clone_from(parity_reference);
             project_options.features.clone_from(features.as_ref());
             let run_options = AnalyzeRunOptions {
                 format: format.as_deref(),
@@ -283,7 +286,6 @@ fn main() -> ExitCode {
                 json_flag: cli.json,
                 python_require_type_hints: *python_require_type_hints,
                 project_options: &project_options,
-                parity_reference: parity_reference.as_deref(),
             };
             run_analyze(catalog, paths, &run_options)
         }
@@ -1903,7 +1905,6 @@ fn render_project_text_report(report: &hoonarqube_ir::AnalysisReport) -> String 
 /// Options captured from the `analyze` command before execution.
 struct AnalyzeRunOptions<'a> {
     format: Option<&'a str>,
-    parity_reference: Option<&'a std::path::Path>,
     go_header_format: &'a str,
     csharp_header_format: &'a str,
     profile: RuleProfile,
@@ -1940,7 +1941,7 @@ fn run_analyze(
         run_options.python_require_type_hints,
     );
     let mut warnings = Vec::new();
-    let mut report = match analyze::analyze_project_paths(
+    let report = match analyze::analyze_project_paths(
         paths,
         catalog,
         &options,
@@ -1948,17 +1949,15 @@ fn run_analyze(
         &mut warnings,
     ) {
         Ok(report) => report,
-        Err(error) => {
+        Err(analyze::ProjectError::Analysis(error)) => {
             eprintln!("cannot build project report: {error}");
             return ExitCode::FAILURE;
         }
+        Err(analyze::ProjectError::Reference(error)) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
     };
-    if let Some(reference) = run_options.parity_reference
-        && let Err(error) = parity_cli::attach_comparison(&mut report, catalog, reference)
-    {
-        eprintln!("{error}");
-        return ExitCode::from(2);
-    }
     for warning in &report.project.warnings {
         eprintln!("{warning}");
     }
@@ -2059,14 +2058,14 @@ fn analyze_exit_code(
         .is_some_and(|comparison| {
             comparison.status == hoonarqube_ir::parity::ParityComparisonStatus::Diverged
         });
-    if !output_ok || parity_diverged {
+    if !output_ok {
         ExitCode::FAILURE
     } else if !report.project.complete
         || report.partial_rule_selection.is_some()
         || assessment_status == 2
     {
         ExitCode::from(2)
-    } else if assessment_status == 1 {
+    } else if parity_diverged || assessment_status == 1 {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

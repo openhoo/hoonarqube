@@ -16,7 +16,7 @@
 {"key": "ruby:S117", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1172", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S1186", "bad": "s1186_bad.rb", "expect_lines_min": 1}
-{"key": "ruby:S1192", "infra": "implemented for eligible repeated static string values; interpolation, heredocs and chained strings are excluded"}
+{"key": "ruby:S1192", "bad": "s1192_bad.rb", "expect_lines_min": 1}
 {"key": "ruby:S122", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}
 {"key": "ruby:S126", "infra": "implemented for elsif chains without a terminal else with supported jump exemptions; the Community 26.9 default profile did not activate this rule"}
 {"key": "ruby:S131", "infra": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review"}

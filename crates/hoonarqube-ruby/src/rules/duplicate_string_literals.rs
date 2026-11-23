@@ -1,19 +1,13 @@
 //! `ruby:S1192` — string literals should not be duplicated.
 //!
-//! Contract pinned against the live `SonarQube` 26.8 Community reference
-//! (probe-verified on 2026-09-15, oracle: the pinned `rake` scan with 41
-//! findings): literals group per file by their *decoded* value across all
-//! plain literal forms — quoted strings (single, double, `%q`, `%Q`),
-//! `%w[...]` words, regex content, and command substitution content. A value
-//! reported at least `threshold` times (catalog default 3) is flagged once at
-//! its first occurrence; every later occurrence becomes a `Duplication`
-//! secondary location. Silent controls: values shorter than six characters,
-//! word-character-only values (letters, digits, underscore), any literal with
-//! interpolation, heredoc bodies, adjacent (`chained`) string parts, and
-//! symbol/char literals.
+//! The rule groups static values within one file. Quoted strings contribute
+//! a single value; regexes and shell commands expose static source fragments
+//! separated by interpolation or an unescaped newline. Each occurrence after
+//! the first is a separate supporting location in Community Build 26.9.
+
+mod static_fragments;
 
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 use crate::AnalyzerOptions;
 use crate::support::{SourceMap, walk};
@@ -29,53 +23,47 @@ pub(crate) fn check(root: Node<'_>, source: &str, options: &AnalyzerOptions) -> 
     }
     let threshold = options.duplicate_string_threshold.max(2);
     let map = SourceMap::new(source);
-    let mut occurrences: Vec<(String, Range)> = Vec::new();
-    collect_occurrences(root, source, &map, &mut occurrences);
-    if occurrences.len() < threshold {
-        return Vec::new();
-    }
-
-    let mut totals: HashMap<&str, usize> = HashMap::new();
-    for (value, _) in &occurrences {
-        *totals.entry(value).or_insert(0) += 1;
-    }
-    let mut emitted: HashSet<&str> = HashSet::new();
-    let mut issues = Vec::new();
-    for (index, (value, range)) in occurrences.iter().enumerate() {
-        if !emitted.insert(value) {
-            continue;
-        }
-        let total = totals[value.as_str()];
-        if total < threshold
-            || value.chars().count() < MIN_DUPLICATED_LENGTH
-            || value
-                .chars()
-                .all(|character| character.is_alphanumeric() || character == '_')
+    let mut groups: HashMap<String, Vec<Range>> = HashMap::new();
+    collect_occurrences(root, source, &map, &mut |value, range| {
+        // Java measures the minimum in UTF-16 units and its default word
+        // character class is ASCII, as the independent Unicode probes show.
+        if value.encode_utf16().take(MIN_DUPLICATED_LENGTH).count() == MIN_DUPLICATED_LENGTH
+            && !value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
         {
+            groups.entry(value).or_default().push(range);
+        }
+    });
+
+    let mut issues = Vec::new();
+    for (value, mut ranges) in groups {
+        let total = ranges.len();
+        if total < threshold {
             continue;
         }
-        let flows: Vec<FlowLocation> = occurrences[index + 1..]
-            .iter()
-            .filter(|(candidate, _)| candidate == value)
-            .map(|(_, flow_range)| FlowLocation::in_primary_file("Duplication", flow_range.clone()))
-            .collect();
+        // A literal inside interpolation can precede a later static fragment
+        // in the enclosing literal, although we visit the enclosing node first.
+        ranges.sort_by_key(|range| range.start);
+        let mut ranges = ranges.into_iter();
+        let Some(first) = ranges.next() else { continue };
         let mut issue = Issue::new(
             "ruby:S1192",
             format!(
                 "Define a constant instead of duplicating this literal \"{value}\" {total} times."
             ),
-            range.clone(),
+            first,
         );
-        if !flows.is_empty() {
-            issue = issue.with_flow(flows);
+        for range in ranges {
+            issue = issue.with_flow(vec![FlowLocation::in_primary_file("Duplication", range)]);
         }
         issues.push(issue);
     }
+    issues.sort_by_key(|issue| issue.range.start);
     issues
 }
 
-/// Collects every eligible literal as `(decoded value, reported span)` in
-/// source order. Reported spans mirror the reference: the full literal
+/// Emits each eligible literal as `(decoded value, reported span)`. Reported spans mirror the reference: the full literal
 /// (delimiters included) for quoted and percent-quoted strings and `%w`
 /// words, the content between the delimiters for regex and command
 /// substitution.
@@ -83,7 +71,7 @@ fn collect_occurrences(
     root: Node<'_>,
     source: &str,
     map: &SourceMap,
-    out: &mut Vec<(String, Range)>,
+    emit: &mut impl FnMut(String, Range),
 ) {
     walk(root, &mut |node: Node<'_>| {
         match node.kind() {
@@ -98,27 +86,18 @@ fn collect_occurrences(
                     return;
                 }
                 let closer = closer_character(node, source);
-                let value = decoded_string_value(node, source, closer);
-                out.push((value, node_range(map, node)));
+                if let Some(value) = decoded_string_value(node, source, closer) {
+                    emit(value, map.node_range(node));
+                }
             }
             "bare_string" => {
                 // `%w` words follow single-quote rules with whitespace as
                 // the only meaningful extra escape.
                 let value = decode_single_family(&source[node.byte_range()], None);
-                out.push((value, node_range(map, node)));
+                emit(value, map.node_range(node));
             }
             "regex" | "subshell" => {
-                // Interpolation makes the value dynamic; like the string
-                // branch, interpolated regex/subshell content never counts.
-                if has_child_of_kind(node, "interpolation") {
-                    return;
-                }
-                if let Some(content) = child_of_kind(node, "string_content") {
-                    out.push((
-                        source[content.byte_range()].to_string(),
-                        node_range(map, content),
-                    ));
-                }
+                static_fragments::collect(node, source, map, emit);
             }
             _ => {}
         }
@@ -131,25 +110,44 @@ fn collect_occurrences(
 /// an `escape_sequence` child, so decoding walks those nodes. Single-quote
 /// families (`'...'`, `%q{...}`) surface raw content only and decode here
 /// with Ruby's quote-literal rules.
-fn decoded_string_value(node: Node<'_>, source: &str, closer: Option<char>) -> String {
+fn decoded_string_value(node: Node<'_>, source: &str, closer: Option<char>) -> Option<String> {
     let mut marked = false;
-    let mut raw = String::new();
+    let mut value = String::new();
+    let mut skip_lf = false;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
+        let text = &source[child.byte_range()];
         match child.kind() {
-            "string_content" => raw.push_str(&source[child.byte_range()]),
+            "string_content" => {
+                let text = if skip_lf {
+                    text.strip_prefix('\n').unwrap_or(text)
+                } else {
+                    text
+                };
+                skip_lf = false;
+                if text.contains('\n') {
+                    // Multiple physical content lines do not form a single
+                    // static string node on the reference.
+                    return None;
+                }
+                value.push_str(text);
+            }
             "escape_sequence" => {
                 marked = true;
-                decode_escape(&source[child.byte_range()], &mut raw);
+                match text {
+                    "\\\n" => {}
+                    "\\\r" if source[child.end_byte()..].starts_with('\n') => skip_lf = true,
+                    _ => decode_escape(text, &mut value),
+                }
             }
             _ => {}
         }
     }
-    if marked {
-        raw
+    Some(if marked {
+        value
     } else {
-        decode_single_family(&raw, closer)
-    }
+        decode_single_family(&value, closer)
+    })
 }
 
 /// Decodes single-quote-family escapes: only `\`, the quote character, and
@@ -303,13 +301,6 @@ fn child_of_kind<'tree>(node: Node<'tree>, kind: &str) -> Option<Node<'tree>> {
         .find(|child| child.kind() == kind)
 }
 
-fn node_range(map: &SourceMap, node: Node<'_>) -> Range {
-    Range {
-        start: map.position(node.start_byte()),
-        end: map.position(node.end_byte()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,7 +358,7 @@ A
     }
 
     #[test]
-    fn interpolated_regex_and_subshell_never_count() {
+    fn interpolated_regex_groups_only_static_fragments() {
         let source = concat!(
             "def probe(x, y)\n",
             "  a = \"prefix-value \"\n",
@@ -375,7 +366,10 @@ A
             "  c = /prefix-value #{y}/\n",
             "end\n",
         );
-        assert!(findings(source).is_empty());
+        assert_eq!(
+            findings(source),
+            [r#"Define a constant instead of duplicating this literal "prefix-value " 3 times."#]
+        );
 
         let plain_regex_still_counts = concat!(
             "def probe\n",
@@ -387,6 +381,38 @@ A
         let messages = findings(plain_regex_still_counts);
         assert_eq!(messages.len(), 1);
         assert!(messages[0].contains("prefix-value"));
+    }
+
+    #[test]
+    fn multiline_regex_groups_source_lines_across_interpolation() {
+        let source =
+            "re = %r[\r\néá-😀-example\r\n#{value}\r\néá-😀-example\r\néá-😀-example\r\n]x\r\n";
+        let issues = parse_and_check(source);
+        assert_eq!(issues.len(), 1);
+        let issue = &issues[0];
+        assert_eq!(
+            issue.message,
+            "Define a constant instead of duplicating this literal \"éá-😀-example\n\" 3 times."
+        );
+        assert_eq!(
+            (
+                issue.range.start.line,
+                issue.range.end.line,
+                issue.range.end.column
+            ),
+            (2, 3, 0)
+        );
+        let lines: Vec<_> = issue
+            .flows
+            .iter()
+            .map(|flow| {
+                let [loc] = flow.locations.as_slice() else {
+                    panic!("one flow per occurrence")
+                };
+                (loc.range.start.line, loc.range.end.line)
+            })
+            .collect();
+        assert_eq!(lines, [(4, 5), (5, 6)]);
     }
 
     #[test]

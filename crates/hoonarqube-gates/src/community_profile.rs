@@ -1,6 +1,10 @@
 //! Active rule types for a named reference profile. Native review identities and
 //! rule kinds keep the classification of their own catalog.
-use hoonarqube_ir::{AnalysisReport, assessment::normalize_path};
+mod controls;
+
+pub use controls::community_detector_controls_sha256;
+
+use hoonarqube_ir::{AnalysisReport, assessment::normalize_path, parity::ParityCompleteness};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -9,6 +13,7 @@ use std::{
 
 const TABLE: &str = include_str!("../../../catalog/reference/community-26.9-sonar-way-types.tsv");
 pub(super) const VIOLATIONS: &str = "community_26_9_violations";
+pub(super) const STRICT_VIOLATIONS: &str = "community_26_9_qualified_violations";
 pub(super) const HOTSPOTS: &str = "community_26_9_security_hotspots_reviewed";
 
 struct Profile {
@@ -57,8 +62,32 @@ pub(super) struct Qualified<'a> {
     profile: &'static Profile,
 }
 
+/// Returns the manifest digest only for a complete scan with the frozen native
+/// membership and exercised controls for every active reference violation key.
+#[must_use]
+pub fn qualified_community_detector_digest(report: &AnalysisReport) -> Option<&'static str> {
+    let profile = Qualified::new(report).ok()?;
+    profile.require_coverage(report).ok()?;
+    Some(community_detector_controls_sha256())
+}
+
 impl<'a> Qualified<'a> {
-    pub(super) fn new(report: &'a AnalysisReport) -> Result<Self, String> {
+    pub(super) fn for_metric(
+        metric: &str,
+        report: &'a AnalysisReport,
+    ) -> Result<Option<Self>, String> {
+        match metric {
+            STRICT_VIOLATIONS => {
+                let profile = Self::new(report)?;
+                profile.require_detector_coverage(report)?;
+                Ok(Some(profile))
+            }
+            VIOLATIONS | HOTSPOTS => Self::new(report).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    fn new(report: &'a AnalysisReport) -> Result<Self, String> {
         let p = profile()?;
         let catalog = hoonarqube_catalog::embedded();
         let parity = report
@@ -135,6 +164,88 @@ impl<'a> Qualified<'a> {
         Ok(Self { files, profile: p })
     }
 
+    fn require_detector_coverage(&self, report: &AnalysisReport) -> Result<(), String> {
+        self.require_coverage(report)?;
+        let assessment = report
+            .assessment
+            .as_ref()
+            .ok_or("missing candidate assessment")?;
+        let baseline = assessment
+            .new_code
+            .as_ref()
+            .and_then(|n| n.reference_context.as_ref())
+            .ok_or("qualified Community violations require a baseline context")?;
+        for (label, ctx) in [("candidate", &assessment.context), ("baseline", baseline)] {
+            if ctx.community_detector_controls_sha256.as_deref()
+                != Some(community_detector_controls_sha256())
+            {
+                return Err(format!(
+                    "{label} scanner lacks the matching Community detector-control digest"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn require_coverage(&self, report: &AnalysisReport) -> Result<(), String> {
+        let parity = report
+            .parity
+            .as_ref()
+            .ok_or("missing native parity inventory")?;
+        let declared = parity.active_rules.iter().map(|r| r.key.as_str()).collect();
+        self.require_controls(&declared)?;
+        if parity.completeness == ParityCompleteness::Incomplete {
+            return Err(
+                "qualified Community violations require a complete native parity analysis".into(),
+            );
+        }
+        Ok(())
+    }
+
+    fn require_controls(&self, declared: &BTreeSet<&str>) -> Result<(), String> {
+        let controls = controls::keys()?;
+        let mut missing = BTreeSet::new();
+        let mut unproved = BTreeSet::new();
+        let langs: BTreeSet<_> = self.files.values().copied().collect();
+        for lang in langs {
+            for (&key, _) in self.profile.languages[lang]
+                .iter()
+                .filter(|(_, kind)| matches!(**kind, "VULNERABILITY" | "BUG" | "CODE_SMELL"))
+            {
+                if !declared.contains(key) {
+                    missing.insert(key);
+                } else if !controls.contains(&(lang, key)) {
+                    unproved.insert(key);
+                }
+            }
+        }
+        let blockers: Vec<_> = [
+            (
+                "active Community violation rules absent from native profile",
+                missing,
+            ),
+            (
+                "active Community violation rules without verified detector controls",
+                unproved,
+            ),
+        ]
+        .into_iter()
+        .filter(|(_, keys)| !keys.is_empty())
+        .map(|(reason, keys)| {
+            format!(
+                "{reason} ({}): {}",
+                keys.len(),
+                keys.into_iter().collect::<Vec<_>>().join(", ")
+            )
+        })
+        .collect();
+        if blockers.is_empty() {
+            Ok(())
+        } else {
+            Err(blockers.join("; "))
+        }
+    }
+
     pub(super) fn hotspot(
         &self,
         path: &std::path::Path,
@@ -180,5 +291,28 @@ mod tests {
                 .hotspot(Path::new("other.js"), "javascript:S2245")
                 .is_err()
         );
+    }
+    #[test]
+    fn every_scanned_language_requires_active_violation_controls_even_without_findings() {
+        let p = profile().unwrap();
+        let go = Qualified {
+            files: BTreeMap::from([(PathBuf::from("api.go"), "go")]),
+            profile: p,
+        };
+        let declared = p.languages["go"].keys().copied().collect();
+        go.require_controls(&declared).unwrap();
+        let mixed = Qualified {
+            files: BTreeMap::from([
+                (PathBuf::from("api.go"), "go"),
+                (PathBuf::from("untouched.js"), "javascript"),
+            ]),
+            profile: p,
+        };
+        let both = declared.into_iter().chain(["javascript:S2245"]).collect();
+        let reason = mixed.require_controls(&both).unwrap_err();
+        let (absent, unverified) = reason.split_once("; ").unwrap();
+        assert!(absent.contains("javascript:S7724"));
+        assert!(unverified.contains("javascript:S2245"));
+        assert!(!reason.contains("go:"));
     }
 }

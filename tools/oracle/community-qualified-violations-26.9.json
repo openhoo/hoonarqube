@@ -1,0 +1,289 @@
+{
+  "server_version": "26.9.0.129388",
+  "server_image_digest": "sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
+  "scanner_image_digest": "sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "quality_gate": {
+    "metric": "new_violations",
+    "op": "GT",
+    "error": "0"
+  },
+  "cases": [
+    {
+      "id": "missing_js",
+      "repository": "yjs/yjs",
+      "profile": {
+        "name": "Sonar way",
+        "language": "js",
+        "isBuiltIn": true,
+        "activeRuleCount": 420
+      },
+      "base": {
+        "revision": "316dfd28f6b6b9c45bbb3e5dc12ffe367242224d",
+        "tree": "3785c1493c7b421709491a0b8c4296e2055d1abc",
+        "path": "src/utils/IdSet.js",
+        "sha256": "cba7d15d6b518fe5722dde334d884d39919f80adc85e036c6d0cf0462fead1df",
+        "date": "2025-04-30T21:17:16+0000",
+        "task_id": "db8d32cc-ba6e-4874-b091-54915449b590",
+        "analysis_id": "8758d2b6-1722-4faf-8ea3-fbba6bc81833",
+        "ce_status": "SUCCESS",
+        "gate": {
+          "status": "OK",
+          "conditions": [],
+          "ignoredConditions": false,
+          "caycStatus": "non-compliant"
+        },
+        "new_issues": [],
+        "reference_files": [
+          "src/utils/IdSet.js"
+        ]
+      },
+      "head": {
+        "revision": "a5e390160ca8686b9a54b3d924f37041e89407b3",
+        "tree": "e6fdecb9e8186d34993a5deecc44e19a6a0deaca",
+        "path": "src/utils/IdSet.js",
+        "sha256": "f42e260dd8bbee0a73faf85062d7550f950f94605285ba19d825447ac3d2bbaa",
+        "date": "2025-05-01T12:44:25+0000",
+        "task_id": "cd964f58-96a8-4692-b658-8f7c35005453",
+        "analysis_id": "97c6fa13-1f41-49dd-92f5-70254d50c1e3",
+        "ce_status": "SUCCESS",
+        "gate": {
+          "status": "ERROR",
+          "conditions": [
+            {
+              "status": "ERROR",
+              "metricKey": "new_violations",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "1"
+            }
+          ],
+          "ignoredConditions": false,
+          "period": {
+            "mode": "SPECIFIC_ANALYSIS",
+            "date": "2025-04-30T21:17:16+0000",
+            "parameter": "8758d2b6-1722-4faf-8ea3-fbba6bc81833"
+          },
+          "caycStatus": "non-compliant"
+        },
+        "new_issues": [
+          {
+            "key": "0f9cd220-0df8-4c1e-bdee-d76d7efade0f",
+            "rule": "javascript:S7724",
+            "line": 470,
+            "message": "Specify the rules you want to disable.",
+            "type": "CODE_SMELL",
+            "textRange": {
+              "startLine": 470,
+              "endLine": 470,
+              "startOffset": 0,
+              "endOffset": 37
+            }
+          }
+        ],
+        "reference_files": [
+          "src/utils/IdSet.js"
+        ],
+        "s7724_issues": [
+          {
+            "line": 9,
+            "message": "Specify the rules you want to disable.",
+            "textRange": {
+              "startLine": 9,
+              "endLine": 9,
+              "startOffset": 0,
+              "endOffset": 137
+            },
+            "rule": "javascript:S7724"
+          },
+          {
+            "line": 470,
+            "message": "Specify the rules you want to disable.",
+            "textRange": {
+              "startLine": 470,
+              "endLine": 470,
+              "startOffset": 0,
+              "endOffset": 37
+            },
+            "rule": "javascript:S7724"
+          }
+        ]
+      },
+      "project_key": "hq-strict-269-yjs-idset-20261122"
+    },
+    {
+      "id": "go_violation",
+      "repository": "go-chi/chi",
+      "profile": {
+        "name": "Sonar way",
+        "language": "go",
+        "isBuiltIn": true,
+        "activeRuleCount": 22
+      },
+      "base": {
+        "revision": "167e1e3bd039d060696b99c8da4e876ae04f42c1",
+        "tree": "78ea402444f50acbf2de96c413503d75ef8b6e54",
+        "path": "middleware/client_ip.go",
+        "sha256": "fc4eef97991796067607038437bd3b23e04337ba9b07ed3c4147d8b49ecf5e9e",
+        "date": "2026-09-29T23:38:28+0000",
+        "task_id": "0042d863-411e-4a63-bd19-341c6c92c599",
+        "analysis_id": "7bd0f49d-8bf3-46a2-a52c-a95ceeee9986",
+        "ce_status": "SUCCESS",
+        "gate": {
+          "status": "OK",
+          "conditions": [],
+          "ignoredConditions": false,
+          "caycStatus": "non-compliant"
+        },
+        "new_issues": [],
+        "reference_files": [
+          "middleware/client_ip.go"
+        ]
+      },
+      "head": {
+        "revision": "7f9b7448f51d28804fac98c0a17bc2a7cec1079f",
+        "tree": "03cfea8157f6c36c26adf700b9201dea2767a7f5",
+        "path": "middleware/client_ip.go",
+        "sha256": "661ffdd7bb1098fd5f5e3e24287010969de1f473941b540484a29563d00aadc0",
+        "date": "2026-10-12T11:22:21+0000",
+        "task_id": "95c947a6-dc17-4af6-a910-56c3a697956e",
+        "analysis_id": "99441c8e-b72a-49b2-93c9-3f27bc3a00d9",
+        "ce_status": "SUCCESS",
+        "gate": {
+          "status": "ERROR",
+          "conditions": [
+            {
+              "status": "ERROR",
+              "metricKey": "new_violations",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "1"
+            }
+          ],
+          "ignoredConditions": false,
+          "period": {
+            "mode": "SPECIFIC_ANALYSIS",
+            "date": "2026-09-29T23:38:28+0000",
+            "parameter": "7bd0f49d-8bf3-46a2-a52c-a95ceeee9986"
+          },
+          "caycStatus": "non-compliant"
+        },
+        "new_issues": [
+          {
+            "key": "b39a0cd1-104f-4c02-b9f2-2e7877f8e5ab",
+            "rule": "go:S3776",
+            "line": 121,
+            "message": "Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed.",
+            "type": "CODE_SMELL"
+          }
+        ],
+        "reference_files": [
+          "middleware/client_ip.go"
+        ]
+      },
+      "project_key": "hq-strict-269-chi-modernfail-20261122"
+    },
+    {
+      "id": "go_clean",
+      "repository": "go-chi/chi",
+      "profile": {
+        "name": "Sonar way",
+        "language": "go",
+        "isBuiltIn": true,
+        "activeRuleCount": 22
+      },
+      "base": {
+        "revision": "7f9b7448f51d28804fac98c0a17bc2a7cec1079f",
+        "tree": "03cfea8157f6c36c26adf700b9201dea2767a7f5",
+        "path": "middleware/sunset.go",
+        "sha256": "16d99c4da576c4b7c024a12da139421d5659290250bed8f3d3ff6e0ed5d93b0e",
+        "date": "2026-10-12T11:22:21+0000",
+        "task_id": "97dcd69e-c35a-47a2-a911-c9d037deb0f5",
+        "analysis_id": "578de790-bebf-4726-b988-90e155062958",
+        "ce_status": "SUCCESS",
+        "gate": {
+          "status": "OK",
+          "conditions": [],
+          "ignoredConditions": false,
+          "caycStatus": "non-compliant"
+        },
+        "new_issues": [],
+        "reference_files": [
+          "middleware/sunset.go"
+        ]
+      },
+      "head": {
+        "revision": "fff8bb28cbeb658c3c916aff02a780b89532841e",
+        "tree": "e7a558323f8fb7ee07f1d40913a8a1c1029c004e",
+        "path": "middleware/sunset.go",
+        "sha256": "c519fcabb10f480397fcc907de3b44ba96758f04465a04e6d0f455c2d6f46192",
+        "date": "2026-10-13T20:39:08+0000",
+        "task_id": "688b8b6f-f829-4d60-9a20-b3175780f6d1",
+        "analysis_id": "03a061f2-44d0-40c0-a619-6b717904b788",
+        "ce_status": "SUCCESS",
+        "gate": {
+          "status": "OK",
+          "conditions": [
+            {
+              "status": "OK",
+              "metricKey": "new_violations",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "actualValue": "0"
+            }
+          ],
+          "ignoredConditions": false,
+          "period": {
+            "mode": "SPECIFIC_ANALYSIS",
+            "date": "2026-10-12T11:22:21+0000",
+            "parameter": "578de790-bebf-4726-b988-90e155062958"
+          },
+          "caycStatus": "non-compliant"
+        },
+        "new_issues": [],
+        "reference_files": [
+          "middleware/sunset.go"
+        ]
+      },
+      "project_key": "hq-strict-269-chi-modernpass-20261122"
+    }
+  ],
+  "yjs_s7724_scope": {
+    "source_manifest": "docs/public-quality-gates-20261120.json",
+    "revision": "ee37f0a0e23a7c3e14531bae335d439e54c743e6",
+    "project_key": "hq-public-gate-proof-recovery-20261120-yjs",
+    "issue_export_sha256": "5797eb52a2ceb3444ae758e999aea9a4a3fb37f99b3146f1490cebee3b635451",
+    "rule": "javascript:S7724",
+    "findings": [
+      {
+        "path": "src/utils/Renderer.js",
+        "message": "Specify the rules you want to disable.",
+        "range": {
+          "startLine": 309,
+          "endLine": 309,
+          "startOffset": 0,
+          "endOffset": 29
+        }
+      },
+      {
+        "path": "src/utils/Renderer.js",
+        "message": "Specify the rules you want to disable.",
+        "range": {
+          "startLine": 350,
+          "endLine": 350,
+          "startOffset": 0,
+          "endOffset": 37
+        }
+      },
+      {
+        "path": "src/utils/ids.js",
+        "message": "Specify the rules you want to disable.",
+        "range": {
+          "startLine": 827,
+          "endLine": 827,
+          "startOffset": 0,
+          "endOffset": 35
+        }
+      }
+    ]
+  }
+}

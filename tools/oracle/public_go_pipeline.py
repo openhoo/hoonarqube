@@ -195,7 +195,7 @@ def scan_reference(args, row, root, folder, sonar, token, key):
     )
     issues = sonar.pages(
         "/api/issues/search",
-        {"componentKeys": key, "resolved": "false"},
+        {"components": key, "resolved": "false"},
         "issues",
         folder,
         "findings",
