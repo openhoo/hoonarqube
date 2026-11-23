@@ -1,5 +1,7 @@
 # Compare public sources against three Community 26.11 profiles
 
+See the [inventory of all installed default profiles](community-default-inventory.md) for the language and rule keys outside this public finding comparison.
+
 On Community Build 26.11.0.134175, a newly created Go project received **Sonar way core**, with six active Go rules. The same build also offered **extended** with nine and **comprehensive** with 23. A project on the older Community 26.9 server received the 22-rule **Sonar way** profile. These names and counts come from the running servers.
 
 The [CI replay](community_profiles.py) scans 16 public repositories once per native build and checks the results against **48 distinct Community analyses**. Each repository was analyzed separately with all three profiles. The replay compares ordinary issue locations only when the rule and its declared parameters match. It rejects a new missing, additional, shifted or repeated primary location per profile and repository. A rule can be absent from a native implementation even if its key exists in the catalog. Those known gaps remain outside this comparison. The replay does not change the profile that the native scanner runs.
