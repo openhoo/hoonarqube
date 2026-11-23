@@ -512,7 +512,13 @@ fn new_code_metric(
             "project analysis is incomplete; new-code gate metric is unavailable".to_string(),
         );
     }
-    let source_only = metric == "coverage" || !policy.is_off();
+    let source_only = metric == "coverage"
+        || !policy.is_off()
+        || report
+            .assessment
+            .as_ref()
+            .and_then(|a| a.new_code.as_ref())
+            .is_some_and(|n| n.has_scm_source_metric(metric));
     let new_code = complete_new_code(report, source_only)?;
     let entries = if source_only {
         new_code.changed_source_lines.as_deref().ok_or_else(|| {
@@ -522,9 +528,9 @@ fn new_code_metric(
     } else {
         &new_code.lines
     };
-    let line_sets = new_code_line_sets(entries)?;
+    let mut line_sets = new_code_line_sets(entries)?;
     let measurements = measurement_index(report)?;
-    let scoped_line_count = validate_new_line_sets(&measurements, &line_sets)?;
+    let scoped_line_count = validate_new_line_sets(report, &measurements, &line_sets)?;
     let mut change_size = None;
     let value = match metric {
         "files" => Ok(MetricValue::Count(usize_as_u64(line_sets.len()))),
@@ -569,6 +575,9 @@ fn new_code_metric(
             )))
         }
         "line_coverage" | "branch_coverage" | "coverage" => {
+            if new_code.specific_analysis.is_some() {
+                exclude_empty_scm_eof(report, &mut line_sets);
+            }
             return new_code_coverage(metric, precision, policy, report, &line_sets);
         }
         "duplicated_lines"
@@ -994,7 +1003,6 @@ fn scoped_duplication(
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
 ) -> Result<ScopedDuplication, String> {
     let _ = complete_duplication(report)?;
-    validate_new_line_sets(measurements, line_sets)?;
     let denominator = duplication_line_denominator(measurements, line_sets)?;
     let mut duplicated_lines = BTreeSet::new();
     let mut duplicated_blocks = BTreeSet::new();
@@ -1063,6 +1071,7 @@ fn collect_scoped_occurrence(
 }
 
 fn validate_new_line_sets(
+    report: &AnalysisReport,
     measurements: &MeasurementIndex<'_>,
     line_sets: &BTreeMap<PathBuf, BTreeSet<u32>>,
 ) -> Result<u64, String> {
@@ -1096,8 +1105,21 @@ fn validate_new_line_sets(
                 })?
                 .lines,
         );
+        // The IR has already checked the source snapshot and preceding line.
+        let scm_eof = report.assessment.as_ref().is_some_and(|a| {
+            a.new_code
+                .as_ref()
+                .is_some_and(|n| n.specific_analysis.is_some())
+                && a.sources
+                    .binary_search_by(|s| s.path.cmp(path))
+                    .ok()
+                    .is_some_and(|i| {
+                        a.sources[i].ends_with_lf
+                            && a.sources[i].line_digests.len() as u64 == file_lines
+                    })
+        });
         for &line in lines {
-            if u64::from(line) > file_lines {
+            if u64::from(line) > file_lines + u64::from(scm_eof) {
                 return Err(format!(
                     "new-code line {line} is outside the measured file \"{}\"",
                     path.to_string_lossy().escape_debug()
@@ -1134,6 +1156,27 @@ fn duplication_line_denominator(
     }
     // An empty complete scope has no density denominator.
     Ok(denominator)
+}
+
+fn exclude_empty_scm_eof(
+    report: &AnalysisReport,
+    line_sets: &mut BTreeMap<PathBuf, BTreeSet<u32>>,
+) {
+    // SCM counts the empty line after a final LF; it has no executable
+    // source bytes or LCOV observation. Physical lines still need proof.
+    for source in &report
+        .assessment
+        .as_ref()
+        .expect("validated assessment")
+        .sources
+    {
+        if source.ends_with_lf
+            && let Some(lines) = line_sets.get_mut(&source.path)
+            && let Ok(eof) = u32::try_from(source.line_digests.len() + 1)
+        {
+            lines.remove(&eof);
+        }
+    }
 }
 
 /// Count only measured observations on the changed lines, before forming any percentage.
@@ -1461,6 +1504,7 @@ mod tests {
         findings: Vec<FindingMatch>,
     ) -> NewCodeReport {
         NewCodeReport {
+            specific_analysis: None,
             changed_source_lines: None,
             schema_version: ASSESSMENT_SCHEMA_VERSION,
             status,

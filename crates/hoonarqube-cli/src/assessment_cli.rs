@@ -31,6 +31,8 @@ use sha2::{Digest as _, Sha256};
 use crate::analyze::{AnalyzerOptionsBundle, ProjectAnalysisOptions};
 use crate::project_features::{AnalyzedSource, ProjectFeatureOptions};
 
+mod scm;
+
 const MAX_ASSESSMENT_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ATOMIC_WRITE_ATTEMPTS: usize = 32;
 
@@ -64,12 +66,12 @@ pub(crate) fn attach_assessment(
         attach_coverage(&mut assessment, &root, sources, features);
     }
 
-    if features.baseline.is_some() || gate_needs_new_code {
+    if features.baseline.is_some() || features.specific_analysis.is_some() || gate_needs_new_code {
         assessment.new_code = Some(build_new_code_report(
             assessment_build_error.as_deref(),
-            report.project.complete,
+            report,
             &assessment,
-            features.baseline.as_deref(),
+            features,
         ));
     }
 
@@ -156,20 +158,30 @@ fn attach_coverage(
 
 fn build_new_code_report(
     assessment_build_error: Option<&str>,
-    project_complete: bool,
+    report: &AnalysisReport,
     assessment: &AssessmentReport,
-    baseline: Option<&Path>,
+    features: &ProjectFeatureOptions,
 ) -> NewCodeReport {
     if let Some(error) = assessment_build_error {
         return unavailable_new_code(AssessmentStatus::Incomplete, error);
     }
-    if !project_complete {
+    if !report.project.complete {
         return unavailable_new_code(
             AssessmentStatus::Incomplete,
             "native project analysis is incomplete; new-code status is indeterminate",
         );
     }
-    match baseline {
+    if let Some(period) = &features.specific_analysis {
+        let Some(baseline) = &features.baseline else {
+            return unavailable_new_code(
+                AssessmentStatus::Missing,
+                "specific-analysis period requires --baseline",
+            );
+        };
+        return scm::classify(period, baseline, assessment, report)
+            .unwrap_or_else(|error| unavailable_new_code(AssessmentStatus::Incomplete, error));
+    }
+    match features.baseline.as_deref() {
         Some(path) => load_baseline_new_code(assessment, path),
         None => unavailable_new_code(
             AssessmentStatus::Missing,
@@ -569,6 +581,7 @@ fn empty_assessment(context: AnalysisContext) -> AssessmentReport {
 
 fn unavailable_new_code(status: AssessmentStatus, diagnostic: impl Into<String>) -> NewCodeReport {
     NewCodeReport {
+        specific_analysis: None,
         changed_source_lines: None,
         schema_version: ASSESSMENT_SCHEMA_VERSION,
         status,
@@ -1014,12 +1027,15 @@ pub(crate) fn assessment_exit_status(report: &AnalysisReport) -> u8 {
                         .peekable();
                     scoped.peek().is_some()
                         && scoped.all(|c| {
-                            let from_source =
-                                c.metric == "coverage" || !c.small_change_policy.is_off();
+                            let from_source = c.metric == "coverage"
+                                || !c.small_change_policy.is_off()
+                                || new_code.has_scm_source_metric(&c.metric);
                             let evidence_present = if c.metric.contains("coverage") {
                                 assessment.coverage.as_ref().is_some_and(|coverage| {
                                     coverage.status == AssessmentStatus::Complete
                                 })
+                            } else if matches!(c.metric.as_str(), "lines" | "files") {
+                                new_code.has_scm_source_metric(&c.metric)
                             } else {
                                 report.project.duplication.is_some()
                             };
