@@ -1,0 +1,62 @@
+[
+  {
+    "commit": "cfb73afdd2a7f358953f2a34f747fd0d0e9d6288",
+    "files": {
+      "tests/test4.5.ipynb": "6f56a1d9334d3d7db41038515cee6d5a5e266fca30bd11b5ea51ee11fe373829",
+      "tests/test4.ipynb": "5dc37eeddb491f410e21ad561c4811425bda0b04920f7e71e40c76bcc756f4be"
+    },
+    "full_name": "jupyter/nbformat",
+    "github_id": 33640907,
+    "mixed_control": {
+      "nbformat/__init__.py": "e4afe87976b229354971db0bb3c69b7eb775b2c7f0f13486ed910489f59f1509"
+    },
+    "reference_analysis": "a6c78f38-d07c-47b5-b74b-775fbf76fcbb",
+    "reference_languages": {
+      "tests/test4.5.ipynb": "ipynb",
+      "tests/test4.ipynb": "ipynb"
+    },
+    "reference_task": "5de1c5d5-9ca3-4fca-b20a-1d47371872ca",
+    "reference_version": "26.11.0.134175",
+    "tree": "50489cf7c213b6df756e08567cbac563d716d85d"
+  },
+  {
+    "commit": "f31a097873baba2216972969e59022cf98245cae",
+    "files": {
+      "docs/source/nbconvert_library.ipynb": "4618c1c110515b9eac51efa24f771dca8fc8e5367504c316973b9f63448decfc",
+      "tests/files/notebook1.ipynb": "dbf285d6967c16bbe40f03ec630bb71b2b2e4dc90de502a88919ad6a34b92cec"
+    },
+    "full_name": "jupyter/nbconvert",
+    "github_id": 33653617,
+    "mixed_control": {
+      "nbconvert/__init__.py": "da3efd975b8592ec9e908827ea582eb97602af57f1b0d843269df910183b4383"
+    },
+    "reference_analysis": "b5261848-3d26-4c48-97aa-3ea85b151455",
+    "reference_languages": {
+      "docs/source/nbconvert_library.ipynb": "ipynb",
+      "tests/files/notebook1.ipynb": "ipynb"
+    },
+    "reference_task": "a463f632-075d-4dec-92ae-726ce23cac55",
+    "reference_version": "26.11.0.134175",
+    "tree": "c19f8473461d85c7e656d9d22c4166fc4e106a92"
+  },
+  {
+    "commit": "0811ff44c63c9853c4d6ba7265d7042ca7f8742a",
+    "files": {
+      "binder/run_nbclient.ipynb": "22f0982d920c7374f5b25d27faf6e215420baf0b2f8b09f3c69f8ad648bb3beb",
+      "tests/files/Factorials.ipynb": "d480e18f4e4d4297e5c410dc20a1dced77fd75690a24c38425a0d8d2751e53c0"
+    },
+    "full_name": "jupyter/nbclient",
+    "github_id": 233653381,
+    "mixed_control": {
+      "nbclient/__init__.py": "90e928c78ae2103d36dd5eb68810c930a6c8d55707dcb33a54445a5fd97abfa7"
+    },
+    "reference_analysis": "5967d769-ba9b-4ae1-924e-7ed800e90b04",
+    "reference_languages": {
+      "binder/run_nbclient.ipynb": "ipynb",
+      "tests/files/Factorials.ipynb": "ipynb"
+    },
+    "reference_task": "90f7f695-9fd1-43c3-a81d-f10e3dff5ff1",
+    "reference_version": "26.11.0.134175",
+    "tree": "89b71d6b28e0a543d190056c43ecca81b5b100a7"
+  }
+]
