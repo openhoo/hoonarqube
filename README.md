@@ -289,8 +289,8 @@ JavaScript and other languages keep their compatibility profile in mixed scans.
 The report names those languages and lists the missing and unmapped keys.
 
 This partial selection returns exit 2 and keeps CLI and service gates
-unavailable. See the [34-file public comparison and replay
-instructions](docs/engineering/typescript-core-public-26.11.md) for observed
+unavailable. See the [37-file public comparison and replay
+instructions](docs/engineering/typescript-s8786-26.11.md) for observed
 matches and remaining detector differences.
 
 ### Python Community 26.11 Core selection

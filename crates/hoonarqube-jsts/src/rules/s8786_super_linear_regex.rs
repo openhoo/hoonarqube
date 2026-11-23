@@ -8,7 +8,7 @@
 // Issue #399: 9 pinned campaign findings (exceljs 7, express 2) with no
 // detector; the same check also serves the CodeQL `js/polynomial-redos`
 // view. This implementation is a conservative true-positive-by-construction
-// subset of the `scslre` "Move" report:
+// subset of the `scslre` "Move" and "Trade" reports:
 //
 // * An unbounded quantified element (`*`, `+`, `{n,}`, or a quantifier over
 //   an unbounded element) is a candidate when some single character can
@@ -25,6 +25,10 @@
 //   continuation — must be able to reject a pumped run: some required
 //   element fails on the pump set. Optional elements are skipped; anchors
 //   reject; lookarounds reject by the same first/last-set polarity.
+// * In a single anchored alternative, two unbounded simple atoms can also
+//   trade matching characters across an optional separator. For this case
+//   the remainder must be skippable up to the end anchor, and the character
+//   sets must leave a suffix which neither the repeats nor the tail consume.
 // * Nested unbounded quantifiers whose pump sets overlap with a rejecting
 //   continuation are exponential in the reference analysis; those sites
 //   are suppressed here because SonarJS drops literals that only produce
@@ -37,6 +41,8 @@
 // shorthands inside classes) stay silent. The literal or constructor
 // argument anchors the finding. No auto-fix is offered.
 
+mod anchored_overlap;
+
 use crate::context::AnalysisContext;
 use crate::engine::pattern_parser::{
     AnchorKind, ClassItem, GroupKind, PatternNode, RegexSite, ShorthandClass,
@@ -44,6 +50,7 @@ use crate::engine::pattern_parser::{
     sequence_can_match_empty,
 };
 use crate::support::{IssueSink, RuleScope, callee_name, constructor_name};
+use anchored_overlap::anchored_repeats_overlap;
 use hoonarqube_ir::Issue;
 use oxc_ast::ast::{CallExpression, Expression, NewExpression};
 use oxc_ast_visit::Visit;
@@ -87,7 +94,7 @@ impl RedosCollector<'_> {
         for alternative in &parsed.alternatives {
             collect_sites(alternative, &[], &[], &mut ancestors, &mut sites);
         }
-        let mut polynomial = false;
+        let mut polynomial = anchored_repeats_overlap(&parsed.alternatives, flags);
         let mut exponential = false;
         for (index, entry) in sites.iter().enumerate() {
             if site_is_move(entry, flags) {
@@ -1119,6 +1126,21 @@ const q = /\{([^}]+)\}/y;
 const r = /^\{([^}]+)\}$/;
 ";
         assert_eq!(count_key(&js_keys(source), "javascript:S8786"), 0);
+    }
+
+    #[test]
+    fn reports_overlapping_repeats_in_an_anchored_number_field() {
+        let source = r"
+const measurement = /^(?<number>-?\d*\.?\d+) *(?<unit>cm|mm)?$/i;
+const count = /^[0-9]*[0-9]+$/;
+const requiredSeparator = /^\d*\.\d+$/;
+const disjoint = /^\d*\.?[a-z]+$/;
+const bounded = /^\d{0,4}\.?\d+$/;
+const freeEnd = /^\d*\.?\d+/;
+const consumedEnd = /^\d*\.?\d+[\s\S]*$/;
+";
+        assert_eq!(count_key(&ts_keys(source), "typescript:S8786"), 2);
+        assert_eq!(count_key(&js_keys(source), "javascript:S8786"), 2);
     }
 
     #[test]

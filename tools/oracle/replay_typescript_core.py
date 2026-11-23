@@ -152,9 +152,15 @@ def main():
         type=Path,
         help="directory of clean checkouts named OWNER-REPO",
     )
+    parser.add_argument(
+        "--receipt",
+        type=Path,
+        default=Path(__file__).with_name("typescript-core-s8786-public-26.11.json"),
+        help="pinned native/reference observations for this build",
+    )
     args = parser.parse_args()
     oracle = Path(__file__).resolve().parent
-    receipt = read(oracle / "typescript-core-public-26.11.json")
+    receipt = read(args.receipt)
     snapshot = (
         oracle.parents[1] / "catalog/reference/typescript-core-community-26.11.json"
     )

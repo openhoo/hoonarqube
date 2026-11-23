@@ -1,5 +1,8 @@
 # TypeScript Community 26.11 Core: four public projects
 
+These are the original #1031 results. For the current detector and three more
+public controls see the [S8786 follow-up](typescript-s8786-26.11.md).
+
 On November 23, 2026, Community Build `26.11.0.134175` indexed the 34
 TypeScript source files below. Each private reference analysis used an unchanged
 public Git checkout mounted read-only and a short-lived project token. We checked
@@ -52,15 +55,15 @@ embedded snapshot.
 
 ## Replay the pinned observations
 
-Use Python 3.11+ and a CLI built with this change. In a new directory, prepare
+Use Python 3.11+ and the original CLI from commit `aa740bc012f7934bed6b74f38361920d01a8727e`. In a new directory, prepare
 one checkout per receipt row named `OWNER-REPO` (for example `vercel-ms`).
 Check out its recorded commit detached. Do not install dependencies or generate
 files inside these checkouts. Then run from the HoonarQube repository root:
 
 ```sh
-cargo build --locked -p hoonarqube-cli
 python3 tools/oracle/replay_typescript_core.py \
-  --cli target/debug/hoonarqube --sources /absolute/path/to/checkouts
+  --receipt tools/oracle/typescript-core-public-26.11.json \
+  --cli /absolute/path/to/original/hoonarqube --sources /absolute/path/to/checkouts
 ```
 
 The replay checks the clean checkout, source hashes, file inventory, legacy
