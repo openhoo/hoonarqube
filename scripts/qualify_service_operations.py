@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import secrets
 import socket
 import sqlite3
@@ -15,7 +16,7 @@ from contextlib import closing, contextmanager
 from decimal import Decimal
 from http.client import HTTPConnection
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 from urllib.parse import urlencode
 
 PROJECTS = ("alpha", "beta")
@@ -62,11 +63,13 @@ def service(binary, database):
         for role in ("admin", "reader")
     ]
     startup = time.monotonic()
+    env = os.environ.copy()
+    env.pop("HOONARQUBE_SERVICE_CREDENTIALS_FILE", None)
     with subprocess.Popen(
         [binary],
         cwd=database.parent,
         env={
-            **os.environ,
+            **env,
             "HOONARQUBE_SERVICE_BIND": f"127.0.0.1:{port}",
             "HOONARQUBE_SERVICE_DB": str(database),
             "HOONARQUBE_SERVICE_CREDENTIALS": json.dumps(credentials),
@@ -74,7 +77,15 @@ def service(binary, database):
         },
     ) as process:
 
-        def call(path="", body=None, *, project="alpha", credential=None, expected=200):
+        def call(
+            path="",
+            body=None,
+            *,
+            project="alpha",
+            credential=None,
+            expected=200,
+            method=None,
+        ):
             return request(
                 port,
                 tokens[credential or project + "admin"],
@@ -82,6 +93,7 @@ def service(binary, database):
                 path,
                 body,
                 expected,
+                method,
             )
 
         try:
@@ -111,10 +123,10 @@ def service(binary, database):
                     process.wait(timeout=5)
 
 
-def request(port, token, project, path, body, expected):
+def request(port, token, project, path, body, expected, method=None):
     with closing(HTTPConnection("127.0.0.1", port, timeout=20)) as client:
         client.request(
-            "GET" if body is None else "POST",
+            method or ("GET" if body is None else "POST"),
             PREFIX + ("/" + project if project else "") + path,
             body,
             {"Authorization": "Bearer " + token, "Content-Type": "application/json"},
@@ -125,7 +137,8 @@ def request(port, token, project, path, body, expected):
             return answer.status, raw
         if answer.status != expected:
             raise RuntimeError(
-                f"{project}{path}: HTTP {answer.status}, expected {expected}: {raw[:160]!r}"
+                f"{project}{path}: HTTP {answer.status}, expected {expected}: "
+                f"{raw[:160]!r}"
             )
         return raw
 
@@ -347,7 +360,25 @@ def seed_reviews(call, project, report, *, archive=None):
 
 def project_view(call, project, seed):
     source, derived, review_id = seed
-    view = {"analyses": sha(call("/analyses", project=project))}
+    raw = call("/analyses", project=project)
+    expected_ids = [row["id"] for row in decode(raw)["analyses"]]
+    view = {
+        "analyses": sha(raw),
+        "gate_policy": sha(call("/gate-policy", project=project)),
+    }
+    for scope, branch in (("project", {}), ("branch", {"branch": "main"})):
+        ids, cursors, query = [], set(), {"limit": 2, **branch}
+        while True:
+            doc = decode(call("/analyses/page?" + urlencode(query), project=project))
+            ids.extend(row["id"] for row in doc["analyses"])
+            cursor = doc["next_cursor"]
+            if cursor is None:
+                break
+            assert cursor not in cursors
+            cursors.add(cursor)
+            query["cursor"] = cursor
+        assert ids == expected_ids
+        view[scope + "_history_pages"] = len(cursors) + 1
     for aid in (source, derived):
         full = call(finding_path(aid), project=project)
         actual, page_count = pages(call, project, aid)
@@ -389,8 +420,14 @@ def authorization_matrix(call, seeds):
 
 def kill_after_commit(process, database, port, token, body, commit):
     # The client sends a complete request, then discards its response. Confirm
-    # commit visibility through a read-only SQLite connection before SIGKILL.
-    with closing(HTTPConnection("127.0.0.1", port, timeout=20)) as connection:
+    # visibility before SIGKILL while an older read pins the WAL end mark.
+    query = "SELECT id FROM analyses WHERE project='alpha' AND commit_sha=?"
+    with (
+        closing(sql_read(database)) as before,
+        closing(HTTPConnection("127.0.0.1", port, timeout=20)) as connection,
+    ):
+        before.execute("BEGIN")
+        assert before.execute(query, (commit,)).fetchone() is None
         connection.request(
             "POST",
             PREFIX + "/alpha/analyses",
@@ -403,16 +440,13 @@ def kill_after_commit(process, database, port, token, body, commit):
         deadline = time.monotonic() + 10
         with closing(sql_read(database)) as db:
             while True:
-                row = db.execute(
-                    "SELECT id FROM analyses WHERE project='alpha' AND commit_sha=?",
-                    (commit,),
-                ).fetchone()
+                row = db.execute(query, (commit,)).fetchone()
                 if row:
                     break
                 assert time.monotonic() < deadline, "analysis was not committed"
                 time.sleep(0.005)
         wal = Path(str(database) + "-wal").stat().st_size
-        assert wal > 32
+        assert wal > 32 and before.execute(query, (commit,)).fetchone() is None
         _, elapsed = timed(lambda: (process.kill(), process.wait(timeout=5)))
     return row[0], {"wal_bytes_before_kill": wal, "kill_ms": elapsed}
 
@@ -446,17 +480,81 @@ def abandon_locked_write(process, database, port, token, body, commit):
         writer.rollback()
 
 
-def backup(source, destination):
+def backup(source, destination, progress=None):
     assert not destination.exists()
     with (
         closing(sql_read(source)) as db,
         closing(sqlite3.connect(destination)) as target,
     ):
-        db.backup(target, pages=128)
+        if progress is not None:
+            # Keep one snapshot even if a writer commits between backup steps.
+            db.execute("BEGIN")
+            db.execute("SELECT count(*) FROM projects").fetchone()
+        db.backup(target, pages=128, progress=progress)
+
+
+def live_backup(call, source, destination, seeds, raw):
+    ready, resume = Event(), Event()
+
+    def pause_after_first_step(status, remaining, _total):
+        if not ready.is_set() and status == sqlite3.SQLITE_OK and remaining:
+            ready.set()
+            assert resume.wait(35), "backup did not resume"
+
+    read_checks = (
+        ("alpha", finding_path(seeds["alpha"][0]) + "/page?limit=100"),
+        ("beta", "/analyses/page?branch=main&limit=25"),
+    )
+    expected = {
+        (project, path): call(path, project=project) for project, path in read_checks
+    }
+    barrier = Barrier(3, timeout=10)
+
+    def read(project, path):
+        barrier.wait()
+        assert (
+            call(path, project=project, credential=project + "reader")
+            == expected[project, path]
+        )
+
+    def write():
+        barrier.wait()
+        late = ingest(call, "alpha", ingest_bytes(raw, "during-snapshot"))
+        assert not late["idempotent"]
+        return late["analysis"]["id"]
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        copy = pool.submit(
+            timed, lambda: backup(source, destination, pause_after_first_step)
+        )
+        try:
+            assert ready.wait(10), "backup did not reach its first incremental step"
+            readers = [
+                pool.submit(timed, lambda p=p, q=q: read(p, q)) for p, q in read_checks
+            ]
+            writer = pool.submit(timed, write)
+            results = [f.result()[1] for f in readers]
+            late_id, write_ms = writer.result()
+            assert (
+                decode(call(f"/analyses/{late_id}/overview"))["analysis"]["commit"]
+                == "during-snapshot"
+            )
+        finally:
+            resume.set()
+        _, elapsed = copy.result()
+    return {
+        "elapsed_with_paused_copy_ms": elapsed,
+        "concurrent_reads_ms": dict(
+            zip(("findings", "branch_history"), results, strict=True)
+        ),
+        "concurrent_ingest_ms": write_ms,
+        "live_only_analysis_id": late_id,
+    }
 
 
 def integrity(database):
     with closing(sql_read(database)) as db:
+        db.execute("BEGIN")
         assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
         tables = (
@@ -466,6 +564,12 @@ def integrity(database):
             ("reviews", db.execute("SELECT * FROM reviews ORDER BY id")),
             ("review_history", db.execute("SELECT * FROM review_history ORDER BY id")),
             ("deletion_audit", db.execute("SELECT * FROM deletion_audit ORDER BY id")),
+            (
+                "project_gate_policies",
+                db.execute(
+                    "SELECT * FROM project_gate_policies ORDER BY project, version"
+                ),
+            ),
         )
         counts = {}
         digest = hashlib.sha256()
@@ -476,7 +580,38 @@ def integrity(database):
                 digest.update(encode(row) + b"\n")
                 count += 1
             counts[table] = count
-        return {"row_counts": counts, "rows_sha256": digest.hexdigest()}
+        return {
+            "schema_version": db.execute("PRAGMA user_version").fetchone()[0],
+            "row_counts": counts,
+            "rows_sha256": digest.hexdigest(),
+        }
+
+
+def assign_gate(call, expected_version, threshold):
+    policy = decode(
+        call(
+            "/gate-policy",
+            encode(
+                {
+                    "schema_version": 1,
+                    "expected_version": expected_version,
+                    "config": {
+                        "schema_version": 1,
+                        "conditions": [
+                            {
+                                "scope": "overall",
+                                "metric": "files",
+                                "operator": "lte",
+                                "threshold": threshold,
+                            }
+                        ],
+                    },
+                }
+            ),
+            method="PUT",
+        )
+    )["policy"]
+    assert policy["version"] == expected_version + 1
 
 
 def observe_export_cap(call, report):
@@ -558,10 +693,12 @@ def qualify(binary, work, reports):
     locked = ingest_bytes(reports[3][0], "interrupted")
     with service(binary, multi) as (process, call, port, tokens, _):
         archive = {}
+        assign_gate(call, 0, 0)
         seeds = {
             "alpha": seed_reviews(call, "alpha", reports[0]),
             "beta": seed_reviews(call, "beta", reports[1], archive=archive),
         }
+        assign_gate(call, 1, 10_000)
         authorization_matrix(call, seeds)
         after_two, _ = call("/export", project="beta", expected=None)
         assert after_two in (200, 413)
@@ -609,23 +746,35 @@ def qualify(binary, work, reports):
             "created_analysis": aborted_id,
         }
         capacity = observe_export_cap(call, reports[0][0])
+        removed = mixed["created_analyses"]["load-a-0"]
+        call(
+            f"/analyses/{removed}?reason=qualification",
+            method="DELETE",
+            expected=204,
+        )
         views = {p: project_view(call, p, seed) for p, seed in seeds.items()}
         live_tables = integrity(multi)
-        _, backup_ms = timed(lambda: backup(multi, snapshot))
+        assert live_tables["row_counts"]["deletion_audit"] == 1
+        assert live_tables["row_counts"]["project_gate_policies"] == 2
+        overlap = live_backup(call, multi, snapshot, seeds, reports[2][0])
         assert integrity(snapshot) == live_tables
-        # A point-in-time restore must omit later committed data.
-        late = ingest(call, "alpha", ingest_bytes(reports[2][0], "after-snapshot"))
-        assert not late["idempotent"]
 
     _, recovery_copy_ms = timed(lambda: backup(snapshot, recovered))
     with service(binary, recovered) as (_, call, _, _, restart_ms):
-        restored, verify_ms = timed(
-            lambda: {p: project_view(call, p, seed) for p, seed in seeds.items()}
-        )
+        verify_start = time.monotonic()
+        restored = {p: project_view(call, p, seed) for p, seed in seeds.items()}
         assert restored == views
         assert integrity(recovered) == live_tables
         assert ingest(call, "alpha", retry)["analysis"]["id"] == accepted_id
+        for aid in (removed, overlap["live_only_analysis_id"]):
+            call(f"/analyses/{aid}/overview", expected=404)
+        assert decode(call("/gate-policy"))["policy"]["version"] == 2
+        old = decode(call(f"/analyses/{seeds['alpha'][0]}/overview"))["analysis"]
+        assert old["gate_policy_version"] == 1 and old["gate"]["status"] == "fail"
+        new = decode(call(f"/analyses/{accepted_id}/overview"))["analysis"]
+        assert new["gate_policy_version"] == 2 and new["gate"]["status"] == "pass"
         authorization_matrix(call, seeds)
+        verify_ms = round((time.monotonic() - verify_start) * 1000, 3)
 
     http = restore_http(
         binary, work / "http-restore.sqlite3", archive["payload"], archive["original"]
@@ -642,19 +791,25 @@ def qualify(binary, work, reports):
         "export_limit": capacity,
         "http_backup": http,
         "sqlite_snapshot": {
-            "backup_ms": backup_ms,
+            "online_backup": overlap,
             "restore_copy_ms": recovery_copy_ms,
             "restart_ms": restart_ms,
             "verify_ms": verify_ms,
             "backup_bytes": snapshot.stat().st_size,
             "tables": live_tables,
             "projects": views,
+            "deleted_analysis_id": removed,
+            "restored_policy_versions": [1, 2],
         },
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    if not __debug__:
+        parser.error(
+            "run without Python optimization; assertions are qualification checks"
+        )
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("reports", type=Path, nargs=4, metavar="REAL_REPORT")
     args = parser.parse_args()
@@ -668,6 +823,8 @@ def main():
         json.dumps(
             {
                 "binary_sha256": sha(binary.read_bytes()),
+                "host": f"{platform.system()} {platform.machine()}",
+                "backup_sqlite_version": sqlite3.sqlite_version,
                 "inputs": evidence,
                 "workers": 4,
                 "concurrent_clients": 8,

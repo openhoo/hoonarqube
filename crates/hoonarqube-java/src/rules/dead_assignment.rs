@@ -202,6 +202,55 @@ fn unresolved_names(body: Node<'_>, source: &str, table: &RefTable) -> BTreeSet<
     names
 }
 
+/// Sonar maps javac's "unused" warning to S1854. Honor literal warning
+/// values on the local declaration without changing its liveness events.
+fn suppresses_local_dead_store(node: Node<'_>, source: &str, semantics: &SemanticIndex) -> bool {
+    let mut cursor = node.walk();
+    let Some(modifiers) = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "modifiers")
+    else {
+        return false;
+    };
+    let mut cursor = modifiers.walk();
+    modifiers
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "annotation")
+        .filter(|annotation| {
+            annotation
+                .child_by_field_name("name")
+                .is_some_and(|name| is_builtin_warning_annotation(name, source, semantics))
+        })
+        .find_map(|annotation| annotation.child_by_field_name("arguments"))
+        .is_some_and(|arguments| contains_dead_store_warning(arguments, source))
+}
+
+fn is_builtin_warning_annotation(name: Node<'_>, source: &str, semantics: &SemanticIndex) -> bool {
+    match node_text(name, source) {
+        "java.lang.SuppressWarnings" => true,
+        "SuppressWarnings" => {
+            !semantics.type_name_is_shadowed_at("SuppressWarnings", name.start_byte())
+        }
+        _ => false,
+    }
+}
+
+fn contains_dead_store_warning(node: Node<'_>, source: &str) -> bool {
+    match node.kind() {
+        "string_literal" => {
+            let literal = node_text(node, source);
+            matches!(literal, "\"all\"" | "\"java:S1854\"" | "\"squid:S1854\"")
+                || literal.eq_ignore_ascii_case("\"unused\"")
+        }
+        "annotation_argument_list" | "element_value_array_initializer" => {
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor)
+                .any(|argument| contains_dead_store_warning(argument, source))
+        }
+        _ => false,
+    }
+}
+
 /// A flaggable store to a local variable.
 struct Store {
     symbol: SymbolId,
@@ -1410,36 +1459,49 @@ impl<'source, 'index> Flow<'source, 'index> {
             self.break_targets.pop();
             return vec![join];
         };
-        let mut frontier = vec![condition];
+        let mut frontier = Vec::new();
         let mut cursor = block.walk();
         let groups: Vec<Node<'_>> = block.named_children(&mut cursor).collect();
         for group in groups {
-            if group.kind() == "switch_rule" {
-                let mut rule_cursor = group.walk();
-                let bodies: Vec<Node<'_>> = group
-                    .named_children(&mut rule_cursor)
-                    .filter(|child| child.kind() != "switch_label")
-                    .collect();
-                let mut rule_frontier = vec![condition];
-                for body in bodies {
-                    rule_frontier = self.statement(body, &rule_frontier, depth + 1);
+            match group.kind() {
+                "switch_rule" => {
+                    let ends = self.switch_group(group, Vec::new(), condition, depth);
+                    self.connect(&ends, join);
                 }
-                self.connect(&rule_frontier, join);
-            } else {
-                let mut group_cursor = group.walk();
-                let statements: Vec<Node<'_>> = group
-                    .named_children(&mut group_cursor)
-                    .filter(|child| child.kind() != "switch_label")
-                    .collect();
-                for statement in statements {
-                    frontier = self.statement(statement, &frontier, depth + 1);
+                "switch_block_statement_group" => {
+                    frontier = self.switch_group(group, frontier, condition, depth);
                 }
+                _ => {}
             }
         }
         self.edge(condition, join);
         self.connect(&frontier, join);
         self.break_targets.pop();
         vec![join]
+    }
+
+    fn switch_group(
+        &mut self,
+        group: Node<'_>,
+        mut frontier: Vec<usize>,
+        selector: usize,
+        depth: usize,
+    ) -> Vec<usize> {
+        let mut cursor = group.walk();
+        let mut statements = group
+            .named_children(&mut cursor)
+            .filter(|child| child.kind() != "switch_label")
+            .peekable();
+        if statements.peek().is_none() {
+            return frontier;
+        }
+        // The selector can dispatch directly to any case. A traditional case
+        // may also inherit the previous group's ordinary exits.
+        frontier.push(selector);
+        for statement in statements {
+            frontier = self.statement(statement, &frontier, depth + 1);
+        }
+        frontier
     }
 
     /// `synchronized (expr) { … }`: the body sequences normally; the lock
@@ -1494,7 +1556,8 @@ impl<'source, 'index> Flow<'source, 'index> {
         let label = node
             .named_child(0)
             .map(|child| node_text(child, self.source));
-        let targets = if node.kind() == "break_statement" {
+        let is_break = node.kind() == "break_statement";
+        let targets = if is_break {
             &self.break_targets
         } else {
             &self.continue_targets
@@ -1502,7 +1565,9 @@ impl<'source, 'index> Flow<'source, 'index> {
         let matched = targets
             .iter()
             .rev()
-            .find(|(name, _)| name.as_deref() == label)
+            // An unlabeled continue uses the closest loop even if the loop has
+            // a label. Unlabeled break still skips named statement entries.
+            .find(|(name, _)| name.as_deref() == label || (!is_break && label.is_none()))
             .map(|(_, target)| target.clone());
         match matched {
             Some(targets) => {
@@ -1713,6 +1778,11 @@ impl<'source, 'index> Flow<'source, 'index> {
                     flaggable,
                     later_reads: BTreeSet::new(),
                 });
+            }
+        }
+        if suppresses_local_dead_store(node, self.source, self.semantics) {
+            for store in &mut out.stores {
+                store.flaggable = false;
             }
         }
         let out = out.finish();
@@ -2163,6 +2233,47 @@ mod tests {
             (range.start.line, range.start.column, range.end.column),
             (11, 15, 22)
         );
+    }
+
+    #[test]
+    fn unqualified_continue_honors_labeled_loops() {
+        let source = include_str!("../../tests/fixtures/LabeledContinueAndSuppression.java");
+        assert!(
+            findings(source)
+                .iter()
+                .all(|(_, range)| range.start.line >= 42)
+        );
+    }
+
+    #[test]
+    fn reports_dead_initializers_outside_local_suppression() {
+        let source = include_str!("../../tests/fixtures/LabeledContinueAndSuppression.java");
+        let actual: Vec<_> = findings(source)
+            .into_iter()
+            .filter(|(_, range)| range.start.line >= 42)
+            .map(|(_, range)| (range.start.line, range.start.column, range.end.column))
+            .collect();
+        assert_eq!(
+            actual,
+            [(46, 20, 32), (48, 22, 34), (49, 25, 37), (55, 18, 30)]
+        );
+    }
+
+    #[test]
+    fn colon_switch_dispatches_to_every_case_group() {
+        let source = include_str!("../../tests/fixtures/SwitchEntry.java");
+        let actual: Vec<_> = findings(source)
+            .into_iter()
+            .map(|(_, range)| {
+                (
+                    range.start.line,
+                    range.start.column,
+                    range.end.line,
+                    range.end.column,
+                )
+            })
+            .collect();
+        assert_eq!(actual, [(40, 18, 40, 28), (43, 22, 43, 32)]);
     }
 
     #[test]

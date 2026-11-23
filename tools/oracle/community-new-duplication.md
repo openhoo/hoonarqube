@@ -15,9 +15,13 @@ as separate revisions of the same project. Values are duplicated / new lines;
 | --- | --- | --- | --- |
 | Yjs `src/utils/ids.js` | `53fd0285 → 486d5677` | 65/86 (75.5814%), fail | unavailable, exit 2; no exact native count |
 | Yjs `src/structs/Item.js` | `ebae7a3e → ee37f0a0` | 0/19 (0%), pass | 0/19 (0%), pass |
-| FastAPI `fastapi/routing.py` | `e0f8cadf → b78c8226` | 21/35 (60%), fail | 20/35 (57.142857%), fail |
+| FastAPI `fastapi/routing.py` | `e0f8cadf → b78c8226` | 21/35 (60%), fail | 21/35 (60%), fail |
 | FastAPI `fastapi/params.py` | `7cb19539 → 5d5666be` | 2/10 (20%), ignored | 2/10 (20%), ignored |
 | FastAPI `fastapi/param_functions.py` | `2bb28066 → 8b0090c3` | 14/14 (100%), ignored | 14/14 (100%), ignored |
+
+The original native receipt recorded 20/35 on the first FastAPI change. The
+current replay requires the independent Community result, 21/35, and preserves
+the original capture.
 
 The clean 19-line Yjs change passed normally, with no ignored condition.
 The two smaller FastAPI changes demonstrate suppression; the captured pairs do

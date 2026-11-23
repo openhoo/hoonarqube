@@ -197,12 +197,9 @@ def duplication(cli, roots, work):
         }
         dup = len(duplicate_lines(report, path) & lines)
         cond = report["assessment"]["gate"]["conditions"][0]
-        expected_dup = case["native"]["duplicated"]
-        if expected_dup is None:
-            expected_dup = ref["duplicated"]
         check(
             len(lines) == ref["new"]
-            and dup == expected_dup
+            and dup == ref["duplicated"]
             and code == int(ref["status"] == "ERROR")
             and bool(cond.get("ignored_on_small_change")) == ref["ignored"]
             and math.isclose(cond["actual"], 100 * dup / len(lines)),
