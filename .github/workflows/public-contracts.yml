@@ -44,6 +44,6 @@ jobs:
           python3 tools/oracle/python_duplication.py --binary target/release/hoonarqube
           --case starlette --case httpx --case idna --case Textualize-rich
       - name: Check each new and duplicated line in the shipped FastAPI package
-        run: python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube
+        run: python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube --current-default
       - name: Compare duplication gates on real Yjs and FastAPI changes
         run: python3 tools/oracle/community_new_duplication.py target/release

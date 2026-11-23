@@ -17,6 +17,8 @@ The small-change exception is another input to verify. The [Community Build 26.1
 
 A team using custom **overall** conditions has a shorter path. [Commander.js](../../tools/oracle/public-line-coverage-gates-20261120.md) exercises a passing run, a failing run, rounding at 59.2%, and missing input. [Picomatch and Yjs](../public-quality-gates-20261120.md) exercise a pass and a failure with two duplication conditions each. A missing Commander coverage input blocks both systems, with different diagnostics: Community reports failed coverage; Hoonarqube reports unavailable and exits 2.
 
+On the [current 26.11 default gate](../../tools/oracle/community-profiles-26.11.md#fastapi-the-default-gate-on-a-real-change), both products blocked a FastAPI change. The duplication result agreed. The native profile also reported 13 violations of inactive reference rules, and distinguished missing coverage from 0% coverage. Compare the individual conditions before replacing a required check.
+
 ## Pilot record and release decision
 
 1. **Freeze inputs.** Record the repository, base and candidate SHAs, exact scanner and reference builds, source/test exclusions, effective rule keys and parameters, coverage file digest, and the assigned gate with all thresholds and overrides. Preserve the two input reports used for new-code comparison. The native baseline is an explicit prior report; verify the actual reference definition of new code for the project.

@@ -33,3 +33,25 @@ python3 tools/oracle/community_profiles_capture.py CAPTURE_ROOT SOURCE_MANIFEST 
 ```
 
 The capture used the official Community image index `sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba` on Linux arm64. The historical scanner image stayed fixed. Before and after each run, the collector checked the server build, installed analyzer versions and JAR digests, and all activated rules with their severity and parameters. Both non-default profiles were assigned and read back on fresh projects. The first probe using the removed hotspot search parameter failed to capture results and is excluded.
+
+### FastAPI: the default gate on a real change
+
+The default gate and the default Python profile are separate settings. An untouched Community 26.11 installation assigned **Sonar way** (gate) and **Sonar way core** (232 active Python rules) to a new private project. We scanned all 48 Python files under `fastapi/` on `7cb19539` and `5d5666be` from full public Git checkouts. Both compute tasks succeeded. The new-code period selected the first analysis. Neither scanner received a coverage report.
+
+| New-code condition | Community, by candidate analysis ID | Hoonarqube native policy, same four thresholds |
+| --- | --- | --- |
+| Coverage ≥ 80% | 0%, failed; 32 lines to cover | Unavailable: no coverage input |
+| Duplication ≤ 3% | 2 of 41 lines, 4.87805%, failed | 2 of 41, 4.87805%, failed |
+| Violations ≤ 0 | 0, passed | 13, failed |
+| Reviewed hotspots ≥ 100% | No new hotspots; condition omitted | No value |
+| Stored decision | ERROR | Unavailable, CI exit 2; unchanged after restarting the service |
+
+All 13 new native violations came from six rules **inactive** in the assigned reference profile. We read the complete active rule list from the project, and queried both new issues and new hotspots independently. This explains the discrepancy on these revisions; it neither qualifies all 232 detectors nor applies the reference profile to the native scanner. The baseline's green response had zero evaluated conditions.
+
+To replay both Community versions on one staged Git checkout:
+
+```sh
+python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube --current-default
+```
+
+The [26.11 fixture](fixtures/fastapi-default-gate-26.11.json.gz) pins both Git trees and file inventories, distinct reference analysis and task IDs, the assigned gate, Python activations with parameters, project measures and actual gate responses. To repeat the reference capture on a disposable 26.11 installation, leave the new project's default gate/profile unchanged. Use the FastAPI package pins from the [26.9 package replay](fastapi_package_gate.py), Git SCM and each commit's date. Set the specific-analysis new-code period to the base analysis ID before submitting the candidate. Read the gate for each analysis ID, both project assignments, inherited small-change setting, measures and the indexed file paths. Page through `rules/search` filtered by the assigned profile and activation. Query `issues/search` and `hotspots/search` on the candidate with the new-code filter. Confirm the candidate stayed current during readback.
