@@ -547,6 +547,10 @@ are explicit inputs:
   `--coverage-cobertura PATH` import LCOV, OpenCover XML, and Python coverage.py
   XML, respectively. Each flag is repeatable. Inputs must be regular,
   non-symlink, UTF-8 files within the 64 MiB assessment input limit.
+  Reports inside the checkout retain their relative paths. Reports stored
+  outside it are identified by `external-coverage/<sha256>.<format>` in the
+  JSON sent to the service. The source files measured by either report must
+  still belong to the analysis scope.
 - `--baseline PATH` compares against the exact prior native `AnalysisReport`
   JSON (schema 1) supplied at that path. Its assessment context must match the
   analyzer, catalog, effective options, and scope; this is a pinned-reference

@@ -83,11 +83,11 @@ pub struct CoverageFile<'a> {
 /// inventory.
 ///
 /// `root` is the canonical checkout root selected by the caller.  Every
-/// source and report path is normalized lexically against that root; no
-/// filesystem access is performed.  Source paths outside the root, report
-/// paths outside the root, unknown paths, and ambiguous normalized paths are
-/// diagnostics and make the result invalid.  Duplicate line and branch
-/// records are merged by identity, so repeated test runs cannot inflate
+/// source path is normalized lexically against that root; no filesystem access
+/// is performed. Unknown, ambiguous or out-of-scope source paths are invalid.
+/// Coverage artifacts may live outside the checkout: their provenance then
+/// uses the content digest and format instead of the host path. Duplicate
+/// line and branch records are merged by identity, so repeated runs cannot inflate
 /// denominators. Cobertura supplies branch counts without identities, so
 /// overlapping branch measurements on the same source line are invalid.
 #[must_use]
@@ -105,10 +105,11 @@ pub fn import_coverage(
     let mut report_inputs = Vec::with_capacity(inputs.len());
 
     for (input_index, input) in inputs.iter().enumerate() {
+        let content_digest = sha256_hex(input.content.as_bytes());
         report_inputs.push(CoverageInput {
-            path: input_path(root, &input.path),
+            path: input_path(root, input, &content_digest),
             format: input.format.as_str().to_string(),
-            content_digest: sha256_hex(input.content.as_bytes()),
+            content_digest,
         });
         let flags = import_coverage_input(
             input,
@@ -1765,11 +1766,18 @@ fn path_key(path: &str) -> String {
     path.to_lowercase()
 }
 
-fn input_path(root: &Path, path: &Path) -> PathBuf {
+fn input_path(root: &Path, input: &CoverageSource, digest: &str) -> PathBuf {
     let root_text = lexical_path(root);
     let root_windows = is_windows_absolute(&root_text);
-    normalize_report_path(&root_text, root_windows, path)
-        .map_or_else(|| PathBuf::from(lexical_path(path)), PathBuf::from)
+    normalize_report_path(&root_text, root_windows, &input.path).map_or_else(
+        || {
+            PathBuf::from(format!(
+                "external-coverage/{digest}.{}",
+                input.format.as_str()
+            ))
+        },
+        PathBuf::from,
+    )
 }
 
 fn is_lcov_checksum(value: &str) -> bool {
@@ -2061,6 +2069,27 @@ mod tests {
                 .iter()
                 .any(|message| message.contains("contradictory"))
         );
+    }
+
+    #[test]
+    fn coverage_artifact_location_survives_an_upload_from_outside_the_checkout() {
+        let body = "SF:src/a.js\nDA:1,1\nend_of_record\n";
+        let files = [source("src/a.js", "one\n")];
+        let digest = sha256_hex(body.as_bytes());
+        let external = format!("external-coverage/{digest}.lcov");
+        for (root, path, expected) in [
+            ("/repo", "/ci/artifacts/run.info", external.as_str()),
+            ("/repo", "../artifacts/run.info", external.as_str()),
+            (r"C:\repo", r"D:\temp\run.info", external.as_str()),
+            ("/repo", "/repo/tests/run.info", "tests/run.info"),
+            ("/repo", "tests/run.info", "tests/run.info"),
+        ] {
+            let report = import_coverage(Path::new(root), &[lcov(path, body)], &files);
+            assert_eq!(report.status, AssessmentStatus::Complete);
+            assert_eq!(report.lines.covered, 1);
+            assert_eq!(report.inputs[0].path, Path::new(expected));
+            assert_eq!(report.inputs[0].content_digest, digest);
+        }
     }
 
     #[test]
