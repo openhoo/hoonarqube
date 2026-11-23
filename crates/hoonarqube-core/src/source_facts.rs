@@ -696,11 +696,7 @@ impl<'source> FactCollector<'source> {
                 return false;
             }
             if kind == "regex" {
-                self.mark_node(node, true);
-                self.key_buffer.clear();
-                self.key_buffer
-                    .push_str(node.utf8_text(self.source.as_bytes()).unwrap_or(kind));
-                self.emit_buffered_token(node);
+                self.emit_verbatim_token(node);
                 return true;
             }
         }
@@ -731,6 +727,11 @@ impl<'source> FactCollector<'source> {
             self.emit_buffered_token(node);
             return;
         }
+        // Go CPD keeps backtick literals verbatim; only interpreted strings normalize.
+        if self.language == Language::Go && kind == "raw_string_literal" {
+            self.emit_verbatim_token(node);
+            return;
+        }
         let interpolated =
             is_interpolated_kind(kind) || (kind == "string" && contains_interpolation(node));
         if interpolated {
@@ -743,6 +744,16 @@ impl<'source> FactCollector<'source> {
             append_part(&mut self.key_buffer, "normalized");
             self.emit_buffered_token(node);
         }
+    }
+
+    fn emit_verbatim_token(&mut self, node: Node<'_>) {
+        self.mark_node(node, true);
+        self.key_buffer.clear();
+        self.key_buffer.push_str(
+            node.utf8_text(self.source.as_bytes())
+                .unwrap_or(node.kind()),
+        );
+        self.emit_buffered_token(node);
     }
 
     fn emit_atomic_literal(&mut self, node: Node<'_>) {
