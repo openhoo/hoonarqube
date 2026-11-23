@@ -23,7 +23,9 @@
     "project_key": "hq-whole-tree-g32-{github_id}-{commit[:10]}",
     "scope": "Every tracked regular file, retaining nested packages, tests, documentation, data and dotfiles. All 32 pinned trees contain only regular blobs. Upstream code is never run.",
     "reference": "Assigned overall duplicated_lines_density GT 3; analysis ID, CE task, component measures and per-file duplication locations from the same completed Community scan.",
-    "comparison": "Densities round to one decimal. Exact lines are inclusive intervals, keyed by repository-relative paths. Only concrete frozen residuals may remain; improvements are accepted. This reference does not measure individual rule findings or new-code periods."
+    "comparison": "Densities round to one decimal. Exact lines are inclusive intervals, keyed by repository-relative paths. Only concrete frozen residuals may remain; improvements are accepted. This reference does not measure individual rule findings or new-code periods.",
+    "measures": "api/measures/component and api/measures/component_tree (all FIL pages); api/sources/lines duplicated flags checked against each file count, with api/duplications/show groups retained separately; api/qualitygates/project_status by analysis ID. File endpoints are bound to the sole completed analysis and revision before and after collection.",
+    "integrity": "tracked.sha256 is SHA-256 of compact sorted JSON mapping every exact Git path to its SHA-256 content digest; commit and tree additionally bind object IDs and modes. Capture digests cover the decompressed recorded JSON responses."
   },
   "projects": [
     {
@@ -78,7 +80,9 @@
         "duplicated_line_count": 77,
         "duplicated_lines": {
           "bigcache_test.go": "613-651,678-715"
-        }
+        },
+        "measure_capture_sha256": "6fa9f7034ff65f130290e19cd4953033a83be0c25153e40485dc85fdb344f92b",
+        "locations_capture_sha256": "36368963085eac5ab11d270058746d84cc83edc81bfd951d7843ae65403d1e9a"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -120,7 +124,9 @@
           "tools/genreadme/main_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "74bda6adf96284d19dfc3b98e0442c3555009c01262ba45ba335fc287c31db7f",
+        "locations_capture_sha256": "60fc7ac1a295b5fe5359918b4364a0609c8cb5ac48d7fff3edcf59be4b6b99f2"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -152,7 +158,9 @@
         "duplicated_line_count": 58,
         "duplicated_lines": {
           "snowflake_test.go": "489-517,541-569"
-        }
+        },
+        "measure_capture_sha256": "00ddc3db7dda86a9312ea80e3d2d2ccdda95a7ff28acf447f484735db5a570eb",
+        "locations_capture_sha256": "ff1a24bc33c40aa110b62c088f07171f3b2101ac0d3b3faa52b11408453e0b1d"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -192,7 +200,9 @@
           "tries_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "0b4eaa9c046164c94aafec0865dea3f9218facd20cfc271f4c9e29f50164219f",
+        "locations_capture_sha256": "712f5c3c08aa289d11de56cb316c8644fbd5eef1b5d182f58e94863691f7a7d9"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -317,7 +327,9 @@
           "set.go": "839-866,872-899,905-932",
           "style_test.go": "186-195,237-246",
           "table/table_test.go": "930-975,992-1030,1085-1129"
-        }
+        },
+        "measure_capture_sha256": "3aa63d92e52376f0d0af8aa42b18b0a28fec7a1900f140452fd3d6144b21c8f6",
+        "locations_capture_sha256": "25875f400311acceb49743807769e7d0e055d1b6123dcf5ddb4f60f82e39523c"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -415,7 +427,9 @@
           "z/rtutil_test.go": "85-120,153-188,196-269",
           "z/simd/baseline.go": "29-56",
           "z/simd/search.go": "14-41"
-        }
+        },
+        "measure_capture_sha256": "ee673e5895f0f16e2683c37d9e2e02955ec55681e8221e7d784ef4a534bd82e5",
+        "locations_capture_sha256": "7d985206579f899ce977e8bcf6429b4d59ae70947e08c488132c3ea9e9f8deb1"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -449,7 +463,9 @@
         "duplicated_line_count": 73,
         "duplicated_lines": {
           "color_test.go": "23-45,123-148,177-200"
-        }
+        },
+        "measure_capture_sha256": "f42b772493e7e63214d8cb3343897be93620b90f874aa49c7a075b93d3c49e37",
+        "locations_capture_sha256": "a6a9f5756dd4c42bde5837018cb83bf60b3e2cf216f27860ea254f34a1812a49"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -502,7 +518,9 @@
           "example_test.go": "1355-1382,1385-1412",
           "job_test.go": "1987-2010,2081-2105,2126-2161,2189-2218",
           "scheduler_test.go": "480-502,517-539,2311-2335,2371-2395,2735-2762,2770-2794,2801-2849,2854-2902,3986-4001,4015-4030,4036-4057,4107-4124"
-        }
+        },
+        "measure_capture_sha256": "31c13c2a3d0d655ed54d9aa7cd87a453d0d3a3ebe7442ce5e6cb87fa3d211bfe",
+        "locations_capture_sha256": "735ee3ffd9e7448b2ec827c5b484eea7db8ce0e3745d1faed5523112dd7cc0a0"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -554,7 +572,9 @@
           "ini_test.go": "289-317,345-361,399-425,501-520,534-562,863-895,910-922,927-939,950-978,1031-1050,1064-1092,1267-1299,1314-1326,1331-1343,1507-1523,1553-1569",
           "key_test.go": "360-370",
           "section_test.go": "64-74,276-288,300-312,324-336"
-        }
+        },
+        "measure_capture_sha256": "7aa8b853b27237ac6f6112ac302678e44846c2a4d91e3a556c34d01f177bba9e",
+        "locations_capture_sha256": "b239ab6ecf2cb36b8b055111d5c06d5bd0500df73791ca9b5b504e991659818c"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -625,7 +645,9 @@
         "duplicated_line_count": 182,
         "duplicated_lines": {
           "funcr/funcr_test.go": "629-810"
-        }
+        },
+        "measure_capture_sha256": "a80f4e6a9908dda52853bfaa5079117cf36e1f8f9f466df5ef0948845a389ce2",
+        "locations_capture_sha256": "e507e0e64070d5ea87f3fb4c0a1087ba2ec952b140a42407b7999d90cbd31266"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -679,7 +701,9 @@
         "duplicated_lines": {
           "null_test.go": "73-102,105-134",
           "uuid_test.go": "323-343,801-821,827-845,854-872"
-        }
+        },
+        "measure_capture_sha256": "299827689f13ff06eaa92e6ccdb40013fca3381bb92c933bddb8dde792f09fa8",
+        "locations_capture_sha256": "56e5fa5149fbb88829078fc182338c6e162fa6c437454b39180b2b962221ce17"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -711,7 +735,9 @@
           "handlers_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "51bb3dce84bb465ba0289674284077e99e366835002b5eef218057be4cc1a13d",
+        "locations_capture_sha256": "681a0b3899b5fd8b1e6bf3b4d2614110429646dd854c50bcea27067b40caa0b4"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -753,7 +779,9 @@
           "sort_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "ca8fded8ce9f8f79edf6947cb71b9b02f55f767a3b6b21d457e57025a3f3c417",
+        "locations_capture_sha256": "47616a2abf148efa88a3fd82e7cf719d205bc24907e29db4e4ce50618e0bdc72"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -789,7 +817,9 @@
         "duplicated_line_count": 122,
         "duplicated_lines": {
           "client_test.go": "338-357,447-466,967-991,994-1018,1069-1084,1107-1122"
-        }
+        },
+        "measure_capture_sha256": "3ac61df0f3867555301b9cb02ba2f55ee9cdef52030e2478a982ac3b0f5fa998",
+        "locations_capture_sha256": "7f15111459be1d8e42cd2732fe08545e8df7dd276a240264325c56d6001ce0be"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -837,7 +867,9 @@
           "expirable/expirable_lru_test.go": "23-43,48-71,76-96,101-124,554-578",
           "lru_test.go": "13-37,41-68,79-139,269-299,314-342",
           "simplelru/lru_test.go": "20-58,65-85,185-215,229-258"
-        }
+        },
+        "measure_capture_sha256": "39029ffa8ca738ab4e23ca1565bd0d0f002e8a7d8ddd2eee87f5b4604e587136",
+        "locations_capture_sha256": "0cd2de503011577a15880ce715993732c50c67dcbb25e064c333f76450b9adb8"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -885,7 +917,9 @@
           "noncolorable_spans_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "6b82b4335a2bd03b270130454bdfafc5fdeeee733beee436afb80f567626fba7",
+        "locations_capture_sha256": "b828f7b9e925c8f0109630cb3a16ac615947afa46c8d01f3e1366a9a51c9f82e"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -923,7 +957,9 @@
           "isatty_windows_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "66df285a4680c3d323a8858e79799dd6e94ec1521ca42f9380cf757a25c9d313",
+        "locations_capture_sha256": "5444fa7f2d842bf4b94bbbf7d5934ca6c3379178416d70e02f54a83228c52f68"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -962,7 +998,9 @@
         "duplicated_lines": {
           "mapstructure_bugs_test.go": "159-192,255-288",
           "mapstructure_test.go": "234-251,681-702,942-963,1525-1549,1564-1588,1610-1633,1716-1732,1766-1790,1840-1856,1859-1883,2341-2355,2390-2404"
-        }
+        },
+        "measure_capture_sha256": "f684b0b84b4847854ba9f377f426bdc4ceccc8b77c1cafd4582a5a1a7c341785",
+        "locations_capture_sha256": "de6b9e958b84610d74b19818bf3c0553ea51ff7d2dc255d842955f8ee4673703"
       },
       "allowed_residual": {
         "density_delta": "0.3",
@@ -1022,7 +1060,9 @@
         "duplicated_line_count": 66,
         "duplicated_lines": {
           "termenv_test.go": "137-160,172-192,203-223"
-        }
+        },
+        "measure_capture_sha256": "9f90cc35546bf3d7ddeb3fb7bb1b92693155e4e6bf7ec9ffbd62c62bbe73a0b6",
+        "locations_capture_sha256": "859471a8e0954fe931a1e5852baca26930c383548a7e2924194d8737a1ae52bf"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1053,7 +1093,9 @@
           "ulid_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "92fcb6be8c2996425513cdcb0af41891f1d00699456037d2189382a4b591ecc3",
+        "locations_capture_sha256": "6ab85608cf745f21c07670c3c59d2d637e38fe66df1731ab38ca0468e85ce3b2"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1085,7 +1127,9 @@
           "sharded_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "04d1afd5909ea0bebc7589b3460a5dd9efe31df31a40a055e615c880361cf6e3",
+        "locations_capture_sha256": "e17391825a3a5e3e5a481a0d63cabc8781e8bd7d8637095e955496469da79ef4"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1200,7 +1244,9 @@
           "unstable/edit/feature_test.go": "58-75,188-205,208-253,259-352,399-443,466-514",
           "unstable/parser.go": "714-744,804-834,1195-1211,1245-1264,1294-1310,1365-1376,1474-1493,1608-1619",
           "unstable/parser_test.go": "134-160,306-368,370-406,408-466,528-594,734-760,1134-1173,1186-1214"
-        }
+        },
+        "measure_capture_sha256": "5973ca211b56aa3b3c696e9d985a0807e0714965b3c5851a48e94e784431e229",
+        "locations_capture_sha256": "8c7d063715e8325ac31998abbbf0aa13fb788e47f71c5db04f1d008d14062c6f"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1272,7 +1318,9 @@
           "width_test.go": "12-242,277-326",
           "word_test.go": "33-67,108-142",
           "wordproperties.go": "488-501,653-740,1425-1441,1578-1912"
-        }
+        },
+        "measure_capture_sha256": "d266942cf4ed7b3c27bc617a94a15fafe6187c196abecec41940b3ec5b1c7509",
+        "locations_capture_sha256": "be156a60aa877005cbb23d7fb63ea697f227c4cdfeecca5a4a8aa8d67d7f5672"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1314,7 +1362,9 @@
           "spec_test.go"
         ],
         "duplicated_line_count": 0,
-        "duplicated_lines": {}
+        "duplicated_lines": {},
+        "measure_capture_sha256": "d5ad9ba8f6247877555edeec06db1ef5e1a80851496af49bc21b01e0c367d56a",
+        "locations_capture_sha256": "5e01ea823d323b53189a6885263f3f6bc28574af86a05132d97dcbcd813dc8b0"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1355,7 +1405,9 @@
         "duplicated_line_count": 30,
         "duplicated_lines": {
           "id_test.go": "292-306,319-333"
-        }
+        },
+        "measure_capture_sha256": "87dff819fcd1f3074d19db3fee5338b3015c10ec302d6d43adf8a3f0c2b84c0e",
+        "locations_capture_sha256": "16e249d924edf2882dc4b97ad7e287e94981a16a01008fa1119775386ee6b757"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1479,7 +1531,9 @@
           "internal/json/time_test.go": "70-102,139-152,351-373",
           "log_test.go": "1342-1358,1367-1383,1394-1417,1431-1454",
           "writer_test.go": "382-400,428-446"
-        }
+        },
+        "measure_capture_sha256": "47dc4f369e441b2cf8c68e90603d55e9fc3b749e3baeaf9ccf2dd361db2398ff",
+        "locations_capture_sha256": "d8f491981887ff2a408366d9501fdd57c1b6a384112b277e24f87cfeab675cb7"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1521,7 +1575,9 @@
         "duplicated_line_count": 44,
         "duplicated_lines": {
           "set_test.go": "117-138,152-173"
-        }
+        },
+        "measure_capture_sha256": "5ff5c924b505989ad66a2c2f875ae57a2c9d8f20fffc8967289ef6ba0ff0a298",
+        "locations_capture_sha256": "a5591a1a7fb2227dd633f61d6a333bd4bc02b43562736dc0f5285339aac78fea"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1605,7 +1661,9 @@
         "duplicated_lines": {
           "alt_exit_test.go": "27-44,51-68",
           "entry_test.go": "249-266,271-288,293-310"
-        }
+        },
+        "measure_capture_sha256": "ce694dd87b81efc4da4293cff54d8f0f6050fe9baa1dad198fca63e505a96bca",
+        "locations_capture_sha256": "cfcc6130a12205fd360e7b2f6d08ee9e5035ccd5741c728fa9592174bc914c61"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1654,7 +1712,9 @@
           "v2/awsutil/awsutil.go": "44-64",
           "v2/example/sonyflake_server.go": "32-51",
           "v2/sonyflake.go": "221-247"
-        }
+        },
+        "measure_capture_sha256": "d086807d4659334b219dc034ec85fe73fcc2431ffbf8962d719a6a89252a7d59",
+        "locations_capture_sha256": "865e3cf54362c6a2690a18b2c95c869933c80588b2f544034fc3536791eed34f"
       },
       "allowed_residual": {
         "density_delta": "0.1",
@@ -1762,7 +1822,9 @@
           "symlink_test.go": "11-42,104-135",
           "tarfs/tarfs_test.go": "80-95",
           "util_test.go": "455-473"
-        }
+        },
+        "measure_capture_sha256": "31a89c8163ae9c087235c3e818e5bc36b4538225b6a6b9e47d3b50aed544114e",
+        "locations_capture_sha256": "675b9dc03dbd6bfd9bb005c3e6792b259be4cb85ef401d7c608891bde420399e"
       },
       "allowed_residual": {
         "density_delta": "0.0",
@@ -1890,7 +1952,9 @@
           "string_to_int_test.go": "91-109,118-136",
           "string_to_string_test.go": "355-373,382-400",
           "uint_slice_test.go": "114-133,149-168,181-194"
-        }
+        },
+        "measure_capture_sha256": "b8edc4761e0219706abd08c8d57c3ff1012421db8561f2968c36ede59561194b",
+        "locations_capture_sha256": "c6564d8dc976ef158f24483c132bae5f954c98e70cd59ab7db3f076ceb2610c1"
       },
       "allowed_residual": {
         "density_delta": "0.2",
@@ -2067,7 +2131,9 @@
           "zapcore/level_test.go": "117-131,148-162",
           "zapcore/write_syncer_bench_test.go": "33-63",
           "zapio/writer_test.go": "92-128"
-        }
+        },
+        "measure_capture_sha256": "535a829647f41d2371f471820e2b25655d8deef7f3e02ac066dfd39f7c79c438",
+        "locations_capture_sha256": "058b120676b0fdb33ec2251e9184239a0fd40f68734f63d860860e1232ceb876"
       },
       "allowed_residual": {
         "density_delta": "0.0",
