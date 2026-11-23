@@ -2039,6 +2039,10 @@ fn analyze_exit_code(
     report: &hoonarqube_ir::AnalysisReport,
     assessment_status: u8,
 ) -> ExitCode {
+    if let Some(exit) = analyze::docker_duplication::gate_exit(output_ok, report, assessment_status)
+    {
+        return exit;
+    }
     let parity_diverged = report
         .parity
         .as_ref()

@@ -7,6 +7,7 @@
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
 mod community_inputs;
+pub(crate) mod docker_duplication;
 use community_inputs::UnsupportedInput;
 mod csharp_index;
 use csharp_index::with_csharp_project_index;
@@ -393,7 +394,11 @@ pub(crate) fn analyze_project_paths(
         .map(|(_, project_file)| project_file),
     );
     append_project_warnings(&collected.project_files, warnings);
-    let unsupported_inventory = std::mem::take(&mut collected.unsupported_inventory);
+    let unsupported_inventory = UnsupportedInventory {
+        files: std::mem::take(&mut collected.unsupported_inventory),
+        dockerfiles: collected.dockerfiles,
+        default_duplication: project_options.duplication == DuplicationOptions::default(),
+    };
     let mut report = build_project_report(
         collected.project_files,
         paths.to_vec(),
@@ -419,14 +424,14 @@ pub(crate) fn analyze_project_paths(
 
 fn append_unsupported_inventory(
     report: &mut hoonarqube_ir::AnalysisReport,
-    unsupported_inventory: Vec<(PathBuf, FileClassification)>,
+    inventory: UnsupportedInventory,
 ) {
     let mut existing = std::collections::BTreeSet::new();
     for file in &report.project.files {
         existing.insert(normalized_input_path(&file.path));
     }
     let mut unique = std::collections::BTreeMap::new();
-    for (path, classification) in unsupported_inventory {
+    for (path, classification) in inventory.files {
         let key = normalized_input_path(&path);
         if existing.contains(&key) {
             continue;
@@ -456,9 +461,17 @@ fn append_unsupported_inventory(
         .project
         .files
         .sort_by(|left, right| left.path.cmp(&right.path));
+    docker_duplication::attach(report, inventory.dockerfiles, inventory.default_duplication);
+}
+
+struct UnsupportedInventory {
+    files: Vec<(PathBuf, FileClassification)>,
+    dockerfiles: Vec<hoonarqube_ir::docker_duplication::DockerfileLines>,
+    default_duplication: bool,
 }
 
 struct CollectedProjectInputs {
+    dockerfiles: Vec<hoonarqube_ir::docker_duplication::DockerfileLines>,
     project_files: Vec<ProjectFile>,
     source_inventory: Vec<AnalyzedSource>,
     go_receipts: std::collections::BTreeMap<PathBuf, GoSourceReceipt>,
@@ -500,6 +513,7 @@ fn collect_project_inputs(
     unsupported_inventory
         .retain(|(path, _)| !explicit_paths.contains(&normalized_input_path(path)));
     let mut collected = CollectedProjectInputs {
+        dockerfiles: Vec::new(),
         project_files: Vec::with_capacity(files.len() + collection_failures.len()),
         source_inventory: Vec::new(),
         go_receipts: std::collections::BTreeMap::new(),
@@ -589,6 +603,13 @@ fn collect_project_input(
             error: None,
             duplication_excluded,
         });
+        return;
+    }
+    if classification == FileClassification::Source
+        && !duplication_excluded
+        && let Some(row) = docker_duplication::measure(&path)
+    {
+        collected.dockerfiles.push(row);
         return;
     }
     if hoonarqube_core::language_for_path(&path).is_none() {
@@ -2838,6 +2859,7 @@ mod tests {
         write_oversized_source(&oversized, 17 * 1024 * 1024);
 
         let mut collected = CollectedProjectInputs {
+            dockerfiles: Vec::new(),
             project_files: Vec::new(),
             source_inventory: Vec::new(),
             go_receipts: std::collections::BTreeMap::new(),

@@ -1,0 +1,230 @@
+{
+  "cases": {
+    "all": {
+      "analysis": "060556cd-04b1-4949-bbe8-7a6022c947a0",
+      "density": "8.8",
+      "dockerfiles": {
+        "docker-nginx/Dockerfile": 79,
+        "golang/Dockerfile": 129,
+        "redis/Dockerfile": 142
+      },
+      "duplicated_lines": 42,
+      "files": {
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "docker-nginx/Dockerfile": "e7770455b682134474aeef0f05ab6b583185d858b94652c295bb4fb4693c753f",
+        "golang/Dockerfile": "8145e0dfaebb7ea30a75ee0fdbe4055319272515875372a76945ffb20cefcbd6",
+        "redis/Dockerfile": "6f8b51819006d20452427e51c0d393c1b2ee54c83e23372cdd476678e6f506ec",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 480,
+      "status": "ERROR",
+      "task": "3b559eb5-a9c4-480d-b541-8b61217899f2"
+    },
+    "baseline": {
+      "analysis": "b549ec04-1d04-4973-98e4-09ba5126e338",
+      "density": "32.3",
+      "dockerfiles": {},
+      "duplicated_lines": 42,
+      "files": {
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 130,
+      "status": "ERROR",
+      "task": "37628050-9557-4bbf-bbd2-3dfe3ab49a32"
+    },
+    "docker-nginx": {
+      "analysis": "741c9962-2907-412a-987d-b395c9d70649",
+      "density": "20.1",
+      "dockerfiles": {
+        "docker-nginx/Dockerfile": 79
+      },
+      "duplicated_lines": 42,
+      "files": {
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "docker-nginx/Dockerfile": "e7770455b682134474aeef0f05ab6b583185d858b94652c295bb4fb4693c753f",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 209,
+      "status": "ERROR",
+      "task": "82107b31-9f31-453f-b28b-180e2233f02c"
+    },
+    "golang": {
+      "analysis": "e5654e95-c9a2-403e-a428-5d6363ffef70",
+      "density": "16.2",
+      "dockerfiles": {
+        "golang/Dockerfile": 129
+      },
+      "duplicated_lines": 42,
+      "files": {
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "golang/Dockerfile": "8145e0dfaebb7ea30a75ee0fdbe4055319272515875372a76945ffb20cefcbd6",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 259,
+      "status": "ERROR",
+      "task": "25935103-1498-47e6-969e-d3e75554adbf"
+    },
+    "line-endings": {
+      "analysis": "0b32b1df-66db-4cde-b8a8-820761ddb0ad",
+      "density": "29.0",
+      "dockerfiles": {
+        "blanks/Dockerfile": 3,
+        "bom/Dockerfile": 2,
+        "cr/Dockerfile": 3,
+        "crlf/Dockerfile": 3,
+        "empty/Dockerfile": 1,
+        "lf/Dockerfile": 2,
+        "nonterminal/Dockerfile": 1
+      },
+      "duplicated_lines": 42,
+      "files": {
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "blanks/Dockerfile": "f92eda6f77df36381d95576122f16d11d1e3e25a2df5c5dc546e440b5775ea74",
+        "bom/Dockerfile": "a45855f7ede303a82b6309951926b05f3569f988f5997c4f1d26d3923e24708f",
+        "cr/Dockerfile": "a630ea22ab41565896b13777e4a248bba4e0b010c25adc62e09248d29c3f7364",
+        "crlf/Dockerfile": "11741912af4a350d7e1a603bbaa1db2e639597e9dd0298b8b86c6639304e82f2",
+        "empty/Dockerfile": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "lf/Dockerfile": "bb57c7da220a8753d7bdabac0d3afdb6efa742e4c736c5bc93ab40dfd5e23b9b",
+        "nonterminal/Dockerfile": "67c4282c6928ae380489b6392127b14bb16d8c2f5ba5fa285a934f4f94387b5e",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 145,
+      "status": "ERROR",
+      "task": "8ad476e3-8544-45bd-874d-42cde8652343"
+    },
+    "only-redis": {
+      "analysis": "9031b719-4fdc-49aa-a47c-2893cfb391ac",
+      "density": "0.0",
+      "dockerfiles": {
+        "only/Dockerfile": 142
+      },
+      "duplicated_lines": 0,
+      "files": {
+        "only/Dockerfile": "6f8b51819006d20452427e51c0d393c1b2ee54c83e23372cdd476678e6f506ec"
+      },
+      "lines": 142,
+      "status": "OK",
+      "task": "a855256b-322c-4339-8726-701fb42089de"
+    },
+    "redis": {
+      "analysis": "c5c2cf8f-598a-4b7b-8575-897ee9989512",
+      "density": "15.4",
+      "dockerfiles": {
+        "redis/Dockerfile": 142
+      },
+      "duplicated_lines": 42,
+      "files": {
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "redis/Dockerfile": "6f8b51819006d20452427e51c0d393c1b2ee54c83e23372cdd476678e6f506ec",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 272,
+      "status": "ERROR",
+      "task": "1871a053-9d7c-4267-94a2-c73d00ce989e"
+    },
+    "redis-twice": {
+      "analysis": "39534472-2afd-489e-8dcc-f7e7ff77cd81",
+      "density": "10.1",
+      "dockerfiles": {
+        "a/Dockerfile": 142,
+        "b/Dockerfile": 142
+      },
+      "duplicated_lines": 42,
+      "files": {
+        "a/Dockerfile": "6f8b51819006d20452427e51c0d393c1b2ee54c83e23372cdd476678e6f506ec",
+        "awsutil/awsutil.go": "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388",
+        "b/Dockerfile": "6f8b51819006d20452427e51c0d393c1b2ee54c83e23372cdd476678e6f506ec",
+        "v2/awsutil/awsutil.go": "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013"
+      },
+      "lines": 414,
+      "status": "ERROR",
+      "task": "5215c41f-bd55-4143-9f17-654d9d0c3210"
+    }
+  },
+  "condition": "GT 3",
+  "metric": "duplicated_lines_density",
+  "server": "26.11.0.134175",
+  "sources": {
+    "11741912af4a350d7e1a603bbaa1db2e639597e9dd0298b8b86c6639304e82f2": {
+      "hex": "46524f4d20736372617463680d0a23206c696e650d0a"
+    },
+    "26cf57f251e6c74ef554429a7e64bc63e2485b9cb2a6da10c00a4d2893b82013": {
+      "commit": "f167a9d53145b661d05ac28b5702b6f29ea9c502",
+      "path": "v2/awsutil/awsutil.go",
+      "repository": "sony/sonyflake"
+    },
+    "67c4282c6928ae380489b6392127b14bb16d8c2f5ba5fa285a934f4f94387b5e": {
+      "hex": "46524f4d2073637261746368"
+    },
+    "6f8b51819006d20452427e51c0d393c1b2ee54c83e23372cdd476678e6f506ec": {
+      "blob": "038457de1ecf8e36bb881f31d67d59f1e2de9edd",
+      "commit": "30e7d6b51c8e9e99cd28b6665a3fa363fdc5a45a",
+      "path": "6.2/alpine/Dockerfile",
+      "repository": "docker-library/redis"
+    },
+    "7f8a02a5cb996f50094269ca24cb45d1d41dd45b106badba30eef27aed967388": {
+      "commit": "f167a9d53145b661d05ac28b5702b6f29ea9c502",
+      "path": "awsutil/awsutil.go",
+      "repository": "sony/sonyflake"
+    },
+    "8145e0dfaebb7ea30a75ee0fdbe4055319272515875372a76945ffb20cefcbd6": {
+      "blob": "0759824ad1634453a7e56e1468355f744ba0cbce",
+      "commit": "2a78efb599931f824db4d97f50b3d2252787a6aa",
+      "path": "1.26/alpine3.23/Dockerfile",
+      "repository": "docker-library/golang"
+    },
+    "a45855f7ede303a82b6309951926b05f3569f988f5997c4f1d26d3923e24708f": {
+      "hex": "efbbbf46524f4d20736372617463680a"
+    },
+    "a630ea22ab41565896b13777e4a248bba4e0b010c25adc62e09248d29c3f7364": {
+      "hex": "46524f4d20736372617463680d23206c696e650d"
+    },
+    "bb57c7da220a8753d7bdabac0d3afdb6efa742e4c736c5bc93ab40dfd5e23b9b": {
+      "hex": "46524f4d20736372617463680a"
+    },
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855": {
+      "hex": ""
+    },
+    "e7770455b682134474aeef0f05ab6b583185d858b94652c295bb4fb4693c753f": {
+      "blob": "838df35ff55b61d85cd72a061f95a277ae46bf42",
+      "commit": "a2a986d19aac4a79a330e6e0b5171aae4e521926",
+      "path": "mainline/alpine-otel/Dockerfile",
+      "repository": "nginx/docker-nginx"
+    },
+    "f92eda6f77df36381d95576122f16d11d1e3e25a2df5c5dc546e440b5775ea74": {
+      "hex": "2320636f6d6d656e740a0a"
+    }
+  },
+  "trees": {
+    "pelletier--go-toml": {
+      "analysis": "56f28326-2f99-4f06-8d0d-9dd89f709d2e",
+      "commit": "686c980c47581bf19b6119b60e9a59f2aed04170",
+      "count": 122,
+      "density": "3.7",
+      "dockerfiles": {
+        "Dockerfile": 7
+      },
+      "repository": "pelletier/go-toml",
+      "sha256": "89b9a838a98d85568773c223ecf33e8839d92b22f342349b3d2b900aab5c8dd8",
+      "status": "ERROR",
+      "task": "38cebb63-a3cd-4bfe-8445-80a9616be4e9",
+      "tree": "2b6cd370eff115f7819e7436bd6dd5df8f735963"
+    },
+    "sony--sonyflake": {
+      "analysis": "67bdb0f0-70fd-4df5-87c7-dfebc8e33bc5",
+      "commit": "f167a9d53145b661d05ac28b5702b6f29ea9c502",
+      "count": 28,
+      "density": "7.8",
+      "dockerfiles": {
+        "example/Dockerfile": 10,
+        "v2/example/Dockerfile": 10
+      },
+      "repository": "sony/sonyflake",
+      "sha256": "5f77a1d71ca797b4ee5ba495131ea52e40d37bc84c956f22b15a56d62ebda905",
+      "status": "ERROR",
+      "task": "dc8fd646-4d29-4937-8f63-032093cd00c0",
+      "tree": "5375380e6a991f929763e0b7f81be8333994a2ec"
+    }
+  }
+}

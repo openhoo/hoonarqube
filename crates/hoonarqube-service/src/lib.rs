@@ -1533,6 +1533,14 @@ fn validate_scope_measurement(
 }
 
 fn validate_report_consistency(report: &AnalysisReport) -> Result<(), ApiError> {
+    if report
+        .project
+        .docker_duplication
+        .as_ref()
+        .is_some_and(|e| e.counters(report).is_none())
+    {
+        return Err(ApiError::bad_request());
+    }
     if report.project.complete && !report.project.warnings.is_empty() {
         return Err(ApiError::bad_request());
     }

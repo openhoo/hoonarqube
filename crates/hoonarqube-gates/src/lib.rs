@@ -443,6 +443,15 @@ fn overall_metric(
     report: &AnalysisReport,
 ) -> Result<MetricValue, String> {
     if !report.project.complete {
+        if metric == "duplicated_lines_density"
+            && let Some((lines, duplicated)) = report
+                .project
+                .docker_duplication
+                .as_ref()
+                .and_then(|e| e.counters(report))
+        {
+            return percentage_counter_with_precision(lines, duplicated, "duplication", precision);
+        }
         return Err(
             "project analysis is incomplete; overall gate metric is unavailable".to_string(),
         );
@@ -1445,6 +1454,7 @@ mod tests {
             schema_version: 1,
             files: Vec::new(),
             project: ProjectReport {
+                docker_duplication: None,
                 metrics: ProjectMetrics {
                     files: 1,
                     lines: 10,
