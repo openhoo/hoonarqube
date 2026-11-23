@@ -69,9 +69,22 @@ commercial analyzers, or acceptance on a team's own repositories.
   SHA-256 was `ea664d94fa59a597760f4f78aaad2c5e2136ef48d4196ee3d6853fd726f8fe80`.
 
 The local harness uses `wave4_prepare.py --manifest` to restore the
-pinned files. Run `wave4_build_receipt.py` from the clean product checkout
-after a locked release build, then run the `native`, `reference`, and
-`summary` phases of `wave4_capture.py` with the same state directory.
+pinned files. From the product checkout, run
+`python3 tools/oracle/wave4_build_receipt.py --output-dir /path/to/new-bundle`.
+The output's parent must exist. The builder checks out the committed HEAD from
+Git into a temporary clone and performs a locked release build in an empty Cargo
+target. Local working files and previous workspace builds are excluded. It saves
+the resulting scanner and its SHA-256 in the same bundle as `build.json`. Pass
+both files to the native phase. All capture shards must check out that commit.
+
+A receipt records what this builder produced on its host; it is not a signed
+attestation of the compiler or runner. Two builds can produce identical bytes
+after a documentation or test-only change. Their receipts still name the
+individual commits and trees. Rebuild to qualify a new commit. Legacy receipts
+only recorded the surrounding checkout; they remain historical data and are
+rejected for new captures and exports. Existing frozen fixture replays do not
+need a new receipt. Run the `native`, `reference`, and `summary` phases of
+`wave4_capture.py` with the same state directory.
 The reference phase requires a fresh private Community Build instance
 and unused project keys. Leave at least 5 GiB of host disk free.
 

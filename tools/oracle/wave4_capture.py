@@ -20,6 +20,7 @@ import public_corpus_summary as comparison
 import public_corpus_wave2_capture as profiles
 from parity import read_json, write_json_atomic
 from public_corpus_wave3_replay import verify_profiles, verify_reference_environment
+from wave4_build_receipt import verify_receipt
 from wave4_prepare import (
     EXTENSIONS,
     PREFIX,
@@ -169,24 +170,10 @@ def native(args, rows):
         raise ValueError("native requires --binary and --build-receipt")
     args.binary = args.binary.resolve(strict=True)
     build = read_json(args.build_receipt)
-    commit = build.get("source_commit", build.get("signed_commit", ""))
-    if not SHA.fullmatch(commit):
-        raise ValueError("native build commit is not pinned")
-    tree = subprocess.check_output(
-        ["git", "-C", str(REPO), "rev-parse", f"{commit}^{{tree}}"],
-        text=True,
-        timeout=10,
+    commit = subprocess.check_output(
+        ["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True
     ).strip()
-    if (
-        build.get("source_tree", build.get("signed_tree")) != tree
-        or build["compiled_tree"] != tree
-        or build["profile"] != "release"
-        or capture.oracle.digest(args.binary) != build["binary_sha256"]
-    ):
-        raise ValueError("native binary does not match its release build receipt")
-    build.pop("signed_commit", None)
-    build.pop("signed_tree", None)
-    build.update(source_commit=commit, source_tree=tree)
+    verify_receipt(REPO, build, binary=args.binary, expected_commit=commit)
     build["version"] = subprocess.check_output(
         [str(args.binary), "--version"], text=True, timeout=10
     ).strip()
@@ -478,7 +465,7 @@ def summarize(state, rows):
         for row in read_json(state / "native-catalog.json")
     }
     infra, boundary, _ = comparison.verified_boundaries(
-        native_build.get("source_commit", native_build.get("signed_commit", ""))
+        verify_receipt(REPO, native_build)
     )
     env_path = state / "reference-environment.json"
     reference_env = read_json(env_path) if env_path.exists() else None

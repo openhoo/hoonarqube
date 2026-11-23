@@ -15,6 +15,7 @@ from public_corpus_summary import (
     source_indexes,
     verified_boundaries,
 )
+from wave4_build_receipt import REPO, verify_receipt
 
 
 def read(p):
@@ -33,11 +34,7 @@ def capture(state, *, expected_version="26.9.0.129388", selected_rows=None):
         receipt["reference"]["server"]["version"] == expected_version,
         "wrong Community release",
     )
-    require(
-        receipt["native"]["source_tree"] == receipt["native"]["compiled_tree"],
-        "different compiled tree",
-    )
-    source = receipt["native"]["source_commit"]
+    source = verify_receipt(REPO, receipt["native"])
     gaps, _, _ = verified_boundaries(source)
     types = {
         r["external_key"]: r["rule_type"] for r in read(state / "native-catalog.json")
