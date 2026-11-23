@@ -6,6 +6,8 @@
 //! in-memory source snapshot shared by issue and source-facts analysis.
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
+mod community_inputs;
+use community_inputs::UnsupportedInput;
 mod csharp_index;
 use csharp_index::with_csharp_project_index;
 
@@ -1683,6 +1685,7 @@ fn collect_project_input_path(
 
 fn retain_unsupported_project_inventory(
     path: PathBuf,
+    kind: UnsupportedInput,
     classification: FileClassification,
     state: &mut ProjectInputCollector<'_>,
 ) {
@@ -1719,12 +1722,9 @@ fn retain_unsupported_project_inventory(
         return;
     }
     *state.unsupported_inventory_bytes = total;
-    if is_php_file(&path) {
-        // Community measures PHP. Keep the same scope as an explicitly named
-        // file so missing native measurements cannot satisfy an assigned gate.
-        state.files.push(path);
-    } else {
-        state.unsupported_inventory.push((path, classification));
+    match kind {
+        UnsupportedInput::CommunitySource => state.files.push(path),
+        UnsupportedInput::InventoryOnly => state.unsupported_inventory.push((path, classification)),
     }
 }
 
@@ -1837,13 +1837,19 @@ fn collect_project_walk_entry(
     if !file_type.is_file() {
         return;
     }
+    collect_project_regular_file(path, patterns, state);
+}
+
+fn collect_project_regular_file(
+    path: PathBuf,
+    patterns: &ProjectPatterns,
+    state: &mut ProjectInputCollector<'_>,
+) {
     if is_analyzable_file(&path) {
         state.files.push(path);
-        return;
-    }
-    if is_recognized_unsupported_file(&path) {
+    } else if let Some(input) = community_inputs::classify(&path) {
         let classification = patterns.classify(&path);
-        retain_unsupported_project_inventory(path, classification, state);
+        retain_unsupported_project_inventory(path, input, classification, state);
     }
 }
 
@@ -1853,14 +1859,7 @@ fn collect_project_symlink(
     state: &mut ProjectInputCollector<'_>,
 ) {
     match fs::metadata(&path) {
-        Ok(metadata) if metadata.is_file() => {
-            if is_analyzable_file(&path) {
-                state.files.push(path);
-            } else if is_recognized_unsupported_file(&path) {
-                let classification = patterns.classify(&path);
-                retain_unsupported_project_inventory(path, classification, state);
-            }
-        }
+        Ok(metadata) if metadata.is_file() => collect_project_regular_file(path, patterns, state),
         Ok(metadata) if metadata.is_dir() => {}
         Ok(_) => {}
         Err(error) => state.warnings.push(format!(
@@ -2187,39 +2186,6 @@ fn is_analyzable_file(path: &Path) -> bool {
     hoonarqube_core::language_for_path(path).is_some()
 }
 
-fn is_php_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("php"))
-}
-
-/// Recognizes Sonar-shaped PHP, CSS, web-template, and Docker paths that have no
-/// native analyzer yet. Native dispatch wins first so a future or overlapping
-/// extension can never be reclassified as unsupported.
-fn is_recognized_unsupported_file(path: &Path) -> bool {
-    if is_analyzable_file(path) {
-        return false;
-    }
-    if is_php_file(path) {
-        return true;
-    }
-    let extension = path.extension().and_then(|extension| extension.to_str());
-    if extension.is_some_and(|extension| {
-        [
-            "css", "less", "scss", "sass", "cshtml", "vbhtml", "aspx", "ascx", "rhtml", "erb",
-            "cmp", "twig",
-        ]
-        .iter()
-        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
-    }) {
-        return true;
-    }
-    path.file_name()
-        .and_then(|file_name| file_name.to_str())
-        .is_some_and(|file_name| {
-            file_name.eq_ignore_ascii_case("dockerfile")
-                || file_name.to_ascii_lowercase().ends_with(".dockerfile")
-        })
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2971,7 +2937,7 @@ mod tests {
     }
 
     #[test]
-    fn directory_scope_inventories_recognized_unsupported_without_affecting_metrics() {
+    fn directory_inventory_distinguishes_reference_source_from_informational_entries() {
         let fix = TempDir::new("unsupported-scope");
         let main = fix.write("main.py", "value = 1\n");
         let style_upper = fix.write("style.CSS", "body { color: red; }\n");
@@ -2997,9 +2963,9 @@ mod tests {
             &mut mixed_warnings,
         );
         assert!(mixed_warnings.is_empty());
-        assert!(mixed.project.complete);
+        assert!(!mixed.project.complete);
         assert_eq!(mixed.project.metrics, baseline.project.metrics);
-        assert_eq!(mixed.project.duplication, baseline.project.duplication);
+        assert!(mixed.project.duplication.is_none());
         assert!(mixed.files.iter().any(|file| file.path == main));
         assert!(
             !mixed
@@ -3025,7 +2991,12 @@ mod tests {
                 .find(|file| file.path == path)
                 .expect("recognized unsupported inventory entry");
             assert_eq!(measurement.status, MeasurementStatus::Unsupported);
-            assert_eq!(measurement.classification, FileClassification::Excluded);
+            let expected = if matches!(name, "style.CSS" | "other.css" | "Dockerfile") {
+                FileClassification::Source
+            } else {
+                FileClassification::Excluded
+            };
+            assert_eq!(measurement.classification, expected);
             assert_eq!(
                 measurement.reason.as_deref(),
                 Some("language is unsupported")
@@ -3091,6 +3062,55 @@ mod tests {
             (row.classification, row.status),
             (FileClassification::Excluded, MeasurementStatus::Excluded)
         );
+    }
+
+    #[test]
+    fn verified_source_keeps_project_role_and_explicit_scope() {
+        let fixture = TempDir::new("community-roles");
+        fixture.write("main.js", "const value = 1;\n");
+        let test = fixture.write("check.kt", "class Check\n");
+        let generated = fixture.write("generated.scss", "p { color: red; }\n");
+        let vendor = fixture.write("library.xml", "<library/>\n");
+        let options = project_analysis_options(
+            ProjectPatternLists {
+                exclude: &[],
+                test_include: &["**/check.kt".into()],
+                generated_include: &["**/generated.scss".into()],
+                vendor_include: &["**/library.xml".into()],
+                duplication_exclude: &[],
+            },
+            100,
+            10,
+            10,
+        )
+        .unwrap();
+        let result = run_project(std::slice::from_ref(&fixture.0), &options, &mut Vec::new());
+        for (path, role, status) in [
+            (
+                test,
+                FileClassification::Test,
+                MeasurementStatus::Unsupported,
+            ),
+            (
+                generated,
+                FileClassification::Generated,
+                MeasurementStatus::Excluded,
+            ),
+            (
+                vendor,
+                FileClassification::Vendor,
+                MeasurementStatus::Excluded,
+            ),
+        ] {
+            let row = result
+                .project
+                .files
+                .iter()
+                .find(|f| f.path == path)
+                .unwrap();
+            assert_eq!((row.classification, row.status), (role, status));
+            assert!(row.metrics.is_none());
+        }
     }
 
     #[test]
