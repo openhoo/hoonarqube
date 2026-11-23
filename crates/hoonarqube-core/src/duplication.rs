@@ -465,10 +465,12 @@ fn build_prepared_file(
     })
 }
 
-/// The Python sensor assigns a lexical image to its starting row. A match
-/// ending in a multiline string stops on that row, including its byte range.
+/// Python tokens and Go raw string literals belong to their opening row.
+/// A clone ending on that token includes only its first row and byte range.
 fn duplication_token_end(facts: &SourceFacts, token: &crate::NormalizedToken) -> (u32, u32) {
-    if facts.language != Language::Python || token.end_line == token.start_line {
+    if !matches!(facts.language, Language::Python | Language::Go)
+        || token.end_line == token.start_line
+    {
         return (token.end_line, token.end_byte);
     }
     let image = &facts.symbols[token.symbol as usize];
@@ -483,7 +485,7 @@ fn duplication_token_end(facts: &SourceFacts, token: &crate::NormalizedToken) ->
 fn uses_token_lines(language: Language) -> bool {
     matches!(
         language,
-        Language::Python | Language::JavaScript | Language::TypeScript
+        Language::Python | Language::JavaScript | Language::TypeScript | Language::Go
     )
 }
 
@@ -1880,6 +1882,76 @@ mod tests {
     use std::fmt::Write as _;
     use std::path::{Path, PathBuf};
 
+    fn go_literal_pair(delimiters: (&str, &str), wrap_second: bool) -> u64 {
+        let inputs = ["a", "b"].map(|side| {
+            let path = format!("{side}.go");
+            let mut source = format!("package example\n\nfunc run{side}() {{\n");
+            let quote = if side == "a" {
+                delimiters.0
+            } else {
+                delimiters.1
+            };
+            for index in 0..20 {
+                let space = if wrap_second && side == "b" {
+                    "\n    "
+                } else {
+                    " "
+                };
+                writeln!(
+                    source,
+                    "  call({index},{space}{quote}{side}:{index}{quote}, {})",
+                    index + 2
+                )
+                .unwrap();
+            }
+            source.push_str("}\n");
+            DuplicationFile {
+                facts: collect_source_facts(Path::new(&path), &source).unwrap(),
+                path: path.into(),
+                language: Language::Go,
+            }
+        });
+        detect_duplications(&inputs, &DuplicationOptions::default())
+            .unwrap()
+            .metrics
+            .duplicated_lines
+    }
+
+    #[test]
+    fn go_interpreted_strings_share_a_token_but_distinct_raw_literals_do_not() {
+        assert_eq!(go_literal_pair(("\"", "\""), false), 42);
+        assert_eq!(go_literal_pair(("`", "`"), false), 0);
+        assert_eq!(go_literal_pair(("\"", "`"), false), 0);
+    }
+
+    #[test]
+    fn go_clone_ending_in_a_raw_string_stops_on_its_opening_row() {
+        let mut shared = String::new();
+        for index in 0..16 {
+            writeln!(shared, "  call({index}, {}, {})", index + 1, index + 2).unwrap();
+        }
+        let sources = ["A", "B"].map(|side| {
+            format!("package example\nfunc run{side}() {{\n{shared}  call(`first line\nbody\nlast line`, end{side}())\n}}\n")
+        });
+        let files = ["a.go", "b.go"].map(|path| DuplicationFile {
+            path: path.into(),
+            language: Language::Go,
+            facts: collect_source_facts(Path::new(path), &sources[usize::from(path == "b.go")])
+                .unwrap(),
+        });
+        let found = detect_duplications(&files, &DuplicationOptions::default()).unwrap();
+        assert_eq!(found.groups.len(), 1);
+        for copy in &found.groups[0].occurrences {
+            assert_eq!((copy.start_line, copy.end_line), (3, 19));
+            assert!(sources[0][..copy.end_byte as usize].ends_with("`first line"));
+        }
+    }
+
+    #[test]
+    fn go_reflowed_calls_do_not_form_clones_across_partial_token_lines() {
+        assert_eq!(go_literal_pair(("\"", "\""), true), 0);
+    }
+
     #[test]
     fn javascript_imports_do_not_satisfy_duplication_thresholds() {
         let mut imports = String::new();
@@ -2215,7 +2287,7 @@ mod tests {
             group(3, &[(0, 2), (1, 22)]),
         ];
         for group in &mut legacy {
-            group.language = Language::Go;
+            group.language = Language::Rust;
         }
         let output = suppress_contained_groups(legacy, &files, &mut budget).unwrap();
         assert_eq!(
@@ -2328,13 +2400,13 @@ mod tests {
         let symbols = &["enter", "code", "exit"];
         let units = &[("enter", 1, 1), ("code", 2, 10), ("exit", 11, 11)];
         // The flat-token path accepts physical spans across multiline tokens.
-        // Python, JS and TS separately require complete token-bearing rows.
-        let mut first = file("a.go", Language::Go, symbols, units, 11);
+        // Go, Python, JS and TS separately require complete token-bearing rows.
+        let mut first = file("a.rs", Language::Rust, symbols, units, 11);
         for index in [0, 2] {
             first.facts.tokens[index].end_byte = first.facts.tokens[index].start_byte;
         }
         let mut second = first.clone();
-        second.path = PathBuf::from("b.go");
+        second.path = PathBuf::from("b.rs");
         let inputs = [first, second];
         let below = detect_duplications(&inputs, &options(3, 10)).expect("detection");
         assert!(
@@ -2391,7 +2463,7 @@ mod tests {
         let symbols = &["a", "b"];
         let units = &[("a", 1, 1), ("b", 1, 1), ("a", 1, 1), ("b", 1, 1)];
         let result = detect_duplications(
-            &[file("same.go", Language::Go, symbols, units, 1)],
+            &[file("same.rs", Language::Rust, symbols, units, 1)],
             &options(2, 1),
         )
         .expect("detection");
