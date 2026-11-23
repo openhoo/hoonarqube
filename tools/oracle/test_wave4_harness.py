@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from parity import read_json, write_json_atomic
+from wave4_build_receipt import METHOD, REPO, git as git_read
 from wave4_capture import (
     capture,
     expected_reference,
@@ -204,7 +206,16 @@ class ReferenceProof(unittest.TestCase):
             }
             native = state / "native" / "example"
             native.mkdir(parents=True)
-            write_json_atomic(state / "native-build.json", {"source_commit": "C"})
+            write_json_atomic(
+                state / "native-build.json",
+                {
+                    "build_method": METHOD,
+                    "profile": "release",
+                    "source_commit": git_read(REPO, "rev-parse", "HEAD"),
+                    "source_tree": git_read(REPO, "rev-parse", "HEAD^{tree}"),
+                    "binary_sha256": hashlib.sha256(b"fixture").hexdigest(),
+                },
+            )
             write_json_atomic(state / "native-catalog.json", [])
             for key in ("profiles", "profiles-end"):
                 (state / key).mkdir()

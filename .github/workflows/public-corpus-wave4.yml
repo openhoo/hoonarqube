@@ -17,10 +17,7 @@ jobs:
       - name: Build and identify the release scanner
         run: |
           set -euo pipefail
-          cargo build --locked --release -p hoonarqube-cli --bin hoonarqube
-          binary_root="$RUNNER_TEMP/wave4-binary"
-          install -D -m755 target/release/hoonarqube "$binary_root/hoonarqube"
-          python3 tools/oracle/wave4_build_receipt.py "$binary_root/hoonarqube" > "$binary_root/build.json"
+          python3 tools/oracle/wave4_build_receipt.py --output-dir "$RUNNER_TEMP/wave4-binary"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wave4-native-binary
