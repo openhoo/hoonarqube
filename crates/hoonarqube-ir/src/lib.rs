@@ -732,6 +732,13 @@ pub struct DuplicationFileMetrics {
     pub metrics: DuplicationMetrics,
 }
 
+/// An explicitly selected project measurement with no issue-rule coverage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MeasurementScope {
+    #[serde(rename = "community-26.11-web-duplication")]
+    Community2611WebDuplication,
+}
+
 /// Classification assigned by project orchestration before measurement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -790,6 +797,9 @@ pub struct ProjectFileMeasurement {
 /// scope but are not measured files.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectReport {
+    /// Presence limits every assigned policy to the measured Web duplication contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_scope: Option<MeasurementScope>,
     pub metrics: ProjectMetrics,
     pub files: Vec<ProjectFileMeasurement>,
     pub duplications: Vec<DuplicateGroup>,
@@ -802,7 +812,7 @@ pub struct ProjectReport {
 /// Complete result of analyzing one target and its project inventory.
 ///
 /// `schema_version` is the first versioned report schema and is currently
-/// always `1`. `files` retains the issue-oriented per-file reports, while
+/// `1` for ordinary native reports and `2` for scoped measurements. `files` retains the issue-oriented per-file reports, while
 /// `project` carries classifications, completeness, and project measurements.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisReport {
@@ -814,6 +824,89 @@ pub struct AnalysisReport {
     /// `sonar-parity` contract block; present only for that profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parity: Option<parity::ParityReport>,
+}
+
+impl AnalysisReport {
+    /// Version 2 is reserved for explicit measurement-only reports. Earlier
+    /// services reject the version rather than treating an empty issue list as clean.
+    #[must_use]
+    pub fn valid_measurement_schema(&self) -> bool {
+        match (self.schema_version, self.project.measurement_scope) {
+            (1, None) => true,
+            (2, Some(MeasurementScope::Community2611WebDuplication)) => {
+                self.parity.is_none()
+                    && self.files.iter().all(|f| {
+                        f.language == "web"
+                            && f.issues.is_empty()
+                            && f.path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .is_some_and(|e| {
+                                    ["html", "xhtml", "erb"]
+                                        .iter()
+                                        .any(|s| e.eq_ignore_ascii_case(s))
+                                })
+                    })
+                    && self.valid_web_counters()
+            }
+            _ => false,
+        }
+    }
+    fn valid_web_counters(&self) -> bool {
+        let project = &self.project;
+        if !project.complete {
+            return project.duplication.is_none() && project.duplications.is_empty();
+        }
+        if !project.warnings.is_empty() || self.files.is_empty() {
+            return false;
+        }
+        let mut lines = 0u64;
+        let mut marked = 0u64;
+        for row in &project.files {
+            if matches!(
+                row.classification,
+                FileClassification::Excluded
+                    | FileClassification::Generated
+                    | FileClassification::Vendor
+            ) {
+                if row.metrics.is_some() || row.duplication.is_some() {
+                    return false;
+                }
+                continue;
+            }
+            let (Some(m), Some(d)) = (&row.metrics, &row.duplication) else {
+                return false;
+            };
+            if row.classification != FileClassification::Source
+                || row.status != MeasurementStatus::Complete
+                || d.duplicated_lines > u64::from(m.lines)
+            {
+                return false;
+            }
+            let (Some(l), Some(n)) = (
+                lines.checked_add(u64::from(m.lines)),
+                marked.checked_add(d.duplicated_lines),
+            ) else {
+                return false;
+            };
+            lines = l;
+            marked = n;
+        }
+        let Some(d) = &project.duplication else {
+            return false;
+        };
+        if lines == 0 || lines != project.metrics.lines || marked != d.duplicated_lines {
+            return false;
+        }
+        // The scanner and JSON receiver may differ by one ULP on a decimal representation.
+        #[allow(clippy::cast_precision_loss)]
+        let expected = 100.0 * marked as f64 / lines as f64;
+        d.duplicated_lines_density.is_some_and(|v| {
+            v.is_finite()
+                && (0.0..=100.0).contains(&v)
+                && (v - expected).abs() <= 2.0 * f64::EPSILON * expected.max(1.0)
+        })
+    }
 }
 
 #[cfg(test)]

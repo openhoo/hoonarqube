@@ -1,0 +1,1231 @@
+{
+ "blobs": {
+  ".github/FUNDING.yml": [
+   "100644",
+   "bd1f19ae6c845451d6375d637366a1387c585aed",
+   "0c526469fcbae9c199a2df93025a1bd5f915a84bc7efa1acd71516333dcb5ec3"
+  ],
+  ".github/workflows/release.yml": [
+   "100644",
+   "289e0b624e79eb09f2b7a2e94e31727f9209f9fb",
+   "6de468e88443033977b03cb7fa9e463134796dd9bc73d50c0470c5529c3b7b45"
+  ],
+  ".github/workflows/test.yml": [
+   "100644",
+   "35a2ae4c6345bc5958b960123fe37a6aabdd2ecd",
+   "b537c037fb9ae6250c0f6df986bb0002f18732bc2e65f3babb2d159bc73ce304"
+  ],
+  ".gitignore": [
+   "100644",
+   "de43d84456cbb27e29e088e301582455cd42bbd1",
+   "7d52ace0ade6c0ae78aec47be9360f8e1fe330825a3124c9a78f18f5c8ec8f11"
+  ],
+  ".yardopts": [
+   "100644",
+   "c0bd5753bd4dee01bb33a14570580e6a151b2703",
+   "ff67ee60558bbd9f67edbac4a572b022dc378eb97c09957031b8fd6ccac915f0"
+  ],
+  "CHANGELOG.md": [
+   "100644",
+   "2f210f1c3da00268261e40dbc8333a98f95467eb",
+   "40e1d1b0a168b4e6b5d12c1a2bff7ff3d038ab29bf73bcb2282c6e3ae2029fd8"
+  ],
+  "FAQ.md": [
+   "100644",
+   "bc11f350436295a786233553fa2ff74fd9ffbfe0",
+   "2391df25d99ab20940e7d76347ecf3402a1bf63a06a2688c9be4a70381dd5f7a"
+  ],
+  "Gemfile": [
+   "100644",
+   "39664a224df7df8a795bd9cc6c179f6dbb35431d",
+   "e87174108c6430b80a2495583fa66160d69a01a0883f6db6ca59aa91099d5d60"
+  ],
+  "MIT-LICENSE": [
+   "100644",
+   "61b6a20aef86f6f8411d68dc1838755f7dd002e3",
+   "dbf936686e663368e493a0699f4721f49ae91238042f07cf4b85522865a8882e"
+  ],
+  "README.md": [
+   "100644",
+   "18ef3b129683b7fd7f9d9fecc55c46177e899cf3",
+   "7e85f605bcb68e8ab1f202519486d86b6cde3f9e7bb728481741e4876147f348"
+  ],
+  "REFERENCE.md": [
+   "100644",
+   "975a67548616751fcfaf1aa658dcb56fa07d40c4",
+   "46dcc59785aa29f17347e9b6ef50fdf51e08c8fcf7037a6a341f628ad0005253"
+  ],
+  "Rakefile": [
+   "100644",
+   "d099bfe42acde47f9f5e1c64c4c618da9ee0632c",
+   "ecae78c6bb95d8fb10fa94c567f4900bc93f58a7847771e311086911b89d6af7"
+  ],
+  "benchmark/README.md": [
+   "100644",
+   "950b8ef323b1c2fd33a684a60c0773dda2585c4f",
+   "272e39c6d90fefb38662f8b8643e80e8d1c9dfebf06aaa1bf1f6a9ef17530a87"
+  ],
+  "benchmark/boolean_attribute.haml": [
+   "100644",
+   "82587a6ba5995035299c1ee22db87dd42d2b71c0",
+   "30e8b6fb26e3ba21e0f38070010cc300e11137de91a4f4973fc56eb3da9d26a6"
+  ],
+  "benchmark/class_attribute.haml": [
+   "100644",
+   "2faaf7e69b60e9b5eba9dace1fad8d412f88ee11",
+   "d05499b8d3ea45868b753087a4835bc7e80ba0ebc4e57cdb732c29b7f1199a26"
+  ],
+  "benchmark/common_attribute.haml": [
+   "100644",
+   "7516da986cd1a303b324d178b50e2da70e960b1e",
+   "755636830db6803182ef064cfc632d6d180d4e62324b3bb8bb0cff562ef9f485"
+  ],
+  "benchmark/data_attribute.haml": [
+   "100644",
+   "b2ba20c5533d3baacef428fde50d4ff45d14e430",
+   "7ac7bd43f80b560833af2113508a33c7d14420ef0c3a5b475eac8431c075180d"
+  ],
+  "benchmark/dynamic_attributes/boolean_attribute.haml": [
+   "100644",
+   "f619d539cc3b9257be09e282c07f08f7682bfdc6",
+   "aaf09b7cf76c87df09a0d9cff741dd77bc1efacff9aa8e5a90c281e2f2a9f7a4"
+  ],
+  "benchmark/dynamic_attributes/class_attribute.haml": [
+   "100644",
+   "3c750de829ddf8acfc7e3eaf717e7376aa313053",
+   "278622f4dca6396c8726632726feac5ceab097ac0b318a7a0bb307c85876d7c4"
+  ],
+  "benchmark/dynamic_attributes/common_attribute.haml": [
+   "100644",
+   "9c3e19f62d4dfb1f439f15a7727f76e9b2f29999",
+   "0825088610ece0a28adbd4efa214b95fd3f2af734aaa7e3ab15f027d5337b3ae"
+  ],
+  "benchmark/dynamic_attributes/data_attribute.haml": [
+   "100644",
+   "a53d89b384d54286fef86c84144dfd8c846ebd27",
+   "305f669af1eb5968e0659d747d8ef12c0501e93413946c66a2188797fb80f06e"
+  ],
+  "benchmark/dynamic_attributes/id_attribute.haml": [
+   "100644",
+   "29698937a48324e74ee79e6d6545b938b75db537",
+   "36105be5d81a5e372838a73098d164e298aba226d8a1793bd28d014e5c214957"
+  ],
+  "benchmark/dynamic_boolean_attribute.haml": [
+   "100644",
+   "e8b9c9017692b40187ad83fc2e75abf6426db5f0",
+   "0f1c61e3dc9cb5b219b3b6e8540a27c80c8dd3626d0f68c46cef43e14e23e8f3"
+  ],
+  "benchmark/dynamic_merger/benchmark.rb": [
+   "100644",
+   "e8ab91f6d359f2d4a51840616d62f812c82e8d55",
+   "7d5174b92f1c467ff8488bf1827a1c0ef07b62790f5733a078fa3562cbcf30f9"
+  ],
+  "benchmark/dynamic_merger/hello.haml": [
+   "100644",
+   "57755b0665c50e282aebacb8bdbeac1efd2a909f",
+   "6291b0e32986f71bf3944a4493b4782dbe37f8f6d6454c402e5ebd2ef1d86c9b"
+  ],
+  "benchmark/dynamic_merger/hello.string": [
+   "100644",
+   "57755b0665c50e282aebacb8bdbeac1efd2a909f",
+   "6291b0e32986f71bf3944a4493b4782dbe37f8f6d6454c402e5ebd2ef1d86c9b"
+  ],
+  "benchmark/etc/attribute_builder.haml": [
+   "100644",
+   "7c607e103d6f4ff2aeb572f9e72d646f3b19b6b4",
+   "3a9bb5b54e14008065e9e1887f11af21b030d44729f4cd2860de676e2ebde6dd"
+  ],
+  "benchmark/etc/real_sample.haml": [
+   "100644",
+   "11196903e04b82b74ec7239d9e9608be440a487a",
+   "b5475ed23a99e673a9cc663a022f8dc7d797433d5d13c0501d1fe899b1935b1e"
+  ],
+  "benchmark/etc/real_sample.rb": [
+   "100644",
+   "5cefec78ad68b238e047d60fd19e5c069f13aa56",
+   "8254e6c66e2b78940fb325064ccb5541a30a7ae30e91aee7782b69156c145e59"
+  ],
+  "benchmark/etc/static_analyzer.haml": [
+   "100644",
+   "210a551bf4317151addd0e66a78946b7431e9101",
+   "4f5a498b399daebadfc765694dceb27b0a8af1b5e10cb1959b10ace1245bdbd9"
+  ],
+  "benchmark/etc/string_interpolation.haml": [
+   "100644",
+   "6ccfe11dfe13d83b9b031ffc6c0e20301d54548f",
+   "1cd74a0199554724dbfec71f01195f22a9f28019f152a70a81ffa36429fef4d5"
+  ],
+  "benchmark/etc/tags.haml": [
+   "100644",
+   "49c139d7549e6480d90a4d2d7958084f147b7a9f",
+   "46d72e7d8259494daa75fa90d3b320e9f24103581dba76b88fbe8b749df984d8"
+  ],
+  "benchmark/etc/tags_loop.haml": [
+   "100644",
+   "e5cf7163998e00c173b6dafa8a41c2950853ead3",
+   "1c81f45434710555c3889cf506c60708d05fd9fc807cb01bac65c3f278937420"
+  ],
+  "benchmark/ext/build_data.rb": [
+   "100755",
+   "d3d4fce0ad548de4055576631e78cde168b6f5fc",
+   "075cdcfcc399b7fa070ab81869ab175237b1eedc44c47019e634d75b462f5d41"
+  ],
+  "benchmark/ext/build_id.rb": [
+   "100755",
+   "5e7caed4b034a6289b5cf3c2aef65951ccc58096",
+   "cb4082d837af65129db3d6641cdfdcb7cfb1539912694ac520bdf3fabb1a4599"
+  ],
+  "benchmark/graph/graph.key": [
+   "100644",
+   "8e73b78940762846ae3a7e8d5884602d8a980b4a",
+   "2e33c99402635280b8345838bd4c12831270ecca5808aba10311c09aeb133939"
+  ],
+  "benchmark/graph/graph.png": [
+   "100644",
+   "d6ca85bb05dd539d654c4aba9fadeaa92fb43e79",
+   "66a43556914ae9f76f7b676e03dbb03ba636d917c4bfcb9e3772beaf5c83f5b4"
+  ],
+  "benchmark/id_attribute.haml": [
+   "100644",
+   "af6acf65df18b78a564e923cd23e0b7018f3f33d",
+   "4effc3c9ee0ac93b7edf307c465908f303532e800f7779d471f9c6b751771e39"
+  ],
+  "benchmark/multiline_attribute.haml": [
+   "100644",
+   "c9e530f1ecccd994ddf70b58d8d647a939f56314",
+   "ad49baf79093ff3557c5e724ad6188b0c6fdbf6307649ef158732692456f1e90"
+  ],
+  "benchmark/plain.haml": [
+   "100644",
+   "4c7cdc3bf6b68f3bcb35fccda085220203cd34d7",
+   "ce85076027fcff9289f2f76397e49270bcf9df34c7e418220920a362522d58b3"
+  ],
+  "benchmark/script.haml": [
+   "100644",
+   "f318d7b0c367353cf482ba03e420b87dd7521ea7",
+   "15ea302b64ec9aefdf22a3a843be685fa9b17d2703fa2372434b89de24afda8b"
+  ],
+  "benchmark/slim/LICENSE": [
+   "100644",
+   "6af651800e9b2759d67b553a7c88cbc2e858c320",
+   "70fe22140305dd2545e14eddc057002e911d51a4f8c7e6d239bd25771a0ec54f"
+  ],
+  "benchmark/slim/context.rb": [
+   "100644",
+   "4d71e340d33bf16971d39f1d94925ed93f50b9c6",
+   "8dbfead7be8c8d7a0bcd1984043650ee84aa158b6a88d2fb58a93cb782190e2f"
+  ],
+  "benchmark/slim/run-benchmarks.rb": [
+   "100644",
+   "bd96d9ad1aa69da305fd97809bc5b5bb2c941df1",
+   "5ee3044463bbf3c73fbc7131880033a91a4be3d4359029e02e1acc7a6788d9a4"
+  ],
+  "benchmark/slim/view.erb": [
+   "100644",
+   "3ffc829203e8a42fb653b0d7fae895076f70f364",
+   "02aeb6f691f27c99a5d1b90ce0c74efef1d1a62774fe27bebca5a46d739b3f31"
+  ],
+  "benchmark/slim/view.haml": [
+   "100644",
+   "2e37c85262b72a9200ad458d9733cfde2cfc4ea2",
+   "05cc37f51a775235bac43898641878b61f3de062d5f95200e83ea8893fd7b86a"
+  ],
+  "benchmark/slim/view.slim": [
+   "100644",
+   "9853bc7c4667800692d5d04cec9721662c2940d4",
+   "32ce38d897db791252418ffd6fd3118de988783d5e1c7ff4b9522a4de950fa43"
+  ],
+  "benchmark/utils/benchmark_ips_extension.rb": [
+   "100644",
+   "a8fbe1e4469fe6c16b6342b2ca65df2e39ab9914",
+   "5d8ffc20ac1d8ca0d492d326be94584e90cb04cbc2f90c7062edfeec268559e8"
+  ],
+  "bin/bench": [
+   "100755",
+   "0ae54c1bf7c6166dcf98e0097bdfadec39f1b806",
+   "cc81f911e1055e71b016a0267949f615e348c17b210e0d08eb5e7a947afb8a81"
+  ],
+  "bin/console": [
+   "100755",
+   "8d4f98fe34716ab4c76ae8c71a6bb76be6257cbb",
+   "b84e964979e6496ae24791405dd62fc5f73bc6e54ddda4cf6acc6e1179e13275"
+  ],
+  "bin/ruby": [
+   "100755",
+   "4e72e3fdcc704f2359d34a4ffb0a00e6750bf19b",
+   "034ec3e83876f81befb455564b4ea77be6095c6fca946893559d0a00b876d0a5"
+  ],
+  "bin/setup": [
+   "100755",
+   "b65ed50ff1f5631e5e1b29cb2bb3eab24a21fa87",
+   "ab436b2febcfc1679642d2e15d990b3aa8680b8ae26bc2faf9ba02bb9fe060e4"
+  ],
+  "bin/stackprof": [
+   "100755",
+   "3a158fc5bbb914f22340ed1c9b2b894aa8590e20",
+   "cf4be3cca5b45a50dda752c4c79fcf36e2cd5b4272a416567daff95d663a2465"
+  ],
+  "bin/test": [
+   "100755",
+   "6d353b0abe904d644b3aa84ebbe49426dba11445",
+   "26471dab5493a2372997e94cf9a4c332512d53c1660a0a41c970ab42a9620285"
+  ],
+  "exe/haml": [
+   "100755",
+   "63b48e721330202f4516a607cb08bb7e4c287e3d",
+   "cfb63c11dc6d859be7863d9144ac997f9df3cf863151f2585fb2a43a4f6986ae"
+  ],
+  "haml.gemspec": [
+   "100644",
+   "29c63b11b4db735df56378dac7a9fde3f74ac7c3",
+   "2d2436ade444b34a8018855909272bd10c5c88b9430b6970315732a6bdeeb48f"
+  ],
+  "lib/haml.rb": [
+   "100644",
+   "66a6d52db8fb5dc77fda67dd248af22df3b91e1e",
+   "f023b7a4434ec15109ef30b4cf6fab7752b386198bb1745cd366d9bfd9fcba4f"
+  ],
+  "lib/haml/ambles.rb": [
+   "100644",
+   "397525df6e2dd2c961935e364d260081c933a57a",
+   "35c91d67e62bc6f4fcc5d00652feb217cbb469b06abe9e2e5f8d105a4c823652"
+  ],
+  "lib/haml/attribute_builder.rb": [
+   "100644",
+   "16dc9a58f4eec744bda0cb23c9090ee8ede27509",
+   "101f057cded2ef8c9ee5e85cb3bbb39a3b5edef2336da2d13d6044579fa9278f"
+  ],
+  "lib/haml/attribute_compiler.rb": [
+   "100644",
+   "66840a9ac9bcf3e2956c8c09d9431a5f6da5a5ad",
+   "2e801d79d3440db90b7f2db38cab2185955c1786c4b0a9cc28438fbe734d4d90"
+  ],
+  "lib/haml/attribute_parser.rb": [
+   "100644",
+   "0067bd3edc6961e76c069d360b1ffa29c050fec0",
+   "ab2cf70125997501e11c203aee521a7132014e346cc7bcfc94312ad5283a9e9c"
+  ],
+  "lib/haml/cli.rb": [
+   "100644",
+   "551d0004b3af935b84c390c2e3cd8fa61d89837d",
+   "355e6533933e8a75ebdcb7b23fd5c6cecb54420c582b9597160b170028493dfc"
+  ],
+  "lib/haml/compiler.rb": [
+   "100644",
+   "51b22d4c4a8945a0293b534c96848259a9fc0b9c",
+   "aa862e98ad12d75486e32fb71da28d1ad846a92e3fa2cc862748381fdaffc001"
+  ],
+  "lib/haml/compiler/children_compiler.rb": [
+   "100644",
+   "01a766e78a59770cfe8757c9e57967549515a766",
+   "a745fb63779c9a85bf9c327947a786286d920608098c218f2c668e99371876b5"
+  ],
+  "lib/haml/compiler/comment_compiler.rb": [
+   "100644",
+   "7fe2a4694241ecf474b3d3b7221256953a479213",
+   "3620dfe971118af3215dd663d461bbc3e63d39363ac729b01322b7a4468785c0"
+  ],
+  "lib/haml/compiler/doctype_compiler.rb": [
+   "100644",
+   "892d320f1721aef6fc33866b324c338c1dcdfe2c",
+   "d5da614497268099669c39d9be736ce200ad1aa8cba187c63a0d64e48bd4f13a"
+  ],
+  "lib/haml/compiler/script_compiler.rb": [
+   "100644",
+   "591adcbd259f0d70a9837deae54148376573bb3c",
+   "68cc43cd4882244a81513d60d648ad526255f65a6e05ed181699db28f9f55ba6"
+  ],
+  "lib/haml/compiler/silent_script_compiler.rb": [
+   "100644",
+   "e52d68a8d61ccf80e6659fd03e36b133f9538391",
+   "e434f43d6763e5b79970686a51ea06ab0d0620eec9ec8ffac1398d07cdbd1a6f"
+  ],
+  "lib/haml/compiler/tag_compiler.rb": [
+   "100644",
+   "974433d5b41c8146d4b35b34fce7b3ad9060c4ab",
+   "0926e466d7f09de28be75a4840222adf297810acfd634803b76805937d9e8a52"
+  ],
+  "lib/haml/dynamic_merger.rb": [
+   "100644",
+   "696b7e7ab376b74da38ffeb30213778bb9196dc1",
+   "7d6c44e50b72b3b24dae3f9961df36e95c2d31f916e7f300af91756ca41eb899"
+  ],
+  "lib/haml/engine.rb": [
+   "100644",
+   "e116147da2ca4c48739a7b4cc18eb7cd16de5ab5",
+   "e938111a396593e933451f60a430224654e5406fe5a5644fc1885e7ace5258ed"
+  ],
+  "lib/haml/error.rb": [
+   "100644",
+   "04d174cdab17ecfc90e1ea0e38807ac17564abb3",
+   "e71faa07234a67086acee9ad3c7dac7250a00cda200e66290686f17a41e892e2"
+  ],
+  "lib/haml/escape.rb": [
+   "100644",
+   "74e41cda26d66f88acb305b613452b7b0f5c0d0e",
+   "d52617d8bbe8a18df108a1ddd6426d947a054dca352b0f14b84a27025493b283"
+  ],
+  "lib/haml/escape_any.rb": [
+   "100644",
+   "6eb613f52023e2908c838df21c2930107adc12dd",
+   "55b89a092095d8af4b473318af76ba1ca6117b2f43762ca9986e237c1698fcda"
+  ],
+  "lib/haml/filters.rb": [
+   "100644",
+   "9d91a5808b7d083404c9cd5e5d79454cedc68825",
+   "3a522b4aa3823e9d54b2465d626d64ca76fc434ff282a80104fcd5b01d95fbc1"
+  ],
+  "lib/haml/filters/base.rb": [
+   "100644",
+   "4d344ef0799df0da71b62c5492e37c14e86d2309",
+   "08e66dc43385d3a4c22c48b5f29b9364dd2ece667c8729925f4238e4d7a660af"
+  ],
+  "lib/haml/filters/cdata.rb": [
+   "100644",
+   "17e8a109ab942d4374d359ee09ae2ff2feb33857",
+   "a92c63f2dcd3d441ee6a327023f33d8f12d9db48ebf50c75c1dcb1cf32152274"
+  ],
+  "lib/haml/filters/coffee.rb": [
+   "100644",
+   "d915b1631eaf0f32a079e47d71652b033531991c",
+   "5ce2b33050d5d64e8eac81498860c3815eb3b69cfd48ae82a92dc10fd6644744"
+  ],
+  "lib/haml/filters/css.rb": [
+   "100644",
+   "b9484167212636007c987a9bb9b49fe3aa4506ba",
+   "5f9d38eac484d2a640a48f2664e4d5494961caaf98e742de09eb2413d8ff64d6"
+  ],
+  "lib/haml/filters/erb.rb": [
+   "100644",
+   "88fe8dfac2f3504e17874e5bf81abed802212c8e",
+   "d873a2472b69aef044c4c1585a415e12a30bc3c1c4afdaf3ae9ae21dc662a605"
+  ],
+  "lib/haml/filters/escaped.rb": [
+   "100644",
+   "eb7abdf4e9ae5884058c9e068bd926dae856e327",
+   "32553633e3e15777fcd4b28a63f463bfa4db613bb339a4ba30c680c5f4a735ae"
+  ],
+  "lib/haml/filters/javascript.rb": [
+   "100644",
+   "3468123b1e1cd1430ef0b13112ebb02a7630d300",
+   "e64a1092a68db5352ec27c6074adb28dcdb2cd64b185708f02c447b0a3121676"
+  ],
+  "lib/haml/filters/less.rb": [
+   "100644",
+   "b191118c79284b417ad044b48945106412ef1b71",
+   "5cb236036bd4d5cf814ea2b8151fefb47355558cbee4f88933fd7304003c56f0"
+  ],
+  "lib/haml/filters/markdown.rb": [
+   "100644",
+   "dd335b8d6033ef24ad28794191ef295c322cfecd",
+   "f2cd5dc8aba90235303080a5eb8985aa26e0467c8512dbf0e281583c1d2173f2"
+  ],
+  "lib/haml/filters/plain.rb": [
+   "100644",
+   "49b207104e4384d13390cfd41cefdc50e0612ba3",
+   "8a12e2a2d1909b29347e0d425315ee8703c7ac3b16fd26dc2e79ca52f5c49657"
+  ],
+  "lib/haml/filters/preserve.rb": [
+   "100644",
+   "0f42a0ab0261496f15a8974e6669c50034c9c668",
+   "f6bc37121c0fdf2957f11e173fba46346121deaba09b8c2e7a46a0ea4322c7ff"
+  ],
+  "lib/haml/filters/ruby.rb": [
+   "100644",
+   "4509ec1f0259f28071ab83f6e9dbed27d9b62582",
+   "d4cfedf2bc5e6c3e73747d7c8abe033b55c57712282808f422f3602efa000537"
+  ],
+  "lib/haml/filters/sass.rb": [
+   "100644",
+   "3833ff38a4010cf73ec75ec7fb60ace9ec046531",
+   "b489447b7876c03af5c18a16b29abd1ab7dae93a834bfd16840c2151fc9a49bb"
+  ],
+  "lib/haml/filters/scss.rb": [
+   "100644",
+   "28023b1666e51bfb920c2652523e06b98dec5ee6",
+   "5ad91788f379a3c6b2730cd348737ff76a3835273570e3bef942a7984c18b28a"
+  ],
+  "lib/haml/filters/text_base.rb": [
+   "100644",
+   "f79ed748ef7c7b8e3e0681fa3252e06158e23289",
+   "a022d1bc2be0239400ab030d8dab1380158878c4408e70ea7d5c860f9c7cbca3"
+  ],
+  "lib/haml/filters/tilt_base.rb": [
+   "100644",
+   "23e36d0e7a60c7ff93376beff951d1ff9838d464",
+   "9c2852fab6c1c4ab67de4880594d6c7302d4a0a0650e354b6e2accc8d8a8d435"
+  ],
+  "lib/haml/force_escape.rb": [
+   "100644",
+   "9288dc056caf33bd7de954126e2730a718367133",
+   "526d0d250145dc5588bfd54142af3be89cc99572f44aa3d43ebd7c413a0e7461"
+  ],
+  "lib/haml/helpers.rb": [
+   "100644",
+   "05fc73a8bf8e190beb56bfd0c8968edcb8b4dd05",
+   "a8becaadb4dbd475fc681f3bca1e63bf914e67e94159295c61df91ce935966b9"
+  ],
+  "lib/haml/html.rb": [
+   "100644",
+   "7c4ca2350cb60d35cd1b9c3f02b133b75cdff105",
+   "dc87a6ae0a2c571b4ba5ac6abecd8192b2ff0eb798c0568667cc6bbdd736e9bc"
+  ],
+  "lib/haml/identity.rb": [
+   "100644",
+   "5d4ebacf44b54c4acc00ca22f99cbcb7b41e3056",
+   "a9c497b0915c42c85c7f5635a6f802c3fc87de5d2eb4c795e6b960cc97173e08"
+  ],
+  "lib/haml/object_ref.rb": [
+   "100644",
+   "6035e593bcdf0297a972ff1db0940a8df62cc715",
+   "2d880b68aeb888ace9852228f4a556f996db6002a9a52d39c2bf1b98165fffcb"
+  ],
+  "lib/haml/parser.rb": [
+   "100644",
+   "74c1deeab37d87d708c4302db1a93c0c1da9fce3",
+   "7175b5c655655c9eefb07b06ad70997bb50feabfa266f95c21fd91c860264e6f"
+  ],
+  "lib/haml/preserver.rb": [
+   "100644",
+   "ace9fb161c0f97c84f8160a76e79a7211579e72a",
+   "a7f0e285fbda5f1a1faf6b4788ba7e8761b92865423790efb3cbbf848e52390a"
+  ],
+  "lib/haml/rails_helpers.rb": [
+   "100644",
+   "db24f88ab7c47894dc1d3e77d816937f482efa82",
+   "224839d02f677e7421c451b0beeb533ebd03f05aa2ddbe2bbc8635b4950f2f95"
+  ],
+  "lib/haml/rails_template.rb": [
+   "100644",
+   "be0ce022be08c7d174c05a0de0152830af6f3cfe",
+   "47425da7713c34f717aa79567f8ca13b7e694086ebcab7d24ff0112a5e080e7e"
+  ],
+  "lib/haml/railtie.rb": [
+   "100644",
+   "faeb5506313554bd78a6f564fd906217406f279b",
+   "171d435575d924fef6f94d4a887656c1449b7773bf1851118343d9f1530b7086"
+  ],
+  "lib/haml/ruby_expression.rb": [
+   "100644",
+   "81518b69f242b2ac7bec47947bcbf319802ed538",
+   "ec58f665b52d6bc8a5ac9f9409344a3da6912bb3b6611c63c99b5fb92ee833b9"
+  ],
+  "lib/haml/string_splitter.rb": [
+   "100644",
+   "787fa8be00d3092df2c96eaeb6b3e5066e3abce3",
+   "c68fefa34781a93e5b98fdb4ff4e18796bbd2482d05a277b27090696be66535d"
+  ],
+  "lib/haml/template.rb": [
+   "100644",
+   "e4f465a0d276b37030a4ee73ef975b31880ca1e2",
+   "c798e112983f777bca5daa35c7af0e2fcc1dd30cf32f56b26688d512442d1739"
+  ],
+  "lib/haml/temple_line_counter.rb": [
+   "100644",
+   "4eb67a4e2118f1b2c93cd19327d994f30b5be431",
+   "0023e99f921e3b4024f45684b0cee2332f6c15bf4d51e8c4950947ed01255b8b"
+  ],
+  "lib/haml/util.rb": [
+   "100644",
+   "c23b1d8d588d1757802406ee024a89014a797bfd",
+   "f5478a05ee5b9184f117ac47a46e29a168d237752c12480c9bec856e1d2c9ec6"
+  ],
+  "lib/haml/version.rb": [
+   "100644",
+   "1dcc1021b3a7044e51da69a14d17a272a18ecc28",
+   "2a276851957d8d4ffc0a2a669f8b685075f7fcb1d85cb581db18f1e631e20e76"
+  ],
+  "lib/haml/whitespace.rb": [
+   "100644",
+   "e77674467e4f3071868925b6ce675b749b3db2b3",
+   "b16a165b41872498ce0a924a71e2b83657674c5e657b997363e000320215e79f"
+  ],
+  "test/haml/attribute_parser_test.rb": [
+   "100644",
+   "63b0e34badddc0d39aa544803be934940a54b4a0",
+   "001479bd33e49c9d668973228b15a75647dfc6ef4cbb974fbd60b0a0f13b9af4"
+  ],
+  "test/haml/cli_test.rb": [
+   "100644",
+   "7131512fb1446793c68355e7917656c87b4a54f9",
+   "7f708c58dea4433f7d652ecf0e0db15ff13854bc0af4fbd59068dd06c2ecd119"
+  ],
+  "test/haml/dynamic_merger_test.rb": [
+   "100644",
+   "eb32107dadb57ea9bac3745223707207f3e922fe",
+   "9f76f18987c544067983c5e41394e271c74cd10673ff09d088adf27c8eabc7fd"
+  ],
+  "test/haml/engine/attributes_test.rb": [
+   "100644",
+   "a3f65269e14e7e0142b394ef3c14d74bafe9ae43",
+   "eea0773df36636e75a8d15c654d26fa8576cf5a3eb8d77cd5bc376286efe2719"
+  ],
+  "test/haml/engine/comment_test.rb": [
+   "100644",
+   "5b369a00cf2c0d7e0eba2266e95a07e0b9798a88",
+   "a85b9e8730fe5e57165fe622b81f6e3b6231013c712e0b7e50a4b891ed1bbe0c"
+  ],
+  "test/haml/engine/doctype_test.rb": [
+   "100644",
+   "0d3c32c3b93bd60b5bb0c009d870f712626b33a5",
+   "55c4b55b840377b26c3daca86b52fa354a7d9928ae0412bcef4e377921678d9d"
+  ],
+  "test/haml/engine/indent_test.rb": [
+   "100644",
+   "bf3d36ca5ff6e8a54d1b88571b6128b297639038",
+   "668a597b60b38e443d13bf6af44464204316bffc362e4a60e902811a2ec241cd"
+  ],
+  "test/haml/engine/multiline_test.rb": [
+   "100644",
+   "68978e972f2a9a9ce62a529d07d71e5431895e1c",
+   "46174dae53a1ea720a994450d6ca8ad9e64156b37efdb948076ff50ca96b2d31"
+  ],
+  "test/haml/engine/new_attribute_test.rb": [
+   "100644",
+   "5cc3fd59777a1f66bc76892bf6befb5b873fbfad",
+   "129158c2288d21970bbaef0962108cc19e6d43a5d98ed57256471985ac2f927b"
+  ],
+  "test/haml/engine/old_attribute_test.rb": [
+   "100644",
+   "a7d4b108a88e0483d8b371159bb9473f6dbefd32",
+   "2794749544c135c1e626d113a9bfc89bbb469150b3df93a9c7b61afc4575e9aa"
+  ],
+  "test/haml/engine/script_test.rb": [
+   "100644",
+   "63f34fbbb86b05c664b1f5012531fde264b258ca",
+   "a3da2fab36659a6286fe5cb3c8dd6f4526d9b921339f3051326edeb4f1e7809c"
+  ],
+  "test/haml/engine/silent_script_test.rb": [
+   "100644",
+   "5a59d31e7d196d4b8614d91b44747fa3158e6ca0",
+   "d7478f5b107f0b2101c26cd85492ea79d2080200ebfa07d8cb8030565468d995"
+  ],
+  "test/haml/engine/tag_test.rb": [
+   "100644",
+   "e69a6efa524f7d979e6695207c5ce25c3f40f00e",
+   "be081c2974b5244ddb1e7c59983cce4d9740d20f34be4c8813b1872b7ee124c5"
+  ],
+  "test/haml/engine/text_test.rb": [
+   "100644",
+   "f79061cf01eea0d5f667fa3ed7872db74625382a",
+   "12d7a63f0d26cdd8cd22167bf1790642015c75b60cdca7f0dba27c987bca7dd4"
+  ],
+  "test/haml/engine/whitespace_test.rb": [
+   "100644",
+   "3d872bcdd9759bb8a8ce6eaeb4862925ea15667b",
+   "e3f8fb6d3ee4f41f615ce82605b59f4377cc99b326da0bb96c8d80a02340b3a4"
+  ],
+  "test/haml/engine_test.rb": [
+   "100644",
+   "7b140514d83eb1ee93dd04bed128f61f0d9a2d6a",
+   "19cb01ba1b9692f24698453abf443e81d31183aa77093b97b4d85ae6641ed91c"
+  ],
+  "test/haml/erb/_av_partial_1.erb": [
+   "100644",
+   "0c836a1ad6bfb2276c0647789bc46e9e7df102ca",
+   "e15cd5d73dc3df303ceddaa076a0b2d92c6a00c232b263928b4a5150b4369a57"
+  ],
+  "test/haml/erb/_av_partial_2.erb": [
+   "100644",
+   "344dbae8dfb562690fab90e0fcb306edb0f2b1b0",
+   "4fa043d23e69545d1cf33108a62e576efdde92dd2e283f72a0a4fe365b78ae3b"
+  ],
+  "test/haml/erb/action_view.erb": [
+   "100644",
+   "689050eb67430b31fb6cf4fe12e58c04268665c8",
+   "10c582a653a8da3a45001842d7b57329286b6d9571d8cd9bd511ba66933e5fff"
+  ],
+  "test/haml/erb/standard.erb": [
+   "100644",
+   "0cc8ea775720bfd62856af5f4491ad98eaad1eee",
+   "9bfa1de929c82dbb04607635b7a74c600e91237107c9e6cb7949bee58e825112"
+  ],
+  "test/haml/error_test.rb": [
+   "100644",
+   "0ab8375a9c45a22919597ebb4332aea15bca0045",
+   "5c080fe99fc5e771a3e98282a4fe460aacb154aec050f4e6d1475cf5a4170e37"
+  ],
+  "test/haml/filters/cdata_test.rb": [
+   "100644",
+   "1b03892a8a091744ac5e67a9e74c918cd0691670",
+   "3079a642d451ce68769cd5be1e772d2fb1211bed1674a00c33602073d4b8bfa4"
+  ],
+  "test/haml/filters/coffee_test.rb": [
+   "100644",
+   "4e5969c456b15c543640fd33ef8568e2c0770f42",
+   "fb408a27c9f499c0f196f6f997d0c69c2c771c2ab22642150012255dabdb10f8"
+  ],
+  "test/haml/filters/css_test.rb": [
+   "100644",
+   "d9728670417cd80121b0f2556ca70079a459eeee",
+   "6348fea78d6f35b2c18ae09e2b1ba6dea46e8f039d7c8d0593b4e5e5272c4771"
+  ],
+  "test/haml/filters/erb_test.rb": [
+   "100644",
+   "216dd8400f6a339629e077222e6aa113682465bf",
+   "39ece7aadb56533a93bb5510b7cdfc5866c0269dc5818ad5e8662c0d21b19cec"
+  ],
+  "test/haml/filters/javascript_test.rb": [
+   "100644",
+   "d0ee0d3225c8a743ea36f7bd0bc6e9d35190c744",
+   "3c73896c018d95cbe1f3225929c7a39b3bcdec815d6f68e51d0c61a720ee018d"
+  ],
+  "test/haml/filters/markdown_test.rb": [
+   "100644",
+   "369f3be52ef230c2faf3afde0a6a8469ebdb1a05",
+   "0b1ade49d019aacb3c33941c2ca3d818375edb0df1d93c85560104f5f13aa4d2"
+  ],
+  "test/haml/filters/plain_test.rb": [
+   "100644",
+   "299934e606d38c763e8ae96e1a77b449515b647e",
+   "96f4b2cf05d3819a176ffd2428cf4a0f1da28589a8ee1a0b045f5550df7c6e53"
+  ],
+  "test/haml/filters/ruby_test.rb": [
+   "100644",
+   "64b7b5f950a2e603f6e4f75e656c3137d4c3889c",
+   "1e012e8d5c26b16743419553c76557ab313437d7b8f5189e33321612598dadcb"
+  ],
+  "test/haml/filters/sass_test.rb": [
+   "100644",
+   "4da73ee9c3f0cef6368b6602caef8926d959f01f",
+   "304ac3bafc38c76a977123425f8cccd0f388346b87514251fdfef92be727a6c2"
+  ],
+  "test/haml/filters/scss_test.rb": [
+   "100644",
+   "e6919ca5a4186fe4959b86df6c3a03f17407e1e4",
+   "fa0e9c8658a730e23372f60c61d3410bc031c49615a67b797410fcbbcb9053ba"
+  ],
+  "test/haml/filters_test.rb": [
+   "100644",
+   "7fec978c38bd87adc1d41c0523bf2ccfbcbd5718",
+   "6938ea773f5887fd908500839b72f92d2563eeeed8a195f87e17fae3131a11ee"
+  ],
+  "test/haml/gemfiles/.bundle/config": [
+   "100644",
+   "2fbf0ffd710189ce2905acb59a57eba453b1b9f9",
+   "01f1a789e5b330de77a689cd770d1fac917c37c387beec7650bc89ba2b0b7063"
+  ],
+  "test/haml/gemfiles/Gemfile.rails-4.0.x": [
+   "100644",
+   "9769d161d533a7fd8bbfee19d680132cd01058a3",
+   "ffa0d4e7203e3d74a5a303757a0ce7433907603c0b5bc2af5c8fb6f82b414433"
+  ],
+  "test/haml/gemfiles/Gemfile.rails-4.1.x": [
+   "100644",
+   "23af5b1bc2bb594fc380b554e069eac32170b973",
+   "6fb161227c1d6018158b565a57a3ce74ed07f595a786f50421bec6234bfa54e1"
+  ],
+  "test/haml/gemfiles/Gemfile.rails-4.2.x": [
+   "100644",
+   "fa56c67276eeaa9ad7644891a2f64f909833a7bb",
+   "3d7b8b35cbd2da887e0158748df13d8c147d7adb5f8dba75e95c4f8d29e6a54b"
+  ],
+  "test/haml/haml-spec/LICENSE": [
+   "100644",
+   "5a8e332545f667aab9bf3a17f11dba27c70b656a",
+   "7637386b5f81e8a719ca336233149005e5fa28b5e6054ea7b67de49355b0ad40"
+  ],
+  "test/haml/haml-spec/README.md": [
+   "100644",
+   "3366c7b6bc023ee793ab2ba65c1f03865b73537d",
+   "0e04535a286c18c18da4fc2d0c59fc6d5ce18f7c63e96d4850724abe4fe45e92"
+  ],
+  "test/haml/haml-spec/Rakefile": [
+   "100644",
+   "168258aa252e0df252bf5f52f67bc0d4f3bdde4d",
+   "e5f584bd37dd9cf2c29f48020037067da7d19a9cf53349bc5acfbbb3fb46490e"
+  ],
+  "test/haml/haml-spec/tests.yml": [
+   "100644",
+   "4589fe915ab2c7e7b7073d052c37f4fb22e03d98",
+   "de7602713c5832a0f4cae6ccb7f6d50968238a96a477fb4c5acfcecb4491ac7a"
+  ],
+  "test/haml/haml-spec/ugly_test.rb": [
+   "100644",
+   "580fe86d931fd0041650c2e8d05513c6852bdec0",
+   "1c56bfc4dcab2ef38a3f499a18e21e0b97c6f573d93e625130853b8d507ba693"
+  ],
+  "test/haml/helper_test.rb": [
+   "100644",
+   "7b9c1c0ded37d458267783a1caa1c64a76daca94",
+   "3e380eca91afa1ee94e99f3a3a5c339fffba461fbdcf63d2d90666af2ffa26f7"
+  ],
+  "test/haml/helpers_test.rb": [
+   "100644",
+   "a444cf15f1fe7278da6c2534557e076b8fcbd4eb",
+   "5e38b425d95fd0a5d2341f26fb30376b3c7cbde445d51bf5ddc9f6520fe17109"
+  ],
+  "test/haml/line_number_test.rb": [
+   "100644",
+   "7a4bfe6aeebc506e7af54df5639787e9707ca5ff",
+   "a3a8fe90099c0f8fecd5e7615f43a43d78247c129858c61d7b8bcf688e234711"
+  ],
+  "test/haml/markaby/standard.mab": [
+   "100644",
+   "aff864162404f27c7d27813c89abfc0ae6deedbc",
+   "d0316770173101d754468d105e9ceedc8f1892eb6688e1700f279c2fa2dc38bc"
+  ],
+  "test/haml/mocks/article.rb": [
+   "100644",
+   "fe074601688f9f9c1318f935ee0de00c906a8a30",
+   "ddd90c8128f719207eff3da39b4e1552d7bf2fd50da0377e223f8a37374a9456"
+  ],
+  "test/haml/optimization_test.rb": [
+   "100644",
+   "db8059cdbc8bfadee13476f0b355e4df39fe3117",
+   "49535845df87e11980b410b5468852e23c47b2d50ae5117df95b93d5701a34b8"
+  ],
+  "test/haml/rails_template_test.rb": [
+   "100644",
+   "6d5660a6d71b40bcc9d6741de83558d8b4ed9b83",
+   "ce91307125cf0f417f3e59bf6f36adb7da330ef229b185812bad1e00fa5e031a"
+  ],
+  "test/haml/results/content_for_layout.xhtml": [
+   "100644",
+   "63bbd2297e874c79f7426328aaf488100eb2d52a",
+   "180faa6fb73819e5ebc9fdf118ea1d80ef0fbd7ff5aab0cf09ed5f87da184167"
+  ],
+  "test/haml/results/eval_suppressed.xhtml": [
+   "100644",
+   "fb7bd33010f3f2d3b5c84abe97667b6b8f5cc852",
+   "5ef4780731a0dc6a2e7a354c2a21be023a1d7283575dd66e33d83d154b5c67d5"
+  ],
+  "test/haml/results/helpers.xhtml": [
+   "100644",
+   "053b273392ede3bd848ebcbd41362f8e2e8f9fd4",
+   "2918c1f01270497b3992ee6cd0671066f7b17a21a26fb6ae7ceefdd814e1bbe7"
+  ],
+  "test/haml/results/helpful.xhtml": [
+   "100644",
+   "204878439aee7f3d8167240153246d12cccd9431",
+   "6870049a3c42816889920b62c4e93c7066abce57013456ade10230f280f55254"
+  ],
+  "test/haml/results/just_stuff.xhtml": [
+   "100644",
+   "3ce2adf190c9d944fc912394b94677d7ba091004",
+   "46ff46ec08364cefe1b3757bf4d5386f5ceb43efa6a5056249f21eb00a1c3367"
+  ],
+  "test/haml/results/list.xhtml": [
+   "100644",
+   "c4818117484fe14937b259d5c24156a7d93d2aee",
+   "9edf44dbbf15107e9e732e7a945a0e2a4e7aab6f761a0e2466500b89cfed39b5"
+  ],
+  "test/haml/results/nuke_inner_whitespace.xhtml": [
+   "100644",
+   "4a7bf83910ea39f1a76aa90a64000ed4712ed1c3",
+   "354dff8643c0fbf03d97b981a83b46f29be5fcbd3a7eb8932865bb8054931089"
+  ],
+  "test/haml/results/nuke_outer_whitespace.xhtml": [
+   "100644",
+   "913dc10d296432b3bccaf5c501f81b8213d2814d",
+   "86a123323f56a63908ffddfcebe3bfc923464964ef42ea00235791118accc3d9"
+  ],
+  "test/haml/results/original_engine.xhtml": [
+   "100644",
+   "f583815a1c7bb30e62f149c325446cf11c012853",
+   "1d69e9ab74754a810be8c792cb46e0be3785e358f03b1e45e16bd2b47ced2c0b"
+  ],
+  "test/haml/results/partial_layout.xhtml": [
+   "100644",
+   "6a6010194e9106084681c8f4d925702d6916c978",
+   "c9e77daa6daf7de00a882fc91229627c3c20a956066799340f07b0af1eb5dac5"
+  ],
+  "test/haml/results/partial_layout_erb.xhtml": [
+   "100644",
+   "89e855365e51648e6dea4fc6ce22e0898ddd03b5",
+   "f08167df4e99a7a203bfda59d9cd5dc0a951e373964400da1773fda4e87e170a"
+  ],
+  "test/haml/results/partials.xhtml": [
+   "100644",
+   "675c52637e305d0cf62a236ba8283e9b4fbe37e4",
+   "a553085d135e6bbee13c39ecd146d598c9a1cb6b3b554875a43ecf7e9a6e2780"
+  ],
+  "test/haml/results/render_layout.xhtml": [
+   "100644",
+   "9712bb5c5a28ce7fcc2156dcfdf8da299a16f433",
+   "8dab03082bcd65e83327990e27942f9abd32f639554a3458d1de4360f348b47f"
+  ],
+  "test/haml/results/silent_script.xhtml": [
+   "100644",
+   "c35cf4cd4249326d472f36ff7ee78f4837102a81",
+   "3621047299dfaf4f54e0c58feec3bd7918a7ab709699197c657251199c49a715"
+  ],
+  "test/haml/results/standard.xhtml": [
+   "100644",
+   "7d7c6e4f306adddd2b2e1c4a6b14f428508bd764",
+   "485e92b0c424097b56f108a95791b7583a84addeee7c02773bdca85f7ccf1501"
+  ],
+  "test/haml/results/tag_parsing.xhtml": [
+   "100644",
+   "03162171bcc82d766fecad0437ce4a3165e177ad",
+   "bd0d392101ce5630c27f0e79de8507dc4ff703cebb638d42b27e34811326ae34"
+  ],
+  "test/haml/results/very_basic.xhtml": [
+   "100644",
+   "25f83eb71be99e03e5de5af313d8cd637612dafb",
+   "4789e8e022d8c7b97f4c62395ba00295b9823bafba8f57ed344bb34119b3486d"
+  ],
+  "test/haml/results/whitespace_handling.xhtml": [
+   "100644",
+   "8c86da81fc6d124a09dc77bb6cc6c447b27404f0",
+   "0d89392fe1394e868ac4c7bd46c6f849ba5ff32a7c3e8c2a46ce545c579830ca"
+  ],
+  "test/haml/ruby_expression_test.rb": [
+   "100644",
+   "11885b9fa1df92dd066aa68e60cfb014f7de25b5",
+   "70b5e62f73a6097459d8c36ff06cd1ee77590257c5a3877ef524dc39f3d4683d"
+  ],
+  "test/haml/string_splitter_test.rb": [
+   "100644",
+   "54cda5eb95b5c7fc85663eddd3275fb538c7ce27",
+   "53e462b23727e2264e8cf0744aa219bcbb1dca15f9f892da4007f777810032e1"
+  ],
+  "test/haml/template_test.rb": [
+   "100644",
+   "8848e6fe526432c0e324555b05b374c4adb06a7e",
+   "24656cd05baed85bc5faf48a9befcadf7defe160a1bbdc756f1c24c44588ff54"
+  ],
+  "test/haml/templates/_av_partial_1.haml": [
+   "100644",
+   "b46502c2e194ea6c536d6b0b09b1d623c071bbde",
+   "3d6a564fb3240c9a83e28ee2ff9fd07e4c55b85f78cf5f26b17680de317aeb48"
+  ],
+  "test/haml/templates/_av_partial_1_ugly.haml": [
+   "100644",
+   "02aa9d0fe3156d21acb9a174cc8f20e52b448bb7",
+   "63994b629f4eff1487a097d9f7c969055e3e82aaa3fbe7f36f11452ccfff02c4"
+  ],
+  "test/haml/templates/_av_partial_2.haml": [
+   "100644",
+   "0b9b84e8fba8b90579c642d432ec0e461f5bc22c",
+   "e7fe9ecb92b42291ba73f533854f55b2772b0e49bb356cff5d6cf44749516766"
+  ],
+  "test/haml/templates/_av_partial_2_ugly.haml": [
+   "100644",
+   "e6144e5e30e8c36e7e83531e6d8ee86cd925c8c0",
+   "d4319ae8026566ba422a5582763f7dad65942dca3f22c271273770ea9aa26543"
+  ],
+  "test/haml/templates/_layout.erb": [
+   "100644",
+   "91c839de1cf0fec102a26e8703caf14be05c3099",
+   "796b481643198c0ca4728a21e1d8604ce67530fea764650671a7106d60ec495b"
+  ],
+  "test/haml/templates/_layout_for_partial.haml": [
+   "100644",
+   "7cf538bd484e875b8895a9fb1a216472cb67d774",
+   "89f12f2304c828191de7e9818cefac7cc3cb6f994768111fabdae5eb6693d7ae"
+  ],
+  "test/haml/templates/_partial.haml": [
+   "100644",
+   "756b54bc145e15a3587b007b04276f9dae65607b",
+   "314110ba28235d776f3bf6bb561dfaf755d98b92c3faff2af7e86a89a47500f4"
+  ],
+  "test/haml/templates/_text_area.haml": [
+   "100644",
+   "896b9758c2f98ed14044365af5dd650002ff28a2",
+   "b9a2f240ce38b82b0b39923485d1c60629921a6522a3cd107f290b6511bbcb33"
+  ],
+  "test/haml/templates/_text_area_helper.html.haml": [
+   "100644",
+   "f70d044ff2b88e4a6f8714f3e16361e48e9c9bf4",
+   "bad464dae45ac64711830b5635916ec26d9fcb8bc951dd448c94c57b47af399a"
+  ],
+  "test/haml/templates/action_view.haml": [
+   "100644",
+   "cfc125c80e6927a6cb792ef1fe4189f2eccc699f",
+   "80b25475b8e783b9331f8b208112d27b51d9cef4b856fa80f03fff178f569c67"
+  ],
+  "test/haml/templates/action_view_ugly.haml": [
+   "100644",
+   "a1f6870e647f729938a4d660e180f41088acedbc",
+   "5e3e790821d40f11a2d883233a9a2ba6881e526cdcaeb41752fc78365af581ac"
+  ],
+  "test/haml/templates/breakage.haml": [
+   "100644",
+   "57c17341436b43457802433b696bdcc0d4c11bb0",
+   "1e62c96a5a2951fd19aef2626112223c8ff59434470420f68c0cd9b1a1f249a8"
+  ],
+  "test/haml/templates/content_for_layout.haml": [
+   "100644",
+   "e9d7e6d66f5380d6f096aa7c4478d8c190234c0f",
+   "92250817c9cd43c8d59cbf52266f2a0c294dbe12748537cfb3b0f44cfcbbdade"
+  ],
+  "test/haml/templates/eval_suppressed.haml": [
+   "100644",
+   "1e3c0346b612f5de1b89ce1ffec09c069b2374c5",
+   "31621bd18cfeab30524cbca71cbced9e68d9b1409eadfeae215163b429918b11"
+  ],
+  "test/haml/templates/helpers.haml": [
+   "100644",
+   "068ee260e959f7077032604a816101be1b72e64f",
+   "4d19683eb803283b55797e27c02cb56cb06db0cacdfea5742331ddea2808d097"
+  ],
+  "test/haml/templates/helpful.haml": [
+   "100644",
+   "3e44a50db51fed861049853ea35f98e4713927fc",
+   "5a95918b930f5a9d43f169c47ae5ceca78e53ff693e48e75c9c62cdde425c3e1"
+  ],
+  "test/haml/templates/just_stuff.haml": [
+   "100644",
+   "0dd82c7734115ec76d0fefc27a3fbe39beeec74a",
+   "71585119e9c29eade343a3007890fc67223e3171a8335a9ff2c11414e8b059ac"
+  ],
+  "test/haml/templates/list.haml": [
+   "100644",
+   "40a80e64006cf8e74a49cba5a141bbcea1e75007",
+   "1c73674f48a2210b608c799e422923e08c93b79d3b78f73f554dc987d80812aa"
+  ],
+  "test/haml/templates/nuke_inner_whitespace.haml": [
+   "100644",
+   "8eebd417eed807841a6ea988030a422ba92ad92b",
+   "f552ce5c8c3caedba1c28fe2d353e22d86988bffdd5ad9b8ce5dd033eee329a4"
+  ],
+  "test/haml/templates/nuke_outer_whitespace.haml": [
+   "100644",
+   "1e2a7f5f984516b801582d997f48b1976da9674b",
+   "04361ba5d5ecd47d7a465664aa476042716489847bd32860b85a4a03eb1add47"
+  ],
+  "test/haml/templates/original_engine.haml": [
+   "100644",
+   "df31a5aa401c82ff93c37c4b9920a0d889d1eead",
+   "d19e498d10cd2d873a36e808caed87122fd5fa1211bbe5274b008bcaca2021de"
+  ],
+  "test/haml/templates/partial_layout.haml": [
+   "100644",
+   "a463ea1d837a6717cb3dd5686175f203e0fa30a3",
+   "b67d7830e5bf033061e0ac63dff63eeefe2f45d4cbb98d9c8719662cbf3216ae"
+  ],
+  "test/haml/templates/partial_layout_erb.erb": [
+   "100644",
+   "7f883775ffb8f9db2ccc31631d8dc0b14fe181fd",
+   "5cfa362c55c5135f87cee78ce50fe15b563539eed24e33d7051f2f833d04147e"
+  ],
+  "test/haml/templates/partialize.haml": [
+   "100644",
+   "327d90daa8bc00d1a1817c52a4642dfbcbdf81bc",
+   "1294cc1fc495bf7d76c18bbfc66177f62723a3c57cc0e736360fa09f4fa52f2a"
+  ],
+  "test/haml/templates/partials.haml": [
+   "100644",
+   "d74f4b45ba3dd25d80fc1317d6d581bb8244c96b",
+   "4f201e2d4e09f5d3a2a55ce660c19668d46ba9785895350c8f68bb86c8892743"
+  ],
+  "test/haml/templates/render_layout.haml": [
+   "100644",
+   "549742b986e261836ef8d9e2caf902c11daa918f",
+   "714ea5beda1bef5dc1ecb0ce28a467ad71535146ffb5e8d0cae2d4b53b6752c3"
+  ],
+  "test/haml/templates/silent_script.haml": [
+   "100644",
+   "2df83e879ae61901e067dd8b23c248e7dcfb339a",
+   "20b0105ded9d571813f69abd65bb7d8f7582a1d86fa1830e0454fe88ac6842cb"
+  ],
+  "test/haml/templates/standard.haml": [
+   "100644",
+   "c1d48669d8a240fae51795d5f99878a3c80bf134",
+   "1a605ba776881330678258bfca581bbeba27de75d62295f4478f50783e7ba2d1"
+  ],
+  "test/haml/templates/standard_ugly.haml": [
+   "100644",
+   "c1d48669d8a240fae51795d5f99878a3c80bf134",
+   "1a605ba776881330678258bfca581bbeba27de75d62295f4478f50783e7ba2d1"
+  ],
+  "test/haml/templates/tag_parsing.haml": [
+   "100644",
+   "f142ebbd2cdf0b9dc316f9c35453999a9dc0fd06",
+   "6596f77a2b2a6607aa04de98a1cb5c5db9f9e1e1399c670b28a15e11ad9f44c8"
+  ],
+  "test/haml/templates/very_basic.haml": [
+   "100644",
+   "93396b9615bb5805fbffd2c24bc1adccae799e3b",
+   "76f4a1e14d1854a8dc93d37d0b869b43056ec9b9170efaa6f92c8645b7631c3f"
+  ],
+  "test/haml/templates/whitespace_handling.haml": [
+   "100644",
+   "f459e75faef7f624ae359f42f44c4b797b17dc63",
+   "45992fd922772ca88e8e5115564da4d277aa0219a86b203b713038a3fb179df4"
+  ],
+  "test/haml/templates/with_bom.haml": [
+   "100644",
+   "c1aa69f16c097288a6a1a08d561a0066a56d5195",
+   "52cd66108b617ea24d48656aeb7affdd96d10b94f67ac26f8da38b32c96a15b3"
+  ],
+  "test/haml/temple_line_counter_test.rb": [
+   "100644",
+   "b97b369e1ce13ad735a34deb6825714ca0954eaf",
+   "d58d80352df737d31480e89d250ffd60baeac6781ca23df19fac9812b1e91310"
+  ],
+  "test/haml/tilt_test.rb": [
+   "100644",
+   "35667a27d661258e9f5cc7c8ede5e8451545a05e",
+   "e8e4f1acca87fb364b09b0906faf2f3a5c4ea82957a4142b71edbb8aaca12644"
+  ],
+  "test/test_helper.rb": [
+   "100644",
+   "8469532d976b95a28660a5ce639ed78bc5901f18",
+   "5cae17786b777587c580f7cc52f7b7ded1391dd4764c413caf3c675348f61422"
+  ]
+ },
+ "cases": {
+  "exclude-xhtml": {
+   "analysis": "39203d15-355b-4fa6-b0c0-45d1f8368cf3",
+   "density": "0.0",
+   "duplicated_lines": 0,
+   "files": {
+    "benchmark/slim/view.erb": 24,
+    "test/haml/erb/_av_partial_1.erb": 13,
+    "test/haml/erb/_av_partial_2.erb": 9,
+    "test/haml/erb/action_view.erb": 63,
+    "test/haml/erb/standard.erb": 56,
+    "test/haml/templates/_layout.erb": 4,
+    "test/haml/templates/partial_layout_erb.erb": 5
+   },
+   "gate": "OK",
+   "line_ranges": {},
+   "physical_lines": 174,
+   "task": "76f4eeba-074e-41bc-adce-b9178977cf5a"
+  },
+  "explicit-erb": {
+   "analysis": "06594b15-d86d-4e3a-9a20-7935c7b3a844",
+   "density": "0.0",
+   "duplicated_lines": 0,
+   "files": {
+    "view.erb": 56
+   },
+   "gate": "OK",
+   "line_ranges": {},
+   "physical_lines": 56,
+   "task": "5cd36402-fecc-473f-9dbb-169a6e21d6c9"
+  },
+  "internal": {
+   "analysis": "add26649-474e-4bb9-8c69-d6ad20464a83",
+   "density": "99.4",
+   "duplicated_lines": 318,
+   "files": {
+    "long.xhtml": 320
+   },
+   "gate": "ERROR",
+   "line_ranges": {
+    "long.xhtml": [
+     [
+      1,
+      159
+     ],
+     [
+      161,
+      319
+     ]
+    ]
+   },
+   "physical_lines": 320,
+   "task": "d76da6c8-b4cf-4749-a2f3-3d0a041e0614"
+  },
+  "public-twins": {
+   "analysis": "40356601-c4d2-47be-b04d-e1e710d604d0",
+   "density": "99.1",
+   "duplicated_lines": 428,
+   "files": {
+    "a/one.xhtml": 160,
+    "a/two.erb": 56,
+    "b/one.xhtml": 160,
+    "b/two.erb": 56
+   },
+   "gate": "ERROR",
+   "line_ranges": {
+    "a/one.xhtml": [
+     [
+      1,
+      159
+     ]
+    ],
+    "a/two.erb": [
+     [
+      1,
+      55
+     ]
+    ],
+    "b/one.xhtml": [
+     [
+      1,
+      159
+     ]
+    ],
+    "b/two.erb": [
+     [
+      1,
+      55
+     ]
+    ]
+   },
+   "physical_lines": 432,
+   "task": "005a81c9-096d-4a35-83e6-0113f3bba614"
+  },
+  "whole": {
+   "analysis": "5aa5f884-ab19-41a7-a416-506eb8c41d25",
+   "density": "0.0",
+   "duplicated_lines": 0,
+   "files": {
+    "benchmark/slim/view.erb": 24,
+    "test/haml/erb/_av_partial_1.erb": 13,
+    "test/haml/erb/_av_partial_2.erb": 9,
+    "test/haml/erb/action_view.erb": 63,
+    "test/haml/erb/standard.erb": 56,
+    "test/haml/results/content_for_layout.xhtml": 13,
+    "test/haml/results/eval_suppressed.xhtml": 10,
+    "test/haml/results/helpers.xhtml": 73,
+    "test/haml/results/helpful.xhtml": 14,
+    "test/haml/results/just_stuff.xhtml": 69,
+    "test/haml/results/list.xhtml": 13,
+    "test/haml/results/nuke_inner_whitespace.xhtml": 41,
+    "test/haml/results/nuke_outer_whitespace.xhtml": 141,
+    "test/haml/results/original_engine.xhtml": 21,
+    "test/haml/results/partial_layout.xhtml": 7,
+    "test/haml/results/partial_layout_erb.xhtml": 7,
+    "test/haml/results/partials.xhtml": 23,
+    "test/haml/results/render_layout.xhtml": 4,
+    "test/haml/results/silent_script.xhtml": 75,
+    "test/haml/results/standard.xhtml": 160,
+    "test/haml/results/tag_parsing.xhtml": 24,
+    "test/haml/results/very_basic.xhtml": 6,
+    "test/haml/results/whitespace_handling.xhtml": 95,
+    "test/haml/templates/_layout.erb": 4,
+    "test/haml/templates/partial_layout_erb.erb": 5
+   },
+   "gate": "OK",
+   "line_ranges": {},
+   "physical_lines": 970,
+   "task": "d3dbdf59-c867-4b50-8782-8632b95815cd"
+  }
+ },
+ "commit": "4a89a4639a5bb4e6e28e1763227cabfb106e5d8b",
+ "community": {
+  "conditions": [
+   {
+    "error": "3",
+    "id": "5940c23b-c910-46b2-a34f-640b2aa82561",
+    "isCaycCondition": false,
+    "metric": "duplicated_lines_density",
+    "op": "GT"
+   }
+  ],
+  "gate": "HQ Jupyter package duplication 20261123",
+  "prefix": "hq-holdout36-mixed-261123-",
+  "reference_image": "sonarqube@sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba",
+  "scanner": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+  "version": "26.11.0.134175"
+ },
+ "id": 426,
+ "only_ruby": {
+  "analysis": "f7f0c3a4-e191-4008-bdb4-33d3e6cab0bf",
+  "gate": {
+   "caycStatus": "non-compliant",
+   "conditions": [],
+   "ignoredConditions": false,
+   "status": "OK"
+  },
+  "measures": [],
+  "task": "3adae8e1-daf2-408c-972e-6d13ca36296b"
+ },
+ "repository": "haml/haml",
+ "tree": "6301101ec34c72fdfeb5b2f28f62fc63743465da"
+}

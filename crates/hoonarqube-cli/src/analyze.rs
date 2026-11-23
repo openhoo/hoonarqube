@@ -7,6 +7,7 @@
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
 mod community_inputs;
+mod web_duplication;
 use community_inputs::UnsupportedInput;
 mod csharp_index;
 use csharp_index::with_csharp_project_index;
@@ -401,6 +402,11 @@ pub(crate) fn analyze_project_paths(
         &project_options.duplication,
     )?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
+    if options.profile == hoonarqube_catalog::RuleProfile::Community2611WebDuplication {
+        report.schema_version = 2;
+        report.project.measurement_scope =
+            Some(hoonarqube_ir::MeasurementScope::Community2611WebDuplication);
+    }
     crate::parity_cli::attach_parity_contract(
         &mut report,
         catalog,
@@ -509,6 +515,16 @@ fn collect_project_inputs(
         semantic_input_complete: true,
         auto_projects: Vec::new(),
     };
+    if profile == hoonarqube_catalog::RuleProfile::Community2611WebDuplication {
+        web_duplication::collect(
+            files,
+            collection_failures,
+            project_options,
+            &mut collected,
+            warnings,
+        );
+        return collected;
+    }
     // Without an explicit semantic request, plain scans still request
     // compiler-backed TypeScript contexts opportunistically: each analyzed
     // JS/TS source joins the context of its nearest ancestor tsconfig.json.

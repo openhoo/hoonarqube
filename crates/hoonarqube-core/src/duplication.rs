@@ -483,7 +483,7 @@ fn duplication_token_end(facts: &SourceFacts, token: &crate::NormalizedToken) ->
 fn uses_token_lines(language: Language) -> bool {
     matches!(
         language,
-        Language::Python | Language::JavaScript | Language::TypeScript
+        Language::Python | Language::JavaScript | Language::TypeScript | Language::Html
     )
 }
 
