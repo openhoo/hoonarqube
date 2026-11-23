@@ -1,4 +1,4 @@
-//! Deterministic `LCOV` and `OpenCover` coverage import.
+//! Deterministic `LCOV`, `OpenCover` and `Cobertura` coverage import.
 //!
 //! Coverage is deliberately joined to the exact source snapshots supplied by
 //! the caller.  The importer never opens source files and never infers a
@@ -19,6 +19,9 @@ use md5::{Digest as Md5Digest, Md5};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::{Reader, XmlVersion};
 use sha2::{Digest as ShaDigest, Sha256};
+
+mod cobertura;
+
 const COVERAGE_SCHEMA_VERSION: u32 = hoonarqube_ir::assessment::ASSESSMENT_SCHEMA_VERSION;
 const MAX_INPUT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_XML_DEPTH: usize = 256;
@@ -33,13 +36,28 @@ pub enum CoverageFormat {
     Lcov,
     /// The XML `OpenCover` format used by .NET tooling.
     OpenCover,
+    /// The Cobertura XML emitted by Python's coverage.py.
+    Cobertura,
 }
 
 impl CoverageFormat {
-    fn as_str(self) -> &'static str {
+    /// Format name used in diagnostics.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Lcov => "LCOV",
+            Self::OpenCover => "OpenCover",
+            Self::Cobertura => "Cobertura",
+        }
+    }
+
+    /// Stable format identifier used in reports and cache fingerprints.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Lcov => "lcov",
             Self::OpenCover => "opencover",
+            Self::Cobertura => "cobertura",
         }
     }
 }
@@ -65,12 +83,13 @@ pub struct CoverageFile<'a> {
 /// inventory.
 ///
 /// `root` is the canonical checkout root selected by the caller.  Every
-/// source and report path is normalized lexically against that root; no
-/// filesystem access is performed.  Source paths outside the root, report
-/// paths outside the root, unknown paths, and ambiguous normalized paths are
-/// diagnostics and make the result invalid.  Duplicate line and branch
-/// records are merged by identity, so repeated test runs cannot inflate
-/// denominators.
+/// source path is normalized lexically against that root; no filesystem access
+/// is performed. Unknown, ambiguous or out-of-scope source paths are invalid.
+/// Coverage artifacts may live outside the checkout: their provenance then
+/// uses the content digest and format instead of the host path. Duplicate
+/// line and branch records are merged by identity, so repeated runs cannot inflate
+/// denominators. Cobertura supplies branch counts without identities, so
+/// overlapping branch measurements on the same source line are invalid.
 #[must_use]
 pub fn import_coverage(
     root: &Path,
@@ -86,10 +105,11 @@ pub fn import_coverage(
     let mut report_inputs = Vec::with_capacity(inputs.len());
 
     for (input_index, input) in inputs.iter().enumerate() {
+        let content_digest = sha256_hex(input.content.as_bytes());
         report_inputs.push(CoverageInput {
-            path: input_path(root, &input.path),
+            path: input_path(root, input, &content_digest),
             format: input.format.as_str().to_string(),
-            content_digest: sha256_hex(input.content.as_bytes()),
+            content_digest,
         });
         let flags = import_coverage_input(
             input,
@@ -168,6 +188,7 @@ fn import_coverage_input(
     let parsed = match input.format {
         CoverageFormat::Lcov => parse_lcov(&input.content, diagnostics),
         CoverageFormat::OpenCover => parse_opencover(&input.content, diagnostics),
+        CoverageFormat::Cobertura => cobertura::parse(&input.content, diagnostics),
     };
     let measurement_count = coverage_measurement_count(&parsed);
     if parsed.records.len() > MAX_RECORDS || measurement_count > MAX_MEASUREMENTS {
@@ -186,8 +207,15 @@ fn import_coverage_input(
         incomplete: parsed.incomplete,
         saw_record: parsed.saw_record,
     };
+    let cobertura_paths = (input.format == CoverageFormat::Cobertura)
+        .then(|| cobertura::PathIndex::new(source_index, &parsed.source_roots));
+    let mut cobertura_files = BTreeSet::new();
     for record in parsed.records {
-        let Some(path) = source_index.resolve(&record.path, diagnostics) else {
+        let path = match cobertura_paths.as_ref() {
+            Some(paths) => paths.resolve(&record.path, diagnostics),
+            None => source_index.resolve(&record.path, diagnostics),
+        };
+        let Some(path) = path else {
             flags.invalid = true;
             continue;
         };
@@ -195,6 +223,15 @@ fn import_coverage_input(
             flags.invalid = true;
             continue;
         };
+        if cobertura_paths.is_some()
+            && (source.language != Some(Language::Python) || !cobertura_files.insert(path))
+        {
+            diagnostics.push(format!(
+                "Cobertura requires one class per Python file; invalid class path '{path}'"
+            ));
+            flags.invalid = true;
+            continue;
+        }
         if source.classification != FileClassification::Source {
             diagnostics.push(format!(
                 "coverage path '{}' is outside the source scope ({})",
@@ -285,6 +322,9 @@ fn import_coverage_line(
         }
     }
     aggregate.add_line(path, line.line, line.covered, input_index, diagnostics);
+    if let Some(counts) = &line.branch_counts {
+        invalid |= !aggregate.add_branch_counts(path, line.line, counts.clone(), diagnostics);
+    }
     CoverageMeasurementFlags {
         invalid,
         saw_record: true,
@@ -309,7 +349,7 @@ fn import_coverage_branch(
             ..CoverageMeasurementFlags::default()
         };
     }
-    aggregate.add_branch(
+    let merged = aggregate.add_branch(
         path,
         branch.line,
         branch.identity,
@@ -318,7 +358,7 @@ fn import_coverage_branch(
         diagnostics,
     );
     CoverageMeasurementFlags {
-        invalid: false,
+        invalid: !merged,
         saw_record: true,
     }
 }
@@ -440,7 +480,41 @@ struct LineAggregate {
     line_seen: bool,
     covered: bool,
     run_values: BTreeMap<usize, bool>,
-    branches: BTreeMap<String, BranchAggregate>,
+    branches: BranchMeasurements,
+}
+
+#[derive(Debug)]
+enum BranchMeasurements {
+    Identified(BTreeMap<String, BranchAggregate>),
+    Counts(CoverageCounter),
+    Conflicting,
+}
+
+impl Default for BranchMeasurements {
+    fn default() -> Self {
+        Self::Identified(BTreeMap::new())
+    }
+}
+
+impl BranchMeasurements {
+    fn counts(&self) -> Option<CoverageCounter> {
+        match self {
+            Self::Identified(branches) if !branches.is_empty() => Some(CoverageCounter {
+                eligible: branches.len() as u64,
+                covered: branches.values().filter(|branch| branch.covered).count() as u64,
+            }),
+            Self::Counts(counts) => Some(counts.clone()),
+            _ => None,
+        }
+    }
+
+    fn conflict(&mut self, path: &str, line: u32, diagnostics: &mut Vec<String>) -> bool {
+        *self = Self::Conflicting;
+        diagnostics.push(format!(
+            "overlapping branch coverage at line {line} for '{path}'; Cobertura does not identify all branch outcomes"
+        ));
+        false
+    }
 }
 
 #[derive(Debug, Default)]
@@ -486,7 +560,7 @@ impl CoverageAggregate {
         covered: bool,
         run: usize,
         diagnostics: &mut Vec<String>,
-    ) {
+    ) -> bool {
         let line_entry = self
             .files
             .entry(path.to_owned())
@@ -494,7 +568,10 @@ impl CoverageAggregate {
             .lines
             .entry(line)
             .or_default();
-        let contradiction = line_entry.branches.get(&identity).is_some_and(|branch| {
+        let BranchMeasurements::Identified(branches) = &mut line_entry.branches else {
+            return line_entry.branches.conflict(path, line, diagnostics);
+        };
+        let contradiction = branches.get(&identity).is_some_and(|branch| {
             branch
                 .run_values
                 .values()
@@ -505,9 +582,33 @@ impl CoverageAggregate {
                 "coverage branch '{identity}' at line {line} for '{path}' has contradictory run values; unioning coverage"
             ));
         }
-        let branch = line_entry.branches.entry(identity).or_default();
+        let branch = branches.entry(identity).or_default();
         branch.run_values.insert(run, covered);
         branch.covered |= covered;
+        true
+    }
+
+    fn add_branch_counts(
+        &mut self,
+        path: &str,
+        line: u32,
+        counts: CoverageCounter,
+        diagnostics: &mut Vec<String>,
+    ) -> bool {
+        let branches = &mut self
+            .files
+            .entry(path.to_owned())
+            .or_default()
+            .lines
+            .entry(line)
+            .or_default()
+            .branches;
+        if !matches!(branches, BranchMeasurements::Identified(identified) if identified.is_empty())
+        {
+            return branches.conflict(path, line, diagnostics);
+        }
+        *branches = BranchMeasurements::Counts(counts);
+        true
     }
 
     fn line_counter(&self) -> CoverageCounter {
@@ -534,14 +635,12 @@ impl CoverageAggregate {
             .files
             .values()
             .flat_map(|file| file.lines.values())
-            .flat_map(|line| line.branches.values());
+            .filter_map(|line| line.branches.counts());
         let mut eligible = 0_u64;
         let mut covered = 0_u64;
-        for branch in branches {
-            eligible += 1;
-            if branch.covered {
-                covered += 1;
-            }
+        for counts in branches {
+            eligible += counts.eligible;
+            covered += counts.covered;
         }
         CoverageCounter { eligible, covered }
     }
@@ -553,21 +652,13 @@ impl CoverageAggregate {
                 let lines = file
                     .lines
                     .iter()
-                    .filter(|(_, line)| line.line_seen || !line.branches.is_empty())
-                    .map(|(line_number, line)| LineCoverage {
-                        line: *line_number,
-                        covered: line.line_seen.then_some(line.covered),
-                        branches: if line.branches.is_empty() {
-                            None
-                        } else {
-                            let eligible = line.branches.len() as u64;
-                            let covered = line
-                                .branches
-                                .values()
-                                .filter(|branch| branch.covered)
-                                .count() as u64;
-                            Some(CoverageCounter { eligible, covered })
-                        },
+                    .filter_map(|(line_number, line)| {
+                        let branches = line.branches.counts();
+                        (line.line_seen || branches.is_some()).then_some(LineCoverage {
+                            line: *line_number,
+                            covered: line.line_seen.then_some(line.covered),
+                            branches,
+                        })
                     })
                     .collect::<Vec<_>>();
                 if lines.is_empty() {
@@ -586,6 +677,7 @@ impl CoverageAggregate {
 #[derive(Debug, Default)]
 struct ParsedCoverage {
     records: Vec<ParsedFile>,
+    source_roots: Vec<String>,
     invalid: bool,
     incomplete: bool,
     saw_record: bool,
@@ -604,6 +696,7 @@ struct ParsedLine {
     line: u32,
     covered: bool,
     checksum: Option<String>,
+    branch_counts: Option<CoverageCounter>,
 }
 
 #[derive(Debug)]
@@ -836,6 +929,7 @@ impl<'a> LcovParser<'a> {
             line,
             covered: count > 0,
             checksum,
+            branch_counts: None,
         });
     }
 
@@ -1340,6 +1434,7 @@ impl<'a> OpenCoverParser<'a> {
                     line,
                     covered: visits > 0,
                     checksum: None,
+                    branch_counts: None,
                 });
             }
         }
@@ -1671,11 +1766,18 @@ fn path_key(path: &str) -> String {
     path.to_lowercase()
 }
 
-fn input_path(root: &Path, path: &Path) -> PathBuf {
+fn input_path(root: &Path, input: &CoverageSource, digest: &str) -> PathBuf {
     let root_text = lexical_path(root);
     let root_windows = is_windows_absolute(&root_text);
-    normalize_report_path(&root_text, root_windows, path)
-        .map_or_else(|| PathBuf::from(lexical_path(path)), PathBuf::from)
+    normalize_report_path(&root_text, root_windows, &input.path).map_or_else(
+        || {
+            PathBuf::from(format!(
+                "external-coverage/{digest}.{}",
+                input.format.as_str()
+            ))
+        },
+        PathBuf::from,
+    )
 }
 
 fn is_lcov_checksum(value: &str) -> bool {
@@ -1967,6 +2069,27 @@ mod tests {
                 .iter()
                 .any(|message| message.contains("contradictory"))
         );
+    }
+
+    #[test]
+    fn coverage_artifact_location_survives_an_upload_from_outside_the_checkout() {
+        let body = "SF:src/a.js\nDA:1,1\nend_of_record\n";
+        let files = [source("src/a.js", "one\n")];
+        let digest = sha256_hex(body.as_bytes());
+        let external = format!("external-coverage/{digest}.lcov");
+        for (root, path, expected) in [
+            ("/repo", "/ci/artifacts/run.info", external.as_str()),
+            ("/repo", "../artifacts/run.info", external.as_str()),
+            (r"C:\repo", r"D:\temp\run.info", external.as_str()),
+            ("/repo", "/repo/tests/run.info", "tests/run.info"),
+            ("/repo", "tests/run.info", "tests/run.info"),
+        ] {
+            let report = import_coverage(Path::new(root), &[lcov(path, body)], &files);
+            assert_eq!(report.status, AssessmentStatus::Complete);
+            assert_eq!(report.lines.covered, 1);
+            assert_eq!(report.inputs[0].path, Path::new(expected));
+            assert_eq!(report.inputs[0].content_digest, digest);
+        }
     }
 
     #[test]

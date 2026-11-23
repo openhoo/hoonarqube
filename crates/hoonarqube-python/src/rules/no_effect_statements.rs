@@ -1,3 +1,4 @@
+use crate::AnalyzerOptions;
 use crate::support::visit_suites_for_no_effect;
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
@@ -10,7 +11,7 @@ pub(crate) fn check_no_effect_statements(
     parsed: &Parsed<ModModule>,
     index: &LineIndex,
     source: &str,
-    report_on_strings: bool,
+    options: &AnalyzerOptions,
 ) -> Vec<Issue> {
     let mut issues = Vec::new();
     visit_suites_for_no_effect(
@@ -18,7 +19,7 @@ pub(crate) fn check_no_effect_statements(
         &mut issues,
         index,
         source,
-        report_on_strings,
+        options,
     );
     issues
 }

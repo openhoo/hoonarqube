@@ -320,6 +320,13 @@ pub struct AnalyzerOptions {
     /// mirrors the catalog `reportOnStrings` parameter (default `false`),
     /// so docstrings and attribute documentation strings stay clean.
     pub report_on_strings: bool,
+    /// Binary operators ignored by `python:S905` at the root of an expression
+    /// statement; mirrors the `ignoredOperators` setting. Empty by default
+    /// to preserve the historical rule behavior.
+    pub s905_ignored_operators: Vec<String>,
+    /// Exempts all standalone ellipses from `python:S905`. Historically only
+    /// ellipses directly in function bodies are exempt.
+    pub s905_ignore_ellipsis: bool,
     /// Maximum complexity for `python:S5843` over parsed regular-expression
     /// patterns; mirrors the catalog `maxComplexity` parameter (default `20`).
     pub regex_maximum_complexity: u32,
@@ -352,6 +359,8 @@ impl Default for AnalyzerOptions {
             unused_local_ignore_pattern: String::from("(_[a-zA-Z0-9_]*|dummy|unused|ignored)"),
             enable_single_underscore_attribute_issues: false,
             report_on_strings: false,
+            s905_ignored_operators: Vec::new(),
+            s905_ignore_ellipsis: false,
             regex_maximum_complexity: 20,
             require_pytest_decorator_parentheses: false,
         }

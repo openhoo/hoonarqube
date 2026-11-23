@@ -87,17 +87,73 @@ fn filters_findings_and_keeps_cache_entries_isolated_by_selection() {
     let coverage = &core["partial_rule_selection"];
     assert_eq!(coverage["profile"], CORE);
     assert_eq!(coverage["reference_active_rules"], 232);
-    assert_eq!(coverage["selected_catalog_keys"], 221);
+    assert_eq!(coverage["selected_catalog_keys"], 222);
     assert_eq!(
         coverage["missing_catalog_keys"].as_array().unwrap().len(),
         8
     );
     assert_eq!(
         coverage["unmapped_parameter_keys"],
-        json!(["python:S2068", "python:S6418", "python:S905"])
+        json!(["python:S2068", "python:S6418"])
     );
     assert_eq!(fixture.scan(CORE, &[], 2), core);
     assert_eq!(fixture.scan(LEGACY, &[], 0), ordinary);
+}
+
+#[test]
+fn s905_matches_core_reference_ranges_in_both_python_analysis_modes() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.0.join("case.py"),
+        include_str!("fixtures/python_core_s905.py"),
+    )
+    .unwrap();
+    // Primary ranges observed on this fixture in Community 26.11 with
+    // Python analyzer 5.32.0.37250 and the built-in Sonar way core profile.
+    let expected = [
+        (4, 0, 5),
+        (8, 0, 9),
+        (9, 0, 9),
+        (10, 0, 9),
+        (11, 0, 15),
+        (12, 0, 16),
+        (13, 0, 14),
+        (14, 0, 15),
+        (15, 0, 15),
+        (16, 0, 21),
+        (22, 4, 9),
+        (26, 4, 13),
+    ];
+    for opts in [&[][..], &["--python-project", "."][..]] {
+        let legacy = fixture.scan(LEGACY, opts, 0);
+        let core = fixture.scan(CORE, opts, 2);
+        assert_eq!(core["project"]["complete"], true);
+        let ranges = issues(&core, "python:S905")
+            .iter()
+            .map(|issue| {
+                let start = &issue["range"]["start"];
+                let end = &issue["range"]["end"];
+                assert_eq!(start["line"], end["line"]);
+                (
+                    start["line"].as_u64().unwrap(),
+                    start["column"].as_u64().unwrap(),
+                    end["column"].as_u64().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ranges, expected);
+
+        let legacy_issues = issues(&legacy, "python:S905");
+        for line in [5, 6, 7, 17, 28] {
+            assert!(
+                legacy_issues
+                    .iter()
+                    .any(|i| i["range"]["start"]["line"] == line)
+            );
+        }
+        assert_eq!(fixture.scan(CORE, opts, 2), core);
+        assert_eq!(fixture.scan(LEGACY, opts, 0), legacy);
+    }
 }
 
 #[test]

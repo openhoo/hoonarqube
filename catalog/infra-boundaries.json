@@ -3177,10 +3177,6 @@
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
       "implementation_gap": true
     },
-    "ruby:S1192": {
-      "reason": "implemented for eligible repeated static string values; interpolation, heredocs and chained strings are excluded",
-      "implementation_gap": false
-    },
     "ruby:S122": {
       "reason": "surface-only inventory bootstrapped from the SonarQube 26.8.0.126808 Community capture; implementations await per-rule semantic review",
       "implementation_gap": true

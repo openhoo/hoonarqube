@@ -198,6 +198,32 @@ pub use hoonarqube_ruby::AnalyzerOptions as RubyAnalyzerOptions;
 /// Rust analyzer knobs, re-exported for consumers constructing [`AnalyzerOptions`] field-by-field.
 pub use hoonarqube_rust::AnalyzerOptions as RustAnalyzerOptions;
 
+/// Applies the pinned Python parameter mappings before either the ordinary
+/// or the project-aware Python analyzer runs.
+#[must_use]
+pub fn python_options_for_profile(
+    profile: RuleProfile,
+    options: &PythonAnalyzerOptions,
+) -> std::borrow::Cow<'_, PythonAnalyzerOptions> {
+    use hoonarqube_catalog::python_core::PythonCoreSelection;
+    if profile == RuleProfile::Community2611PythonCore
+        && let Some(params) = PythonCoreSelection::embedded().s905_parameters()
+    {
+        return std::borrow::Cow::Owned(PythonAnalyzerOptions {
+            report_on_strings: params.report_on_strings,
+            s905_ignored_operators: params
+                .ignored_operators
+                .split(',')
+                .map(str::to_owned)
+                .collect(),
+            // Community 26.11 exempts standalone ellipses in every suite.
+            s905_ignore_ellipsis: true,
+            ..options.clone()
+        });
+    }
+    std::borrow::Cow::Borrowed(options)
+}
+
 /// Per-language analyzer knobs; [`Default`] matches each analyzer crate's
 /// default configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,7 +309,11 @@ fn analyze_internal(
         ));
     }
     let mut report = match language {
-        Language::Python => hoonarqube_python::analyze(path, source, &options.python),
+        Language::Python => hoonarqube_python::analyze(
+            path,
+            source,
+            &python_options_for_profile(options.profile, &options.python),
+        ),
         Language::JavaScript => {
             hoonarqube_jsts::analyze(path, source, JstsLanguage::JavaScript, &options.jsts)
         }

@@ -42,8 +42,8 @@ pub enum RuleProfile {
 }
 
 impl RuleProfile {
-    /// Identity of the rule selection; frozen activation changes invalidate
-    /// both cached reports and assessment baselines.
+    /// Identity of the rule selection; changes to the frozen activations or
+    /// their native mapping invalidate cached reports and assessment baselines.
     #[must_use]
     pub fn selection_identity(self) -> String {
         if self == Self::Community2611JavaScriptCore {
@@ -53,7 +53,10 @@ impl RuleProfile {
             );
         }
         if self == Self::Community2611PythonCore {
-            format!("{self}@{}", python_core::PythonCoreSelection::digest())
+            format!(
+                "{self}@{}+s905-v1",
+                python_core::PythonCoreSelection::digest()
+            )
         } else {
             self.to_string()
         }
@@ -1828,7 +1831,7 @@ mod tests {
     /// Adds-only supplements layered after the base captures: thirty-nine
     /// javascript, forty-three typescript, one hundred seven python, and
     /// five C# keys from verified Community captures.
-    const SUPPLEMENT_RULES: usize = 194;
+    const SUPPLEMENT_RULES: usize = 195;
     const PRISTINE: [&str; 8] = [
         CSHARP_JSON,
         JAVASCRIPT_JSON,
@@ -1879,7 +1882,7 @@ mod tests {
             1741 + JAVA_RULES + RUBY_RULES + SUPPLEMENT_RULES
         );
         let expected = [
-            ("javascript", 447),
+            ("javascript", 448),
             ("typescript", 457),
             ("python", 442),
             ("go", 36),

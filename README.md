@@ -284,18 +284,21 @@ Run `hoonarqube analyze --format json --profile community-26.11-python-core <pat
 for the Python findings selected from the frozen
 [Sonar way core snapshot](catalog/reference/python-core-community-26.11.json).
 The filter runs on native detector output before caching and baseline matching.
-Other languages keep their `sonar-parity` rule selection. Existing analyzer
-options still control the underlying detectors; this profile does not load a
+Other languages keep their `sonar-parity` rule selection. This profile maps
+the snapshot's effective parameters for `python:S905`. Standalone strings,
+ellipses, and binary statements with `<<`, `>>`, or `|` at the root do not
+report. Other analyzer options still apply. The scanner does not load a
 server's assigned or custom profile.
 
 Of 232 reference activations, eight keys are outside the embedded rule
-catalog and three have effective parameters whose 26.11 behavior is not
-mapped: `python:S2068`, `python:S6418`, and `python:S905`. Those eleven keys
-are excluded. The remaining 221 are eligible catalog keys. That count does
+catalog and two have effective parameters whose 26.11 behavior is not
+mapped: `python:S2068` and `python:S6418`. Those ten keys are excluded.
+The remaining 222 are eligible catalog keys. That count does
 not establish detector coverage or equivalent behavior. The JSON report's
 `partial_rule_selection` records the snapshot digest, counts, and exact gaps.
-The report still includes source measurements and supports compatible
-baselines with the same selection. It exits **2** and the CLI and service
+The report still includes source measurements and supports baselines with
+the same selection and parameter mappings. Regenerate baselines created
+before S905 was included. The scanner exits **2** and the CLI and service
 report all gate conditions as unavailable while the selection is partial.
 
 ### Machine-verifiable `sonar-parity` contract
@@ -579,10 +582,14 @@ Assessment is optional native JSON data. `--assessment` records versioned
 provenance and source-derived finding identities; the other assessment flags
 are explicit inputs:
 
-- `--coverage-lcov PATH` and `--coverage-opencover PATH` are repeatable. They
-  import LCOV or OpenCover XML against the exact analyzed source snapshots.
-  Inputs must be regular, non-symlink, UTF-8 files within the 64 MiB bounded
-  assessment-input limit.
+- `--coverage-lcov PATH`, `--coverage-opencover PATH`, and
+  `--coverage-cobertura PATH` import LCOV, OpenCover XML, and Python coverage.py
+  XML, respectively. Each flag is repeatable. Inputs must be regular,
+  non-symlink, UTF-8 files within the 64 MiB assessment input limit.
+  Reports inside the checkout retain their relative paths. Reports stored
+  outside it are identified by `external-coverage/<sha256>.<format>` in the
+  JSON sent to the service. The source files measured by either report must
+  still belong to the analysis scope.
 - `--baseline PATH` compares against the exact prior native `AnalysisReport`
   JSON (schema 1) supplied at that path. Its assessment context must match the
   analyzer, catalog, effective options, and scope; this is a pinned-reference
@@ -605,6 +612,23 @@ are explicit inputs:
   `duplicated_lines_density`, `coverage`, `line_coverage`, and `branch_coverage`.
   `new_code` does not support `code_lines` or `comment_lines`, and any
   `new_code` condition requires `--baseline`.
+
+For active Community 26.9 violations on new code, use
+`community_26_9_qualified_violations` with `--profile sonar-parity`. It returns
+a number only when every active violation rule in the scanned languages has
+a verified native detector control. Unqualified scopes return exit 2 and list
+the blocking keys. See the [gate contract and public comparisons](tools/oracle/community-qualified-violations.md).
+
+For Cobertura, use coverage.py XML from the same source revision you analyze.
+The importer expects one class for each Python file in the report, validates
+class line and branch counts against the XML summary, and resolves filenames
+against the analyzed files. Use checkout-relative filenames to move reports
+between hosts.
+Coverage.py XML supplies no source hashes, so the importer cannot verify the
+revision that produced it. It also supplies branch counts without all branch
+identities. If multiple inputs report branches on the same source line, combine
+the runs in coverage.py before exporting one XML file. An overlapping branch
+observation makes coverage unavailable for the gate.
 
 The `coverage` metric counts covered lines and covered branch outcomes together,
 then divides by the total number of measured lines and branch outcomes. On new

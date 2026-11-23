@@ -454,7 +454,8 @@ raw Unicode escapes remain raw in comment matching. No comment-tag action
 is provided. Ruby ships
 measurement support plus eight cataloged sonar-parity detectors.
 [Empty methods (S1186)](tools/oracle/ruby-empty-methods-20261122.md) have a
-separate 45-project reference comparison. The existing
+separate 45-project reference comparison. The [S1192 comparison](tools/oracle/ruby-duplicate-literals-20261122.md)
+checks all 120 primary and 440 supporting locations on 49 projects. The existing
 five (`ruby:S1067`, `ruby:S1192`, `ruby:S126`, `ruby:S134`, `ruby:S1764`)
 are oracle-exact on the pinned `rake` scan. Comment tags (`ruby:S1134`,
 `ruby:S1135`) are qualified against the SonarQube 26.9 Community Ruby
