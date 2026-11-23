@@ -81,6 +81,8 @@ pub(crate) enum RxNode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RxSeq {
+    /// Source position of the pipe immediately following this alternative, if any.
+    pub(crate) following_pipe: Option<TextSize>,
     pub(crate) items: Vec<RxItem>,
     pub(crate) span: TextRange,
 }
@@ -401,6 +403,10 @@ impl<'a> RxParser<'a> {
         }
         let end = self.peek().map_or_else(|| self.tail_span().end(), |u| u.at);
         Ok(RxSeq {
+            following_pipe: self
+                .peek()
+                .filter(|unit| unit.ch == '|')
+                .map(|unit| unit.at),
             items,
             span: TextRange::new(start, end),
         })

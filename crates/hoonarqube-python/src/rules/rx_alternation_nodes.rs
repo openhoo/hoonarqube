@@ -1,12 +1,12 @@
 use crate::engine::rx::RxAtom;
 use crate::engine::rx::RxItem;
-use crate::engine::rx::RxNode;
+use crate::engine::rx::{RxNode, RxSeq};
 use ruff_text_size::TextRange;
 use ruff_text_size::TextSize;
 
 pub(crate) fn check_rx_alternation_nodes(
     node: &RxNode,
-    top_level_unquantified: bool,
+    unquantified_group: bool,
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
     fn visit_items<'a>(
@@ -38,19 +38,8 @@ pub(crate) fn check_rx_alternation_nodes(
                     ),
                 );
             }
-            // python:S6323 — empty alternatives, except a trailing empty
-            // alternative inside an unquantified group used as an
-            // optional-marker idiom.
-            for (position, branch) in branches.iter().enumerate() {
-                if branch.items.is_empty()
-                    && !(top_level_unquantified && position == branches.len() - 1)
-                {
-                    push(
-                        "python:S6323",
-                        "Remove this empty alternative.",
-                        TextRange::new(branch.span.start(), branch.span.start() + TextSize::new(1)),
-                    );
-                }
+            check_empty_alternatives(branches, unquantified_group, push);
+            for branch in branches {
                 visit_items(&branch.items, push);
             }
         }
@@ -58,10 +47,79 @@ pub(crate) fn check_rx_alternation_nodes(
     }
 }
 
+/// An unquantified group may express an optional match using one empty edge.
+fn check_empty_alternatives(
+    branches: &[RxSeq],
+    unquantified_group: bool,
+    push: &mut dyn FnMut(&str, &str, TextRange),
+) {
+    let exempt = if !unquantified_group {
+        None
+    } else if branches.last().is_some_and(|b| b.items.is_empty()) {
+        branches.len().checked_sub(1)
+    } else {
+        Some(0)
+    };
+    let mut previous_pipe = None;
+    let mut last_reported = None;
+    for (index, branch) in branches.iter().enumerate() {
+        // A trailing empty branch has no token of its own. Its source location
+        // is the preceding pipe, which can also mark the previous empty branch.
+        let pipe = branch.following_pipe.or(previous_pipe);
+        if branch.items.is_empty()
+            && Some(index) != exempt
+            && let Some(at) = pipe
+            && Some(at) != last_reported
+        {
+            push(
+                "python:S6323",
+                "Remove this empty alternative.",
+                TextRange::at(at, TextSize::new(1)),
+            );
+            last_reported = Some(at);
+        }
+        previous_pipe = branch.following_pipe;
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use crate::test_support::regex_finds;
+
+    #[test]
+    fn s6323_reports_only_redundant_empty_alternatives_at_their_pipe() {
+        // Positions below are relative to the start of the regex literal contents.
+        // Community 26.11: ordinary unquantified groups can use one empty edge.
+        for (pattern, expected) in [
+            ("(?:|a)", &[][..]),
+            ("(a)?(?(1)|b)", &[][..]),
+            ("(|a|)", &[1][..]),
+            ("(||a)", &[2][..]),
+            ("(a||b)", &[3][..]),
+            ("(|a)+", &[1][..]),
+            ("(a|)+", &[2][..]),
+            ("a|", &[1][..]),
+            ("|", &[0][..]),
+            ("||", &[0, 1][..]),
+        ] {
+            let prefix = "re.compile(r\"";
+            let report = crate::test_support::scan(&format!("import re\n{prefix}{pattern}\")\n"));
+            let actual: Vec<_> = crate::test_support::findings(&report, "python:S6323")
+                .into_iter()
+                .map(|i| (i.range.start.column, i.range.end.column))
+                .collect();
+            let base = u32::try_from(prefix.len()).unwrap();
+            assert_eq!(
+                actual,
+                expected
+                    .iter()
+                    .map(|n| (base + n, base + n + 1))
+                    .collect::<Vec<_>>(),
+                "{pattern}"
+            );
+        }
+    }
 
     #[test]
     fn s6035_flags_single_character_alternations() {

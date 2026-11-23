@@ -1,0 +1,140 @@
+{
+  "sha256": "3234d43d4e925acfebbeb0663a4ddc2133b1f4081b030b7605ee0b83c6df6fb2",
+  "analysis": "54219f1f-f7aa-4056-b0e8-b98d2171f416",
+  "rule": "python:S6323",
+  "locations": [
+    [
+      3,
+      13,
+      3,
+      14,
+      "Remove this empty alternative."
+    ],
+    [
+      4,
+      14,
+      4,
+      15,
+      "Remove this empty alternative."
+    ],
+    [
+      5,
+      15,
+      5,
+      16,
+      "Remove this empty alternative."
+    ],
+    [
+      8,
+      16,
+      8,
+      17,
+      "Remove this empty alternative."
+    ],
+    [
+      9,
+      14,
+      9,
+      15,
+      "Remove this empty alternative."
+    ],
+    [
+      10,
+      15,
+      10,
+      16,
+      "Remove this empty alternative."
+    ],
+    [
+      13,
+      14,
+      13,
+      15,
+      "Remove this empty alternative."
+    ],
+    [
+      14,
+      15,
+      14,
+      16,
+      "Remove this empty alternative."
+    ],
+    [
+      15,
+      14,
+      15,
+      15,
+      "Remove this empty alternative."
+    ],
+    [
+      20,
+      17,
+      20,
+      18,
+      "Remove this empty alternative."
+    ],
+    [
+      23,
+      16,
+      23,
+      17,
+      "Remove this empty alternative."
+    ],
+    [
+      24,
+      16,
+      24,
+      17,
+      "Remove this empty alternative."
+    ],
+    [
+      25,
+      18,
+      25,
+      19,
+      "Remove this empty alternative."
+    ],
+    [
+      27,
+      13,
+      27,
+      14,
+      "Remove this empty alternative."
+    ],
+    [
+      28,
+      13,
+      28,
+      14,
+      "Remove this empty alternative."
+    ],
+    [
+      28,
+      14,
+      28,
+      15,
+      "Remove this empty alternative."
+    ],
+    [
+      29,
+      15,
+      29,
+      16,
+      "Remove this empty alternative."
+    ],
+    [
+      29,
+      16,
+      29,
+      17,
+      "Remove this empty alternative."
+    ],
+    [
+      30,
+      20,
+      30,
+      21,
+      "Remove this empty alternative."
+    ]
+  ]
+}
