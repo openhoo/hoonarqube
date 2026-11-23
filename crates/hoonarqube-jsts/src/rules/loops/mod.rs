@@ -1,4 +1,5 @@
 // Family 'loops' (generated).
+mod invariant_condition;
 mod walker;
 
 use crate::Issue;
