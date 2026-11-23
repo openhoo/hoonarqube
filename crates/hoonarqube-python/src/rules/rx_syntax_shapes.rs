@@ -3,6 +3,7 @@ use crate::engine::rx::RxUnit;
 use crate::engine::rx::for_each_rx_item;
 use crate::engine::rx::rx_atom_nullable;
 use crate::rules::rx_alternation_shapes::check_rx_alternation_shapes;
+use crate::rules::rx_anchor_order::BoundaryChecks;
 use crate::rules::rx_empty_groups::check_rx_empty_groups;
 use crate::rules::rx_pointless_groups::check_rx_pointless_groups;
 use crate::rules::rx_redundant_alternatives::check_rx_redundant_alternatives;
@@ -17,7 +18,9 @@ pub(crate) fn check_rx_syntax_shapes(
     push: &mut dyn FnMut(&str, &str, TextRange),
 ) {
     // python:S5842 — repeated patterns matching the empty string.
+    let mut boundaries = BoundaryChecks::default();
     for_each_rx_item(&parsed.root, &mut |item| {
+        boundaries.observe(&item.atom);
         if item.quant.is_some() && rx_atom_nullable(&item.atom) {
             let span = match &item.atom {
                 crate::engine::rx::RxAtom::Group(group) => group.span,
@@ -30,6 +33,7 @@ pub(crate) fn check_rx_syntax_shapes(
             );
         }
     });
+    boundaries.check(&parsed.root, push);
     // python:S6001 — back references to groups not matched before them.
     for record in &parsed.backrefs {
         let valid = match (&record.number, &record.name) {

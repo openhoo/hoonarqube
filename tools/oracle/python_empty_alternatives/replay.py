@@ -14,7 +14,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from public_contract import git, require, safe_path, stage  # noqa: E402
 
-RULE = "python:S6323"
+ALTERNATIVES = "python:S6323"
+BOUNDARIES = "python:S5996"
 
 
 def analyze(binary, root, files):
@@ -74,10 +75,39 @@ def probe(binary):
         root = Path(tmp)
         (root / "branches.py").write_bytes(source)
         hits = analyze(binary, root, ["branches.py"])
-        expected = Counter((RULE, "branches.py", *loc) for loc in ref["locations"])
+        expected = Counter(
+            (ALTERNATIVES, "branches.py", *loc) for loc in ref["locations"]
+        )
         require(
-            Counter({k: v for k, v in hits.items() if k[0] == RULE}) == expected,
+            Counter({k: v for k, v in hits.items() if k[0] == ALTERNATIVES})
+            == expected,
             "independent positive/negative probe positions changed",
+        )
+
+
+def boundary_probes(binary):
+    directory = HERE / "boundaries"
+    probes = json.loads((directory / "community.json").read_bytes())
+    require(
+        len({p["analysis"] for p in probes}) == len(probes) == 4
+        and sum(p["patterns"] for p in probes) == 134
+        and sum(len(p["locations"]) for p in probes) == 75,
+        "incomplete independent boundary controls",
+    )
+    for case in probes:
+        fixture = directory / safe_path(case["fixture"])
+        source = fixture.read_bytes()
+        require(hashlib.sha256(source).hexdigest() == case["sha256"], "wrong probe")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "boundaries.py").write_bytes(source)
+            hits = analyze(binary, root, ["boundaries.py"])
+        expected = Counter(
+            (BOUNDARIES, "boundaries.py", *loc) for loc in case["locations"]
+        )
+        require(
+            Counter({k: v for k, v in hits.items() if k[0] == BOUNDARIES}) == expected,
+            f"{fixture.name}: independent boundary ranges or messages differ",
         )
 
 
@@ -108,9 +138,9 @@ def check_case(binary, case, local):
     ref = Counter(tuple(x) for x in case["issues"])
     require(not case["hotspots"], "hotspots require a separate comparison")
     require(
-        {k: v for k, v in native.items() if k[0] == RULE}
-        == {k: v for k, v in ref.items() if k[0] == RULE},
-        f"{case['repository']}: S6323 differs",
+        {k: v for k, v in native.items() if k[0] in (ALTERNATIVES, BOUNDARIES)}
+        == {k: v for k, v in ref.items() if k[0] in (ALTERNATIVES, BOUNDARIES)},
+        f"{case['repository']}: S6323/S5996 differs",
     )
     return dict(
         files=len(case["files"]),
@@ -148,6 +178,7 @@ def main():
     )
     mirrors = json.loads(args.mirrors.read_bytes()) if args.mirrors else {}
     probe(binary)
+    boundary_probes(binary)
     results = {
         c["repository"]: check_case(
             binary, c, Path(mirrors[c["repository"]]) if args.mirrors else None
@@ -157,7 +188,7 @@ def main():
     if args.output:
         args.output.write_text(json.dumps(results, indent=2) + "\n")
     print(
-        f"Compared 248 Python files in {len(results)} repositories and 30 regex probes (19 exact findings)."
+        f"Compared 248 Python files in {len(results)} repositories and 164 regex probes (94 exact target-rule findings)."
     )
 
 
