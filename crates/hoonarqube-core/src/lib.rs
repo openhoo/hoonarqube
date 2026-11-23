@@ -334,7 +334,11 @@ pub fn finalize_profile_report(
     if profile == RuleProfile::GithubCodeQuality {
         return;
     }
-    if profile != RuleProfile::SonarParity && !is_razor_path(&report.path) {
+    if matches!(
+        profile,
+        RuleProfile::Recommended | RuleProfile::Extended | RuleProfile::Strict
+    ) && !is_razor_path(&report.path)
+    {
         let mut native = match language {
             Language::Python => hoonarqube_python::analyze_native(source),
             Language::JavaScript => {
@@ -374,21 +378,25 @@ pub use hoonarqube_catalog::SONAR_PARITY_INACTIVE_RULE_KEYS;
 
 /// Drops findings whose rules are inactive in the selected profile.
 ///
-/// Only `sonar-parity` restricts rule membership today; every other profile
-/// keeps the full detector battery, so this is a no-op for them. The filter
-/// matches emitted rule keys directly, so it also covers emissions that have
-/// no catalog entry, such as the TypeScript-only `typescript:S3800`
-/// extension. Language analyzers run their complete battery regardless of
-/// profile, so every report-producing path must funnel through this policy:
-/// [`analyze`] applies it for native callers, while compiler-backed report
-/// paths that bypass [`analyze`] invoke it on the returned report.
+/// The Community Python selection uses a release-scoped activation snapshot.
+/// Other languages use the `sonar-parity` filter under that selection. Matches
+/// are on emitted keys, before findings enter a cache or an assessment.
 pub fn retain_profile_active_issues(profile: RuleProfile, report: &mut hoonarqube_ir::FileReport) {
-    if profile != RuleProfile::SonarParity {
-        return;
+    match profile {
+        RuleProfile::Community2611PythonCore if report.language == "python" => {
+            let selection = hoonarqube_catalog::python_core::PythonCoreSelection::embedded();
+            let catalog = hoonarqube_catalog::embedded();
+            report
+                .issues
+                .retain(|issue| selection.selects(&issue.rule_key, catalog));
+        }
+        RuleProfile::SonarParity | RuleProfile::Community2611PythonCore => {
+            report.issues.retain(|issue| {
+                !SONAR_PARITY_INACTIVE_RULE_KEYS.contains(&issue.rule_key.as_str())
+            });
+        }
+        _ => {}
     }
-    report
-        .issues
-        .retain(|issue| !SONAR_PARITY_INACTIVE_RULE_KEYS.contains(&issue.rule_key.as_str()));
 }
 
 /// Removes findings from rules the reference scanner retired to the

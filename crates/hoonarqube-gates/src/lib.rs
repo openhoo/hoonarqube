@@ -313,6 +313,14 @@ fn evaluate_condition(
         return result;
     }
 
+    if let Some(selection) = &report.partial_rule_selection {
+        result.diagnostic = Some(format!(
+            "rule selection is incomplete for {}",
+            selection.profile
+        ));
+        return result;
+    }
+
     let value = match &condition.scope {
         GateScope::Overall => {
             overall_metric(&condition.metric, condition.precision, report).map(|v| (v, None))
@@ -1465,6 +1473,7 @@ mod tests {
             },
             assessment: None,
             parity: None,
+            partial_rule_selection: None,
         }
     }
 

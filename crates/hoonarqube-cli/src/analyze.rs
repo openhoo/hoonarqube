@@ -399,6 +399,28 @@ pub(crate) fn analyze_project_paths(
         &project_options.duplication,
     )?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
+    if options.profile == hoonarqube_catalog::RuleProfile::Community2611PythonCore {
+        use hoonarqube_catalog::python_core::PythonCoreSelection;
+        let selection = PythonCoreSelection::embedded();
+        report.partial_rule_selection = Some(hoonarqube_ir::PartialRuleSelection {
+            profile: options.profile.to_string(),
+            reference_version: selection.version.clone(),
+            membership_sha256: PythonCoreSelection::digest().to_owned(),
+            reference_active_rules: selection.active_keys.len(),
+            selected_catalog_keys: selection
+                .active_keys
+                .iter()
+                .filter(|key| selection.selects(key, catalog))
+                .count(),
+            missing_catalog_keys: selection
+                .active_keys
+                .iter()
+                .filter(|key| catalog.rule(key).is_none())
+                .cloned()
+                .collect(),
+            unmapped_parameter_keys: selection.parameters.keys().cloned().collect(),
+        });
+    }
     crate::parity_cli::attach_parity_contract(
         &mut report,
         catalog,

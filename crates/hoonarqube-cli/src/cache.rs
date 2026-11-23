@@ -908,16 +908,9 @@ fn classification_key(classification: hoonarqube_ir::FileClassification) -> &'st
 }
 
 fn analyzer_options_fingerprint(options: &AnalyzerOptions) -> String {
-    let profile = match options.profile {
-        hoonarqube_catalog::RuleProfile::SonarParity => "sonar-parity",
-        hoonarqube_catalog::RuleProfile::Recommended => "recommended",
-        hoonarqube_catalog::RuleProfile::Extended => "extended",
-        hoonarqube_catalog::RuleProfile::Strict => "strict",
-        hoonarqube_catalog::RuleProfile::GithubCodeQuality => "github-code-quality",
-    };
     let value = serde_json::json!([
         "analyzer-options-v2",
-        profile,
+        options.profile.selection_identity(),
         python_options_value(&options.python),
         jsts_options_value(&options.jsts),
         csharp_options_value(&options.csharp),

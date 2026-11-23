@@ -78,7 +78,7 @@ enum Command {
         python_require_type_hints: bool,
         /// Analyzer profile: `sonar-parity` (default), cumulative native
         /// profiles `recommended`/`extended`/`strict`, or isolated
-        /// `github-code-quality`.
+        /// `github-code-quality`, or partial `community-26.11-python-core`.
         #[arg(long, default_value = "sonar-parity")]
         profile: RuleProfile,
         /// Exclude paths from analysis and project measurements.
@@ -1160,6 +1160,10 @@ fn fix_plans(
 /// under `--diff`, write-and-verify under `--apply`. Exits nonzero on any
 /// warning or unverified finding.
 fn run_fix(paths: &[std::path::PathBuf], config: &FixOptions, json: bool) -> ExitCode {
+    if config.profile == RuleProfile::Community2611PythonCore {
+        eprintln!("{} is a partial selection for analyze only", config.profile);
+        return ExitCode::from(2);
+    }
     let selections = match suggestion_selections(&config.suggestion) {
         Ok(selections) => selections,
         Err(error) => {
@@ -1958,6 +1962,15 @@ fn run_analyze(
     for warning in &report.project.warnings {
         eprintln!("{warning}");
     }
+    if let Some(selection) = &report.partial_rule_selection {
+        eprintln!(
+            "{} is incomplete: {} reference activations, {} outside the catalog, {} with unmapped parameters; detector equivalence is unverified",
+            selection.profile,
+            selection.reference_active_rules,
+            selection.missing_catalog_keys.len(),
+            selection.unmapped_parameter_keys.len(),
+        );
+    }
     let assessment_status = assessment_cli::assessment_exit_status(&report);
     let output_ok = render_analyze_output(catalog, format, &report);
     analyze_exit_code(output_ok, &report, assessment_status)
@@ -2048,7 +2061,10 @@ fn analyze_exit_code(
         });
     if !output_ok || parity_diverged {
         ExitCode::FAILURE
-    } else if !report.project.complete || assessment_status == 2 {
+    } else if !report.project.complete
+        || report.partial_rule_selection.is_some()
+        || assessment_status == 2
+    {
         ExitCode::from(2)
     } else if assessment_status == 1 {
         ExitCode::FAILURE
