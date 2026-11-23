@@ -28,7 +28,9 @@ jobs:
       - name: Build the candidate analyzer and service
         run: cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
       - name: Check CI decisions on unsupported and mixed Jupyter directories
-        run: python3 tools/oracle/public_empty_inventory_gate.py target/release/hoonarqube
+        run: |
+          python3 tools/oracle/public_empty_inventory_gate.py target/release/hoonarqube
+          python3 tools/oracle/public_notebook_inputs.py target/release/hoonarqube
       - name: Build and test a pinned Blinker wheel and compare assigned coverage gates
         run: python3 tools/oracle/blinker_build/replay.py target/release
       - name: Check pinned source blobs and selected Sonar primary locations

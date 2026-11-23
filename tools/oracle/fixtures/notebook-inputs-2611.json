@@ -1,0 +1,569 @@
+{
+  "community": "26.11.0.134175",
+  "profile": {
+    "active": 230,
+    "language": "ipynb",
+    "name": "Sonar way core"
+  },
+  "projects": [
+    {
+      "analysis": "a305f23a-753a-4bc6-8ad8-0f71ae848a28",
+      "commit": "744c97897e2c33a1b3f04f5834ee6e70478219a2",
+      "control": {
+        "nbdime/__init__.py": "70e0e2e6a7ca856afc400ee30c1f37347e15c9cfe9102750429924e3719b5b1c"
+      },
+      "files": {
+        "examples/example9/center.ipynb": {
+          "code_cells": 1,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "3",
+            "complexity": "3",
+            "functions": "3",
+            "lines": "56",
+            "ncloc": "15",
+            "statements": "15"
+          },
+          "projected_python_complete": true,
+          "sha256": "91b02a335e74fab6c81949bceb634c0b792383e69680c77086da66200f35d594"
+        },
+        "nbdime/tests/files/empty.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "7",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "98fa81820c0d26f5deb620b65f1b7617210f1a1edff9f858c61159be79081971"
+        },
+        "nbdime/tests/files/markdown-only--1.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "50",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "28e772f0102fe489356f19dc860f093fc333c28784e305ee8467d3dec24088ec"
+        },
+        "nbdime/tests/files/multi_cell_nb.ipynb": {
+          "code_cells": 4,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "2",
+            "functions": "2",
+            "lines": "102",
+            "ncloc": "9",
+            "statements": "9"
+          },
+          "projected_python_complete": true,
+          "sha256": "ea82cf664e7fa0ed8e2c677973a37cbece7064ff5a9d65497d8ab1c1cab9ad8c"
+        }
+      },
+      "github_id": 46264628,
+      "mixed_reference": {
+        "analysis": "81736dbf-10c2-40da-8e9e-03e19bdfbb3b",
+        "control_metrics": {
+          "classes": "0",
+          "comment_lines": "7",
+          "complexity": "4",
+          "functions": "4",
+          "lines": "60",
+          "ncloc": "35",
+          "statements": "17"
+        },
+        "gate": {
+          "caycStatus": "non-compliant",
+          "conditions": [
+            {
+              "actualValue": "0",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "metricKey": "duplicated_lines",
+              "status": "OK"
+            }
+          ],
+          "ignoredConditions": false,
+          "status": "OK"
+        },
+        "policy": {
+          "default": false,
+          "name": "Notebook mixed nbdime 744c9789"
+        },
+        "project_metrics": {
+          "bugs": "0",
+          "classes": "0",
+          "code_smells": "0",
+          "cognitive_complexity": "0",
+          "comment_lines": "10",
+          "complexity": "9",
+          "duplicated_blocks": "0",
+          "duplicated_lines": "0",
+          "duplicated_lines_density": "0.0",
+          "functions": "9",
+          "lines": "275",
+          "ncloc": "59",
+          "statements": "41",
+          "violations": "0"
+        },
+        "task": "a5ce92dc-0c1f-4140-93ed-3324517f2d8d"
+      },
+      "project_metrics": {
+        "bugs": "0",
+        "classes": "0",
+        "code_smells": "0",
+        "cognitive_complexity": "0",
+        "comment_lines": "3",
+        "complexity": "5",
+        "duplicated_blocks": "0",
+        "duplicated_lines": "0",
+        "duplicated_lines_density": "0.0",
+        "functions": "5",
+        "lines": "215",
+        "ncloc": "24",
+        "statements": "24",
+        "violations": "0"
+      },
+      "repository": "jupyter/nbdime",
+      "task": "bf931b22-cf85-45ba-92f7-b1709ca89f0f",
+      "tree": "36e402bc4c25e3a131ce3efb84be83e603d50aa2"
+    },
+    {
+      "analysis": "51fb9b08-ac02-4241-b2e3-2de142b0971f",
+      "commit": "8ada3542abe85fdc52e2bfeeecc07f8db351cb9c",
+      "control": {
+        "python/ipywidgets/ipywidgets/__init__.py": "3ae03596f80c8fe0eaf2ee0f698a88db89a98af23a9c804f4127d00abbfb15e3"
+      },
+      "files": {
+        "docs/source/examples/Exploring Graphs.ipynb": {
+          "code_cells": 6,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "2",
+            "complexity": "5",
+            "functions": "5",
+            "lines": "121",
+            "ncloc": "24",
+            "statements": "18"
+          },
+          "projected_python_complete": false,
+          "sha256": "ec33b997c0aa3ff8c05091d5dbc4e70a98fcd4c92a1e132153cf12f2caa269c4"
+        },
+        "docs/source/examples/Factoring.ipynb": {
+          "code_cells": 8,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "1",
+            "complexity": "1",
+            "functions": "1",
+            "lines": "114",
+            "ncloc": "8",
+            "statements": "8"
+          },
+          "projected_python_complete": false,
+          "sha256": "34a8a4957cbdb6ddbfe0059fcb0ecf5c1ef000dae2530cb7f748d9dfb5bb160b"
+        },
+        "docs/source/examples/Index.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "102",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "3b4221e60b324a8d194419ab45cf09bf088e8088660593c178c22264b3b2c01d"
+        },
+        "docs/source/examples/Output Widget.ipynb": {
+          "code_cells": 18,
+          "issues": [],
+          "metrics": {
+            "classes": "1",
+            "cognitive_complexity": "3",
+            "comment_lines": "6",
+            "complexity": "10",
+            "functions": "8",
+            "lines": "435",
+            "ncloc": "99",
+            "statements": "81"
+          },
+          "projected_python_complete": false,
+          "sha256": "dcedc590d4682614270ae6c640cd921feaeaccda3d83f08261c77c2844511057"
+        },
+        "docs/source/examples/Using Interact.ipynb": {
+          "code_cells": 40,
+          "issues": [],
+          "metrics": {
+            "classes": "1",
+            "cognitive_complexity": "1",
+            "comment_lines": "1",
+            "complexity": "16",
+            "functions": "14",
+            "lines": "878",
+            "ncloc": "102",
+            "statements": "95"
+          },
+          "projected_python_complete": false,
+          "sha256": "c3c70629625f674c6592c8deb97b654c68bba7065a044b7d5182fcba09562af4"
+        },
+        "docs/source/examples/Variable Inspector.ipynb": {
+          "code_cells": 11,
+          "issues": [],
+          "metrics": {
+            "classes": "1",
+            "cognitive_complexity": "2",
+            "comment_lines": "7",
+            "complexity": "6",
+            "functions": "4",
+            "lines": "200",
+            "ncloc": "46",
+            "statements": "42"
+          },
+          "projected_python_complete": false,
+          "sha256": "684daa441fe7652262a00e9fcc1f3892af342cf1346538b77c9d20770e24eda5"
+        },
+        "docs/source/examples/Widget Asynchronous.ipynb": {
+          "code_cells": 8,
+          "issues": [
+            {
+              "raw_highlight": "asyncio.ensure_future",
+              "rule": "ipython:S7502",
+              "textRange": {
+                "endLine": 120,
+                "endOffset": 26,
+                "startLine": 120,
+                "startOffset": 5
+              }
+            }
+          ],
+          "metrics": {
+            "bugs": "1",
+            "classes": "0",
+            "cognitive_complexity": "6",
+            "comment_lines": "9",
+            "complexity": "12",
+            "functions": "9",
+            "lines": "280",
+            "ncloc": "65",
+            "statements": "58",
+            "violations": "1"
+          },
+          "projected_python_complete": false,
+          "sha256": "f631ea1996c6a7947f653a14bde82532569c4e5be33a31f0a11573897d3784fc"
+        },
+        "docs/source/examples/Widget Custom.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "864",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "6b3b8d60f5a01ee1c0781d62fbdf26507165980d4405bf8c39dba5069774d90b"
+        },
+        "docs/source/examples/Widget Events.ipynb": {
+          "code_cells": 17,
+          "issues": [],
+          "metrics": {
+            "classes": "1",
+            "cognitive_complexity": "7",
+            "comment_lines": "6",
+            "complexity": "20",
+            "functions": "17",
+            "lines": "554",
+            "ncloc": "124",
+            "statements": "108"
+          },
+          "projected_python_complete": false,
+          "sha256": "bde706cfa8443b49c3630a2a71a2fcdb21c15fd6cef5603fe877f29d5ab7d587"
+        }
+      },
+      "github_id": 34138622,
+      "mixed_reference": {
+        "analysis": "0d23c012-20fe-4614-9859-6a94f04b9990",
+        "control_metrics": {
+          "classes": "0",
+          "cognitive_complexity": "3",
+          "comment_lines": "21",
+          "complexity": "6",
+          "functions": "3",
+          "lines": "55",
+          "ncloc": "23",
+          "statements": "27"
+        },
+        "gate": {
+          "caycStatus": "non-compliant",
+          "conditions": [
+            {
+              "actualValue": "0",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "metricKey": "duplicated_lines",
+              "status": "OK"
+            }
+          ],
+          "ignoredConditions": false,
+          "status": "OK"
+        },
+        "policy": {
+          "default": false,
+          "name": "Notebook mixed ipywidgets 8ada3542"
+        },
+        "project_metrics": {
+          "bugs": "1",
+          "classes": "4",
+          "code_smells": "0",
+          "cognitive_complexity": "22",
+          "comment_lines": "53",
+          "complexity": "76",
+          "duplicated_blocks": "0",
+          "duplicated_lines": "0",
+          "duplicated_lines_density": "0.0",
+          "functions": "61",
+          "lines": "3603",
+          "ncloc": "491",
+          "statements": "437",
+          "violations": "1"
+        },
+        "task": "ce5fcb02-b0c6-4aa8-a3e1-236e722562a6"
+      },
+      "project_metrics": {
+        "bugs": "1",
+        "classes": "4",
+        "code_smells": "0",
+        "cognitive_complexity": "19",
+        "comment_lines": "32",
+        "complexity": "70",
+        "duplicated_blocks": "0",
+        "duplicated_lines": "0",
+        "duplicated_lines_density": "0.0",
+        "functions": "58",
+        "lines": "3548",
+        "ncloc": "468",
+        "statements": "410",
+        "violations": "1"
+      },
+      "repository": "jupyter-widgets/ipywidgets",
+      "task": "c2f01e7c-da6d-480b-9fd6-9d341eee5858",
+      "tree": "1534c36ae62802ecb8f12a34252fe199fbd8f656"
+    },
+    {
+      "analysis": "9a44d514-7fa6-469a-9839-5aeef9252e14",
+      "commit": "7ee522cb50cccbab2453f698f3c6a1912ec9b9eb",
+      "control": {
+        "nbclassic/__init__.py": "7a02b499f128000bcdded782c7b3f78a25c1a2bb654110336fe2fe86b80dff99"
+      },
+      "files": {
+        "docs/source/examples/Notebook/Importing Notebooks.ipynb": {
+          "code_cells": 18,
+          "issues": [],
+          "metrics": {
+            "lines": "538"
+          },
+          "projected_python_complete": false,
+          "sha256": "76019d27b1edabe6a3692f6e5e352fab263ffeddfbf6c714d64c0ad4af216c66"
+        },
+        "docs/source/examples/Notebook/JavaScript Notebook Extensions.ipynb": {
+          "code_cells": 8,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "cognitive_complexity": "2",
+            "comment_lines": "2",
+            "complexity": "1",
+            "functions": "0",
+            "lines": "604",
+            "ncloc": "38",
+            "statements": "9"
+          },
+          "projected_python_complete": false,
+          "sha256": "fe39dddbed46a547bd010e071d6c9cc2e11df22ed72db8f556404d3bec436caf"
+        },
+        "docs/source/examples/Notebook/Notebook Basics.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "255",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "cb72c25f563bb9ec66767eef0b1711e1ee7fe5065a999568de18890c1216ab52"
+        },
+        "docs/source/examples/Notebook/Running Code.ipynb": {
+          "code_cells": 9,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "cognitive_complexity": "3",
+            "comment_lines": "0",
+            "complexity": "3",
+            "functions": "0",
+            "lines": "887",
+            "ncloc": "17",
+            "statements": "17"
+          },
+          "projected_python_complete": true,
+          "sha256": "d2909ec2a7073a8c6532f79b70931da71c6ab05c01ae7570e36c063ab0da78b2"
+        },
+        "docs/source/examples/Notebook/Working With Markdown Cells.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "370",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "21c27aabbd9ce89397929b28dc73b3f42ce47783239aa5f8d1a6853db65ba050"
+        },
+        "docs/source/examples/Notebook/nbpackage/mynotebook.ipynb": {
+          "code_cells": 3,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "3",
+            "functions": "3",
+            "lines": "70",
+            "ncloc": "7",
+            "statements": "7"
+          },
+          "projected_python_complete": false,
+          "sha256": "55112288e20d7573fc624e977b48af76fa24cd8e9aecd24f63505d19fda75cd9"
+        },
+        "docs/source/examples/Notebook/nbpackage/nbs/other.ipynb": {
+          "code_cells": 1,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "1",
+            "functions": "1",
+            "lines": "46",
+            "ncloc": "2",
+            "statements": "2"
+          },
+          "projected_python_complete": true,
+          "sha256": "35e34ad5ab305a8caa7a0eeac51666bbb8be8d2a66e765a335e893b81175a131"
+        },
+        "nbclassic/bundler/tests/resources/empty.ipynb": {
+          "code_cells": 0,
+          "issues": [],
+          "metrics": {
+            "classes": "0",
+            "comment_lines": "0",
+            "complexity": "0",
+            "functions": "0",
+            "lines": "7",
+            "ncloc": "0",
+            "statements": "0"
+          },
+          "projected_python_complete": true,
+          "sha256": "9e2b668cda07273f3c05b0dfac62a6d098a181bfe6dfe20396671bb8fbd68545"
+        }
+      },
+      "github_id": 216073390,
+      "mixed_reference": {
+        "analysis": "66ed1f62-565e-4cc0-8025-34ea138c60d7",
+        "control_metrics": {
+          "classes": "0",
+          "cognitive_complexity": "6",
+          "comment_lines": "18",
+          "complexity": "6",
+          "functions": "2",
+          "lines": "74",
+          "ncloc": "41",
+          "statements": "32"
+        },
+        "gate": {
+          "caycStatus": "non-compliant",
+          "conditions": [
+            {
+              "actualValue": "0",
+              "comparator": "GT",
+              "errorThreshold": "0",
+              "metricKey": "duplicated_lines",
+              "status": "OK"
+            }
+          ],
+          "ignoredConditions": false,
+          "status": "OK"
+        },
+        "policy": {
+          "default": false,
+          "name": "Notebook mixed nbclassic 7ee522cb"
+        },
+        "project_metrics": {
+          "bugs": "0",
+          "classes": "0",
+          "code_smells": "0",
+          "cognitive_complexity": "11",
+          "comment_lines": "20",
+          "complexity": "14",
+          "duplicated_blocks": "0",
+          "duplicated_lines": "0",
+          "duplicated_lines_density": "0.0",
+          "functions": "6",
+          "lines": "2851",
+          "ncloc": "105",
+          "statements": "67",
+          "violations": "0"
+        },
+        "task": "3c6b54d8-7bc1-4f05-b635-22e0cdce19f8"
+      },
+      "project_metrics": {
+        "bugs": "0",
+        "classes": "0",
+        "code_smells": "0",
+        "cognitive_complexity": "5",
+        "comment_lines": "2",
+        "complexity": "8",
+        "duplicated_blocks": "0",
+        "duplicated_lines": "0",
+        "duplicated_lines_density": "0.0",
+        "functions": "4",
+        "lines": "2777",
+        "ncloc": "64",
+        "statements": "35",
+        "violations": "0"
+      },
+      "repository": "jupyter/nbclassic",
+      "task": "3e473509-c1c0-4f11-885d-d51003a54913",
+      "tree": "fc1ba9fed86aa7a999a6f0ac7e52960158916421"
+    }
+  ]
+}

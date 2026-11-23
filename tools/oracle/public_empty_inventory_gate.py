@@ -30,7 +30,7 @@ def select(root, case, files):
     check(actual == files, "scope or file digest changed")
 
 
-def scan(root, binary, policy, paths, expected_exit, measured):
+def scan(root, binary, policy, paths, expected_exit, measured, *options):
     proc = subprocess.run(
         [
             binary,
@@ -40,6 +40,7 @@ def scan(root, binary, policy, paths, expected_exit, measured):
             "sonar-parity",
             "--quality-gate",
             policy,
+            *options,
             "--format",
             "json",
         ],
@@ -79,8 +80,13 @@ def replay(work, binary, local, case):
     scan(root, binary, policy, sorted(files), 2, [])
     scan(root, binary, policy, ["."], 2, [])
     select(root, case, files | case["mixed_control"])
-    scan(root, binary, policy, ["."], 0, case["mixed_control"])
-    print(f"{repo} {case['commit']}: explicit 2, directory 2, mixed 0")
+    scan(root, binary, policy, ["."], 2, case["mixed_control"])
+    scan(
+        root, binary, policy, ["."], 0, case["mixed_control"], "--exclude", "**/*.ipynb"
+    )
+    print(
+        f"{repo} {case['commit']}: explicit 2, directory 2, mixed 2, deliberately excluded notebooks 0"
+    )
 
 
 def main():
