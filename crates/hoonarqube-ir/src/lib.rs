@@ -693,6 +693,10 @@ pub struct FileReport {
 /// distinguishes blocks that occupy the same physical line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DuplicateOccurrence {
+    /// A related source range that does not count toward overall or new-code
+    /// duplication metrics. Older reports omit the flag and count every range.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relation_only: bool,
     pub path: PathBuf,
     pub start_line: u32,
     pub end_line: u32,
@@ -713,7 +717,7 @@ pub struct DuplicateGroup {
 /// Project-wide duplication counters.
 ///
 /// `duplicated_lines` is the count of distinct physical lines covered by at
-/// least one reported block. `duplicated_blocks` counts distinct source byte
+/// least one counted block. `duplicated_blocks` counts distinct source byte
 /// spans, and `duplicated_files` counts files with at least one covered line.
 /// `duplicated_lines_density` is weighted by eligible physical lines; it is
 /// `None` when no eligible denominator exists.
@@ -835,6 +839,23 @@ pub struct AnalysisReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_duplication_occurrences_count_and_related_copies_round_trip() {
+        let old = serde_json::json!({
+            "path":"a.go", "start_line":1, "end_line":3, "start_byte":0, "end_byte":12
+        });
+        let mut copy: DuplicateOccurrence = serde_json::from_value(old.clone()).unwrap();
+        assert!(!copy.relation_only);
+        assert_eq!(serde_json::to_value(&copy).unwrap(), old);
+        copy.relation_only = true;
+        let encoded = serde_json::to_value(&copy).unwrap();
+        assert_eq!(encoded["relation_only"], true);
+        assert_eq!(
+            serde_json::from_value::<DuplicateOccurrence>(encoded).unwrap(),
+            copy
+        );
+    }
 
     #[test]
     fn issue_flows_round_trip_and_empty_fields_stay_omitted() {

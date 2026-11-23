@@ -1055,6 +1055,9 @@ fn collect_scoped_occurrence(
             occurrence.path.to_string_lossy().escape_debug()
         )
     })?;
+    if occurrence.relation_only {
+        return Ok(());
+    }
     let Some(lines) = line_sets.get(&path) else {
         return Ok(());
     };
@@ -1875,6 +1878,7 @@ mod tests {
             report.project.duplications.push(DuplicateGroup {
                 language: "rust".into(),
                 occurrences: vec![DuplicateOccurrence {
+                    relation_only: false,
                     path: path.into(),
                     start_line: 1,
                     end_line: 2,
@@ -2550,6 +2554,7 @@ mod tests {
         report.project.duplications.push(DuplicateGroup {
             language: "python".to_string(),
             occurrences: vec![DuplicateOccurrence {
+                relation_only: false,
                 path: PathBuf::from("./src/main.rs"),
                 start_line: 1,
                 end_line: 1,
@@ -2603,11 +2608,51 @@ mod tests {
     }
 
     #[test]
+    fn relation_only_copy_does_not_count_on_new_lines() {
+        let mut report = report(true);
+        report.project.duplications.push(DuplicateGroup {
+            language: "go".into(),
+            occurrences: vec![DuplicateOccurrence {
+                relation_only: true,
+                path: "src/main.rs".into(),
+                start_line: 1,
+                end_line: 1,
+                start_byte: 0,
+                end_byte: 9,
+            }],
+        });
+        report.assessment = Some(assessment(
+            None,
+            Some(new_code_report(
+                AssessmentStatus::Complete,
+                Some(context()),
+                Vec::new(),
+            )),
+        ));
+        let config = GateConfig {
+            schema_version: 1,
+            conditions: [
+                "duplicated_lines",
+                "duplicated_blocks",
+                "duplicated_files",
+                "duplicated_lines_density",
+            ]
+            .into_iter()
+            .map(|metric| condition(GateScope::NewCode, metric, GateOperator::Eq, 0.0))
+            .collect(),
+        };
+        let evaluated = evaluate_gate(&config, &report);
+        assert_eq!(evaluated.status, GateStatus::Pass);
+        assert!(evaluated.conditions.iter().all(|c| c.actual == Some(0.0)));
+    }
+
+    #[test]
     fn genuinely_unmatched_duplication_occurrences_are_not_new_code() {
         let mut report = report(true);
         report.project.duplications.push(DuplicateGroup {
             language: "python".to_string(),
             occurrences: vec![DuplicateOccurrence {
+                relation_only: false,
                 path: PathBuf::from("src/main.rs"),
                 start_line: 5,
                 end_line: 6,

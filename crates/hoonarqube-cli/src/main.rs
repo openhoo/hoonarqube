@@ -1894,6 +1894,9 @@ fn render_project_text_report(report: &hoonarqube_ir::AnalysisReport) -> String 
                 occurrence.start_byte,
                 occurrence.end_byte
             );
+            if occurrence.relation_only {
+                out.push_str(" (related only)");
+            }
         }
         out.push('\n');
     }

@@ -726,6 +726,9 @@ fn duplication_checksum(result: &DuplicationResult) -> u64 {
             hasher.u32(occurrence.end_line);
             hasher.u32(occurrence.start_byte);
             hasher.u32(occurrence.end_byte);
+            if occurrence.relation_only {
+                hasher.string("relation_only");
+            }
         }
     }
     hasher.finish()
