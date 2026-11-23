@@ -441,9 +441,10 @@ fn build_prepared_file(
             source_tokens.push(index);
         }
         starts.push(token.start_line);
-        ends.push(token.end_line);
         byte_starts.push(token.start_byte);
-        byte_ends.push(token.end_byte);
+        let (end_line, end_byte) = duplication_token_end(facts, token);
+        ends.push(end_line);
+        byte_ends.push(end_byte);
     }
     let prefix_a = build_hash_prefix(&ids, HASH_BASE_A)?;
     let prefix_b = build_hash_prefix(&ids, HASH_BASE_B)?;
@@ -462,6 +463,21 @@ fn build_prepared_file(
         prefix_a,
         prefix_b,
     })
+}
+
+/// The Python sensor assigns a lexical image to its starting row. A match
+/// ending in a multiline string stops on that row, including its byte range.
+fn duplication_token_end(facts: &SourceFacts, token: &crate::NormalizedToken) -> (u32, u32) {
+    if facts.language != Language::Python || token.end_line == token.start_line {
+        return (token.end_line, token.end_byte);
+    }
+    let image = &facts.symbols[token.symbol as usize];
+    let first_row = image.find(['\r', '\n']).unwrap_or(image.len());
+    let width = u32::try_from(first_row).unwrap_or(u32::MAX);
+    (
+        token.start_line,
+        token.start_byte.saturating_add(width).min(token.end_byte),
+    )
 }
 
 fn uses_token_lines(language: Language) -> bool {
@@ -943,10 +959,14 @@ impl MatchEngine<'_> {
             candidate.start,
             length,
             &mut self.budget,
-        )? || !eligible_span(file.language, file, candidate.start, length, self.options)?
+        )? || (file.language != Language::Python
+            && !eligible_span(file.language, file, candidate.start, length, self.options)?)
         {
             return Ok(());
         }
+        // A token-line group already qualified on its original pair. Sonar
+        // keeps its other matching Python copies, even if a shorter run of
+        // repeated rows in one copy gives it fewer original tokens.
         let group = &mut self.groups[group_index];
         group.occurrence_set.insert(occurrence);
         group.occurrences.push(occurrence);
@@ -1911,6 +1931,56 @@ mod tests {
             .expect("fixture text");
         }
         parameters
+    }
+
+    #[test]
+    fn python_clone_ending_at_a_docstring_stops_on_the_opening_row() {
+        let source = |suffix: &str| {
+            format!("val = 1\nmore = 2\ntext = \"\"\"opening\nbody\nclosing\"\"\"\n{suffix}()\n")
+        };
+        let sources = [source("left"), source("right")];
+        let files = ["a.py", "b.py"].map(|name| {
+            let src = &sources[usize::from(name == "b.py")];
+            DuplicationFile {
+                path: name.into(),
+                language: Language::Python,
+                facts: collect_source_facts(Path::new(name), src).unwrap(),
+            }
+        });
+        let found = detect_duplications(&files, &options(8, 3)).unwrap();
+        assert_eq!(found.metrics.duplicated_blocks, 2);
+        for copy in &found.groups[0].occurrences {
+            assert_eq!((copy.start_line, copy.end_line), (1, 3));
+            assert!(sources[0][..copy.end_byte as usize].ends_with("opening"));
+        }
+    }
+
+    #[test]
+    fn python_repeated_rows_keep_short_copy_only_in_a_qualified_group() {
+        let file = |name: &str, repeats: usize| {
+            let source = format!("start = 1\n{}finish = 2\n", "row = 3\n".repeat(repeats));
+            DuplicationFile {
+                path: name.into(),
+                language: Language::Python,
+                facts: collect_source_facts(Path::new(name), &source).unwrap(),
+            }
+        };
+        let threshold = options(40, 4);
+        let short = [file("a.py", 2), file("b.py", 3)];
+        assert!(
+            detect_duplications(&short, &threshold)
+                .unwrap()
+                .groups
+                .is_empty()
+        );
+        let files = [file("a.py", 15), file("b.py", 16), file("c.py", 2)];
+        let found = detect_duplications(&files, &threshold).unwrap();
+        assert!(found.groups.iter().any(|g| {
+            g.occurrences.len() == 3
+                && g.occurrences
+                    .iter()
+                    .any(|o| o.path == Path::new("c.py") && o.start_line == 1 && o.end_line == 4)
+        }));
     }
 
     #[test]
