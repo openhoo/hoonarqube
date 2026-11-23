@@ -16,45 +16,72 @@ pub(super) const VIOLATIONS: &str = "community_26_9_violations";
 pub(super) const STRICT_VIOLATIONS: &str = "community_26_9_qualified_violations";
 pub(super) const HOTSPOTS: &str = "community_26_9_security_hotspots_reviewed";
 
+pub(super) const CORE_2611_HOTSPOTS: &str = "community_26_11_core_security_hotspots_reviewed";
+const CORE_2611: &str =
+    include_str!("../../../catalog/reference/community-26.11-core-hotspot-types.tsv");
+
 struct Profile {
-    catalog: &'static str,
+    // The older type table was joined to a specific native catalog. The
+    // 26.11 table enumerates all active reference keys independently.
+    native_catalog: Option<&'static str>,
     languages: BTreeMap<&'static str, BTreeMap<&'static str, &'static str>>,
 }
 
 fn profile() -> Result<&'static Profile, String> {
     static PROFILE: OnceLock<Result<Profile, String>> = OnceLock::new();
     PROFILE
-        .get_or_init(|| {
-            let mut lines = TABLE.lines();
-            let mut fields = lines.next().unwrap_or_default().split('\t');
-            if fields.next() != Some("26.9.0.129388") || fields.next() != Some("Sonar way") {
-                return Err("wrong Community rule map header".into());
-            }
-            let catalog = fields.next().ok_or("missing frozen native catalog")?;
-            let mut languages = BTreeMap::<_, BTreeMap<_, _>>::new();
-            for line in lines {
-                let mut row = line.split('\t');
-                let (Some(lang), Some(key), Some(kind), None) =
-                    (row.next(), row.next(), row.next(), row.next())
-                else {
-                    return Err("invalid Community rule map row".into());
-                };
-                if !matches!(
-                    kind,
-                    "NOT_ACTIVE" | "CODE_SMELL" | "BUG" | "VULNERABILITY" | "SECURITY_HOTSPOT"
-                ) || languages
-                    .entry(lang)
-                    .or_default()
-                    .insert(key, kind)
-                    .is_some()
-                {
-                    return Err("invalid or duplicate Community rule type".into());
-                }
-            }
-            Ok(Profile { catalog, languages })
-        })
+        .get_or_init(|| parse_profile(TABLE, "26.9.0.129388", "Sonar way"))
         .as_ref()
         .map_err(Clone::clone)
+}
+
+fn core_2611() -> Result<&'static Profile, String> {
+    static PROFILE: OnceLock<Result<Profile, String>> = OnceLock::new();
+    PROFILE
+        .get_or_init(|| parse_profile(CORE_2611, "26.11.0.134175", "Sonar way core"))
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn parse_profile(table: &'static str, version: &str, name: &str) -> Result<Profile, String> {
+    let mut lines = table.lines();
+    let mut fields = lines.next().unwrap_or_default().split('\t');
+    if fields.next() != Some(version) || fields.next() != Some(name) {
+        return Err("wrong Community rule map header".into());
+    }
+    let native_catalog = match (fields.next(), fields.next()) {
+        (Some("complete-active-set"), None) => None,
+        (Some(digest), None)
+            if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()) =>
+        {
+            Some(digest)
+        }
+        _ => return Err("invalid Community rule map source".into()),
+    };
+    let mut languages = BTreeMap::<_, BTreeMap<_, _>>::new();
+    for line in lines {
+        let mut row = line.split('\t');
+        let (Some(lang), Some(key), Some(kind), None) =
+            (row.next(), row.next(), row.next(), row.next())
+        else {
+            return Err("invalid Community rule map row".into());
+        };
+        if !matches!(
+            kind,
+            "NOT_ACTIVE" | "CODE_SMELL" | "BUG" | "VULNERABILITY" | "SECURITY_HOTSPOT"
+        ) || languages
+            .entry(lang)
+            .or_default()
+            .insert(key, kind)
+            .is_some()
+        {
+            return Err("invalid or duplicate Community rule type".into());
+        }
+    }
+    Ok(Profile {
+        native_catalog,
+        languages,
+    })
 }
 
 pub(super) struct Qualified<'a> {
@@ -66,7 +93,7 @@ pub(super) struct Qualified<'a> {
 /// membership and exercised controls for every active reference violation key.
 #[must_use]
 pub fn qualified_community_detector_digest(report: &AnalysisReport) -> Option<&'static str> {
-    let profile = Qualified::new(report).ok()?;
+    let profile = Qualified::new(report, profile().ok()?).ok()?;
     profile.require_coverage(report).ok()?;
     Some(community_detector_controls_sha256())
 }
@@ -78,24 +105,54 @@ impl<'a> Qualified<'a> {
     ) -> Result<Option<Self>, String> {
         match metric {
             STRICT_VIOLATIONS => {
-                let profile = Self::new(report)?;
+                let profile = Self::new(report, profile()?)?;
                 profile.require_detector_coverage(report)?;
                 Ok(Some(profile))
             }
-            VIOLATIONS | HOTSPOTS => Self::new(report).map(Some),
+            VIOLATIONS => Self::new(report, profile()?).map(Some),
+            HOTSPOTS | CORE_2611_HOTSPOTS => {
+                let profile = if metric == HOTSPOTS {
+                    profile()?
+                } else {
+                    core_2611()?
+                };
+                let measured = Self::new(report, profile)?;
+                measured.require_empty_hotspot_rule_set()?;
+                Ok(Some(measured))
+            }
             _ => Ok(None),
         }
     }
 
-    fn new(report: &'a AnalysisReport) -> Result<Self, String> {
-        let p = profile()?;
+    fn require_empty_hotspot_rule_set(&self) -> Result<(), String> {
+        if self
+            .files
+            .values()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .iter()
+            .any(|lang| {
+                self.profile.languages[*lang]
+                    .values()
+                    .any(|kind| *kind == "SECURITY_HOTSPOT")
+            })
+        {
+            return Err(
+                "active reference hotspots require verified detector and review coverage".into(),
+            );
+        }
+        Ok(())
+    }
+
+    fn new(report: &'a AnalysisReport, p: &'static Profile) -> Result<Self, String> {
         let catalog = hoonarqube_catalog::embedded();
         let parity = report
             .parity
             .as_ref()
             .ok_or("Community rule mapping requires the native sonar-parity profile")?;
         let snapshot = catalog.snapshot();
-        if snapshot.catalog_sha256 != p.catalog
+        if p.native_catalog
+            .is_some_and(|digest| digest != snapshot.catalog_sha256)
             || parity.reference.profile != "sonar-parity"
             || parity.reference.capture_sha256 != snapshot.capture_sha256
             || parity.reference.sonarqube_version != snapshot.server_version
@@ -254,10 +311,9 @@ impl<'a> Qualified<'a> {
         let result = self
             .files
             .get(path)
-            .and_then(|lang| self.profile.languages.get(lang))
-            .and_then(|rules| rules.get(key))
-            .copied();
-        match result {
+            .and_then(|lang| self.profile.languages.get(lang));
+        match result.and_then(|rules| rules.get(key)).copied() {
+            None if result.is_some() && self.profile.native_catalog.is_none() => Ok(None),
             Some("NOT_ACTIVE") => Ok(None),
             Some("SECURITY_HOTSPOT") => Ok(Some(true)),
             Some("VULNERABILITY" | "BUG" | "CODE_SMELL") => Ok(Some(false)),

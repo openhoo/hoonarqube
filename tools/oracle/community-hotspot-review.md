@@ -6,7 +6,7 @@ Run `community_hotspot_replay.py --scanner SCANNER --service SERVICE --base BASE
 
 Authorized scanner and admin submissions can provide a baseline classification. The service validates its context and current finding inventory; it does not rescan the historical source. Reviews must come from a permitted service account. `GET /api/v1/projects/{project}/analyses/{id}/gate` computes the current gate; the original analysis retains the submitted gate. Existing databases retain previously stored ambiguity flags; a new analysis uses exact issue ranges and distinct assessment identities. Restore accepts the older, stricter flags only when consistent with the prior duplicate algorithm.
 
-These are native results. Community Build 26.9.0.129388 classifies the active S2245 as a vulnerability. The Redux review sequence is not a reference gate or reference review sequence.
+The native review replay now explicitly selects `native_reported_security_hotspots_reviewed`. The unqualified metric returns unavailable. See [population selection and migration](hotspot-populations-2611.md). These are native results. Community Build 26.9.0.129388 classifies the active S2245 as a vulnerability. The Redux review sequence is not a reference gate or reference review sequence.
 
 ## Community Build 26.9.0.129388: type mapping and live comparison
 

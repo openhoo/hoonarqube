@@ -25,7 +25,7 @@ DIGESTS = {
 }
 CONDITION = {
     "scope": "new_code",
-    "metric": "security_hotspots_reviewed",
+    "metric": "native_reported_security_hotspots_reviewed",
     "operator": "gte",
     "threshold": 100,
 }
@@ -74,11 +74,11 @@ def reject(request, code):
         raise ValueError(f"expected HTTP {code}")
 
 
-def check_gate(gate, actual, condition_status):
+def check_gate(gate, actual, condition_status, metric=CONDITION["metric"]):
     c = gate["conditions"]
     check(
         len(c) == 1
-        and c[0]["metric"] == CONDITION["metric"]
+        and c[0]["metric"] == metric
         and c[0]["actual"] == actual
         and c[0]["status"] == condition_status,
         f"unexpected condition: {c}",

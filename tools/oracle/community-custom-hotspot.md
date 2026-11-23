@@ -30,7 +30,7 @@ The search API continued to return the **same** hotspot after review, with statu
 
 ## Native comparison and its limit
 
-With the same Apache revisions, bytes, scope and selected analysis date, Hoonarqube reported no custom Java hotspot. The native gate returned `no_value` and aggregate `pass`. Its CLI rejected the reference profile and reported the custom rule as unknown. This differs from the reference's initial 0% and failing gate. A Java rule in the frozen catalog does not implement a newly created rule or profile.
+In the original 26.9 capture, Hoonarqube reported no custom Java hotspot on the same Apache revisions, bytes, scope and analysis date. Before population binding, the native gate returned `no_value` and aggregate `pass`. Its CLI rejected the reference profile and reported the custom rule as unknown. The current replay requires the unbound condition to return `unavailable` (exit 2); see [the 26.11 two-profile comparison](hotspot-populations-2611.md). The historical result differs from the reference's initial 0% and failing gate. A Java rule in the frozen catalog does not implement a newly created rule or profile.
 
 We verified the native review service independently on a real [Yjs change](https://github.com/yjs/yjs/commit/20913920310f4b1f4dbbd088f3a29b00f1592fe7). Against its direct parent `3dc67e075bad9760c178f51e0a40083e3aabcf85`, the native scanner reported one new `javascript:S2245` in `src/SpecHelper.js:35`. It is a random seed in a test helper. The three other native S2245 findings, on lines 84, 95 and 114, were classified as existing. The Yjs period is a declared test input one second after the parent commit time; it does not represent an observed Community analysis.
 

@@ -1041,6 +1041,8 @@ impl GateReport {
                         || (!matches!(
                             condition.metric.as_str(),
                             "security_hotspots_reviewed"
+                                | "native_reported_security_hotspots_reviewed"
+                                | "community_26_11_core_security_hotspots_reviewed"
                                 | "community_26_9_security_hotspots_reviewed"
                         ) && condition.small_change_policy.is_off())))
             {

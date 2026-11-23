@@ -18,6 +18,7 @@ from community_hotspot_replay import (
     HEAD,
     SOURCE,
     DIGESTS,
+    CONDITION,
     check_gate,
     git,
     scan,
@@ -48,7 +49,7 @@ def cfg(metric, threshold, scope="overall", operator="lte"):
 
 STRICT = cfg("files", 0)
 LOOSE = cfg("files", 2)
-REVIEW = cfg("security_hotspots_reviewed", 100, "new_code", "gte")
+REVIEW = cfg(CONDITION["metric"], 100, "new_code", "gte")
 
 
 def reports(scanner, base, head, work):

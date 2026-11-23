@@ -1070,6 +1070,7 @@ async fn ingest_analysis(
             report,
         },
         state.limits,
+        ReportUse::NewAnalysis,
     )?;
     let result = state
         .store
@@ -1382,10 +1383,17 @@ fn store_error(error: &StoreError) -> ApiError {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReportUse {
+    NewAnalysis,
+    RestoreHistory,
+}
+
 fn validate_ingest(
     project: &str,
     request: IngestRequest,
     limits: Limits,
+    use_as: ReportUse,
 ) -> Result<IngestData, ApiError> {
     if request.schema_version != 1 {
         return Err(ApiError::bad_request());
@@ -1416,7 +1424,7 @@ fn validate_ingest(
         assessment
             .validate_against(&report.files)
             .map_err(|_| ApiError::conflict())?;
-        validate_gate_claim_against_report(assessment.gate.as_ref(), &report)?;
+        validate_gate_claim_against_report(assessment.gate.as_ref(), &report, use_as)?;
         if assessment
             .context
             .source_revision
@@ -1727,13 +1735,34 @@ fn config_for_gate(gate: &GateReport) -> GateConfig {
 fn validate_gate_claim_against_report(
     gate: Option<&GateReport>,
     report: &AnalysisReport,
+    use_as: ReportUse,
 ) -> Result<(), ApiError> {
+    use hoonarqube_ir::assessment::GateStatus;
     let Some(gate) = gate else {
         return Ok(());
     };
     gate.validate().map_err(|_| ApiError::conflict())?;
-    let config = config_for_gate(gate);
-    let evaluated = evaluate_gate(&config, report);
+    // Historical scanner claims from before population binding used native
+    // findings for this name. Verify them with that algorithm only on restore;
+    // leave the original bytes untouched and use the current contract for CI.
+    let mut historical;
+    let gate = if use_as == ReportUse::RestoreHistory
+        && gate.conditions.iter().any(|c| {
+            c.metric == "security_hotspots_reviewed" && c.status != GateStatus::Unavailable
+        }) {
+        historical = gate.clone();
+        for condition in &mut historical.conditions {
+            if condition.metric == "security_hotspots_reviewed"
+                && condition.status != GateStatus::Unavailable
+            {
+                condition.metric = "native_reported_security_hotspots_reviewed".into();
+            }
+        }
+        &historical
+    } else {
+        gate
+    };
+    let evaluated = evaluate_gate(&config_for_gate(gate), report);
     if evaluated.schema_version != gate.schema_version
         || evaluated.status != gate.status
         || evaluated.conditions.len() != gate.conditions.len()
@@ -1787,7 +1816,12 @@ fn validate_gate_claim(gate: Option<&Value>) -> Result<(), ApiError> {
             && condition.get("scope").and_then(Value::as_str) == Some("new_code")
             && (matches!(
                 condition.get("metric").and_then(Value::as_str),
-                Some("security_hotspots_reviewed" | "community_26_9_security_hotspots_reviewed")
+                Some(
+                    "security_hotspots_reviewed"
+                        | "native_reported_security_hotspots_reviewed"
+                        | "community_26_11_core_security_hotspots_reviewed"
+                        | "community_26_9_security_hotspots_reviewed"
+                )
             ) || condition.get("small_change_policy").and_then(Value::as_str)
                 == Some("community20"))
             && condition.get("actual").is_some_and(Value::is_null);
@@ -2113,6 +2147,7 @@ fn validate_restore_analysis(
             report: analysis.report.clone(),
         },
         limits,
+        ReportUse::RestoreHistory,
     )?;
     let normalized_backup_at =
         normalize_timestamp(&analysis.analyzed_at).map_err(|_| ApiError::bad_request())?;

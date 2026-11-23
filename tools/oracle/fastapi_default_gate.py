@@ -123,7 +123,7 @@ def replay_default(binary, root, work, package):
         CONFIG,
         {
             "scope": "new_code",
-            "metric": "security_hotspots_reviewed",
+            "metric": "community_26_11_core_security_hotspots_reviewed",
             "operator": "gte",
             "threshold": 100,
         },
@@ -154,7 +154,7 @@ def replay_default(binary, root, work, package):
             float(ref["measures"]["new_duplicated_lines_density"]),
             abs_tol=0.000005,
         )
-        and c["security_hotspots_reviewed"]["status"] == "no_value"
+        and c["community_26_11_core_security_hotspots_reviewed"]["status"] == "no_value"
         and c["violations"]["actual"] == sum(inactive.values()),
         "native condition or input availability changed",
     )

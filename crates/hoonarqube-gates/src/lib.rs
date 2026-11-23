@@ -7,6 +7,10 @@
 
 mod community_profile;
 
+// This population consists only of findings in the native report. It makes
+// no claim about a project's externally configured rule profile.
+const NATIVE_HOTSPOTS: &str = "native_reported_security_hotspots_reviewed";
+
 pub use community_profile::qualified_community_detector_digest;
 
 use std::cmp::Ordering;
@@ -38,6 +42,8 @@ pub const SUPPORTED_METRICS: &[&str] = &[
     "issues",
     "violations",
     "security_hotspots_reviewed",
+    NATIVE_HOTSPOTS,
+    community_profile::CORE_2611_HOTSPOTS,
     community_profile::VIOLATIONS,
     community_profile::STRICT_VIOLATIONS,
     community_profile::HOTSPOTS,
@@ -176,6 +182,8 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
                 | "issues"
                 | "violations"
                 | "security_hotspots_reviewed"
+                | NATIVE_HOTSPOTS
+                | community_profile::CORE_2611_HOTSPOTS
                 | community_profile::VIOLATIONS
                 | community_profile::STRICT_VIOLATIONS
                 | community_profile::HOTSPOTS
@@ -539,8 +547,12 @@ fn new_code_metric(
     let value = match metric {
         "files" => Ok(MetricValue::Count(usize_as_u64(line_sets.len()))),
         "lines" => Ok(MetricValue::Count(scoped_line_count)),
+        "security_hotspots_reviewed" => Err(
+            "hotspot population is unspecified; select a qualified Community profile metric or native_reported_security_hotspots_reviewed for native findings only".into(),
+        ),
         "violations"
-        | "security_hotspots_reviewed"
+        | NATIVE_HOTSPOTS
+        | community_profile::CORE_2611_HOTSPOTS
         | community_profile::VIOLATIONS
         | community_profile::STRICT_VIOLATIONS
         | community_profile::HOTSPOTS => {
@@ -636,7 +648,7 @@ fn new_security_metric(
     }
     let hotspots = matches!(
         metric,
-        "security_hotspots_reviewed" | community_profile::HOTSPOTS
+        NATIVE_HOTSPOTS | community_profile::HOTSPOTS | community_profile::CORE_2611_HOTSPOTS
     );
     let sources: BTreeMap<_, _> = assessment.sources.iter().map(|s| (&s.path, s)).collect();
     validate_finding_inventory(measurements, &sources)?;
@@ -1930,6 +1942,12 @@ mod tests {
             assert_eq!(empty.conditions[1].actual, None);
             assert_eq!(empty.conditions[0].status, GateStatus::Unavailable);
             empty.validate().unwrap();
+            let mut unbound = config.clone();
+            unbound.conditions[0].metric = "security_hotspots_reviewed".into();
+            assert_eq!(
+                evaluate_gate(&unbound, &report).status,
+                GateStatus::Unavailable
+            );
         }
     }
 
@@ -2076,7 +2094,7 @@ mod tests {
             conditions: vec![
                 condition(
                     GateScope::NewCode,
-                    "security_hotspots_reviewed",
+                    super::NATIVE_HOTSPOTS,
                     GateOperator::Gte,
                     100.0,
                 ),
@@ -2117,6 +2135,12 @@ mod tests {
         assert_eq!(empty.conditions[0].status, GateStatus::NoValue);
         assert_eq!(empty.conditions[0].actual, None);
         empty.validate().unwrap();
+        let mut unbound = config.clone();
+        unbound.conditions[0].metric = "security_hotspots_reviewed".into();
+        assert_eq!(
+            evaluate_gate(&unbound, &report).status,
+            GateStatus::Unavailable
+        );
         let mut forged = empty;
         forged.conditions[1].status = GateStatus::NoValue;
         forged.conditions[1].actual = None;
