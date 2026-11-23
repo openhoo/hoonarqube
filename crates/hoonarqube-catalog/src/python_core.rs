@@ -18,7 +18,13 @@ pub struct PythonCoreSelection {
     schema_version: u32,
     pub version: String,
     pub active_keys: Vec<String>,
-    pub parameters: BTreeMap<String, BTreeMap<String, String>>,
+    parameters: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// Effective parameters supported by the native S905 detector.
+pub struct S905Parameters<'a> {
+    pub report_on_strings: bool,
+    pub ignored_operators: &'a str,
 }
 
 impl PythonCoreSelection {
@@ -58,8 +64,33 @@ impl PythonCoreSelection {
         self.active_keys
             .binary_search_by(|value| value.as_str().cmp(key))
             .is_ok()
-            && !self.parameters.contains_key(key)
+            && !self.has_unmapped_parameters(key)
             && catalog.rule(key).is_some()
+    }
+
+    /// Reads the entire S905 parameter set. Unrecognized sets remain excluded.
+    #[must_use]
+    pub fn s905_parameters(&self) -> Option<S905Parameters<'_>> {
+        let params = self.parameters.get("python:S905")?;
+        if params.len() != 2 {
+            return None;
+        }
+        Some(S905Parameters {
+            report_on_strings: params.get("reportOnStrings")?.parse().ok()?,
+            ignored_operators: params.get("ignoredOperators")?,
+        })
+    }
+
+    fn has_unmapped_parameters(&self, key: &str) -> bool {
+        self.parameters.contains_key(key)
+            && (key != "python:S905" || self.s905_parameters().is_none())
+    }
+
+    /// Lists activated keys excluded because their parameters aren't mapped.
+    pub fn unmapped_parameter_keys(&self) -> impl Iterator<Item = &String> {
+        self.parameters
+            .keys()
+            .filter(|key| self.has_unmapped_parameters(key))
     }
 
     /// Digest of the activation snapshot, including its effective parameters.
