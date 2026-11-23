@@ -10920,6 +10920,35 @@
       "provenance_id": "a9f878985c61723c82c0e3bef51f9662ba2701fe1da888179a403b6664a484ba"
     },
     {
+      "external_key": "javascript:S7724",
+      "language": "js",
+      "repository": "javascript",
+      "status": "READY",
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "rule_type": "CODE_SMELL",
+      "clean_code_attribute": "CLEAR",
+      "clean_code_attribute_category": "INTENTIONAL",
+      "impacts": [
+        {
+          "software_quality": "MAINTAINABILITY",
+          "severity": "HIGH"
+        }
+      ],
+      "is_external": false,
+      "is_template": false,
+      "parameters": [],
+      "sys_tags": [
+        "eslint",
+        "editable-source",
+        "linting"
+      ],
+      "tags": [],
+      "education_principles": [],
+      "classification": "community-base",
+      "provenance_id": "5ea89d22d61bc8c3ea480179f2726e620801d63193f3283d4595ca5a4f96d104"
+    },
+    {
       "external_key": "javascript:S7726",
       "language": "js",
       "repository": "javascript",
@@ -12210,6 +12239,25 @@
       ],
       "selected_keys_sha256": "1b41e226117a86aa826e9f7b0c31bcf3e5d93c8f09fcbf8de28afefbc34e6efa",
       "selected_rows_sha256": "acd5100f515f0b49d0ba1e90f800ee878580f89a17cbde0093589358ca152940"
+    },
+    {
+      "capture_sha256": "5ea89d22d61bc8c3ea480179f2726e620801d63193f3283d4595ca5a4f96d104",
+      "captured_at_utc": "2026-11-22T18:44:58.089989185Z",
+      "server_version": "26.9.0.129388",
+      "instance_mode": "mqr",
+      "page_size": 500,
+      "approval_id": "local-community-loopback",
+      "source_total": 527,
+      "page_count": 2,
+      "query_sha256": "84e5065f7c57a49d4e86f3c9093938500febfb63a3261daec17a814b9c719252",
+      "pages_sha256": "a64aacc1b96f2596a8565fa5a15f4306efcac3aa347358a63a6f3a5e468deaa7",
+      "keys_sha256": "92a89d7541652e72f4580db99d33565089b669eee74c6ea6f0c83b88c43d7be9",
+      "shows_sha256": "309e26b2f82947f0706fcdb0841036ee7b88dae423e36c23b3876e1187485720",
+      "selected_keys": [
+        "javascript:S7724"
+      ],
+      "selected_keys_sha256": "dbf5b5591969e9c11c79cbf5f1d472baa6091591beeb34926383cce84e838f52",
+      "selected_rows_sha256": "de9ad3016899193fa9ca58be5ea418a965b66ec20cce2bc46634e0d631cba488"
     },
     {
       "capture_sha256": "877bdeb48a5593ee73fe8092d4f59b599f85c43767ebf28c94a95b25da7f756b",

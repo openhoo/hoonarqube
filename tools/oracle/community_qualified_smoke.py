@@ -77,7 +77,8 @@ def scenarios(bin_dir, work):
     blocked = [("fail", conds[0]["actual"]), ("unavailable", None)]
     decisions(mixed["assessment"]["gate"], blocked)
     check(
-        "javascript:S7724" in conds[1]["diagnostic"],
+        "javascript:S5845" in conds[1]["diagnostic"]
+        and "javascript:S7724" not in conds[1]["diagnostic"],
         "untouched JavaScript not qualified",
     )
     with_service(

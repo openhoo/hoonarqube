@@ -40,7 +40,8 @@ def source(directory, name, digest):
 def exercise(cli, lang, key, fixtures):
     bad, bad_sha, clean, clean_sha = fixtures
     require(bad != clean and bad_sha != clean_sha, f"{key}: controls are identical")
-    directory = ROOT / ".oracle/sonar/projects" / ("oracle-" + lang) / "src"
+    fixture_language = {"javascript": "js"}.get(lang, lang)
+    directory = ROOT / ".oracle/sonar/projects" / ("oracle-" + fixture_language) / "src"
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         for name, digest in ((bad, bad_sha), (clean, clean_sha)):

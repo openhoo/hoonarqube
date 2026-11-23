@@ -1,6 +1,6 @@
 // Rule module s7724_eslint_disable (generated).
 //
-// `typescript:S7724` — ESLint disable comments should specify which rules
+// `javascript:S7724` and `typescript:S7724` — ESLint disable comments should specify which rules
 // to disable. Reference semantics: eslint-plugin-unicorn
 // `no-abusive-eslint-disable` on top of ESLint's directive parser: a
 // comment whose directive part is exactly `eslint-disable-next-line`,
@@ -11,13 +11,14 @@
 // follows the label; any rule name keeps the comment silent.
 // `eslint-disable-line` directives spanning multiple lines are parser
 // problems, not findings, and stay silent. Findings span the whole
-// comment.
+// comment in TypeScript. Community 26.9 anchors JavaScript findings to the directive line.
 
+use crate::JstsLanguage;
 use crate::context::AnalysisContext;
 use crate::support::{IssueSink, RuleScope, ScannedComment, source_slice};
 use hoonarqube_ir::Issue;
 
-/// Entry point: `typescript:S7724` broad `ESLint` disable directive check.
+/// Report broad `ESLint` disable directives.
 pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     let mut sink = IssueSink {
         index: ctx.index,
@@ -26,11 +27,16 @@ pub(crate) fn check(ctx: &AnalysisContext) -> Vec<Issue> {
     };
     for &comment in &ctx.comments {
         if is_broad_disable(ctx.source, comment) {
+            let span = if ctx.language == JstsLanguage::JavaScript {
+                ctx.index.source_line_span(comment.token.start)
+            } else {
+                comment.token
+            };
             sink.emit_span(
-                RuleScope::TsOnly,
+                RuleScope::Both,
                 "S7724",
                 "Specify the rules you want to disable.",
-                comment.token,
+                span,
             );
         }
     }
@@ -161,8 +167,26 @@ mod tests {
     }
 
     #[test]
-    fn s7724_stays_silent_in_javascript_files() {
-        let source = "// eslint-disable-next-line\nconst a = 1;\n";
-        assert_eq!(count_key(&js_keys(source), "javascript:S7724"), 0);
+    fn s7724_distinguishes_broad_and_named_javascript_directives() {
+        let source =
+            "  // eslint-disable-next-line\nconst a = 1; // eslint-disable-line no-console\n";
+        let report = js(source);
+        let matches = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "javascript:S7724")
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1);
+        let issue = matches[0];
+        assert_eq!(issue.message, "Specify the rules you want to disable.");
+        assert_eq!(
+            (
+                issue.range.start.line,
+                issue.range.start.column,
+                issue.range.end.line,
+                issue.range.end.column
+            ),
+            (1, 0, 1, 29)
+        );
     }
 }
