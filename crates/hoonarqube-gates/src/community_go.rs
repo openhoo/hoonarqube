@@ -3,9 +3,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
-use hoonarqube_ir::parity::{GO_GATE_DETECTORS_V1, ParityCompleteness, ParityReport};
+use hoonarqube_ir::parity::{
+    GO_GATE_DETECTORS_V1, GoGateEvidence, ParityCompleteness, ParityReport,
+};
 use hoonarqube_ir::{
-    AnalysisReport, FileClassification, MeasurementStatus, assessment::normalize_path,
+    AnalysisReport, FileClassification, FileReport, MeasurementStatus, ProjectFileMeasurement,
+    assessment::normalize_path,
 };
 use serde::Deserialize;
 
@@ -79,35 +82,53 @@ fn require_rules(p: &Profile, parity: &ParityReport) -> Result<BTreeSet<String>,
     if evidence.catalog_sha256 != catalog.snapshot().catalog_sha256 {
         return Err("Go scanner catalog differs from gate evaluator".into());
     }
-    let mut blockers = Vec::new();
-    for (key, rule) in &p.rules {
-        if !matches!(rule.kind.as_str(), "BUG" | "CODE_SMELL" | "VULNERABILITY")
-            || !matches!(rule.scope.as_str(), "MAIN" | "ALL")
-        {
-            blockers.push(format!("{key}: unsupported type or scope"));
-        } else if !declared.contains(key.as_str()) {
-            blockers.push(format!("{key}: absent from native profile"));
-        } else if !GO_GATE_DETECTORS_V1.contains(&key.as_str()) {
-            blockers.push(format!("{key}: no qualified runtime detector"));
-        } else if let Some(runtime) = evidence.detectors.get(key) {
-            if runtime.main_only != (rule.scope == "MAIN") {
-                blockers.push(format!("{key}: runtime scope differs from {}", rule.scope));
-            }
-            if runtime.parameters != rule.parameters {
-                blockers.push(format!(
-                    "{key}: expected parameters {:?}, scanner used {:?}",
-                    rule.parameters, runtime.parameters
-                ));
-            }
-        } else {
-            blockers.push(format!("{key}: missing scanner evidence"));
-        }
-    }
+    let blockers: Vec<_> = p
+        .rules
+        .iter()
+        .filter_map(|(key, rule)| {
+            blocker(key, rule, &declared, evidence).map(|why| format!("{key}: {why}"))
+        })
+        .collect();
+
     if blockers.is_empty() {
         Ok(declared.into_iter().map(str::to_owned).collect())
     } else {
         Err(format!("{} unavailable: {}", p.name, blockers.join("; ")))
     }
+}
+
+/// Check one active reference rule before inspecting any findings.
+fn blocker(
+    key: &str,
+    rule: &Rule,
+    declared: &BTreeSet<&str>,
+    evidence: &GoGateEvidence,
+) -> Option<String> {
+    if !matches!(rule.kind.as_str(), "BUG" | "CODE_SMELL" | "VULNERABILITY")
+        || !matches!(rule.scope.as_str(), "MAIN" | "ALL")
+    {
+        return Some("unsupported type or scope".into());
+    }
+    if !declared.contains(key) {
+        return Some("absent from native profile".into());
+    }
+    if !GO_GATE_DETECTORS_V1.contains(&key) {
+        return Some("no qualified runtime detector".into());
+    }
+    let Some(runtime) = evidence.detectors.get(key) else {
+        return Some("missing scanner evidence".into());
+    };
+    let mut reasons = Vec::new();
+    if runtime.main_only != (rule.scope == "MAIN") {
+        reasons.push(format!("runtime scope differs from {}", rule.scope));
+    }
+    if runtime.parameters != rule.parameters {
+        reasons.push(format!(
+            "expected parameters {:?}, scanner used {:?}",
+            rule.parameters, runtime.parameters
+        ));
+    }
+    (!reasons.is_empty()).then(|| reasons.join("; "))
 }
 
 pub(super) fn count(metric: &str, report: &AnalysisReport) -> Result<u64, String> {
@@ -155,36 +176,44 @@ pub(super) fn count(metric: &str, report: &AnalysisReport) -> Result<u64, String
         let measure = files
             .remove(&path)
             .ok_or("missing or duplicate native Go source")?;
-        if path.extension().is_none_or(|e| e != "go")
-            || measure.status != MeasurementStatus::Complete
-            || !matches!(
-                measure.classification,
-                FileClassification::Source | FileClassification::Test
-            )
-            || measure.metrics.as_ref() != Some(&file.metrics)
-        {
-            return Err("incomplete or inconsistent Go measurements".into());
-        }
-        for issue in &file.issues {
-            if !declared.contains(&issue.rule_key) || issue.rule_key == "go:S2260" {
-                return Err(format!(
-                    "unqualified or unparsed Go source: {}",
-                    issue.rule_key
-                ));
-            }
-            if let Some(rule) = profile.rules.get(&issue.rule_key) {
-                if rule.scope == "MAIN" && measure.classification == FileClassification::Test {
-                    return Err(format!(
-                        "MAIN-only Go detector reported on a test: {}",
-                        issue.rule_key
-                    ));
-                }
-                count += 1;
-            }
-        }
+        count += file_count(profile, &declared, file, measure)?;
     }
     if !files.is_empty() {
         return Err("Go projection cannot account for every inventory entry".into());
+    }
+    Ok(count)
+}
+
+/// Validate the measured source/test classification, then count its active findings.
+fn file_count(
+    profile: &Profile,
+    declared: &BTreeSet<String>,
+    file: &FileReport,
+    measure: &ProjectFileMeasurement,
+) -> Result<u64, String> {
+    if file.path.extension().is_none_or(|e| e != "go")
+        || measure.status != MeasurementStatus::Complete
+        || !matches!(
+            measure.classification,
+            FileClassification::Source | FileClassification::Test
+        )
+        || measure.metrics.as_ref() != Some(&file.metrics)
+    {
+        return Err("incomplete or inconsistent Go measurements".into());
+    }
+    let mut count = 0;
+    for issue in &file.issues {
+        let key = &issue.rule_key;
+        if !declared.contains(key) || key == "go:S2260" {
+            return Err(format!("unqualified or unparsed Go source: {key}"));
+        }
+        let Some(rule) = profile.rules.get(key) else {
+            continue;
+        };
+        if rule.scope == "MAIN" && measure.classification == FileClassification::Test {
+            return Err(format!("MAIN-only Go detector reported on a test: {key}"));
+        }
+        count += 1;
     }
     Ok(count)
 }
