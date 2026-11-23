@@ -14,3 +14,5 @@ def inspect_value(a, b, c, d, e)
     puts e
   end
 end
+
+def unimplemented; end

@@ -60,7 +60,7 @@ uses native Git porcelain blame with `-w` and reads `committer-time`.
 | Redux `0b6d794e → e6f6c7da` | 0 new violations, OK; no hotspot review percentage | Same; plain baseline still reports 2 new violations and fails |
 | Yjs `53fd0285 → 486d5677` | 65/86 duplicated lines, fail | Same; plain baseline cannot decide |
 | Yjs `ebae7a3e → ee37f0a0` | 0/19, pass | Same |
-| FastAPI `e0f8cadf → b78c8226` | 21/35 duplicated lines, fail | 20/35, fail |
+| FastAPI `e0f8cadf → b78c8226` | 21/35 duplicated lines, fail | 21/35, fail |
 | FastAPI `7cb19539 → 5d5666be`; `2bb28066 → 8b0090c3` | 2/10 and 14/14, both ignored on a small change | Same |
 | Commander.js `987f2896 → ba6d13dd` | 5 new lines, focused/broad new coverage 80%/100% | Same |
 | Commander.js `b51c0ea3 → ba6d13dd` | 49 new lines, focused/broad new coverage 94.4%/100% | Same, including line 22 of `index.js` |
@@ -83,3 +83,22 @@ project's captured gate. A missing baseline, wrong selected revision, dirty
 source or shallow history returns exit 2. These comparisons cover selected
 files and conditions. They do not cover PR/reference-branch periods, full
 issue tracking, server-side blame fallbacks, or all duplication detectors.
+
+
+### Full FastAPI package
+
+The same change `7cb19539 → 5d5666be` covers 48 files when the whole shipped
+`fastapi/` package is analyzed. A separate assigned Community gate marked 2
+of 41 new lines as duplicated (4.87805%); the 3% threshold blocks CI. The
+one-file case above has a different scope and a different gate decision.
+Run the full package check from the source root:
+
+```sh
+python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube
+```
+
+The check fetches the pinned public commit and its ancestry, verifies the
+tree and file hashes in both revisions, and compares each new and duplicated
+line with the recorded Community analysis. The reference marked 8,220
+duplicated lines across the candidate package. For offline use, pass
+`--repository /path/to/full/fastapi`.
