@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ PYTHON = str(JOB / "venv/bin/python")
 def run(*command, env=None):
     proc = subprocess.run(
         command,
+        check=False,
         cwd=SOURCE,
         capture_output=True,
         text=True,
@@ -90,14 +92,21 @@ def suite(case, args, expected):
     if not re.search(rf"^{expected} passed in [0-9.]+s$", log, re.MULTILINE):
         raise ValueError(f"unexpected test result: {log[-500:]}")
     run(PYTHON, "-m", "coverage", "combine", "--keep", "/job", env=cov)
-    path = JOB / (case + ".lcov")
-    run(
-        PYTHON, "-m", "coverage", "lcov", "--include=src/blinker/*", "-o", path, env=cov
-    )
-    return {
-        "passed": expected,
-        "lcov": base64.b64encode(path.read_bytes()).decode("ascii"),
-    }
+    reports = {}
+    for kind, exporter in (("lcov", "lcov"), ("cobertura", "xml")):
+        path = JOB / f"{case}.{exporter}"
+        run(
+            PYTHON,
+            "-m",
+            "coverage",
+            exporter,
+            "--include=src/blinker/*",
+            "-o",
+            path,
+            env=cov,
+        )
+        reports[kind] = base64.b64encode(path.read_bytes()).decode("ascii")
+    return {"passed": expected, **reports}
 
 
 def main():
@@ -111,12 +120,19 @@ def main():
     print(
         json.dumps(
             {
+                "architecture": platform_for_container(),
                 "wheel_sha256": build(),
                 "full": suite("full", [], 25),
                 "focused": suite("focused", ["tests/test_context.py"], 4),
             }
         )
     )
+
+
+def platform_for_container():
+    if platform.system() != "Linux":
+        raise ValueError("wheel proof must run on Linux")
+    return {"aarch64": "arm64", "x86_64": "amd64"}[platform.machine()]
 
 
 if __name__ == "__main__":
