@@ -2733,6 +2733,7 @@ mod tests {
             .expect("project fixture"),
             assessment: None,
             parity: None,
+            partial_rule_selection: None,
         };
         let findings = extract_findings(&report, None).expect("findings");
         assert_eq!(findings.len(), 2);

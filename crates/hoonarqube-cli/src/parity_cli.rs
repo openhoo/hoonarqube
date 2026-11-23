@@ -614,6 +614,7 @@ mod tests {
             },
             assessment: None,
             parity: None,
+            partial_rule_selection: None,
         }
     }
 

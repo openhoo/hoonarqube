@@ -799,6 +799,20 @@ pub struct ProjectReport {
     pub roots: Vec<PathBuf>,
 }
 
+/// Explicit evidence that a frozen reference rule selection is only partial.
+/// Project/source metrics may still be complete, but the selection cannot
+/// support a quality-gate verdict.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartialRuleSelection {
+    pub profile: String,
+    pub reference_version: String,
+    pub membership_sha256: String,
+    pub reference_active_rules: usize,
+    pub selected_catalog_keys: usize,
+    pub missing_catalog_keys: Vec<String>,
+    pub unmapped_parameter_keys: Vec<String>,
+}
+
 /// Complete result of analyzing one target and its project inventory.
 ///
 /// `schema_version` is the first versioned report schema and is currently
@@ -814,6 +828,8 @@ pub struct AnalysisReport {
     /// `sonar-parity` contract block; present only for that profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parity: Option<parity::ParityReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partial_rule_selection: Option<PartialRuleSelection>,
 }
 
 #[cfg(test)]

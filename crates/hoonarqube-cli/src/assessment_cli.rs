@@ -284,7 +284,7 @@ fn analyzer_options_digest(
 ) -> String {
     let value = serde_json::json!([
         "hoonarqube-analyzer-options-v2",
-        options.profile.to_string(),
+        options.profile.selection_identity(),
         python_options_value(&options.python),
         jsts_options_value(&options.jsts),
         csharp_options_value(&options.csharp),
@@ -1175,6 +1175,7 @@ mod tests {
                 }),
             }),
             parity: None,
+            partial_rule_selection: None,
         };
         assert_eq!(assessment_exit_status(&report), 2);
     }
@@ -1218,6 +1219,7 @@ mod tests {
             },
             assessment: Some(assessment.clone()),
             parity: None,
+            partial_rule_selection: None,
         };
         let path = root.join("baseline.json");
         write_baseline_atomically(&path, &reference, &root, &[])
@@ -1281,6 +1283,7 @@ mod tests {
             },
             assessment: None,
             parity: None,
+            partial_rule_selection: None,
         };
 
         let error = write_baseline_atomically(
@@ -1346,6 +1349,7 @@ mod tests {
             },
             assessment: None,
             parity: None,
+            partial_rule_selection: None,
         };
 
         let error = write_baseline_atomically(
@@ -1404,6 +1408,7 @@ mod tests {
             },
             assessment: None,
             parity: None,
+            partial_rule_selection: None,
         };
 
         write_baseline_atomically(

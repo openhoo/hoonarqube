@@ -262,6 +262,26 @@ availability does not turn them into SonarQube-equivalent metrics, rules, or IDE
 behavior. Parity claims are limited to the contracts recorded in
 [PARITY.md](PARITY.md).
 
+### Python Community 26.11 Core selection
+
+Run `hoonarqube analyze --format json --profile community-26.11-python-core <paths>`
+for the Python findings selected from the frozen
+[Sonar way core snapshot](catalog/reference/python-core-community-26.11.json).
+The filter runs on native detector output before caching and baseline matching.
+Other languages keep their `sonar-parity` rule selection. Existing analyzer
+options still control the underlying detectors; this profile does not load a
+server's assigned or custom profile.
+
+Of 232 reference activations, eight keys are outside the embedded rule
+catalog and three have effective parameters whose 26.11 behavior is not
+mapped: `python:S2068`, `python:S6418`, and `python:S905`. Those eleven keys
+are excluded. The remaining 221 are eligible catalog keys. That count does
+not establish detector coverage or equivalent behavior. The JSON report's
+`partial_rule_selection` records the snapshot digest, counts, and exact gaps.
+The report still includes source measurements and supports compatible
+baselines with the same selection. It exits **2** and the CLI and service
+report all gate conditions as unavailable while the selection is partial.
+
 ### Machine-verifiable `sonar-parity` contract
 
 Every `analyze` run under `--profile sonar-parity` attaches a `parity` block

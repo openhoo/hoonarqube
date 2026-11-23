@@ -285,6 +285,7 @@ pub fn build_project_report(
         },
         assessment: None,
         parity: None,
+        partial_rule_selection: None,
     })
 }
 
