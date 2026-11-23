@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from community_new_duplication import git
+from notebook_layouts import replay as replay_layouts
 from public_coverage_gate_replay import check
 from public_empty_inventory_gate import select
 
@@ -239,6 +240,7 @@ def main():
     total = positives = missing = native = refused = 0
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
+        replay_layouts(binary, work)
         plain = work / "projection"
         plain.mkdir()
         policy = work / "gate.json"

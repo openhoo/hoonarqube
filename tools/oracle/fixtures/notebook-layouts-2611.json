@@ -1,0 +1,114 @@
+{
+  "task": "b6278c67-f292-47af-8c5e-03fd5be0dc73",
+  "reference_build": "26.11.0.134175",
+  "rule": "ipython:S7502",
+  "profile": "Sonar way core",
+  "results": {
+    "array-compact.ipynb": {
+      "sha256": "04e14469934634f9f9c770a425698b12b0fc137318baa9516590863550ba7585",
+      "reference": {
+        "startLine": 1,
+        "endLine": 1,
+        "startOffset": 464,
+        "endOffset": 468
+      },
+      "native": {
+        "end": {
+          "column": 468,
+          "line": 1
+        },
+        "start": {
+          "column": 464,
+          "line": 1
+        }
+      },
+      "equal": true
+    },
+    "array-pretty.ipynb": {
+      "sha256": "7169cf4e7b20e28f015233c45c09159e515456533cae5c566366d8caa21a9aea",
+      "reference": {
+        "startLine": 34,
+        "endLine": 34,
+        "startOffset": 5,
+        "endOffset": 9
+      },
+      "native": {
+        "end": {
+          "column": 9,
+          "line": 34
+        },
+        "start": {
+          "column": 5,
+          "line": 34
+        }
+      },
+      "equal": true
+    },
+    "escaped-name.ipynb": {
+      "sha256": "b221585f85111ac4c3830ee83017ebafd1783360c8c32500d2512c71006caa35",
+      "reference": {
+        "startLine": 33,
+        "endLine": 33,
+        "startOffset": 17,
+        "endOffset": 21
+      },
+      "native": {
+        "end": {
+          "column": 36,
+          "line": 33
+        },
+        "start": {
+          "column": 27,
+          "line": 33
+        }
+      },
+      "equal": false
+    },
+    "retained.ipynb": {
+      "sha256": "37de999606594398133716d2819754a6289327e326fda2a558adc862715d95bd",
+      "reference": null,
+      "native": null,
+      "equal": true
+    },
+    "single-source.ipynb": {
+      "sha256": "3fb8d873348d4c5c8b62945875c12d561a64ce599fd9ef79bad3b24a30b4e13c",
+      "reference": {
+        "startLine": 30,
+        "endLine": 30,
+        "startOffset": 26,
+        "endOffset": 30
+      },
+      "native": {
+        "end": {
+          "column": 30,
+          "line": 30
+        },
+        "start": {
+          "column": 26,
+          "line": 30
+        }
+      },
+      "equal": true
+    },
+    "surrogates.ipynb": {
+      "sha256": "215ab150b8644f96a827250e95462573c4cbee113c3338a1352056d0689f6472",
+      "reference": {
+        "startLine": 33,
+        "endLine": 33,
+        "startOffset": 17,
+        "endOffset": 21
+      },
+      "native": {
+        "end": {
+          "column": 31,
+          "line": 33
+        },
+        "start": {
+          "column": 27,
+          "line": 33
+        }
+      },
+      "equal": false
+    }
+  }
+}

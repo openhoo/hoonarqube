@@ -79,6 +79,16 @@ strings are both supported. JSON escape sequences and non-BMP Unicode scalars
 are mapped from the actual source tokens. Size limits are 4 MiB of original
 JSON, 1 MiB of projected code, 4,096 cells and 65,536 source fragments.
 
+A separate [six-input layout capture](../../tools/oracle/fixtures/notebook-layouts-2611.json)
+checks where Community and the original-file coordinates agree. A compact JSON
+line with a literal emoji, a formatted source array, a single source string
+and a retained-task control matched. With an escaped surrogate pair preceding
+the call, Community reported columns 17–21, while the original-file token
+`task` occupied 27–31. When the callee itself was written `\u0074ask`,
+Community again reported 17–21; the physical token occupied 27–36. Hoonarqube
+reports the range that selects the original JSON spelling. These artificial
+controls supplement the public notebook evidence and are replayed separately.
+
 ## Replay
 
 From the repository root:
