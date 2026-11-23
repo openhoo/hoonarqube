@@ -123,17 +123,24 @@ impl<'src> LineIndex<'src> {
         if self.line_starts.last().copied() == Some(source_len) {
             line_count = line_count.saturating_sub(1);
         }
-        let source = self.source;
-        let line_starts = &self.line_starts;
-        (0..line_count).map(move |zero_based| {
-            let start = line_starts[zero_based] as usize;
-            let end = line_starts
-                .get(zero_based + 1)
-                .copied()
-                .unwrap_or(source_len) as usize;
-            let line = &source[start..end];
-            (to_u32(zero_based) + 1, strip_line_terminator(line))
-        })
+        (0..line_count).map(move |row| (to_u32(row) + 1, self.line_content(row)))
+    }
+
+    fn line_content(&self, row: usize) -> &'src str {
+        let start = self.line_starts[row] as usize;
+        let end = self
+            .line_starts
+            .get(row + 1)
+            .map_or(self.source.len(), |offset| *offset as usize);
+        let line = &self.source[start..end];
+        strip_line_terminator(line)
+    }
+
+    /// Complete source line containing the byte offset, without its terminator.
+    pub(crate) fn source_line_span(&self, offset: u32) -> Span {
+        let row = self.line_of(offset) - 1;
+        let start = self.line_starts[row];
+        Span::new(start, start + to_u32(self.line_content(row).len()))
     }
 
     /// Byte offset where the line containing `offset` begins (for callers

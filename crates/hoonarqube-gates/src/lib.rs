@@ -5,7 +5,10 @@
 //! typed input API and the metric derivations that can be proved from that
 //! artifact.  A gate never turns missing or partial data into a zero.
 
+mod community_go;
 mod community_profile;
+
+pub use community_profile::qualified_community_detector_digest;
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,12 +34,16 @@ pub const GATE_REPORT_SCHEMA_VERSION: u32 = ASSESSMENT_SCHEMA_VERSION;
 pub const SUPPORTED_METRICS: &[&str] = &[
     "files",
     "lines",
+    community_go::CORE,
+    community_go::EXTENDED,
+    community_go::COMPREHENSIVE,
     "code_lines",
     "comment_lines",
     "issues",
     "violations",
     "security_hotspots_reviewed",
     community_profile::VIOLATIONS,
+    community_profile::STRICT_VIOLATIONS,
     community_profile::HOTSPOTS,
     "duplicated_lines",
     "duplicated_blocks",
@@ -155,6 +162,9 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
             metric,
             "files"
                 | "lines"
+                | community_go::CORE
+                | community_go::EXTENDED
+                | community_go::COMPREHENSIVE
                 | "code_lines"
                 | "comment_lines"
                 | "issues"
@@ -174,6 +184,7 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
                 | "violations"
                 | "security_hotspots_reviewed"
                 | community_profile::VIOLATIONS
+                | community_profile::STRICT_VIOLATIONS
                 | community_profile::HOTSPOTS
                 | "duplicated_lines"
                 | "duplicated_blocks"
@@ -450,6 +461,9 @@ fn overall_metric(
 
     let metrics = &report.project.metrics;
     match metric {
+        community_go::CORE | community_go::EXTENDED | community_go::COMPREHENSIVE => {
+            community_go::count(metric, report).map(MetricValue::Count)
+        }
         "files" => Ok(MetricValue::Count(metrics.files)),
         "lines" => Ok(MetricValue::Count(metrics.lines)),
         "code_lines" => Ok(MetricValue::Count(metrics.code_lines)),
@@ -538,13 +552,9 @@ fn new_code_metric(
         "violations"
         | "security_hotspots_reviewed"
         | community_profile::VIOLATIONS
+        | community_profile::STRICT_VIOLATIONS
         | community_profile::HOTSPOTS => {
-            let qualified = matches!(
-                metric,
-                community_profile::VIOLATIONS | community_profile::HOTSPOTS
-            )
-            .then(|| community_profile::Qualified::new(report))
-            .transpose()?;
+            let qualified = community_profile::Qualified::for_metric(metric, report)?;
             let assessment = report.assessment.as_ref().ok_or("missing assessment")?;
             new_security_metric(
                 metric,

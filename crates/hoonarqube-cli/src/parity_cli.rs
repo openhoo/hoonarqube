@@ -58,6 +58,12 @@ pub(crate) fn attach_parity_contract(
             captured_at_utc: catalog.snapshot().captured_at_utc.clone(),
             capture_sha256: catalog.snapshot().capture_sha256.clone(),
         },
+        go_gate_evidence: has_explicit_go_sources(report).then(|| {
+            hoonarqube_ir::parity::GoGateEvidence {
+                catalog_sha256: catalog.snapshot().catalog_sha256.clone(),
+                detectors: options.go.gate_detectors(),
+            }
+        }),
         active_rules,
         scope,
         semantic_context,
@@ -65,6 +71,19 @@ pub(crate) fn attach_parity_contract(
         rule_set_violations,
         comparison: None,
     });
+}
+
+/// Directory walks cannot prove that no unsupported inputs were skipped.
+fn has_explicit_go_sources(report: &AnalysisReport) -> bool {
+    if !report.project.complete
+        || report.files.is_empty()
+        || report.files.iter().any(|file| file.language != "go")
+    {
+        return false;
+    }
+    let files: BTreeSet<_> = report.files.iter().map(|file| &file.path).collect();
+    let roots: BTreeSet<_> = report.project.roots.iter().collect();
+    roots == files
 }
 
 /// Compares this run against a pinned Generic Issue Import reference report

@@ -97,9 +97,15 @@ or authenticate coverage producers.
 ### Enforce the upload verdict in CI
 
 HTTP 200 acknowledges storage. A failing or unavailable gate is still stored.
-The script below checks the service receipt for the exact project, branch and
-commit in the CI job. It exits **0** for an assigned pass, **1** for a failed
-gate, and **2** for unavailable, unassigned, malformed, or mismatched results.
+The script below checks the service receipt for the exact project, branch,
+commit, and policy version expected by the CI job. Set `POLICY_VERSION` to the
+positive revision number your job requires. An idempotent upload can return an
+older bound version after a policy update, so passing the expected version
+prevents CI from accepting that older decision. If you omit `--policy-version`,
+the checker accepts any assigned version with a valid decision.
+
+The checker exits **0** for an assigned pass, **1** for a failed gate, and **2**
+for unavailable, unassigned, malformed, or mismatched results.
 
 ```sh
 # Use a trusted service URL and the scanner credential from the CI secret store.
@@ -110,7 +116,7 @@ curl --fail --silent --show-error \
   --data-binary @ingest.json "$SERVICE_URL/api/v1/projects/$PROJECT/analyses" \
   -o ingest-receipt.json
 python3 scripts/check_project_gate.py --project "$PROJECT" --branch "$BRANCH" \
-  --commit "$COMMIT" < ingest-receipt.json
+  --commit "$COMMIT" --policy-version "$POLICY_VERSION" < ingest-receipt.json
 ```
 
 The [Redux replay](../../tools/oracle/project_gate_policy_replay.py) exercises
@@ -215,6 +221,80 @@ committed, the retry returns its analysis ID with `idempotent: true`. If it
 never committed, the retry creates the analysis. A different report for the
 same project, branch, and commit returns HTTP 409.
 
+### Back up and restart a whole instance
+
+Run one active service process per database on local storage. Keep the
+database and its SQLite sidecars in the same directory. Monitor free space
+for the database, WAL and recovery copies. Retention hides old analyses and
+keeps an audit record; it does not reclaim their report data.
+
+Use the commands below with the SQLite CLI and a private backup directory.
+Run them with access to the live database and its sidecars. SQLite reads the
+committed database while the service is online. For a planned move, pause
+uploads and changes to reviews, policies and retention before taking the
+final copy. A restore contains only the data included in that copy.
+
+```sh
+set -eu
+umask 077
+database=/srv/hoonarqube/service.sqlite3
+snapshot=$(mktemp -d /secure/backups/hoonarqube.XXXXXXXX)
+(
+  cd "$snapshot"
+  sqlite3 -batch -bail -readonly "$database" '.backup service.sqlite3'
+  for suffix in -wal -shm -journal; do
+    test ! -e "service.sqlite3$suffix"
+  done
+  # Use immutable mode only on the closed, standalone backup.
+  archive='file:service.sqlite3?mode=ro&immutable=1'
+  integrity=$(sqlite3 -batch -bail -readonly "$archive" 'PRAGMA integrity_check;')
+  foreign_keys=$(sqlite3 -batch -bail -readonly "$archive" 'PRAGMA foreign_key_check;')
+  test "$integrity" = ok
+  test -z "$foreign_keys"
+  shasum -a 256 service.sqlite3 > SHA256SUMS
+)
+printf '%s\n' "$snapshot"
+```
+
+Record the backup time and service version, and keep the checksum receipt
+in a trusted location. Back up the role assignments and credentials through
+your credential store. The database contains actor IDs and project data, so
+restrict the backup to operators who can access every project.
+
+To rehearse recovery, copy the closed archive to a fresh directory and check
+the copy against the trusted receipt. Use the same service version and an
+isolated loopback port. The service account must be able to write the new
+directory and read the supplied credentials file.
+
+```sh
+set -eu
+umask 077
+# Set snapshot and trusted_checksum_file to the absolute paths for this backup.
+restored=$(mktemp -d /secure/recovery/hoonarqube.XXXXXXXX)
+cp "$snapshot/service.sqlite3" "$restored/service.sqlite3"
+(cd "$restored" && shasum -a 256 -c "$trusted_checksum_file")
+
+env -u HOONARQUBE_SERVICE_CREDENTIALS \
+  HOONARQUBE_SERVICE_DB="$restored/service.sqlite3" \
+  HOONARQUBE_SERVICE_BIND=127.0.0.1:8081 \
+  HOONARQUBE_SERVICE_CREDENTIALS_FILE=/secure/recovery/credentials.json \
+  /path/to/hoonarqube-service
+```
+
+Verify that a reader can list only their projects. Check a known analysis
+receipt, the first and last finding pages, an existing review history, any
+assigned gate and a recently deleted analysis. Retry a saved upload body and
+verify the expected analysis ID. Record how long copy, startup and these
+checks take on your storage. Stop the old process before switching the
+configured database path. Keep the untouched database and its
+sidecars until you have verified the restored instance. Keep the older binary
+and its pre-upgrade backup together if you need to roll back a schema upgrade.
+
+For a restart without recovery, start the same binary against its existing
+database. If you can, let pending uploads finish before stopping the process.
+After startup, check a known project and use the saved request body for any
+upload whose acknowledgement was lost.
+
 ### Recover one project above the HTTP limit
 
 Use the operator script from this service revision on Linux or macOS with
@@ -284,15 +364,21 @@ The probe runs three batches of eight clients on one project and three on
 two projects, with four service workers. Each batch includes concurrent
 duplicate ingests and reads of 100 findings. It checks authorization,
 optimistic review updates, two process kills with subsequent retries,
-project backup, and whole-instance recovery. The recorded inputs were
+project backup, and whole-instance recovery. During the SQLite backup it
+pauses the copy after its first step, verifies that two reader requests and
+one real upload finish, then verifies that the restored copy excludes that
+later upload. The receipt includes SQLite integrity, gate versions, a
+deletion audit record, and comparisons of paginated history, findings and
+review history before and after restore. The recorded inputs were
 Zod `0b216ef674e297ebe41d8bf902262e56f8755822` (5,941 findings), Acorn
 `e4516ce0f49aea06b98ae1a551644119958ed4e1` (5,311), Ajv
 `9050ba1359fb87cd7c143f3c79513ea7624ea443` (5,268), and Yjs
 `ee37f0a0e23a7c3e14531bae335d439e54c743e6` (4,896). Assessed inputs were
-4.1–7.0 MB each. The snapshot case reached 12 analyses and 65,336 findings
-in a 145 MB database. This bounded loopback check measures local timings
-and process restart recovery; it does not establish production throughput,
-availability, or recovery after machine or storage failure.
+4.1–7.0 MB each. This bounded loopback check measures local timings and
+process restart recovery. The backup timing includes the deliberate pause;
+use an uninterrupted rehearsal on your storage to set recovery targets.
+Production throughput, availability, and recovery after machine or storage
+failure remain untested.
 
 ## Focused verification
 

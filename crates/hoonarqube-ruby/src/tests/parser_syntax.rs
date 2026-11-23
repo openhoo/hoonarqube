@@ -75,3 +75,17 @@ fn endless_methods_accept_command_calls_without_reinterpreting_operators() {
         assert!(parse_source(bad).unwrap().root_node().has_error(), "{bad}");
     }
 }
+
+#[test]
+fn typed_percent_literals_accept_equals_without_consuming_modulo_assignment() {
+    let source = "a = %r=before\\=after=\nb = %q=literal=\nc %= 2";
+    assert_eq!(spans(source, "regex"), ["%r=before\\=after="]);
+    assert_eq!(spans(source, "string"), ["%q=literal="]);
+    assert_eq!(spans(source, "operator_assignment"), ["c %= 2"]);
+    assert!(
+        parse_source("a = %r=unclosed")
+            .unwrap()
+            .root_node()
+            .has_error()
+    );
+}

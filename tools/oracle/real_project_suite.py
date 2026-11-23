@@ -322,13 +322,13 @@ def capture_reference(row, sonar, root, folder):
     key = row["project_key"]
     issues = sonar.pages(
         "/api/issues/search",
-        {"componentKeys": key, "resolved": "false", "additionalFields": "_all"},
+        {"components": key, "resolved": "false", "additionalFields": "_all"},
         "issues",
         folder,
         "issues",
     )
     hotspots = sonar.pages(
-        "/api/hotspots/search", {"projectKey": key}, "hotspots", folder, "hotspots"
+        "/api/hotspots/search", {"project": key}, "hotspots", folder, "hotspots"
     )
     write_json_atomic(folder / "issues.json", issues)
     write_json_atomic(folder / "hotspots.json", hotspots)
