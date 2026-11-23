@@ -570,6 +570,12 @@ are explicit inputs:
   `new_code` does not support `code_lines` or `comment_lines`, and any
   `new_code` condition requires `--baseline`.
 
+A gate requires at least one measured source or test file. A directory with
+only unsupported extensions, an empty directory, or an inventory containing
+only exclusions returns `unavailable` (CLI exit 2). Directory discovery
+continues to select supported files in mixed trees. An unchanged baseline
+with measured files can still establish that there is no new code.
+
 The `coverage` metric counts covered lines and covered branch outcomes together,
 then divides by the total number of measured lines and branch outcomes. On new
 code, it selects observations on changed lines before calculating the ratio.
