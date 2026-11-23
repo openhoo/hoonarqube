@@ -27,6 +27,8 @@ jobs:
           save-if: false
       - name: Build the candidate analyzer and service
         run: cargo build --locked --release -p hoonarqube-cli -p hoonarqube-service
+      - name: Build and test a pinned Blinker wheel and compare assigned coverage gates
+        run: python3 tools/oracle/blinker_build/replay.py target/release
       - name: Check pinned source blobs and selected Sonar primary locations
         run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube
       - name: Compare Ruby empty methods against positive and silent Community references
@@ -35,7 +37,28 @@ jobs:
           --case rack --case puma-puma --case dry-rb-dry-monads --case ruby-logger
       - name: Check Ruby duplicate literals and supporting locations on 49 public projects
         run: python3 tools/oracle/ruby_duplicate_literals.py --binary target/release/hoonarqube
+      - name: Check primary locations on 24 more pinned public repositories
+        run: python3 tools/oracle/public_locations.py target/release/hoonarqube
+      - name: Check current Community core, extended and comprehensive profiles
+        run: python3 tools/oracle/community_profiles.py target/release/hoonarqube
       - name: Enforce assigned gates and authorized reviews on two Redux revisions
         run: python3 tools/oracle/public_redux_gates.py target/release
+      - name: Compare Python duplication blocks and line ranges on public packages
+        run: >-
+          python3 tools/oracle/python_duplication.py --binary target/release/hoonarqube
+          --case starlette --case httpx --case idna --case Textualize-rich
+      - name: Check each new and duplicated line in the shipped FastAPI package
+        run: python3 tools/oracle/fastapi_package_gate.py target/release/hoonarqube --current-default
       - name: Compare duplication gates on real Yjs and FastAPI changes
         run: python3 tools/oracle/community_new_duplication.py target/release
+      - name: Compare qualified violation gates with one Community failure, one pass and one missing detector
+        run: |
+          git init --quiet "$RUNNER_TEMP/hq-yjs"
+          git -C "$RUNNER_TEMP/hq-yjs" fetch --quiet --no-tags https://github.com/yjs/yjs.git a5e390160ca8686b9a54b3d924f37041e89407b3
+          git -C "$RUNNER_TEMP/hq-yjs" update-ref refs/heads/captured FETCH_HEAD
+          git init --quiet "$RUNNER_TEMP/hq-chi"
+          git -C "$RUNNER_TEMP/hq-chi" fetch --quiet --no-tags https://github.com/go-chi/chi.git fff8bb28cbeb658c3c916aff02a780b89532841e
+          git -C "$RUNNER_TEMP/hq-chi" update-ref refs/heads/captured FETCH_HEAD
+          python3 tools/oracle/community_qualified_violations.py \
+            --scanner target/release/hoonarqube --service target/release/hoonarqube-service \
+            --yjs "$RUNNER_TEMP/hq-yjs" --chi "$RUNNER_TEMP/hq-chi"

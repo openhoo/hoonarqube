@@ -7,6 +7,8 @@
 
 mod community_profile;
 
+pub use community_profile::qualified_community_detector_digest;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -37,6 +39,7 @@ pub const SUPPORTED_METRICS: &[&str] = &[
     "violations",
     "security_hotspots_reviewed",
     community_profile::VIOLATIONS,
+    community_profile::STRICT_VIOLATIONS,
     community_profile::HOTSPOTS,
     "duplicated_lines",
     "duplicated_blocks",
@@ -174,6 +177,7 @@ pub fn metric_supported(scope: &GateScope, metric: &str) -> bool {
                 | "violations"
                 | "security_hotspots_reviewed"
                 | community_profile::VIOLATIONS
+                | community_profile::STRICT_VIOLATIONS
                 | community_profile::HOTSPOTS
                 | "duplicated_lines"
                 | "duplicated_blocks"
@@ -538,13 +542,9 @@ fn new_code_metric(
         "violations"
         | "security_hotspots_reviewed"
         | community_profile::VIOLATIONS
+        | community_profile::STRICT_VIOLATIONS
         | community_profile::HOTSPOTS => {
-            let qualified = matches!(
-                metric,
-                community_profile::VIOLATIONS | community_profile::HOTSPOTS
-            )
-            .then(|| community_profile::Qualified::new(report))
-            .transpose()?;
+            let qualified = community_profile::Qualified::for_metric(metric, report)?;
             let assessment = report.assessment.as_ref().ok_or("missing assessment")?;
             new_security_metric(
                 metric,
