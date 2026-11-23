@@ -19,6 +19,8 @@ A team using custom **overall** conditions has a shorter path. [Commander.js](..
 
 On the [current 26.11 default gate](../../tools/oracle/community-profiles-26.11.md#fastapi-the-default-gate-on-a-real-change), both products blocked a FastAPI change. The duplication result agreed. The native profile also reported 13 violations of inactive reference rules, and distinguished missing coverage from 0% coverage. Compare the individual conditions before replacing a required check.
 
+The [Blinker wheel contract](../../tools/oracle/blinker_build/README.md) builds the actual package and runs its 25 upstream tests. Both products pass the full suite's 80% overall gate, fail with only four focused tests, and block CI when the coverage file is missing. The native service evaluates the assigned policy and preserves its decisions after restart.
+
 ## Pilot record and release decision
 
 1. **Freeze inputs.** Record the repository, base and candidate SHAs, exact scanner and reference builds, source/test exclusions, effective rule keys and parameters, coverage file digest, and the assigned gate with all thresholds and overrides. Preserve the two input reports used for new-code comparison. The native baseline is an explicit prior report; verify the actual reference definition of new code for the project.
