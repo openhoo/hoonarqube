@@ -41,19 +41,15 @@ pub(super) fn anchored_repeats_overlap(
             && let Some((left_index, left_chars)) = previous_repeat(&flat[..right_index], flags)
             && !left_chars.clone().intersect(right_chars.clone()).is_empty()
             && left_index <= valid_prefix
+            && suffix_can_reject(
+                left_chars,
+                right_chars,
+                &flat[left_index + 1..right_index],
+                &tail,
+                flags,
+            )
         {
-            let mut consumable = left_chars.union(right_chars).union(tail.clone());
-            for separator in &flat[left_index + 1..right_index] {
-                if let Some(chars) = first_set(separator, flags) {
-                    consumable = consumable.union(chars);
-                }
-            }
-            // A non-newline character rejected by both repeated atoms and the
-            // entire suffix makes the end anchor reject all divisions of a run.
-            let printable = CharClass::Set(vec![(0x20, 0x7e)]);
-            if !printable.subset_of(&consumable) {
-                return true;
-            }
+            return true;
         }
         if !node_can_match_empty(right) {
             break;
@@ -64,6 +60,22 @@ pub(super) fn anchored_repeats_overlap(
         tail = tail.union(chars);
     }
     false
+}
+
+/// The two repeats, optional separators and remaining suffix must leave at
+/// least one printable character unconsumed for the end anchor to reject.
+fn suffix_can_reject(
+    left: CharClass,
+    right: CharClass,
+    separators: &[&PatternNode],
+    tail: &CharClass,
+    flags: RegexFlags,
+) -> bool {
+    let consumed = separators
+        .iter()
+        .filter_map(|node| first_set(node, flags))
+        .fold(left.union(right).union(tail.clone()), CharClass::union);
+    !CharClass::Set(vec![(0x20, 0x7e)]).subset_of(&consumed)
 }
 
 fn flatten_single_alternatives<'a>(sequence: &'a [PatternNode], out: &mut Vec<&'a PatternNode>) {
