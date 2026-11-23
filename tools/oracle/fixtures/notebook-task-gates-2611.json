@@ -1,0 +1,140 @@
+{
+  "cases": [
+    {
+      "actual": 0,
+      "analysis": "8ae6297d-c1f0-49bb-911a-4255db69154f",
+      "decision": "OK",
+      "files": [
+        "examples/example9/center.ipynb",
+        "nbdime/tests/files/empty.ipynb",
+        "nbdime/tests/files/markdown-only--1.ipynb",
+        "nbdime/tests/files/multi_cell_nb.ipynb"
+      ],
+      "issues": [],
+      "label": "nbdime-all",
+      "repository": "jupyter/nbdime",
+      "revision": "744c97897e2c33a1b3f04f5834ee6e70478219a2",
+      "task": "5207be5b-a48d-43c1-b735-ca6f32c8e12b"
+    },
+    {
+      "actual": 1,
+      "analysis": "96073cb1-c7ed-4535-9aa9-d66f7314e82b",
+      "decision": "ERROR",
+      "files": [
+        "docs/source/examples/Index.ipynb",
+        "docs/source/examples/Widget Asynchronous.ipynb",
+        "docs/source/examples/Widget Events.ipynb"
+      ],
+      "issues": [
+        {
+          "path": "docs/source/examples/Widget Asynchronous.ipynb",
+          "range": {
+            "endLine": 120,
+            "endOffset": 26,
+            "startLine": 120,
+            "startOffset": 5
+          }
+        }
+      ],
+      "label": "ipywidgets-source",
+      "repository": "jupyter-widgets/ipywidgets",
+      "revision": "8ada3542abe85fdc52e2bfeeecc07f8db351cb9c",
+      "task": "a75f902e-263b-4c55-9f4f-46068e983a05"
+    },
+    {
+      "actual": 0,
+      "analysis": "dd1b5218-d7f1-459f-a495-f99684de781f",
+      "decision": "OK",
+      "files": [
+        "docs/source/examples/Index.ipynb",
+        "docs/source/examples/Widget Events.ipynb"
+      ],
+      "issues": [],
+      "label": "ipywidgets-control",
+      "repository": "jupyter-widgets/ipywidgets",
+      "revision": "8ada3542abe85fdc52e2bfeeecc07f8db351cb9c",
+      "task": "cf28978e-8372-44a5-bd6d-0e3748e78173"
+    },
+    {
+      "actual": 1,
+      "analysis": "6be0d6f1-dd63-4167-abd8-252d84de81a7",
+      "decision": "ERROR",
+      "files": [
+        "docs/source/examples/Exploring Graphs.ipynb",
+        "docs/source/examples/Factoring.ipynb",
+        "docs/source/examples/Index.ipynb",
+        "docs/source/examples/Output Widget.ipynb",
+        "docs/source/examples/Using Interact.ipynb",
+        "docs/source/examples/Variable Inspector.ipynb",
+        "docs/source/examples/Widget Asynchronous.ipynb",
+        "docs/source/examples/Widget Custom.ipynb",
+        "docs/source/examples/Widget Events.ipynb"
+      ],
+      "issues": [
+        {
+          "path": "docs/source/examples/Widget Asynchronous.ipynb",
+          "range": {
+            "endLine": 120,
+            "endOffset": 26,
+            "startLine": 120,
+            "startOffset": 5
+          }
+        }
+      ],
+      "label": "ipywidgets-all",
+      "repository": "jupyter-widgets/ipywidgets",
+      "revision": "8ada3542abe85fdc52e2bfeeecc07f8db351cb9c",
+      "task": "8ac9917a-e704-4991-a634-639f10561bcd"
+    },
+    {
+      "actual": 0,
+      "analysis": "d9802760-9684-41d9-a8a6-c0ce73e00c01",
+      "decision": "OK",
+      "files": [
+        "docs/source/examples/Notebook/Importing Notebooks.ipynb",
+        "docs/source/examples/Notebook/JavaScript Notebook Extensions.ipynb",
+        "docs/source/examples/Notebook/Notebook Basics.ipynb",
+        "docs/source/examples/Notebook/Running Code.ipynb",
+        "docs/source/examples/Notebook/Working With Markdown Cells.ipynb",
+        "docs/source/examples/Notebook/nbpackage/mynotebook.ipynb",
+        "docs/source/examples/Notebook/nbpackage/nbs/other.ipynb",
+        "nbclassic/bundler/tests/resources/empty.ipynb"
+      ],
+      "issues": [],
+      "label": "nbclassic-all",
+      "repository": "jupyter/nbclassic",
+      "revision": "7ee522cb50cccbab2453f698f3c6a1912ec9b9eb",
+      "task": "5ae26551-8bd3-4e2a-81fb-e8717f3923ef"
+    },
+    {
+      "actual": 0,
+      "analysis": "2323d963-bae4-4818-adf8-e05a2fcf3644",
+      "decision": "OK",
+      "files": [
+        "docs/source/examples/Notebook/Notebook Basics.ipynb",
+        "docs/source/examples/Notebook/Running Code.ipynb",
+        "docs/source/examples/Notebook/nbpackage/mynotebook.ipynb"
+      ],
+      "issues": [],
+      "label": "nbclassic-source",
+      "repository": "jupyter/nbclassic",
+      "revision": "7ee522cb50cccbab2453f698f3c6a1912ec9b9eb",
+      "task": "00906e30-33e6-487c-ae52-295cc66af1dd"
+    }
+  ],
+  "community": "26.11.0.134175",
+  "gate": {
+    "default": false,
+    "error": 0,
+    "metric": "violations",
+    "name": "HQ saved notebook zero S7502 20261123",
+    "op": "GT"
+  },
+  "profile": {
+    "default": false,
+    "name": "HQ saved notebook S7502 only 20261123",
+    "rules": [
+      "ipython:S7502"
+    ]
+  }
+}

@@ -3,25 +3,30 @@ use hoonarqube_python::notebook::{self, RULE};
 use std::path::Path;
 use std::process::ExitCode;
 
-fn inspect_file(path: &Path) -> Result<notebook::Inspection, String> {
+pub(super) fn read_file(path: &Path, remaining: usize) -> Result<String, String> {
     if !path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("ipynb"))
     {
         return Err("expected a .ipynb file".into());
     }
-    if !std::fs::symlink_metadata(path)
-        .map_err(|e| e.to_string())?
-        .is_file()
-    {
+    let metadata = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() {
         return Err("expected a regular notebook file".into());
     }
+    let limit = remaining.min(notebook::MAX_JSON_BYTES);
+    if metadata.len() > limit as u64 {
+        return Err("notebook exceeds the per-file or remaining input budget".into());
+    }
     let raw = hoonarqube_core::read_bounded_source(path).map_err(|e| e.to_string())?;
-    notebook::inspect(&raw)
+    if raw.len() > limit {
+        return Err("notebook exceeds the per-file or remaining input budget".into());
+    }
+    Ok(raw)
 }
 
 pub(super) fn run(path: &Path, json: bool) -> ExitCode {
-    let result = inspect_file(path);
+    let result = read_file(path, notebook::MAX_JSON_BYTES).and_then(|raw| notebook::inspect(&raw));
     if json {
         let (status, inspection, reason) = match &result {
             Ok(report) => ("inspected", Some(report), None),

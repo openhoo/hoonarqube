@@ -821,7 +821,7 @@ fn assessment_status_name(status: AssessmentStatus) -> &'static str {
     }
 }
 
-fn gate_status_name(status: GateStatus) -> &'static str {
+pub(super) fn gate_status_name(status: GateStatus) -> &'static str {
     match status {
         GateStatus::NoValue => "no_value",
         GateStatus::Pass => "pass",

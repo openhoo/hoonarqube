@@ -89,6 +89,46 @@ Community again reported 17–21; the physical token occupied 27–36. Hoonarqub
 reports the range that selects the original JSON spelling. These artificial
 controls supplement the public notebook evidence and are replayed separately.
 
+## Gate a selected notebook file set in CI
+
+```sh
+hoonarqube notebook-gate --max-violations 0 --json -- \
+  "docs/source/examples/Widget Asynchronous.ipynb" \
+  "docs/source/examples/Widget Events.ipynb" \
+  "docs/source/examples/Index.ipynb"
+```
+
+This is a local gate for a profile containing exactly `ipython:S7502`. Supply
+every notebook in the intended scope as a separate argument. The JSON result
+records that profile, the maximum allowed violation count, and the hash and
+count for every successfully inspected input. The inclusive threshold is
+checked against the total. A pass exits 0, a failure exits 1. If any input
+cannot be inspected, the total is null and the command exits 2, even if an
+earlier notebook contained a finding. Directories, duplicate canonical
+paths, symlink files and empty input sets cannot yield a pass. The gate
+accepts at most 256 files and 64 MiB of input in total, in addition to the
+individual notebook limits above. Use `notebook --json` for individual ranges.
+
+We assigned a private one-rule profile and a quality gate of
+`violations ≤ 0` to six independent Community 26.11 analyses of the original
+public inputs. Both the profile and gate were assigned explicitly. The
+[reference decisions](../../tools/oracle/fixtures/notebook-task-gates-2611.json)
+record the analysis, task, revision, file list and findings.
+
+| Scope | Files | Community | Hoonarqube |
+| --- | ---: | --- | --- |
+| nbdime, all selected | 4 | OK / 0 | pass / 0 |
+| ipywidgets, positive and controls | 3 | ERROR / 1 | fail / 1 |
+| ipywidgets, controls only | 2 | OK / 0 | pass / 0 |
+| ipywidgets, all selected | 9 | ERROR / 1 | unavailable |
+| nbclassic, all selected | 8 | OK / 0 | unavailable |
+| nbclassic, selected parseable inputs | 3 | OK / 0 | pass / 0 |
+
+The two unavailable decisions include unsupported syntax or cell magics.
+This gate covers only the named rule and file set. It does not issue a
+trusted service receipt, measure duplication, qualify the 230-rule built-in
+profile, or change how `hoonarqube analyze --quality-gate` handles notebooks.
+
 ## Replay
 
 From the repository root:

@@ -14,7 +14,8 @@ use serde_json::value::RawValue;
 const MAX_CELLS: usize = 4096;
 const MAX_PROJECTED_BYTES: usize = 1024 * 1024;
 const MAX_FRAGMENTS: usize = 65_536;
-const MAX_JSON_BYTES: usize = 4 * 1024 * 1024;
+/// Maximum byte length of an original JSON notebook accepted by this inspector.
+pub const MAX_JSON_BYTES: usize = 4 * 1024 * 1024;
 
 /// Community rule selected for this inspection.
 pub const RULE: &str = "ipython:S7502";
