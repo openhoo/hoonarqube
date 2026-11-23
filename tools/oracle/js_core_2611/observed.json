@@ -1,0 +1,196 @@
+{
+  "mode": "core-audit",
+  "scanner_sha256": "5183fc31cbbba831d0360daa63bffea7a94544f463f56537b32ceec1e0bc213a",
+  "commander": [
+    {
+      "period": "b51c0ea3-broad",
+      "legacy_or_selected_new": {},
+      "reference_new": 0,
+      "gate": "unavailable"
+    },
+    {
+      "period": "987f2896-focused",
+      "legacy_or_selected_new": {},
+      "reference_new": 0,
+      "gate": "unavailable"
+    }
+  ],
+  "controls": [
+    {
+      "repository": "npm/ini",
+      "revision": "3c96c74fd42584bd655e17a4e63e2ef0a3b406ee",
+      "reference": 2,
+      "matched": 1,
+      "metadata_differences": {},
+      "additional": [
+        [
+          "lib/ini.js",
+          "javascript:S5850",
+          112,
+          14,
+          112,
+          49,
+          "Group parts of the regex together to make the intended operator precedence explicit."
+        ]
+      ],
+      "missing": [
+        [
+          "lib/ini.js",
+          "javascript:S2871",
+          21,
+          43,
+          21,
+          47,
+          "Provide a compare function that depends on \"String.localeCompare\", to reliably sort elements alphabetically."
+        ]
+      ]
+    },
+    {
+      "repository": "debug-js/debug",
+      "revision": "666dbc50680933bde9e7fde3a6c3241102e8f60b",
+      "reference": 1,
+      "matched": 1,
+      "metadata_differences": {},
+      "additional": [],
+      "missing": []
+    },
+    {
+      "repository": "jshttp/negotiator",
+      "revision": "14b0a7b88e7e7bb1cae38681195951bff29ca2fd",
+      "reference": 1,
+      "matched": 1,
+      "metadata_differences": {},
+      "additional": [
+        [
+          "lib/mediaType.js",
+          "javascript:S7727",
+          136,
+          14,
+          136,
+          23,
+          "Do not pass function `isQuality` directly to `.filter(…)`."
+        ],
+        [
+          "lib/mediaType.js",
+          "javascript:S7727",
+          138,
+          11,
+          138,
+          22,
+          "Do not pass function `getFullType` directly to `.map(…)`."
+        ],
+        [
+          "lib/mediaType.js",
+          "javascript:S7727",
+          146,
+          27,
+          146,
+          36,
+          "Do not pass function `isQuality` directly to `.filter(…)`."
+        ]
+      ],
+      "missing": []
+    },
+    {
+      "repository": "caolan/async",
+      "revision": "3921e54bd0704157dbea238fdfcc0c3619abde1a",
+      "reference": 2,
+      "matched": 0,
+      "metadata_differences": {},
+      "additional": [],
+      "missing": [
+        [
+          "lib/auto.js",
+          "javascript:S2189",
+          226,
+          35,
+          226,
+          47,
+          "'runningTasks' is not modified in this loop."
+        ],
+        [
+          "lib/auto.js",
+          "javascript:S2189",
+          226,
+          50,
+          226,
+          61,
+          "'concurrency' is not modified in this loop."
+        ]
+      ]
+    },
+    {
+      "repository": "feross/buffer",
+      "revision": "d02bd0a30d9b0bbd0189d5a7c424b0ab165fe5ab",
+      "reference": 11,
+      "matched": 11,
+      "metadata_differences": {},
+      "additional": [
+        [
+          "index.js",
+          "javascript:S3923",
+          1977,
+          8,
+          1985,
+          9,
+          "This conditional operation returns the same value whether the condition is \"true\" or \"false\"."
+        ],
+        [
+          "index.js",
+          "javascript:S3981",
+          278,
+          17,
+          278,
+          33,
+          "Fix this always-true/false length comparison."
+        ],
+        [
+          "index.js",
+          "javascript:S6534",
+          1671,
+          40,
+          1671,
+          62,
+          "This numeric literal exceeds safe precision; use BigInt or shorten it."
+        ],
+        [
+          "index.js",
+          "javascript:S6534",
+          1671,
+          65,
+          1671,
+          87,
+          "This numeric literal exceeds safe precision; use BigInt or shorten it."
+        ],
+        [
+          "index.js",
+          "javascript:S6534",
+          1689,
+          40,
+          1689,
+          63,
+          "This numeric literal exceeds safe precision; use BigInt or shorten it."
+        ],
+        [
+          "index.js",
+          "javascript:S6534",
+          1689,
+          66,
+          1689,
+          89,
+          "This numeric literal exceeds safe precision; use BigInt or shorten it."
+        ],
+        [
+          "index.js",
+          "javascript:S905",
+          1837,
+          4,
+          1837,
+          13,
+          "Expected an assignment or function call and instead saw an expression."
+        ]
+      ],
+      "missing": []
+    }
+  ]
+}

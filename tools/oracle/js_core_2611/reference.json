@@ -1,0 +1,3383 @@
+{
+  "commander": [
+    {
+      "coverage_sha256": "6f7fb1f4027d2821a673c1a6127f791ec6b88082a6c3934d6d1ddcdd0ee8dba7",
+      "gate": {
+        "ignoredConditions": false,
+        "status": "OK"
+      },
+      "label": "b51c0ea3-broad",
+      "legacy_new_issues": {
+        "javascript:S104": 1,
+        "javascript:S1451": 7,
+        "javascript:S3524": 2,
+        "javascript:S7763": 4
+      },
+      "period": {
+        "analysis_id": "5fb9f12f-5ef7-494e-8c68-6ba5de073cda",
+        "revision": "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75",
+        "timestamp_ms": 1770623507000
+      },
+      "reference_new_coverage": "100.0",
+      "reference_new_hotspots": 0,
+      "reference_new_issues": 0,
+      "repository": "tj/commander.js",
+      "stages": [
+        {
+          "analysis": "5fb9f12f-5ef7-494e-8c68-6ba5de073cda",
+          "completed": "2026-11-23T08:08:19+0000",
+          "files": {
+            "index.js": "a1bb4f6511f3801f961ab3efe5b735e6f248dd52c3937b260fc6c0d85d1896b3",
+            "lib/argument.js": "bc36a8a2438a051556ee150ab5af0b4f6a017af243a43cc44a26bb42abea9bae",
+            "lib/command.js": "de000a283c56514cd1c1481928af471c9f26403e50ee3dd3871ed11f03ecccb2",
+            "lib/error.js": "013d254f21524dc912aa61a53394d5ebb97e722be1c683f7bd2313c14597d521",
+            "lib/help.js": "7d5757c053964023d45d82a4d4de01dadf32a2055f15d8ab58166914f035b9ea",
+            "lib/option.js": "b5cf136f3db9dd92654d3d3dfd82929079c3aef62584d7f11c9782e8576cec97",
+            "lib/suggestSimilar.js": "6a3a368ace1abd1cc6b551ae10bcbae18eda3fed0fb0cfd60c7960c6663dad58"
+          },
+          "project": "hq-commander-2611-default-b51c0ea3-broad",
+          "revision": "b51c0ea3d012ea165d7e50bb375f4db67b9d8e75",
+          "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+          "task": "f5363f11-4ef6-49a1-8ab1-789d94f7dea9",
+          "tree": "3a4c49d4546c76ad7f87642e189b422741ad81a4"
+        },
+        {
+          "analysis": "24bfbf29-4a40-482b-b850-37ddc391bc3b",
+          "completed": "2026-11-23T08:08:38+0000",
+          "files": {
+            "index.js": "3b1110c896b70704627d415e6658953a5a6f099e0b141311c73dfb06e55bdbcc",
+            "lib/argument.js": "a86c43174d904198b92ece266e97b6b711e640f3b89ac45291b682a753e145e4",
+            "lib/command.js": "751c19479dac3e3f415fbbd709df90d25c595034f699dba7bef6eeab4dc1304b",
+            "lib/error.js": "98ac5e1b63894792fa7740e5fb2b79ef8c016d94fc41e55bb6ff85fff3346e72",
+            "lib/help.js": "c1a58d89555b8c0cef5c3da9b173c998ce1faf43fe2cdcb331c0fd2c3a455c38",
+            "lib/option.js": "29fc1d0311f16f33fd0df2d8589c93b0a7e37fb89afd852672ba3b7083fa1515",
+            "lib/suggestSimilar.js": "eaa0c4bd9f4d51259c9107e65173f7de37a5413cbd5de39a5795d83d3c7deb3f"
+          },
+          "project": "hq-commander-2611-default-b51c0ea3-broad",
+          "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+          "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+          "task": "e5cefc2b-02e1-4fff-8240-3f84ec04245d",
+          "tree": "ea7f757f861aba3926265ffc2b0955dd73a9684b"
+        }
+      ]
+    },
+    {
+      "coverage_sha256": "51099d327bf01fe5c7e6e12f420f4a937877e21eeb4e4482ff97dc5ade039aaa",
+      "gate": {
+        "ignoredConditions": false,
+        "status": "OK"
+      },
+      "label": "987f2896-focused",
+      "legacy_new_issues": {
+        "javascript:S104": 1,
+        "javascript:S1451": 2,
+        "javascript:S3524": 1
+      },
+      "period": {
+        "analysis_id": "3dc5d52b-46d7-4f52-8fb3-f0b44e9a1e52",
+        "revision": "987f28966c71baecb0ef4a36780e727bcd575b31",
+        "timestamp_ms": 1772851044000
+      },
+      "reference_new_coverage": "80.0",
+      "reference_new_hotspots": 0,
+      "reference_new_issues": 0,
+      "repository": "tj/commander.js",
+      "stages": [
+        {
+          "analysis": "3dc5d52b-46d7-4f52-8fb3-f0b44e9a1e52",
+          "completed": "2026-11-23T08:09:58+0000",
+          "files": {
+            "index.js": "3b1110c896b70704627d415e6658953a5a6f099e0b141311c73dfb06e55bdbcc",
+            "lib/argument.js": "a86c43174d904198b92ece266e97b6b711e640f3b89ac45291b682a753e145e4",
+            "lib/command.js": "e20fd5493aea0271e2d89276b137a354dadd0e6d4893da53743df3dacb63f73d",
+            "lib/error.js": "98ac5e1b63894792fa7740e5fb2b79ef8c016d94fc41e55bb6ff85fff3346e72",
+            "lib/help.js": "0b0d0b93ad49253fd41474499354926efa6f6a49beef3fde7169db7576cd3278",
+            "lib/option.js": "29fc1d0311f16f33fd0df2d8589c93b0a7e37fb89afd852672ba3b7083fa1515",
+            "lib/suggestSimilar.js": "eaa0c4bd9f4d51259c9107e65173f7de37a5413cbd5de39a5795d83d3c7deb3f"
+          },
+          "project": "hq-commander-2611-default-987f2896-focused",
+          "revision": "987f28966c71baecb0ef4a36780e727bcd575b31",
+          "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+          "task": "b9bf7e38-3e76-4ad4-a9ab-3a57cb3ad0ed",
+          "tree": "390088dbc88e29b8ca6459bfafd57fa24282783c"
+        },
+        {
+          "analysis": "93574144-95e6-4fee-a3cd-3a3effe4d374",
+          "completed": "2026-11-23T08:10:15+0000",
+          "files": {
+            "index.js": "3b1110c896b70704627d415e6658953a5a6f099e0b141311c73dfb06e55bdbcc",
+            "lib/argument.js": "a86c43174d904198b92ece266e97b6b711e640f3b89ac45291b682a753e145e4",
+            "lib/command.js": "751c19479dac3e3f415fbbd709df90d25c595034f699dba7bef6eeab4dc1304b",
+            "lib/error.js": "98ac5e1b63894792fa7740e5fb2b79ef8c016d94fc41e55bb6ff85fff3346e72",
+            "lib/help.js": "c1a58d89555b8c0cef5c3da9b173c998ce1faf43fe2cdcb331c0fd2c3a455c38",
+            "lib/option.js": "29fc1d0311f16f33fd0df2d8589c93b0a7e37fb89afd852672ba3b7083fa1515",
+            "lib/suggestSimilar.js": "eaa0c4bd9f4d51259c9107e65173f7de37a5413cbd5de39a5795d83d3c7deb3f"
+          },
+          "project": "hq-commander-2611-default-987f2896-focused",
+          "revision": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+          "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+          "task": "24a5560d-1ac8-4a24-8700-c5507317496b",
+          "tree": "ea7f757f861aba3926265ffc2b0955dd73a9684b"
+        }
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "analysis": "6b2fbb60-80ae-4f3b-80a7-08169b077d29",
+      "completed": "2026-11-22T17:00:51+0000",
+      "files": {
+        "lib/ini.js": "007123836ffec243f41c8b35584fb3db0498aa12a440a9e0efc675d0000f4c32"
+      },
+      "issues": [
+        {
+          "impacts": {
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            21,
+            43,
+            21,
+            47
+          ],
+          "message": "Provide a compare function that depends on \"String.localeCompare\", to reliably sort elements alphabetically.",
+          "path": "lib/ini.js",
+          "rule": "javascript:S2871",
+          "severity": "CRITICAL",
+          "type": "BUG"
+        },
+        {
+          "impacts": {
+            "RELIABILITY": "MEDIUM"
+          },
+          "location": [
+            39,
+            9,
+            39,
+            15
+          ],
+          "message": "Add an initial value to this \"reduce()\" call.",
+          "path": "lib/ini.js",
+          "rule": "javascript:S6959",
+          "severity": "MAJOR",
+          "type": "BUG"
+        }
+      ],
+      "previous": true,
+      "project": "openhoo-2611-cohort-npm-ini",
+      "repository": "npm/ini",
+      "revision": "3c96c74fd42584bd655e17a4e63e2ef0a3b406ee",
+      "task": "05757378-aab6-40ca-9eeb-79c8fc48e73b",
+      "tree": "7e5a719dd1ce44116c64021c874aef272890ba6f"
+    },
+    {
+      "analysis": "fdece931-89fe-48e0-a5bf-a57b3208110d",
+      "completed": "2026-11-23T08:23:15+0000",
+      "files": {
+        "src/common.js": "dbe83d2bb5837f3c4d7fe537b8004c585987270eceed5b06b8e078deb0ae214a"
+      },
+      "github_id": 2871998,
+      "issues": [
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            46,
+            3,
+            46,
+            12
+          ],
+          "message": "Use `Math.trunc` instead of `|= 0`.",
+          "path": "src/common.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        }
+      ],
+      "previous": false,
+      "project": "hq-js-core-2611-public-20261123-debug-js-debug-666dbc50",
+      "repository": "debug-js/debug",
+      "revision": "666dbc50680933bde9e7fde3a6c3241102e8f60b",
+      "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "task": "59bb5db8-029e-4a19-a318-0cfa94ebe692",
+      "tree": "1071f4af354b6a56c363210e4c24823548500f78"
+    },
+    {
+      "analysis": "edc93071-3499-435b-a797-f4549f71df2e",
+      "completed": "2026-11-23T08:23:55+0000",
+      "files": {
+        "lib/mediaType.js": "b50ecadd7e030f0e024c875ac5a4a97ea62079856ed43309ba4fececf257e045"
+      },
+      "github_id": 3275614,
+      "issues": [
+        {
+          "impacts": {
+            "MAINTAINABILITY": "LOW",
+            "RELIABILITY": "MEDIUM"
+          },
+          "location": [
+            48,
+            32,
+            48,
+            42
+          ],
+          "message": "Prefer `Number.parseFloat` over `parseFloat`.",
+          "path": "lib/mediaType.js",
+          "rule": "javascript:S7773",
+          "severity": "MINOR",
+          "type": "CODE_SMELL"
+        }
+      ],
+      "previous": false,
+      "project": "hq-js-core-2611-public-20261123-jshttp-negotiator-14b0a7b8",
+      "repository": "jshttp/negotiator",
+      "revision": "14b0a7b88e7e7bb1cae38681195951bff29ca2fd",
+      "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "task": "311e1174-54a5-416b-9735-b1376eb44de8",
+      "tree": "9d6dd1cb49ed07d9c9269133e14c80319fd0ba28"
+    },
+    {
+      "analysis": "a42ed44a-94d4-41d8-a699-beb62cfea990",
+      "completed": "2026-11-23T08:24:12+0000",
+      "files": {
+        "lib/auto.js": "32969526e8083c9c40cf4dbb94219e82127c98cec5838821e1cdf4602fa1d34c"
+      },
+      "github_id": 698041,
+      "issues": [
+        {
+          "impacts": {
+            "RELIABILITY": "BLOCKER"
+          },
+          "location": [
+            226,
+            35,
+            226,
+            47
+          ],
+          "message": "'runningTasks' is not modified in this loop.",
+          "path": "lib/auto.js",
+          "rule": "javascript:S2189",
+          "severity": "BLOCKER",
+          "type": "BUG"
+        },
+        {
+          "impacts": {
+            "RELIABILITY": "BLOCKER"
+          },
+          "location": [
+            226,
+            50,
+            226,
+            61
+          ],
+          "message": "'concurrency' is not modified in this loop.",
+          "path": "lib/auto.js",
+          "rule": "javascript:S2189",
+          "severity": "BLOCKER",
+          "type": "BUG"
+        }
+      ],
+      "previous": false,
+      "project": "hq-js-core-2611-public-20261123-caolan-async-3921e54b",
+      "repository": "caolan/async",
+      "revision": "3921e54bd0704157dbea238fdfcc0c3619abde1a",
+      "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "task": "f60cb9ef-c7d6-4339-996f-52975b34473c",
+      "tree": "95dfb91f6cb17a263f7fc7a0d146cf42576b4557"
+    },
+    {
+      "analysis": "e39f1e5b-6cf1-46c3-94e9-be68b7d0f725",
+      "completed": "2026-11-23T08:24:28+0000",
+      "files": {
+        "index.js": "4875705f3bef7a50ff04af1e58e9601e73ecfe361cda8d4fb0a3b0c2765a64df"
+      },
+      "github_id": 14494363,
+      "issues": [
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            237,
+            37,
+            237,
+            54
+          ],
+          "message": "Use `Math.trunc` instead of `| 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            262,
+            17,
+            262,
+            49
+          ],
+          "message": "Use `Math.trunc` instead of `| 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            278,
+            40,
+            278,
+            65
+          ],
+          "message": "Use `Math.trunc` instead of `| 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            321,
+            16,
+            321,
+            39
+          ],
+          "message": "Use `Math.trunc` instead of `| 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            351,
+            9,
+            351,
+            19
+          ],
+          "message": "Use `Math.trunc` instead of `| 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "LOW",
+            "RELIABILITY": "MEDIUM"
+          },
+          "location": [
+            894,
+            13,
+            894,
+            21
+          ],
+          "message": "Prefer `Number.isFinite` over `isFinite`.",
+          "path": "index.js",
+          "rule": "javascript:S7773",
+          "severity": "MINOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "LOW",
+            "RELIABILITY": "MEDIUM"
+          },
+          "location": [
+            896,
+            8,
+            896,
+            16
+          ],
+          "message": "Prefer `Number.isFinite` over `isFinite`.",
+          "path": "index.js",
+          "rule": "javascript:S7773",
+          "severity": "MINOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            1110,
+            10,
+            1110,
+            17
+          ],
+          "message": "Use `Math.trunc` instead of `~~`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            1111,
+            34,
+            1111,
+            39
+          ],
+          "message": "Use `Math.trunc` instead of `~~`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            1575,
+            24,
+            1575,
+            42
+          ],
+          "message": "Use `Math.trunc` instead of `>> 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        },
+        {
+          "impacts": {
+            "MAINTAINABILITY": "HIGH",
+            "RELIABILITY": "HIGH"
+          },
+          "location": [
+            1598,
+            24,
+            1598,
+            42
+          ],
+          "message": "Use `Math.trunc` instead of `>> 0`.",
+          "path": "index.js",
+          "rule": "javascript:S7767",
+          "severity": "MAJOR",
+          "type": "CODE_SMELL"
+        }
+      ],
+      "previous": false,
+      "project": "hq-js-core-2611-public-20261123-feross-buffer-d02bd0a3",
+      "repository": "feross/buffer",
+      "revision": "d02bd0a30d9b0bbd0189d5a7c424b0ab165fe5ab",
+      "scanner_image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "task": "9f998f9b-a26b-4c9c-8327-697ca2b70f20",
+      "tree": "5bec95f669dbbb5db624dece30ad4bf3c766e1f4"
+    }
+  ],
+  "environment": {
+    "edition": "community",
+    "javascript": {
+      "filename": "sonar-javascript-plugin-14.3.0.46350-multi.jar",
+      "jar_hash": "aacfd406714e87a296b9099cd2e76c8a",
+      "jar_sha256": "dfcdc925ca7d42711ef263a2472f48d08630d7c454aa4242b50980e62f9c1f25",
+      "version": "14.3 (build 46350)"
+    },
+    "reference_container_start": "2026-11-22T16:53:40.792777152Z",
+    "scanner_image": {
+      "image": "sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9",
+      "platform_fingerprint": "amd64 linux sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9"
+    },
+    "server_image": {
+      "image": "sonarqube@sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba",
+      "platform_fingerprint": "arm64 linux sha256:7b2296713a92b8ea0dd7a083a25faadc59376c9a1e6daf2744a89711c54ea1ba"
+    },
+    "version": "26.11.0.134175"
+  },
+  "profile": {
+    "activeRuleCount": 200,
+    "key": "999450e6-96c3-4c24-9545-5f62da70d835",
+    "name": "Sonar way core",
+    "rulesUpdatedAt": "2026-11-22T16:54:04+0000"
+  },
+  "rules": {
+    "javascript:S1101": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Links with identical accessible names should have identical targets",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S1143": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Jump statements should not occur in \"finally\" blocks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1219": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "\"switch\" statements should not contain non-case labels",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S1244": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Floating point numbers should not be tested for equality",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S128": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Switch cases should end with an unconditional \"break\" statement",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S1313": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "IP addresses should not be hardcoded",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S1314": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Octal values should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S1523": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Dynamic code execution should not use user-controlled data",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S1527": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Future reserved words should not be used as identifiers",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S1529": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Bitwise operators should not be used in boolean contexts",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1534": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Member names should not be duplicated within a class or object literal",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1536": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Function argument names should be unique",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1656": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Variables should not be self-assigned",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1751": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Loops with at most one iteration should be refactored",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1763": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "All code should be reachable",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1764": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Identical expressions should not be used on both sides of a binary operator",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1848": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Objects should not be created to be dropped immediately without being used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S1862": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"if/else if\" chains and \"switch\" cases should not have the same condition",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2068": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Credentials should not be hard-coded",
+      "parameters": {
+        "passwordWords": "password,pwd,passwd,passphrase"
+      },
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2077": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "SQL queries should not be dynamically formatted",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2092": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Cookies should have the \"secure\" flag",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2123": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Values should not be uselessly incremented",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2137": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Special identifiers should not be bound or assigned",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2187": {
+      "clean_code_attribute": "TESTED",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Test files should contain at least one test case",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S2189": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Loops should not be infinite",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2201": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Return values from functions without side effects should not be ignored",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2245": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Pseudorandom number generators (PRNGs) should not be used in security contexts",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2251": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "A \"for\" loop update clause should move the counter in the right direction",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2259": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Properties of variables with \"null\" or \"undefined\" values should not be accessed",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2310": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Loop counters should not be assigned within the loop body",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S2432": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Setters should not return values",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2598": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "File uploads should be restricted",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2612": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "File permissions should not be set to world-accessible values",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2639": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Empty character classes should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2688": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"NaN\" should not be used in comparisons",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2699": {
+      "clean_code_attribute": "TESTED",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Tests should include assertions",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S2703": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Variables should be declared explicitly",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S2755": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "XML parsers should not be vulnerable to XXE attacks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2757": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Non-existent operators '=+', '=-' and '=!' should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2819": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Origins should be verified during cross-origin communications",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S2871": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "\"Array.prototype.sort()\" and \"Array.prototype.toSorted()\" should use a compare function",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S2970": {
+      "clean_code_attribute": "TESTED",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Assertions should be complete",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S2999": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"new\" should only be used with functions and classes",
+      "parameters": {
+        "considerJSDoc": "false"
+      },
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3330": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Cookies should have the \"HttpOnly\" flag",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S3403": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Strict equality operators should not be used with dissimilar types",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3500": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"const\" variables should not be reassigned",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3516": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Function returns should not be invariant",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S3531": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Generators should explicitly \"yield\" a value",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3616": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Comma and logical OR operators should not be used in switch cases",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3699": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "The return value of void functions should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3785": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "\"in\" should not be used with primitive types",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3796": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "RELIABILITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Callbacks of array methods should have return statements",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3799": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Destructuring patterns should not be empty",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3812": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Parentheses should be used when negating \"in\" and \"instanceof\" operations",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3834": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "\"new\" operator should not be used with Symbol and BigInt",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3854": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "\"super()\" should be invoked appropriately",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3923": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "All branches in a conditional structure should not have exactly the same implementation",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3981": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Collection size and array length comparisons should make sense",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S3984": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Errors should not be created without being thrown",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S4036": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "OS commands should not rely on PATH resolution",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S4125": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "\"typeof\" expressions should only be compared to valid values",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S4143": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Collection elements should not be replaced unconditionally",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S4275": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Getters and setters should access the expected fields",
+      "parameters": {
+        "allowImplicit": "false"
+      },
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S4423": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Weak SSL/TLS protocols should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S4426": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Cryptographic keys should be robust",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S4502": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "CSRF protections should not be disabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S4507": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Debugging features should not be enabled in production",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S4790": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Weak hashing algorithms should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S4822": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Promise rejections should not be caught by \"try\" blocks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S4830": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Server certificates should be verified during SSL/TLS connections",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5122": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Cross-Origin Resource Sharing (CORS) policy should be restricted to trusted origins",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5148": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Opened windows should not have access to the originating page",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5247": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Auto-escaping in HTML template engines should not be disabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5254": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "HTML elements should have a valid language attribute",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S5256": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Tables should have headers",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5260": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Table cells should reference their headers",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5332": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Clear-text protocols should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5443": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Temporary files should not be created in publicly writable directories",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5527": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Server hostnames should be verified during SSL/TLS connections",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5542": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Encryption algorithms should be used with secure mode and padding scheme",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5547": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Cipher algorithms should be robust",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5659": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "JWT should be signed and verified with strong cipher algorithms",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5689": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Web application technologies should not disclose version information",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5693": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "HTTP request content length should be limited",
+      "parameters": {
+        "fileUploadSizeLimit": "8000000",
+        "standardSizeLimit": "2000000"
+      },
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5725": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Remote artifacts should not be used without integrity checks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5728": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Content security policy fetch directives should not be disabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5734": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Browsers should not be allowed to perform MIME type sniffing",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5736": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "HTTP Referrer-Policy should not be set to an unsafe value",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5739": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "HTTP Strict-Transport-Security policy should not be disabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5845": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Assertions comparing incompatible types should not be made",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5850": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Alternatives in regular expressions should be grouped when used with anchors",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5852": {
+      "clean_code_attribute": "EFFICIENT",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Regular expressions should not cause catastrophic backtracking",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5856": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Regular expressions should be syntactically valid",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5863": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Assertions should not be given twice the same argument",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5868": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Unicode Grapheme Clusters should be avoided inside regex character classes",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S5876": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "A new session should be created during user authentication",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S5973": {
+      "clean_code_attribute": "TESTED",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Tests should be stable",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6080": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Disabling Mocha timeouts should be explicit",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6249": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "S3 buckets should enforce HTTPS-only access",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6252": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Amazon S3 buckets should have versioning enabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6265": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "S3 buckets should not grant access to all users or authenticated users",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6268": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Angular built-in sanitization should not be disabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6270": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "AWS resource-based policies should not grant public access",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6275": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "EBS volumes should be encrypted",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6281": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Amazon S3 bucket public access should be fully blocked",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6302": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Policies should not grant all privileges",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6303": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Amazon RDS resources should be encrypted at rest",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6308": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "OpenSearch domains should have encryption at rest enabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6317": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "AWS IAM policies should limit the scope of permissions given",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6319": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "SageMaker notebook instances should be encrypted at rest",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6321": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Administration services access should be restricted to specific IP addresses",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6323": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Alternation in regular expressions should not contain empty alternatives",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6324": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Regular expressions should not contain control characters",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6327": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "LOW"
+      },
+      "inherited": "NONE",
+      "name": "Amazon SNS topics should be encrypted at rest",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6328": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Replacement strings should reference existing regular expression groups",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6329": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Public network access to cloud resources should be disabled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6330": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "SQS queues should be encrypted",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6332": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Amazon EFS file systems should be encrypted",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6333": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "AWS API Gateway should require authentication",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6351": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Regular expressions with the global flag should be used with caution",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6418": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Secrets should not be hard-coded",
+      "parameters": {
+        "randomnessSensibility": "5.0",
+        "secretWords": "api[_.-]?key,auth,credential,secret,token"
+      },
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6426": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Exclusive tests should not be committed to version control",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6435": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "React \"render\" functions should return a value",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6437": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Credentials should not be hard-coded",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S6438": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Comments inside JSX expressions should be enclosed in curly braces",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6439": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "React components should not render non-boolean condition values",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6442": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "React's useState hook should not be used directly in the render function or body of a component",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6443": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "React state setter function should not be called with its matching state variable",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6523": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Optional chaining should not be used if returning \"undefined\" throws an error",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6534": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Numbers should not lose precision",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6544": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Promises should not be misused",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6638": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Binary expressions should not always return the same value",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6671": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Literals should not be used for promise rejection",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6679": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"Number.isNaN()\" should be used to check for \"NaN\" value",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6746": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "In React \"this.state\" should not be mutated directly",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6750": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "The return value of \"ReactDOM.render\" should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6756": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"setState\" should use a callback when referencing the previous state",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6757": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"this\" should not be used in functional components",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6761": {
+      "clean_code_attribute": "DISTINCT",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"children\" and \"dangerouslySetInnerHTML\" should not be used together",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6789": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "React's \"isMounted\" should not be used",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6793": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "ARIA properties in DOM elements should have valid values",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6821": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "DOM elements with ARIA roles should have a valid non-abstract role",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6823": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "DOM elements with the `aria-activedescendant` property should be accessible via the tab key",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6825": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Focusable elements should not have \"aria-hidden\" attribute",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6840": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "DOM elements should use the \"autocomplete\" attribute correctly",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6841": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"tabIndex\" values should be 0 or -1",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6842": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Non-interactive DOM elements should not have interactive ARIA roles",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6843": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Interactive DOM elements should not have non-interactive ARIA roles",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6845": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Non-interactive DOM elements should not have the `tabindex` attribute",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6846": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "DOM elements should not use the \"accesskey\" property",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6848": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Non-interactive DOM elements should not have an interactive handler",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6850": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Heading elements should have accessible content",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6852": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Elements with an interactive role should support focus",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6853": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Label elements should have a text label and an associated control",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6861": {
+      "clean_code_attribute": "MODULAR",
+      "impacts": {
+        "MAINTAINABILITY": "HIGH",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Mutable variables should not be exported",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S6958": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Literals should not be used as functions",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S6959": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"Array.reduce()\" calls should include an initial value",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S7059": {
+      "clean_code_attribute": "MODULAR",
+      "impacts": {
+        "MAINTAINABILITY": "HIGH",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Constructors should not contain asynchronous operations",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S7060": {
+      "clean_code_attribute": "MODULAR",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Module should not import itself",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S7639": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "SECURITY": "BLOCKER"
+      },
+      "inherited": "NONE",
+      "name": "Wallet phrases should not be hard-coded",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "BLOCKER",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S7725": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "HIGH",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Getters and setters should not recursively access the same property",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S7727": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "HIGH",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Function references should not be passed directly to iterator methods",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S7733": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "HTTP GET and HEAD requests should not include a request body",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S7737": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Objects should not be used as default parameters",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S7739": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Objects should not have a \"then\" property",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S7767": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "MAINTAINABILITY": "HIGH",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Bitwise operators should not be used to truncate numbers",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S7773": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Number static methods and properties should be preferred over global equivalents",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S7790": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Templates should not be constructed dynamically",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S8441": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Static Assets should not serve session cookies",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S8479": {
+      "clean_code_attribute": "TRUSTWORTHY",
+      "impacts": {
+        "SECURITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "DOMPurify configuration should not be bypassable",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MINOR",
+      "status": "READY",
+      "type": "VULNERABILITY"
+    },
+    "javascript:S8780": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Async test assertions should be awaited or returned",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8784": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Assertions should be placed inside test cases or hooks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S8785": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Tests should not be registered asynchronously in suite callbacks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8786": {
+      "clean_code_attribute": "EFFICIENT",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Regular expressions should not cause non-linear backtracking",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S8951": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Vue component props should not be mutated directly",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8959": {
+      "clean_code_attribute": "COMPLETE",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "UI test debug commands should not be committed to version control",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8982": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "HTML elements with v-for should have a :key attribute",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8984": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Vue v-for directives should be valid",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8985": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Side effects should not be performed inside \"waitFor\" callbacks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8988": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Side effects should not be performed inside Vue computed properties",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8990": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Promises should not be passed to \"fireEvent\"",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S8998": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Parameterized tests should not have empty datasets",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9011": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "\"<button>\" elements should have a valid \"type\" attribute, explicitly set when associated with a \"<form>\"",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9019": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Vue refs should not be used as operands",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9025": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Asynchronous actions should not be used in Vue computed properties",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9026": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Promises returned by Testing Library async queries should be handled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S905": {
+      "clean_code_attribute": "CLEAR",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Non-empty statements should change control flow or have at least one side-effect",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9072": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Synchronous exception assertions should receive synchronous callbacks",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9107": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Vue component prop types should be constructors",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9114": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Lodash and Underscore.js debounced or throttled functions should not be recreated on every React render",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9115": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Promises returned by Testing Library async events should be handled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9128": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Vue component field names should not be duplicated",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9135": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Nested properties of Lodash and Underscore.js clone results should not be mutated",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S9153": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Testing Library disappearance waits should use non-throwing queries",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9162": {
+      "clean_code_attribute": "TESTED",
+      "impacts": {
+        "MAINTAINABILITY": "MEDIUM",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Cypress assertions should be retryable",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "TEST",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S9163": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Reactive state should not be unconditionally mutated inside Vue's \"updated\" lifecycle hook",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S930": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "HIGH"
+      },
+      "inherited": "NONE",
+      "name": "Function calls should not pass extra arguments",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "CRITICAL",
+      "status": "READY",
+      "type": "BUG"
+    },
+    "javascript:S9379": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "DOM elements should not use the \"autofocus\" attribute",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S9380": {
+      "clean_code_attribute": "CONVENTIONAL",
+      "impacts": {
+        "MAINTAINABILITY": "LOW",
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "The \"scope\" attribute should only be used on \"th\" elements",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "CODE_SMELL"
+    },
+    "javascript:S9383": {
+      "clean_code_attribute": "LOGICAL",
+      "impacts": {
+        "RELIABILITY": "MEDIUM"
+      },
+      "inherited": "NONE",
+      "name": "Promises should not be left unhandled",
+      "parameters": {},
+      "prioritized": false,
+      "scope": "MAIN",
+      "severity": "MAJOR",
+      "status": "READY",
+      "type": "BUG"
+    }
+  },
+  "scanner_membership_sha256": "de4b4cacf4b1f3c522f504b90404d3c5c35eb099db135c9b0c4b397f2ac56d11",
+  "schema_version": 1,
+  "source_inventory": {
+    "count": 276,
+    "sha256": {
+      "candidates-canonical.json": "d072137b5962721b5a4e2fa29e0d2b5e7725e5f7a11d2b6ac8b87ab4c7919e8f",
+      "exclusion-inventory.json": "97bf58aa85092e900423ecfeeb2ad48cd86fe86ba43e1c3008194f57a0a2c86f",
+      "history-canonical.json": "d6f1edfa3537aa00a6dab5d491686feac3509f646b2f280912da78b417bb35f3"
+    }
+  }
+}
