@@ -1,0 +1,125 @@
+def try_before(flag, items):
+    try:
+        foo()
+    except Exception:
+        pass
+    while flag:
+        break
+
+def try_after(flag, items):
+    while flag:
+        break
+    try:
+        foo()
+    except Exception:
+        pass
+
+def try_around(flag, items):
+    try:
+        while flag:
+            break
+    except Exception:
+        pass
+
+def try_nested_function(flag, items):
+    def inner():
+        try:
+            foo()
+        except Exception:
+            bar()
+    while flag:
+        break
+
+def try_siblingbranch(flag, items):
+    if flag:
+        try:
+            foo()
+        except Exception:
+            pass
+    else:
+        while items:
+            break
+
+def with_before(flag, items):
+    with items:
+        foo()
+    while flag:
+        break
+
+def match_open(flag, items):
+    while flag:
+        match items:
+            case 3:
+                return
+
+def with_break_tail(flag, items):
+    while flag:
+        with items:
+            break
+        foo()
+
+def with_continue_tail(flag, items):
+    while flag:
+        with items:
+            if foo():
+                continue
+        break
+
+def with_return_tail(flag, items):
+    while flag:
+        with items:
+            return
+        foo()
+
+def with_raise_tail(flag, items):
+    while flag:
+        with items:
+            raise Exception()
+        foo()
+
+def async_for(flag, items):
+    for x in items:
+        break
+
+def for_else(flag, items):
+    for i in items:
+        break
+    else:
+        foo()
+
+def for_else_break(flag, items):
+    while flag:
+        for i in items:
+            continue
+        else:
+            break
+
+def while_else_break(flag, items):
+    while flag:
+        while items:
+            continue
+        else:
+            break
+
+def raise_block(flag, items):
+    while flag:
+        if items:
+            raise Exception()
+        else:
+            break
+
+def while_pass(flag, items):
+    while flag:
+        while items:
+            return
+        return
+
+def no_op_try(flag, items):
+    while flag:
+        if items:
+            try:
+                foo()
+            finally:
+                bar()
+        break
+

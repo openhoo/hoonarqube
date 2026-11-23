@@ -1,0 +1,251 @@
+def unknown_stop(flag, items):
+    for i in items:
+        print(42)
+        break
+
+def unknown_give(flag, items):
+    for i in items:
+        print(42)
+        return 7
+
+def unknown_fail(flag, items):
+    for i in items:
+        print(42)
+        raise RuntimeError()
+
+def unknown_natural(flag, items):
+    for i in items:
+        print(42)
+        print(1)
+
+def literal_stop(flag, items):
+    for i in [1,2]:
+        print(42)
+        break
+
+def literal_give(flag, items):
+    for i in [1,2]:
+        print(42)
+        return 7
+
+def literal_fail(flag, items):
+    for i in [1,2]:
+        print(42)
+        raise RuntimeError()
+
+def literal_natural(flag, items):
+    for i in [1,2]:
+        print(42)
+        print(1)
+
+def values_stop(flag, items):
+    for i in items.values():
+        print(42)
+        break
+
+def values_give(flag, items):
+    for i in items.values():
+        print(42)
+        return 7
+
+def values_fail(flag, items):
+    for i in items.values():
+        print(42)
+        raise RuntimeError()
+
+def values_natural(flag, items):
+    for i in items.values():
+        print(42)
+        print(1)
+
+def fixed_stop(flag, items):
+    for i in range(5):
+        print(42)
+        break
+
+def fixed_give(flag, items):
+    for i in range(5):
+        print(42)
+        return 7
+
+def fixed_fail(flag, items):
+    for i in range(5):
+        print(42)
+        raise RuntimeError()
+
+def fixed_natural(flag, items):
+    for i in range(5):
+        print(42)
+        print(1)
+
+def iterator_stop(flag, items):
+    for i in iter(items):
+        print(42)
+        break
+
+def iterator_give(flag, items):
+    for i in iter(items):
+        print(42)
+        return 7
+
+def iterator_fail(flag, items):
+    for i in iter(items):
+        print(42)
+        raise RuntimeError()
+
+def iterator_natural(flag, items):
+    for i in iter(items):
+        print(42)
+        print(1)
+
+def loop_stop(flag, items):
+    while items:
+        print(42)
+        break
+
+def loop_give(flag, items):
+    while items:
+        print(42)
+        return 7
+
+def loop_fail(flag, items):
+    while items:
+        print(42)
+        raise RuntimeError()
+
+def loop_natural(flag, items):
+    while items:
+        print(42)
+        print(1)
+
+def infinite_stop(flag, items):
+    while True:
+        print(42)
+        break
+
+def infinite_give(flag, items):
+    while True:
+        print(42)
+        return 7
+
+def infinite_fail(flag, items):
+    while True:
+        print(42)
+        raise RuntimeError()
+
+def infinite_natural(flag, items):
+    while True:
+        print(42)
+        print(1)
+
+def never_stop(flag, items):
+    while False:
+        print(42)
+        break
+
+def never_give(flag, items):
+    while False:
+        print(42)
+        return 7
+
+def never_fail(flag, items):
+    while False:
+        print(42)
+        raise RuntimeError()
+
+def never_natural(flag, items):
+    while False:
+        print(42)
+        print(1)
+
+def branch_branches(flag, items):
+    while flag:
+        if flag:
+            break
+        else:
+            return
+
+def branch_partial(flag, items):
+    while flag:
+        if flag:
+            break
+
+def branch_cont(flag, items):
+    while flag:
+        if flag:
+            continue
+        break
+
+def branch_dead(flag, items):
+    while flag:
+        break
+        continue
+
+def branch_bothret(flag, items):
+    while flag:
+        if flag:
+            return 1
+        else:
+            return 2
+
+def branch_nested(flag, items):
+    while flag:
+        for i in items:
+            continue
+        break
+
+def branch_nestedelse(flag, items):
+    while flag:
+        for i in items:
+            break
+        else:
+            continue
+        break
+
+def branch_infinite(flag, items):
+    while flag:
+        while True:
+            continue
+
+def branch_tryfin(flag, items):
+    while flag:
+        try:
+            break
+        finally:
+            print(1)
+
+def branch_finalcont(flag, items):
+    while flag:
+        try:
+            break
+        finally:
+            continue
+
+def branch_exception(flag, items):
+    while flag:
+        try:
+            break
+        except Exception:
+            continue
+
+def branch_fallthrough(flag, items):
+    while flag:
+        try:
+            break
+        except Exception:
+            print(1)
+
+def branch_with_(flag, items):
+    while flag:
+        with items:
+            break
+
+def branch_pass_(flag, items):
+    while flag:
+        pass
+
+def branch_constant(flag, items):
+    while flag:
+        if True:
+            return
+

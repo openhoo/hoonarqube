@@ -1,0 +1,33 @@
+flag = True
+while flag:
+    print("a")
+    break
+while flag: print("b"); break
+class Stage:
+    while flag:
+        print("c")
+        break
+    def method(self):
+        while flag:
+            break
+    @classmethod
+    def classmethod(cls):
+        while True: print("d"); break
+
+def normal():
+    while True: print("loop"); break  # fmt: skip
+    while True: print("loop"); break
+    while flag:
+        break
+    class Inner:
+        while flag:
+            break
+    def inner():
+        while flag:
+            break
+async def work():
+    while flag:
+        return
+if flag:
+    while flag:
+        break

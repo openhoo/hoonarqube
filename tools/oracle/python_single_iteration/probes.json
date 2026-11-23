@@ -1,0 +1,572 @@
+[
+  {
+    "fixture": "controls.fixture",
+    "sha256": "23fa87266d30eae2a71a8b79a2853493f9768e149e9e5b8127f428375172c80d",
+    "locations": [
+      [
+        "python:S1751",
+        "controls.py",
+        20,
+        4,
+        20,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "analysis": "e86edb85-5184-4e76-bc63-c6dedfcc5110",
+    "version": "26.11.0.134175"
+  },
+  {
+    "fixture": "loops.fixture",
+    "sha256": "39661b4c75f58eeed9b2259608d5067b7e2f74150cb1d600e3fd05a6572ccefe",
+    "locations": [
+      [
+        "python:S1751",
+        "controls.py",
+        102,
+        4,
+        102,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        107,
+        4,
+        107,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        112,
+        4,
+        112,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        122,
+        4,
+        122,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        127,
+        4,
+        127,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        132,
+        4,
+        132,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        142,
+        4,
+        142,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        147,
+        4,
+        147,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        152,
+        4,
+        152,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        162,
+        4,
+        162,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        180,
+        4,
+        180,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        185,
+        4,
+        185,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        192,
+        4,
+        192,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "analysis": "91260ced-05f2-485a-b11a-b74db16edcff",
+    "version": "26.11.0.134175"
+  },
+  {
+    "fixture": "loops.fixture",
+    "sha256": "39661b4c75f58eeed9b2259608d5067b7e2f74150cb1d600e3fd05a6572ccefe",
+    "locations": [
+      [
+        "python:S1751",
+        "controls.py",
+        102,
+        4,
+        102,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        107,
+        4,
+        107,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        112,
+        4,
+        112,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        122,
+        4,
+        122,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        127,
+        4,
+        127,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        132,
+        4,
+        132,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        142,
+        4,
+        142,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        147,
+        4,
+        147,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        152,
+        4,
+        152,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        162,
+        4,
+        162,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        180,
+        4,
+        180,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        185,
+        4,
+        185,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        192,
+        4,
+        192,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "analysis": "2238ae41-f1fc-4225-bc27-b140e44637f2",
+    "version": "26.9.0.129388"
+  },
+  {
+    "fixture": "scopes.fixture",
+    "sha256": "08373bdf5376a9ec44b90a8fadce75fd495f74113e8a243e5c8c2ee306538978",
+    "locations": [
+      [
+        "python:S1751",
+        "controls.py",
+        6,
+        4,
+        6,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        10,
+        4,
+        10,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        19,
+        8,
+        19,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        30,
+        4,
+        30,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        40,
+        8,
+        40,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        46,
+        4,
+        46,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        91,
+        4,
+        91,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        98,
+        4,
+        98,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        105,
+        4,
+        105,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        112,
+        4,
+        112,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        113,
+        8,
+        113,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "analysis": "94d71997-65ed-476b-8979-443e69de90d1",
+    "version": "26.11.0.134175"
+  },
+  {
+    "fixture": "branches.fixture",
+    "sha256": "54f5c2060c0bf5a578db67f11c98adafdb4178ba0c717a73f7286f27ac1d47b7",
+    "locations": [
+      [
+        "python:S1751",
+        "controls.py",
+        14,
+        4,
+        14,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        36,
+        4,
+        36,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        48,
+        4,
+        48,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        63,
+        4,
+        63,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        69,
+        4,
+        69,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        76,
+        8,
+        76,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        102,
+        4,
+        102,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        116,
+        4,
+        116,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "analysis": "237e8672-406f-4194-af71-be1173c14b8d",
+    "version": "26.11.0.134175"
+  },
+  {
+    "fixture": "contexts.fixture",
+    "sha256": "cefea364bda43bf5d070f4ae936ea7870d11076f7016f1657a89d18fccf60b8a",
+    "locations": [
+      [
+        "python:S1751",
+        "controls.py",
+        2,
+        0,
+        2,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        5,
+        0,
+        5,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        7,
+        4,
+        7,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        11,
+        8,
+        11,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        15,
+        8,
+        15,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        18,
+        4,
+        18,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        19,
+        4,
+        19,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        20,
+        4,
+        20,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        23,
+        8,
+        23,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        26,
+        8,
+        26,
+        13,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        29,
+        4,
+        29,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        32,
+        4,
+        32,
+        9,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "version": "26.11.0.134175",
+    "analysis": "b0c3f096-663b-4158-b0a5-2088f56be144"
+  }
+]

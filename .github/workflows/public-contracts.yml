@@ -33,6 +33,8 @@ jobs:
         run: python3 tools/oracle/public_contract.py --binary target/release/hoonarqube
       - name: Check Python regex alternatives and boundaries on 16 pinned public packages
         run: python3 tools/oracle/python_empty_alternatives/replay.py target/release/hoonarqube
+      - name: Compare single-iteration loops on nine public Python packages and scoped controls
+        run: python3 tools/oracle/python_single_iteration/replay.py target/release/hoonarqube
       - name: Compare Ruby empty methods against positive and silent Community references
         run: >-
           python3 tools/oracle/ruby_empty_methods.py --binary target/release/hoonarqube

@@ -1,0 +1,80 @@
+[
+  {
+    "mode": "inferred",
+    "sha256": "7f6fb0b0fb42cc9c3e1807f588833d047366f16b6c5f31ffbbfa2678be20e75f",
+    "paths": [
+      "a/regular.py",
+      "conftest.py",
+      "controls.py",
+      "docs/regular.py",
+      "test/regular.py",
+      "test_same.py",
+      "testing/inside.py",
+      "tests/normal.py",
+      "unit_test.py"
+    ],
+    "analysis": "bb558a5c-793e-4f99-bb49-1a1aac55efbc",
+    "locations": [
+      [
+        "python:S1751",
+        "a/regular.py",
+        5,
+        0,
+        5,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "controls.py",
+        5,
+        0,
+        5,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "docs/regular.py",
+        5,
+        0,
+        5,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "version": "26.11.0.134175"
+  },
+  {
+    "mode": "configured",
+    "sha256": "7f6fb0b0fb42cc9c3e1807f588833d047366f16b6c5f31ffbbfa2678be20e75f",
+    "paths": [
+      "app/controls.py",
+      "app/tests/regular.py",
+      "checks/ordinary.py",
+      "checks/test_control.py"
+    ],
+    "analysis": "8f5f5158-c934-447d-bb9f-ba7e0c84570d",
+    "locations": [
+      [
+        "python:S1751",
+        "app/controls.py",
+        5,
+        0,
+        5,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ],
+      [
+        "python:S1751",
+        "app/tests/regular.py",
+        5,
+        0,
+        5,
+        5,
+        "Refactor this loop to do more than one iteration."
+      ]
+    ],
+    "version": "26.11.0.134175"
+  }
+]

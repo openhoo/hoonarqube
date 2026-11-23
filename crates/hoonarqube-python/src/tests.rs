@@ -1252,11 +1252,60 @@ fn s2190_flags_straight_line_infinite_recursion() {
 }
 
 #[test]
-fn s1751_flags_loops_with_trailing_break() {
-    let flagged = scan("for item in items_source:\n    prepare(item)\n    break\n");
-    assert_eq!(findings(&flagged, "python:S1751").len(), 1);
-    let full = scan("for item in items_source:\n    prepare(item)\n");
-    assert!(findings(&full, "python:S1751").is_empty());
+fn s1751_checks_reachable_paths_back_to_the_while_header() {
+    let source = concat!(
+        "def choose(items, again):\n",
+        "    for item in items:\n",
+        "        for value in item:\n",
+        "            if value:\n",
+        "                break\n",
+        "        else:\n",
+        "            continue\n",
+        "        break\n",
+        "    while again:\n",
+        "        if items:\n",
+        "            return items[0]\n",
+        "        raise ValueError()\n",
+        "    while again:\n",
+        "        if items:\n",
+        "            continue\n",
+        "        break\n",
+    );
+    let report = scan(source);
+    let issues = findings(&report, "python:S1751");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(
+        issues[0].message,
+        "Refactor this loop to do more than one iteration."
+    );
+    assert_eq!(
+        (
+            issues[0].range.start.line,
+            issues[0].range.start.column,
+            issues[0].range.end.column
+        ),
+        (9, 4, 9)
+    );
+}
+
+#[test]
+fn s1751_uses_effective_source_scope() {
+    let code = "while ready: print('once'); break\n";
+    let test_path = PathBuf::from("tests/cases/format.py");
+    let main = AnalyzerOptions {
+        test_scope: Some(false),
+        ..AnalyzerOptions::default()
+    };
+    let test = AnalyzerOptions {
+        test_scope: Some(true),
+        ..AnalyzerOptions::default()
+    };
+    assert!(findings(&scan_at(test_path.clone(), code), "python:S1751").is_empty());
+    assert_eq!(
+        findings(&analyze(test_path, code, &main), "python:S1751").len(),
+        1
+    );
+    assert!(findings(&scan_with_options(code, &test), "python:S1751").is_empty());
 }
 
 #[test]

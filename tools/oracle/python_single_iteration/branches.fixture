@@ -1,0 +1,128 @@
+def ifcall(flag, items):
+    while flag:
+        if foo():
+            break
+        print(1)
+
+def ifcont(flag, items):
+    while flag:
+        if flag:
+            continue
+        return
+
+def ifret(flag, items):
+    while flag:
+        if flag:
+            return
+        break
+
+def trytail(flag, items):
+    while flag:
+        try:
+            foo()
+        except KeyError:
+            foo()
+        break
+
+def trycont(flag, items):
+    while flag:
+        try:
+            continue
+        except Exception:
+            foo()
+        break
+
+def withtail(flag, items):
+    while flag:
+        with items:
+            foo()
+        break
+
+def withcont(flag, items):
+    while flag:
+        with items:
+            continue
+        break
+
+def match_(flag, items):
+    while flag:
+        match flag:
+            case True:
+                break
+            case _:
+                return
+
+def nestedelse(flag, items):
+    while flag:
+        for i in items:
+            break
+        else:
+            break
+
+def nestedreturn(flag, items):
+    while flag:
+        for i in items:
+            return
+        break
+
+def def_(flag, items):
+    while flag:
+        def inner():
+            return
+        break
+
+def whileelse(flag, items):
+    while flag:
+        while items:
+            break
+        else:
+            continue
+        break
+
+def withret(flag, items):
+    while flag:
+        with items:
+            return
+
+def tryret(flag, items):
+    while flag:
+        try:
+            return
+        finally:
+            foo()
+
+def tryall(flag, items):
+    while flag:
+        try:
+            return
+        except Exception:
+            raise
+
+def inf(flag, items):
+    while flag:
+        while True:
+            pass
+        break
+
+def trycont2(flag, items):
+    while flag:
+        try:
+            foo()
+        finally:
+            continue
+        return
+
+def lazy(flag, items):
+    while flag:
+        if flag:
+            break
+        elif items:
+            return
+        else:
+            raise Exception()
+
+def dead(flag, items):
+    while flag:
+        continue
+        break
+
