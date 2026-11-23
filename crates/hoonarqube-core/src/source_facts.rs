@@ -17,6 +17,8 @@ use tree_sitter::{Node, Parser, TreeCursor};
 
 use crate::Language;
 
+mod python;
+
 /// A normalized syntax token.  Lines are one-based and inclusive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedToken {
@@ -327,7 +329,7 @@ pub(crate) fn collect_source_facts_with_metrics(
     collector.walk(tree.root_node());
     let mut metrics = collector.metrics(tree.root_node());
     let mut error = collector.error.or(parse_error);
-    if language == Language::Python && error.is_none() {
+    if language == Language::Python {
         apply_python_metrics(source, analyzer_metrics, &mut metrics, &mut error);
     }
 
@@ -347,7 +349,9 @@ fn apply_python_metrics(
     metrics: &mut FileMetrics,
     error: &mut Option<String>,
 ) {
-    if let Some(parsed_metrics) = analyzer_metrics {
+    if error.is_some() {
+        *metrics = fallback_metrics(source, Language::Python);
+    } else if let Some(parsed_metrics) = analyzer_metrics {
         *metrics = parsed_metrics.clone();
     } else {
         match hoonarqube_python::source_metrics(source) {
@@ -795,64 +799,6 @@ impl<'source> FactCollector<'source> {
             self.emit_leaf(node);
         } else {
             push_children(stack, cursor, node);
-        }
-    }
-    fn walk_python(&mut self, root: Node<'_>) {
-        let mut stack = vec![(root, false)];
-        let mut cursor = root.walk();
-        while let Some((node, exiting)) = stack.pop() {
-            if self.stopped {
-                return;
-            }
-            if exiting {
-                self.emit_python_exit(node);
-                continue;
-            }
-            if !self.visit_tree_node() {
-                return;
-            }
-            if node.is_missing() {
-                continue;
-            }
-            if self.emit_special_node(node, &mut cursor) {
-                continue;
-            }
-            self.emit_python_start(node, &mut stack);
-            self.visit_python_node(&mut stack, &mut cursor, node);
-        }
-    }
-
-    fn emit_python_exit(&mut self, node: Node<'_>) {
-        if is_python_structure_kind(node.kind()) {
-            self.emit_marker_end("python:exit:", node.kind(), node);
-        }
-    }
-
-    fn emit_python_start<'tree>(
-        &mut self,
-        node: Node<'tree>,
-        stack: &mut Vec<(Node<'tree>, bool)>,
-    ) {
-        let kind = node.kind();
-        if is_python_statement_kind(kind) {
-            self.emit_marker("python:statement:", kind, node);
-        }
-        if is_python_structure_kind(kind) {
-            self.emit_marker("python:enter:", kind, node);
-            stack.push((node, true));
-        }
-    }
-
-    fn visit_python_node<'tree>(
-        &mut self,
-        stack: &mut Vec<(Node<'tree>, bool)>,
-        cursor: &mut TreeCursor<'tree>,
-        node: Node<'tree>,
-    ) {
-        if node.child_count() == 0 {
-            self.emit_leaf(node);
-        } else {
-            push_children_with_root_flag(stack, cursor, node);
         }
     }
     fn walk_java(&mut self, root: Node<'_>) {
@@ -1392,27 +1338,6 @@ impl<'source> FactCollector<'source> {
         self.emit_buffered_token_with_span(node, true);
     }
 
-    fn emit_buffered_token_end(&mut self, node: Node<'_>) {
-        if self.tokens.len() >= MAX_FACT_TOKENS {
-            self.fail("normalized token stream exceeds bounded size");
-            self.stopped = true;
-            return;
-        }
-        let Some(symbol) = self.intern_buffered() else {
-            self.stopped = true;
-            return;
-        };
-        let (_, end_line) = self.line_span(node);
-        let end_byte = saturating_u32(node.end_byte());
-        self.tokens.push(NormalizedToken {
-            symbol,
-            start_line: end_line,
-            end_line,
-            start_byte: end_byte,
-            end_byte,
-        });
-    }
-
     fn emit_buffered_token_with_span(&mut self, node: Node<'_>, start_only: bool) {
         if self.tokens.len() >= MAX_FACT_TOKENS {
             self.fail("normalized token stream exceeds bounded size");
@@ -1441,13 +1366,6 @@ impl<'source> FactCollector<'source> {
                 full_end_byte
             },
         });
-    }
-
-    fn emit_marker_end(&mut self, prefix: &str, kind: &str, node: Node<'_>) {
-        self.key_buffer.clear();
-        self.key_buffer.push_str(prefix);
-        self.key_buffer.push_str(kind);
-        self.emit_buffered_token_end(node);
     }
 
     fn intern_buffered(&mut self) -> Option<u32> {
@@ -1868,22 +1786,6 @@ fn is_atomic_literal_kind(kind: &str) -> bool {
         || kind.contains("rune_literal")
         || kind == "regex"
         || kind == "regex_literal"
-}
-
-fn is_python_statement_kind(kind: &str) -> bool {
-    kind.ends_with("_statement") || matches!(kind, "simple_statement" | "future_import_statement")
-}
-
-fn is_python_structure_kind(kind: &str) -> bool {
-    matches!(
-        kind,
-        "block"
-            | "elif_clause"
-            | "else_clause"
-            | "except_clause"
-            | "finally_clause"
-            | "case_clause"
-    )
 }
 
 fn is_javascript_module_declaration(node: Node<'_>, source: &str) -> bool {
@@ -2762,21 +2664,32 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
     }
 
     #[test]
-    fn plain_and_interpolated_literals_have_distinct_semantics() {
-        let facts = facts("sample.py", "a = \"name\"\nb = f\"{name}\"\n");
-        assert!(
-            facts
-                .symbols
-                .iter()
-                .any(|symbol| symbol.contains("string|"))
+    fn python_cpd_keeps_string_values_and_formatted_expression_tokens() {
+        let facts = facts(
+            "sample.py",
+            "a = 'one' 'two'\nb = f\"pre {value!r:{width}} end\"\n",
         );
-        assert!(
-            facts
-                .symbols
-                .iter()
-                .any(|symbol| symbol.starts_with("interp:"))
+        assert_eq!(
+            stream(&facts),
+            [
+                "a", "=", "'one'", "'two'", "b", "=", "f\"", "pre ", "{", "value", "!", "r", ":",
+                "{", "width", "}", "}", " end", "\"",
+            ]
         );
-        assert!(facts.symbols.iter().any(|symbol| symbol.contains("name")));
+    }
+
+    #[test]
+    fn python_cpd_multiline_header_inline_suite_and_trailing_comments() {
+        let source = "def inline(\n    x,\n): ...\nif x:\n    if y:\n        run()\n    # ignored\nelse:\n    stop()\n";
+        let facts = facts("sample.py", source);
+        let exits: Vec<_> = facts
+            .tokens
+            .iter()
+            .filter(|t| facts.symbols[t.symbol as usize] == "\n")
+            .map(|t| t.start_line)
+            .collect();
+        assert_eq!(exits, [6, 9]);
+        assert_eq!(stream(&facts).iter().filter(|s| **s == ".").count(), 3);
     }
 
     #[test]
@@ -2784,12 +2697,7 @@ internal static bool IsDateTimeFamilyConversion(Type from, Type to)
         let spaces = facts("sample.py", "if ready:\n    value = 1\nvalue = 2\n");
         let tabs = facts("sample.py", "if ready:\n\tvalue = 1\nvalue = 2\n");
         assert_eq!(stream(&spaces), stream(&tabs));
-        assert!(
-            spaces
-                .symbols
-                .iter()
-                .any(|symbol| symbol == "python:exit:block")
-        );
+        assert!(spaces.symbols.iter().any(|symbol| symbol == "\n"));
 
         let nested = facts("sample.py", "if ready:\n    value = 1\n    value = 2\n");
         assert_ne!(stream(&spaces), stream(&nested));
