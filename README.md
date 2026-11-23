@@ -85,14 +85,16 @@ against the frozen catalog:
 | Go | 36 | 36 | 0 | 0 | 36 | 100.0% |
 | Rust | 85 | 85 | 0 | 0 | 85 | 100.0% |
 | Java | 6 | 6 | 0 | 727 | 733 | 0.8% |
-| Ruby | 7 | 7 | 0 | 35 | 42 | 16.7% |
+| Ruby | 8 | 8 | 0 | 34 | 42 | 19.0% |
 
 Java and Ruby each implement TODO and FIXME in parsed comments (S1135 and S1134).
-Java also runs S1117, S1854, S2143 and S2211; Ruby also runs S1067, S1192,
+Java also runs S1117, S1854, S2143 and S2211; Ruby also runs S1067, S1186, S1192,
 S126, S134 and S1764. The audit counts a tested implementation even where
 its behavior is narrower than SonarQube’s or the reference profile leaves it
 inactive. The [rule-by-rule comparison](tools/oracle/java-ruby-coverage-20261120.md)
-records matched and unmatched findings on 17 pinned public projects.
+records matched and unmatched findings on 17 pinned public projects. The
+[Ruby empty-method comparison](tools/oracle/ruby-empty-methods-20261122.md)
+covers a separate rule across 45 public projects.
 [PARITY.md](PARITY.md) describes the detectors and their separate native rules.
 Their rule rows were derived from one verified Community Build 26.8.0.126808
 capture (`xtask catalog import-selected`, MQR mode, loopback instance) with full
@@ -549,6 +551,12 @@ are explicit inputs:
   JSON (schema 1) supplied at that path. Its assessment context must match the
   analyzer, catalog, effective options, and scope; this is a pinned-reference
   comparison, not Git-history or merge-base discovery.
+- Add `--specific-analysis PATH` to `--baseline` to classify new code by the
+  selected analysis date in a full Git checkout. Supply a JSON object with
+  `analysis_id`, the full baseline Git `revision`, and `timestamp_ms` (Unix
+  milliseconds for the analysis, not the commit). HoonarQube verifies the
+  source bytes in both revisions and uses Git committer dates. See the
+  [format, limits, and public comparisons](tools/oracle/community-scm-period.md).
 - `--write-baseline PATH` atomically writes the current native report with its
   assessment artifact to that path. Use a complete result as the subsequent
   pinned reference.

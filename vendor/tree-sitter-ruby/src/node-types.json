@@ -672,6 +672,14 @@
           "named": true
         },
         {
+          "type": "_simple_numeric",
+          "named": true
+        },
+        {
+          "type": "_variable",
+          "named": true
+        },
+        {
           "type": "block_argument",
           "named": true
         },
@@ -688,7 +696,15 @@
           "named": true
         },
         {
+          "type": "simple_symbol",
+          "named": true
+        },
+        {
           "type": "splat_argument",
+          "named": true
+        },
+        {
+          "type": "string",
           "named": true
         }
       ]
@@ -2015,6 +2031,7 @@
   {
     "type": "heredoc_body",
     "named": true,
+    "extra": true,
     "fields": {},
     "children": {
       "multiple": true,
@@ -2400,6 +2417,10 @@
           },
           {
             "type": "body_statement",
+            "named": true
+          },
+          {
+            "type": "call",
             "named": true
           },
           {
@@ -2907,10 +2928,6 @@
         "required": true,
         "types": [
           {
-            "type": "_arg",
-            "named": true
-          },
-          {
             "type": "_statement",
             "named": true
           }
@@ -3078,6 +3095,10 @@
           },
           {
             "type": "body_statement",
+            "named": true
+          },
+          {
+            "type": "call",
             "named": true
           },
           {
@@ -3883,7 +3904,8 @@
   },
   {
     "type": "comment",
-    "named": true
+    "named": true,
+    "extra": true
   },
   {
     "type": "def",
