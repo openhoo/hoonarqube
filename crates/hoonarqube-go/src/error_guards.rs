@@ -15,6 +15,7 @@ mod tests;
 #[derive(Clone, Default)]
 struct TypeFact {
     error: bool,
+    slice_of_errors: bool,
     returns: Vec<bool>,
     receiver: Option<String>,
 }
@@ -123,7 +124,12 @@ impl ErrorGuardFacts {
             }
             if matches!(
                 node.kind(),
-                "parameter_declaration" | "var_spec" | "short_var_declaration"
+                "parameter_declaration"
+                    | "variadic_parameter_declaration"
+                    | "var_spec"
+                    | "short_var_declaration"
+                    | "range_clause"
+                    | "default_case"
             ) {
                 declarations.push(node);
             }
@@ -136,7 +142,11 @@ impl ErrorGuardFacts {
             .retain(|(receiver, _), _| !shadowed_aliases.contains(receiver));
         declarations.sort_by_key(Node::start_byte);
         for declaration in declarations {
-            facts.collect_binding(declaration, source);
+            match declaration.kind() {
+                "range_clause" => facts.collect_range_value(declaration, source),
+                "default_case" => facts.collect_default_alias(declaration, source),
+                _ => facts.collect_binding(declaration, source),
+            }
         }
         facts
     }
@@ -264,7 +274,7 @@ impl ErrorGuardFacts {
                     }
                     let error = parameter
                         .child_by_field_name("type")
-                        .is_some_and(|kind| text(kind, source) == "error");
+                        .is_some_and(|kind| is_builtin_error(kind, source));
                     let mut cursor = parameter.walk();
                     let count = parameter
                         .children_by_field_name("name", &mut cursor)
@@ -273,20 +283,26 @@ impl ErrorGuardFacts {
                     returns.extend(std::iter::repeat_n(error, count));
                 }
             } else {
-                returns.push(text(result, source) == "error");
+                returns.push(is_builtin_error(result, source));
             }
         }
         TypeFact {
-            error: false,
             returns,
-            receiver: None,
+            ..TypeFact::default()
         }
     }
 
     fn declared_type(&self, kind: Node<'_>, source: &str) -> TypeFact {
         if kind.kind() == "function_type" {
             Self::function_type(kind, source)
-        } else if text(kind, source) == "error" {
+        } else if kind.kind() == "slice_type" {
+            TypeFact {
+                slice_of_errors: kind
+                    .child_by_field_name("element")
+                    .is_some_and(|element| is_builtin_error(element, source)),
+                ..TypeFact::default()
+            }
+        } else if is_builtin_error(kind, source) {
             TypeFact {
                 error: true,
                 ..TypeFact::default()
@@ -318,7 +334,8 @@ impl ErrorGuardFacts {
     }
 
     fn collect_binding(&mut self, node: Node<'_>, source: &str) {
-        let parameter = node.kind() == "parameter_declaration";
+        let variadic = node.kind() == "variadic_parameter_declaration";
+        let parameter = node.kind() == "parameter_declaration" || variadic;
         let scope = if parameter {
             let Some(owner) = node
                 .parent()
@@ -336,6 +353,7 @@ impl ErrorGuardFacts {
                         | "if_statement"
                         | "for_statement"
                         | "expression_switch_statement"
+                        | "type_switch_statement"
                         | "expression_case"
                         | "type_case"
                         | "default_case"
@@ -362,9 +380,16 @@ impl ErrorGuardFacts {
             })
             .map(named_children)
             .unwrap_or_default();
-        let declared = node
-            .child_by_field_name("type")
-            .map(|kind| self.declared_type(kind, source));
+        let declared = node.child_by_field_name("type").map(|kind| {
+            if variadic {
+                TypeFact {
+                    slice_of_errors: is_builtin_error(kind, source),
+                    ..TypeFact::default()
+                }
+            } else {
+                self.declared_type(kind, source)
+            }
+        });
         for (index, name) in names.iter().enumerate() {
             let mut fact = declared.clone().unwrap_or_else(|| {
                 if values.len() == names.len() {
@@ -380,19 +405,99 @@ impl ErrorGuardFacts {
             {
                 fact.returns.clone_from(returns);
             }
-            self.bindings
-                .entry(scope.id())
-                .or_default()
-                .entry(text(*name, source).to_owned())
-                .or_default()
-                .push(Binding {
-                    available_at: if parameter || scope.kind() == "source_file" {
-                        0
-                    } else {
-                        node.end_byte()
-                    },
-                    fact,
-                });
+            let available_at = if parameter || scope.kind() == "source_file" {
+                0
+            } else {
+                node.end_byte()
+            };
+            self.bind(scope, text(*name, source), available_at, fact);
+        }
+    }
+
+    fn bind(&mut self, scope: Node<'_>, name: &str, available_at: usize, fact: TypeFact) {
+        self.bindings
+            .entry(scope.id())
+            .or_default()
+            .entry(name.to_owned())
+            .or_default()
+            .push(Binding { available_at, fact });
+    }
+
+    fn collect_range_value(&mut self, clause: Node<'_>, source: &str) {
+        if !crate::has_direct_child(clause, ":=") {
+            return;
+        }
+        let Some(value) = clause
+            .child_by_field_name("left")
+            .map(named_children)
+            .and_then(|names| {
+                let mut ids = names.into_iter().filter(|n| n.kind() != "comment");
+                let (_, value) = (ids.next()?, ids.next()?);
+                (ids.next().is_none() && value.kind() == "identifier").then_some(value)
+            })
+        else {
+            return;
+        };
+        let Some(collection) = clause
+            .child_by_field_name("right")
+            .map(unwrap_parenthesized)
+            .filter(|n| n.kind() == "identifier")
+        else {
+            return;
+        };
+        if let Some(scope) = clause.parent()
+            && self
+                .lookup(collection, text(collection, source), source)
+                .is_some_and(|fact| fact.slice_of_errors)
+        {
+            self.bind(
+                scope,
+                text(value, source),
+                clause.end_byte(),
+                TypeFact {
+                    error: true,
+                    ..TypeFact::default()
+                },
+            );
+        }
+    }
+
+    fn collect_default_alias(&mut self, case: Node<'_>, source: &str) {
+        let Some(switch) = case
+            .parent()
+            .filter(|p| p.kind() == "type_switch_statement")
+        else {
+            return;
+        };
+        let Some(alias) = switch.child_by_field_name("alias").and_then(|list| {
+            named_children(list)
+                .into_iter()
+                .find(|n| n.kind() == "identifier")
+        }) else {
+            return;
+        };
+        let Some(value) = switch
+            .child_by_field_name("value")
+            .map(unwrap_parenthesized)
+            .filter(|n| n.kind() == "identifier")
+        else {
+            return;
+        };
+        // A single concrete type case narrows the alias. The default keeps the
+        // static type of the expression evaluated before the alias is in scope.
+        if self
+            .lookup(value, text(value, source), source)
+            .is_some_and(|fact| fact.error)
+        {
+            self.bind(
+                case,
+                text(alias, source),
+                case.start_byte(),
+                TypeFact {
+                    error: true,
+                    ..TypeFact::default()
+                },
+            );
         }
     }
 
@@ -484,6 +589,34 @@ impl ErrorGuardFacts {
             .copied()
             .unwrap_or(false)
     }
+}
+
+/// A generic declaration or a method receiver can reuse the predeclared type name.
+fn is_builtin_error(kind: Node<'_>, source: &str) -> bool {
+    kind.kind() == "type_identifier"
+        && text(kind, source) == "error"
+        && !ancestors(kind).any(|owner| declares_error_parameter(owner, source))
+}
+
+fn declares_error_parameter(owner: Node<'_>, source: &str) -> bool {
+    if let Some(params) = owner.child_by_field_name("type_parameters") {
+        return named_children(params).into_iter().any(|p| {
+            let mut cursor = p.walk();
+            p.children_by_field_name("name", &mut cursor)
+                .any(|n| text(n, source) == "error")
+        });
+    }
+    let Some(receiver) = owner.child_by_field_name("receiver") else {
+        return false;
+    };
+    // In a method receiver, the type arguments declare fresh type parameters.
+    let mut shadows = false;
+    walk(receiver, &mut |n| {
+        shadows |= n.kind() == "type_identifier"
+            && text(n, source) == "error"
+            && n.parent().is_some_and(|p| p.kind() == "type_elem");
+    });
+    shadows
 }
 
 fn project_type_is_locally_bound(call: Node<'_>, name: &str, source: &str) -> bool {

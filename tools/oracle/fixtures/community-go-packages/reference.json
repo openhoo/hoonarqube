@@ -1,0 +1,3357 @@
+{
+  "server": "26.11.0.134175",
+  "reference_gate": {
+    "metric": "violations",
+    "operator": "GT",
+    "error_threshold": 0
+  },
+  "selection": "all root-level regular .go files except _test.go at each frozen Git revision",
+  "selection_sha256": "3ce49c71be40d750a2eea2d373646a6c4516e0e68cedaf4ba30aa63ccd062742",
+  "file_count": 324,
+  "profiles": {
+    "core": {
+      "go:S1656": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S1763": {
+        "type": "BUG",
+        "scope": "MAIN",
+        "parameters": {}
+      },
+      "go:S1764": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S1862": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S2757": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S3923": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      }
+    },
+    "extended": {
+      "go:S1186": {
+        "type": "CODE_SMELL",
+        "scope": "MAIN",
+        "parameters": {}
+      },
+      "go:S1192": {
+        "type": "CODE_SMELL",
+        "scope": "MAIN",
+        "parameters": {
+          "threshold": "3"
+        }
+      },
+      "go:S1656": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S1763": {
+        "type": "BUG",
+        "scope": "MAIN",
+        "parameters": {}
+      },
+      "go:S1764": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S1862": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S2757": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      },
+      "go:S3776": {
+        "type": "CODE_SMELL",
+        "scope": "ALL",
+        "parameters": {
+          "threshold": "15"
+        }
+      },
+      "go:S3923": {
+        "type": "BUG",
+        "scope": "ALL",
+        "parameters": {}
+      }
+    }
+  },
+  "cases": [
+    {
+      "requested": "google/uuid",
+      "repository": "google/uuid",
+      "github_id": 51620247,
+      "commit": "2d3c2a9cc518326daf99a383f07c4d3c44317e4d",
+      "tree": "4417b29c0de3c38c3fe46ab172e42758d045b3fb",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "dce.go": "6a4b89e7f6165a673e76f00bebaabf8d0d7eb4356a672c6cb771d95a45fb2695",
+        "doc.go": "d0e86d759ab8cd66ab72bb4b2c00b40475a5ceb4a2ff4cf881dcae91f1482491",
+        "hash.go": "588b314f396d99aa304c9e89b6786e9280ec430223349f2ebb48d9145272f81d",
+        "marshal.go": "933eb226d049268e17809fd37f777c650b9ec8cb3fa988534b792610a64dcc43",
+        "node.go": "73a93d192ca24078e0f93b8c1675e13adb442421252d3974d697b0821c4832cf",
+        "node_js.go": "334b6ac9f50339341696319aaf9b912ea8007d0aacf0e909a48a0bb02d982d6d",
+        "node_net.go": "78e274b465de8da8690f4ab06281f41025b142c1d093e337fda1d6726b35662b",
+        "null.go": "791638f42d54fcf07ac752df6b2df92593f7da308f944465e2cda443dc3346cf",
+        "sql.go": "29281b11e8f97f1ddf73d087854cb401ba42a87c4f59ce45fc69763a4d927f2f",
+        "time.go": "4154b2d7897acfff253c4c2ac0d38d1765cfe3f6ca2e482c71c0677d98380d63",
+        "util.go": "4237eba5a7bc7934b938c9b0bce5fa502d832e5660de71cbef130582e517f89e",
+        "uuid.go": "00d93a3f65d8b0063266e63ff0e16ac543e30a911fd35119bcf1a66437161360",
+        "version1.go": "38a2c229a2aad4bb72d45529304f210b1f31e8ef60bbd2605690a10f0d8a8242",
+        "version4.go": "f252aeb4028659d83cbf7b037d4524f7c9b76cde1fdca1f6f7de310dab6f4dcd",
+        "version6.go": "0bafc74725a9ee94939d6cde6bad8e13804aa594328e7b20d7cf05fb86315307",
+        "version7.go": "1b154d61434747ca823e5c5c0f58dd3ffc47620badefd0b65626be0010fe6c28"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-51620247-2d3c2a9cc5",
+          "analysis": "fe3b415a-f61b-4e55-974f-f2aa0ea0e789",
+          "task": "29a72784-a9fa-420c-b07d-7bcb4fd52155",
+          "indexed_go": [
+            "dce.go",
+            "doc.go",
+            "hash.go",
+            "marshal.go",
+            "node.go",
+            "node_js.go",
+            "node_net.go",
+            "null.go",
+            "sql.go",
+            "time.go",
+            "util.go",
+            "uuid.go",
+            "version1.go",
+            "version4.go",
+            "version6.go",
+            "version7.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-51620247-2d3c2a9cc5",
+          "analysis": "611ca7d4-d7e5-43a6-b42a-485155275382",
+          "task": "fb47ebcb-4566-4b4b-b5e3-0f9740a7b093",
+          "indexed_go": [
+            "dce.go",
+            "doc.go",
+            "hash.go",
+            "marshal.go",
+            "node.go",
+            "node_js.go",
+            "node_net.go",
+            "null.go",
+            "sql.go",
+            "time.go",
+            "util.go",
+            "uuid.go",
+            "version1.go",
+            "version4.go",
+            "version6.go",
+            "version7.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 2,
+          "active_issues": [
+            [
+              "go:S1192",
+              "uuid.go",
+              103,
+              31,
+              103,
+              42,
+              "Define a constant instead of duplicating this literal \"urn:uuid:\" 4 times."
+            ],
+            [
+              "go:S3776",
+              "uuid.go",
+              223,
+              5,
+              223,
+              13,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "rs/xid",
+      "repository": "rs/xid",
+      "github_id": 45938451,
+      "commit": "34d39051ca0d70f40a8cd8c5491ef835e624b71d",
+      "tree": "c6cef64b389b94744beac3f19b80125720caa78b",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "error.go": "6ee3f3b5530d10082894a0a176964c228885d463d4da203b29d71b04927ad499",
+        "hostid_darwin.go": "538d09485a60521d860346e9ac023da82852e67f23c1801c070ab642c0473527",
+        "hostid_fallback.go": "e7b7471ad992f16a434fd380a6796cc0b59a82a70c16f3fa1a139305adec2e84",
+        "hostid_freebsd.go": "846ce164b0cbddd5c068bbcdebc759d3527a3ba7d0204b42b9d2ad82388a5505",
+        "hostid_linux.go": "c33e6e026ba1351d72c83de8fbfc97ed010c66b589a8d22fb3946a8fd8047c03",
+        "hostid_openbsd.go": "55cc5cf58bc07d442f078be526debab842c6596fe7101ae5d81e119c14156baf",
+        "hostid_windows.go": "3ca63f79ce8b6f6df7e554033b6285a9106d4f5aa6461322b17748f44e4b235c",
+        "id.go": "af4b27818a6c145f28906616e0e0a55bcbd75005d49fadd383d24140d31e7451"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-45938451-34d39051ca",
+          "analysis": "ac50eaf8-902c-4714-8432-93eaf2d759e7",
+          "task": "2c464db4-0a81-44b7-ae76-119b4f9ae664",
+          "indexed_go": [
+            "error.go",
+            "hostid_darwin.go",
+            "hostid_fallback.go",
+            "hostid_freebsd.go",
+            "hostid_linux.go",
+            "hostid_openbsd.go",
+            "hostid_windows.go",
+            "id.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-45938451-34d39051ca",
+          "analysis": "4d403a19-c623-40b0-976f-9629c9f13709",
+          "task": "ad5ec9c8-2e28-4675-8bca-507dbc66dfe4",
+          "indexed_go": [
+            "error.go",
+            "hostid_darwin.go",
+            "hostid_fallback.go",
+            "hostid_freebsd.go",
+            "hostid_linux.go",
+            "hostid_openbsd.go",
+            "hostid_windows.go",
+            "id.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "oklog/ulid",
+      "repository": "oklog/ulid",
+      "github_id": 75744278,
+      "commit": "75921a7395850ea47ed4dfd832184a5a294c8fde",
+      "tree": "4028c9e934d11963f65f67cbb87bd26e2a95274b",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "ulid.go": "0ac87350cd2a4b98b3ac8fa2de168655edf9d0f6c9b5f78850643e07e240970f"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-75744278-75921a7395",
+          "analysis": "28e1b701-0be1-4ce5-b31e-098f31a02547",
+          "task": "3cbd11e0-407b-4c52-80e8-ec287d98ef59",
+          "indexed_go": [
+            "ulid.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-75744278-75921a7395",
+          "analysis": "d16b70c2-0ceb-43fc-87a7-924ea91b4a17",
+          "task": "19de22e9-06a4-4e1a-a663-7fdcd5cb48ba",
+          "indexed_go": [
+            "ulid.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "segmentio/ksuid",
+      "repository": "segmentio/ksuid",
+      "github_id": 90921999,
+      "commit": "d33724947fcfba7949906c2b1821e96a1c8d06e7",
+      "tree": "97560ef0e92218951855805d2ff7eb77e7f14cbb",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "base62.go": "f3730b45e2ddbd7e7a925ca781b1963f9fad44b89ffb3c8eb84117be74b88af1",
+        "ksuid.go": "ccdd2f4f6f0e07f8f764cfd7ecda49132c0c2faab165771f3f0d4cdbfb48247d",
+        "rand.go": "1b362ac9f0982741fc10b28804f410f59bb1e7f798ca5db4814d9c7b320f3e96",
+        "sequence.go": "136fe47a405eba74cbd11f12a117f02ae052f23e88cf9ae223f664e605e7294f",
+        "set.go": "5322593a0955bab6a58e21a9d7daf0af9093b7d293005ee744c787461776b04f",
+        "uint128.go": "f23b7b21fe35173df47003ac9a6ef211d1fd57e998194f3a84c653deaf9f4b15"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-90921999-d33724947f",
+          "analysis": "93d2da9f-7ac6-473e-a2ff-c55b4c0ced29",
+          "task": "a3c9f103-c37e-4339-8139-ff8a9bbb4939",
+          "indexed_go": [
+            "base62.go",
+            "ksuid.go",
+            "rand.go",
+            "sequence.go",
+            "set.go",
+            "uint128.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-90921999-d33724947f",
+          "analysis": "52f18a60-b2c7-4f9b-964d-cbeb3b91b10d",
+          "task": "48adf10e-bbd7-4f99-9217-923b1cd2ba3c",
+          "indexed_go": [
+            "base62.go",
+            "ksuid.go",
+            "rand.go",
+            "sequence.go",
+            "set.go",
+            "uint128.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 1,
+          "active_issues": [
+            [
+              "go:S3776",
+              "set.go",
+              67,
+              5,
+              67,
+              21,
+              "Refactor this method to reduce its Cognitive Complexity from 17 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "sony/sonyflake",
+      "repository": "sony/sonyflake",
+      "github_id": 36485077,
+      "commit": "f167a9d53145b661d05ac28b5702b6f29ea9c502",
+      "tree": "5375380e6a991f929763e0b7f81be8333994a2ec",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "sonyflake.go": "6170ec1ef0249e7eb19a900bdde1f007e0fa3bee4783ec467c4b758a3e31d7c4"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-36485077-f167a9d531",
+          "analysis": "4002bfc5-4be1-4032-b5be-865aa3227810",
+          "task": "4939adaa-4d5c-41bf-b423-d83ba17e2b95",
+          "indexed_go": [
+            "sonyflake.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-36485077-f167a9d531",
+          "analysis": "78b3353c-9858-4521-bfa4-7474bdbfb311",
+          "task": "9dabe822-2551-4b3c-aecd-f07d8aa2985b",
+          "indexed_go": [
+            "sonyflake.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "bwmarrin/snowflake",
+      "repository": "bwmarrin/snowflake",
+      "github_id": 59693338,
+      "commit": "bc74ab286f15f6c73896cb40ad39c502263c7af3",
+      "tree": "f408ee4ce69e8fe47f1d4c02d2d099319984086e",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "snowflake.go": "7951f261ec442ef8a5df7294ffb61f49fc4d31d303c9ebd0da89000224d09703"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-59693338-bc74ab286f",
+          "analysis": "20f2e358-f4f3-4586-84eb-76a02b08c604",
+          "task": "8d024944-d865-4337-a0d3-88b3096af3e8",
+          "indexed_go": [
+            "snowflake.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-59693338-bc74ab286f",
+          "analysis": "3036c2ea-8fe2-400f-a7f0-c26859f6b5de",
+          "task": "d44dc5f5-25f9-43a2-b205-9c0343f44e75",
+          "indexed_go": [
+            "snowflake.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "go-ini/ini",
+      "repository": "go-ini/ini",
+      "github_id": 28173298,
+      "commit": "68bedac52d2fd038c76288b187d98cdc0e98f254",
+      "tree": "954e602df585dc61931ea4c5ce54a7b04754a366",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "data_source.go": "01683d535d7d38d8e33d1584a71a10b861a3f15b15aa286794f1d29defb80d01",
+        "doc.go": "f34d746e7828aeb6afe77a1576a040979203ef29678867ab989c07f1e5c4699d",
+        "error.go": "3a90c4f13cfc3e240a2bd9f63ff855542255c4757b62419ed3e09b9678ecf282",
+        "file.go": "e229137f8601d9043a83eaeeba7229b4adaf40f231ed7d448b26c247a5d04ddb",
+        "ini.go": "32c761a38fab0d138f7e66b1ee1a39f615d728faf8998e397e5530043030bab9",
+        "key.go": "f4df2f329eca9b726630e55421f169f5d8142933231d32593cae16a2e556d2f2",
+        "lexer.go": "d47039a77bf36ac5584f8f1604e4ef95092e11c7bee97aa406e77522fcf03a12",
+        "options.go": "c73c8564e214aaa731472e6933b94f7a2640de0d486424527a7fb4b9f2c39c98",
+        "section.go": "cf63b0775abad162c8c8d10a9ec897591d546415b6c4ed6b3a3142f596617b9f",
+        "struct.go": "dc914620734117613a6484a79c33bb4bcb4e65d1d6edf13b3aca020b29306fb3"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-28173298-68bedac52d",
+          "analysis": "2eccdda0-6da8-4a5e-bd03-237d4dfd4d79",
+          "task": "6fdd45a0-3eeb-4de6-b352-a220bfd478c7",
+          "indexed_go": [
+            "data_source.go",
+            "doc.go",
+            "error.go",
+            "file.go",
+            "ini.go",
+            "key.go",
+            "lexer.go",
+            "options.go",
+            "section.go",
+            "struct.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-28173298-68bedac52d",
+          "analysis": "f38105da-c158-49af-93b5-9ac1c1167b5f",
+          "task": "c04171a8-2688-4c82-b5b3-7020c9765571",
+          "indexed_go": [
+            "data_source.go",
+            "doc.go",
+            "error.go",
+            "file.go",
+            "ini.go",
+            "key.go",
+            "lexer.go",
+            "options.go",
+            "section.go",
+            "struct.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 7,
+          "active_issues": [
+            [
+              "go:S3776",
+              "file.go",
+              420,
+              15,
+              420,
+              21,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "file.go",
+              514,
+              15,
+              514,
+              28,
+              "Refactor this method to reduce its Cognitive Complexity from 183 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "key.go",
+              480,
+              5,
+              480,
+              14,
+              "Refactor this method to reduce its Cognitive Complexity from 17 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "struct.go",
+              165,
+              5,
+              165,
+              15,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "struct.go",
+              402,
+              18,
+              402,
+              30,
+              "Refactor this method to reduce its Cognitive Complexity from 45 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "struct.go",
+              727,
+              18,
+              727,
+              30,
+              "Refactor this method to reduce its Cognitive Complexity from 56 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "struct.go",
+              861,
+              18,
+              861,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 26 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "pelletier/go-toml",
+      "repository": "pelletier/go-toml",
+      "github_id": 8393979,
+      "commit": "686c980c47581bf19b6119b60e9a59f2aed04170",
+      "tree": "2b6cd370eff115f7819e7436bd6dd5df8f735963",
+      "default_branch": "v2",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "decode.go": "c170ee74ae0b017e20b75bf337e9c13348ff4bf51382f1eb73114b42555fd14e",
+        "decode_fused.go": "ee8fe6250f6d907251f38e17cdc074474c4dc17891370af608365d30848565f7",
+        "doc.go": "2749c2c29bd93b7f76c7a12122209ab11e42add4488f09b158c3d5d1e7fcb31a",
+        "errors.go": "7c885b7389f7fc6b4a8f1246fbf3d55ca3818c9408909ac9c3573d3239988038",
+        "localtime.go": "ba6bb0b1f28cf0e7756a304e5e353a9478120b4577826a7dba4abdd8e9bf24b3",
+        "marshaler.go": "60c17c264ca59f87f890f2aaf3db424d36c8aa3657f3e3576cdc824550559aaf",
+        "strict.go": "c1ff95bd230aee3a47237fa116b2ecfebe0e5dc1f1ce0bdf5f01a6e7bd8dfc8a",
+        "types.go": "f05dace7da57daada1f39313681ba913dff50cfbc97ea98580f4426bc5f6e11d",
+        "unmarshaler.go": "90294f4e257387b81e5b8aafe2c8aa7c2c8a8bd206fda6984a50b0e9caac64b3"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-8393979-686c980c47",
+          "analysis": "9e82bd57-4b95-4d07-9b4e-5ac23a5d58a1",
+          "task": "7a46d651-f8cd-4479-bf7b-3b0993c4a40c",
+          "indexed_go": [
+            "decode.go",
+            "decode_fused.go",
+            "doc.go",
+            "errors.go",
+            "localtime.go",
+            "marshaler.go",
+            "strict.go",
+            "types.go",
+            "unmarshaler.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-8393979-686c980c47",
+          "analysis": "9667b367-929d-4b5f-9836-c6d4a0bc1fe0",
+          "task": "371d3bfa-e71d-4d0d-8cde-e90532a1381a",
+          "indexed_go": [
+            "decode.go",
+            "decode_fused.go",
+            "doc.go",
+            "errors.go",
+            "localtime.go",
+            "marshaler.go",
+            "strict.go",
+            "types.go",
+            "unmarshaler.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 21,
+          "active_issues": [
+            [
+              "go:S3776",
+              "decode.go",
+              116,
+              5,
+              116,
+              15,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "decode.go",
+              181,
+              5,
+              181,
+              19,
+              "Refactor this method to reduce its Cognitive Complexity from 44 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "decode.go",
+              343,
+              5,
+              343,
+              19,
+              "Refactor this method to reduce its Cognitive Complexity from 26 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "decode.go",
+              463,
+              5,
+              463,
+              18,
+              "Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "decode_fused.go",
+              93,
+              18,
+              93,
+              28,
+              "Refactor this method to reduce its Cognitive Complexity from 17 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "decode_fused.go",
+              146,
+              18,
+              146,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "errors.go",
+              157,
+              5,
+              157,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "marshaler.go",
+              670,
+              23,
+              670,
+              41,
+              "Refactor this method to reduce its Cognitive Complexity from 37 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "marshaler.go",
+              1189,
+              5,
+              1189,
+              17,
+              "Refactor this method to reduce its Cognitive Complexity from 37 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "marshaler.go",
+              1304,
+              23,
+              1304,
+              43,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "marshaler.go",
+              1516,
+              23,
+              1516,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "marshaler.go",
+              1667,
+              23,
+              1667,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "marshaler.go",
+              1801,
+              5,
+              1801,
+              26,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              491,
+              18,
+              491,
+              27,
+              "Refactor this method to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              749,
+              18,
+              749,
+              27,
+              "Refactor this method to reduce its Cognitive Complexity from 165 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              1183,
+              18,
+              1183,
+              32,
+              "Refactor this method to reduce its Cognitive Complexity from 33 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              1412,
+              18,
+              1412,
+              25,
+              "Refactor this method to reduce its Cognitive Complexity from 58 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              1991,
+              18,
+              1991,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 25 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              2074,
+              18,
+              2074,
+              27,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              2348,
+              5,
+              2348,
+              14,
+              "Refactor this method to reduce its Cognitive Complexity from 35 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "unmarshaler.go",
+              2440,
+              5,
+              2440,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "spf13/afero",
+      "repository": "spf13/afero",
+      "github_id": 25872841,
+      "commit": "d2bffea700c045694727c3172ad6521da4e218b0",
+      "tree": "eb91e80bd916e21a02a0d8df415a3c8a3f2d3649",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "afero.go": "ca7d80bad2d46ea36146f885fcb20e7d1193be1bc0cf51f9e37cb0cda8ed5e05",
+        "basepath.go": "d4aa302b29dd36431b5076f55ad414812499ed1f953fea3bbadccc315c36b1f7",
+        "cacheOnReadFs.go": "9c5aae9b67d721684da74bf52f49c3fe8873da5d81a76b39cd4763eb0aa9f248",
+        "const_bsds.go": "56932fdd934e80974171f792c5218423bd38aa3e7923552949c60524bcf7da26",
+        "const_win_unix.go": "f55a666af3ab24c36bdfb4ffb30a455aeaec33034fe678496835b88c36a6fb70",
+        "copyOnWriteFs.go": "ae307349d8a592ae1feaf4a6685935586fd77c7184b29a0736ff5b02dc3acd37",
+        "httpFs.go": "1a50396c5651920fa3044abe7a637d32db61b9bcc3be4fc997fa3422a8c7a111",
+        "iofs.go": "4159a068b8e87fa3352b0c71557e8bc862ea23abc509ca90ce7e444c5c30ed64",
+        "ioutil.go": "f118566a161261a58e54d8143c24b6a74deaaf000c07c589a4c2041469c6a78e",
+        "lstater.go": "958ac23bd94a4a64deb24b963d1f2b1d99cae1a72840c1dda4ca9ac0538d19a6",
+        "match.go": "bc7d2f7352c33f49f1b9cb52259ac20f1819e24dead8f9b324f620f5e78115d6",
+        "memmap.go": "90311723f6e368e2ca18a49f46e14293a5f54863e6a1d5c40008f67abd43f995",
+        "os.go": "2923b1d46c4f17259829e47484ad259e1bdb1427b74f4791cf0b7efba2df697d",
+        "os_unix.go": "4ef91ad9aa6f9ccdcac0e5abc2200e94d76192e9a8d9ca1446165a44c31a43fd",
+        "path.go": "3234cc6f98a54cceae3d03310bdd02ac01df569f8f9c4761f73f608fb3ca2969",
+        "readonlyfs.go": "c0f11edce53a0d043873f02fcbb408b43927d9af0087f396c8b80cfef9a20e33",
+        "regexpfs.go": "a8be6c29c9b5de59761e05925c1c452dc9a12584113e1684897c7db27cee93f0",
+        "symlink.go": "89a59080e3d0720c311e8de782d93cb65c74b86af0ac6eff701baa58b9003382",
+        "unionFile.go": "e17961497184f5690e764ed2616c85ccce5a038217cf0d6e90a06d3cd152332f",
+        "util.go": "bd527146248d6e0822837672e38311f769d071a414d825a7f6e8689492c17aa6"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-25872841-d2bffea700",
+          "analysis": "4ed868d3-48b7-434e-8931-5721d98e80f3",
+          "task": "02ed5bcf-0f58-46b1-9fbd-430c2b138581",
+          "indexed_go": [
+            "afero.go",
+            "basepath.go",
+            "cacheOnReadFs.go",
+            "const_bsds.go",
+            "const_win_unix.go",
+            "copyOnWriteFs.go",
+            "httpFs.go",
+            "iofs.go",
+            "ioutil.go",
+            "lstater.go",
+            "match.go",
+            "memmap.go",
+            "os.go",
+            "os_unix.go",
+            "path.go",
+            "readonlyfs.go",
+            "regexpfs.go",
+            "symlink.go",
+            "unionFile.go",
+            "util.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-25872841-d2bffea700",
+          "analysis": "127e3640-2bbc-491c-abc5-02b4303af25e",
+          "task": "dadfe96b-6152-4db0-b30e-fea0b137a675",
+          "indexed_go": [
+            "afero.go",
+            "basepath.go",
+            "cacheOnReadFs.go",
+            "const_bsds.go",
+            "const_win_unix.go",
+            "copyOnWriteFs.go",
+            "httpFs.go",
+            "iofs.go",
+            "ioutil.go",
+            "lstater.go",
+            "match.go",
+            "memmap.go",
+            "os.go",
+            "os_unix.go",
+            "path.go",
+            "readonlyfs.go",
+            "regexpfs.go",
+            "symlink.go",
+            "unionFile.go",
+            "util.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 2,
+          "active_issues": [
+            [
+              "go:S3776",
+              "path.go",
+              46,
+              5,
+              46,
+              9,
+              "Refactor this method to reduce its Cognitive Complexity from 17 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "util.go",
+              208,
+              5,
+              208,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 22 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "spf13/pflag",
+      "repository": "spf13/pflag",
+      "github_id": 12488845,
+      "commit": "7b3c6eb4194a1d06e9e0eec9c24860a9c0045ad2",
+      "tree": "17f0dab3f6934c4276d7a48eed47477dad64fb58",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "bool.go": "2b2a8dd2139f771523105e404076407666a94c81279a685ab7da5bd028fef161",
+        "bool_func.go": "ed67c0e8c8f92537cf9a7310b2036f7438d0abf20969437988ce8711a54beb63",
+        "bool_slice.go": "f47e68c92a46a175d57cf651ebd946378c82475a2cd62da13355802014524140",
+        "bytes.go": "6c07854ee567d92c21dd5abf963096ed4aa845c64b5b462d695ae4d021cb18e6",
+        "count.go": "59c3c0b5594d281abf8a5a7c3ab2e432681a91f42217677e62ebdf2908916c2b",
+        "duration.go": "c8ce3023d0fed77d18e4b5690ef224424193a880ee35083c2d5880d925b8f1d6",
+        "duration_slice.go": "2a1822cbe89bccae19da693ac85d28e751e73ee1ceb4dfba1c17dd0d7efc71a5",
+        "errors.go": "65209c173f3330bc35a09c9b9a9379e39b07be03e8e15f79388782d2cf06b709",
+        "flag.go": "ee3e012ad8b848560114a5d886731559e8467d687084e653cb0415ae6a52c995",
+        "float32.go": "e8a5316067c5180e60a1ce759137050be13d5bdcbe759948be2d19ad4cdf5201",
+        "float32_slice.go": "aec2d01aeac6b1035901d89e7b418ed21f4ca89a58c30b3a7e8b183cfd138fef",
+        "float64.go": "7e1722a29d2f6823a69c175f5ffd6e0f2e27fae71351d0d2111d4a48a8714765",
+        "float64_slice.go": "0fe130703f3f3affdbcff7ddadb6e5490557e5af7aaeaac2340a29c60c45cb54",
+        "func.go": "83a0f492f6e3f28812e76007869063d552ab9190a326f89e1f7944a7626d74eb",
+        "golangflag.go": "f60b4f67194a4a3725ac1a8451bd4a3f868fb9b7ff3378893f0ee4eeb7c79eeb",
+        "int.go": "35b9be3bb2fab7c2a8bc24513d0a9e551f6db84f5bafc6babd99f3167b18d743",
+        "int16.go": "8762a08dc3733355909411612d8d98284cd7aacf18228d82fa068fd4e0c642e8",
+        "int32.go": "4d940db7e27a88f09b5991942e5ceba9f4010829ece6de7162395f74542877a7",
+        "int32_slice.go": "804f751c996ce5ec0d4f2a9692d24eea57270f324314d52ab564f6739bb25cb1",
+        "int64.go": "50fef4262bfdc873f5da9f91115740be5397fb5754bb992dbbdae1c5d43e5c1d",
+        "int64_slice.go": "7cc5b40ad7803e2fb2960e94fbd98d08f783fbc89ecbe7ce7af74e0c8d52e021",
+        "int8.go": "4333e7b7f924150fcf4967b6a99f481f00abbedea33bbba8de4632149bdbf7bf",
+        "int_slice.go": "eb8434b8f00f6510d2699c5f2f5127a3b68533d936fa7c67258fbfec6d06baca",
+        "ip.go": "9062c2a9c65d772827c39f9bcd552e5e58b1e7ff646c9840a09c55dcdc93796a",
+        "ip_slice.go": "061b1443f6f1f259c744e35a0a5e6b1c452b247bfa83b60cb01168338cea272d",
+        "ipmask.go": "966588938cac522ac86eb5e8858dd7feece20ec72aeca29d18efafeb818fb6f3",
+        "ipnet.go": "aa7d5258317c189fc2c1f75c10cc70eb05d9b2f7bc4a75518dd6b7216c2e845b",
+        "ipnet_slice.go": "653e326578b3752266572b0910e0a6d774661bd5afb2099c5baacbd1a4bed163",
+        "string.go": "15ca4dc0ddf5f2c508be07bf5a67effaea35f6e763dfce63a98105340c939612",
+        "string_array.go": "cabeb4313f6f790332a9d21fb917eb0ede355d4f597273fb22cc25e5e7282d68",
+        "string_slice.go": "4eaee534f377abf13887a24a703380caeb497c58098b74a072350f4412e980ae",
+        "string_to_int.go": "411223d308b45eb756e4ddc69f661abe727661385905de7c9a0bbce6fae444c0",
+        "string_to_int64.go": "175a7516b0b70aeeeecd8a375083f02a5cfccff1d702fbdc2373f426854d01fd",
+        "string_to_string.go": "933e28666fcfaf12cbabf4a19ef29e3532fecd965221d28185a580b1cda3a41a",
+        "text.go": "53d67ff577d4185ed93a8c41dfba4ace9d55607c6fa5d2d20930e434adb19ace",
+        "time.go": "77d336b7738c4e7e999c173414536f2caefb1b80ef76841b3b3a8f35f5d0d313",
+        "uint.go": "e03b81f8227927134d7d6aee74568b08f5b98c615e27f9e28d4e4ec8a2ba92bc",
+        "uint16.go": "ce2b1267e99c4177827739a0058583480d823aa1d5acd218830274cc39e19d3d",
+        "uint32.go": "70251cbf933559eb72827d48b4f8009218a6d3cbbae8e881d3fcb73e58d1ebd2",
+        "uint64.go": "a902792aef80ab4d6cefdec5d4eabfcf67d734aad03cc05089e34d37f7d89152",
+        "uint8.go": "14b7c3428d9a0932c36b19532fb07b15c372d9cde8e3da72ad309e239f80a548",
+        "uint_slice.go": "87b8036d9d90bdd2fc82341874594a0fcfeac5538c8e9ffa7d97d4ab8708fbe0"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-12488845-7b3c6eb419",
+          "analysis": "2d92b081-14de-4a10-9362-ac3072fb0f16",
+          "task": "9ee5fc17-71a1-45cd-bfab-7e3a3b846b15",
+          "indexed_go": [
+            "bool.go",
+            "bool_func.go",
+            "bool_slice.go",
+            "bytes.go",
+            "count.go",
+            "duration.go",
+            "duration_slice.go",
+            "errors.go",
+            "flag.go",
+            "float32.go",
+            "float32_slice.go",
+            "float64.go",
+            "float64_slice.go",
+            "func.go",
+            "golangflag.go",
+            "int.go",
+            "int16.go",
+            "int32.go",
+            "int32_slice.go",
+            "int64.go",
+            "int64_slice.go",
+            "int8.go",
+            "int_slice.go",
+            "ip.go",
+            "ip_slice.go",
+            "ipmask.go",
+            "ipnet.go",
+            "ipnet_slice.go",
+            "string.go",
+            "string_array.go",
+            "string_slice.go",
+            "string_to_int.go",
+            "string_to_int64.go",
+            "string_to_string.go",
+            "text.go",
+            "time.go",
+            "uint.go",
+            "uint16.go",
+            "uint32.go",
+            "uint64.go",
+            "uint8.go",
+            "uint_slice.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-12488845-7b3c6eb419",
+          "analysis": "2d3c1fa9-ed5f-4377-852b-74900cc075a4",
+          "task": "a4f1098e-1ea8-41a6-9099-6a330d083cf4",
+          "indexed_go": [
+            "bool.go",
+            "bool_func.go",
+            "bool_slice.go",
+            "bytes.go",
+            "count.go",
+            "duration.go",
+            "duration_slice.go",
+            "errors.go",
+            "flag.go",
+            "float32.go",
+            "float32_slice.go",
+            "float64.go",
+            "float64_slice.go",
+            "func.go",
+            "golangflag.go",
+            "int.go",
+            "int16.go",
+            "int32.go",
+            "int32_slice.go",
+            "int64.go",
+            "int64_slice.go",
+            "int8.go",
+            "int_slice.go",
+            "ip.go",
+            "ip_slice.go",
+            "ipmask.go",
+            "ipnet.go",
+            "ipnet_slice.go",
+            "string.go",
+            "string_array.go",
+            "string_slice.go",
+            "string_to_int.go",
+            "string_to_int64.go",
+            "string_to_string.go",
+            "text.go",
+            "time.go",
+            "uint.go",
+            "uint16.go",
+            "uint32.go",
+            "uint64.go",
+            "uint8.go",
+            "uint_slice.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 3,
+          "active_issues": [
+            [
+              "go:S3776",
+              "flag.go",
+              778,
+              18,
+              778,
+              35,
+              "Refactor this method to reduce its Cognitive Complexity from 34 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "flag.go",
+              1134,
+              18,
+              1134,
+              37,
+              "Refactor this method to reduce its Cognitive Complexity from 23 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "flag.go",
+              1260,
+              18,
+              1260,
+              27,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "mitchellh/mapstructure",
+      "repository": "mitchellh/mapstructure",
+      "github_id": 10166531,
+      "commit": "8508981c8b6c964e6986dd8aa85490e70ce3c2e2",
+      "tree": "c39e8d23749a8beaefa436787b567070d60346f3",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "decode_hooks.go": "b52d6118e29a98f6ae8de3ce009108e3bcab2aabfb26dbc47f49aa19c529e3ed",
+        "error.go": "19d21bb8d8a3ca3909a8ead3c4c9884ea782bd03c93a3d7c9150d2d23909b0b1",
+        "mapstructure.go": "d68e738806e45904e5d8e7bb790900f0c516318c63781930fd19ffda6c61570d"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-10166531-8508981c8b",
+          "analysis": "935ef9b6-f659-4749-b0b5-c410e72a1206",
+          "task": "381d4f1c-744a-4e6f-a735-ddaf297d64f1",
+          "indexed_go": [
+            "decode_hooks.go",
+            "error.go",
+            "mapstructure.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-10166531-8508981c8b",
+          "analysis": "ea70b367-aa1d-41e9-8007-a7ca441368ad",
+          "task": "12c22175-1d86-4cd4-87bd-7c23ff342d45",
+          "indexed_go": [
+            "decode_hooks.go",
+            "error.go",
+            "mapstructure.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 8,
+          "active_issues": [
+            [
+              "go:S1192",
+              "mapstructure.go",
+              162,
+              1,
+              162,
+              16,
+              "Define a constant instead of duplicating this literal \"encoding/json\" 4 times."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              421,
+              18,
+              421,
+              24,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              565,
+              18,
+              565,
+              30,
+              "Refactor this method to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              664,
+              18,
+              664,
+              28,
+              "Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              908,
+              18,
+              908,
+              37,
+              "Refactor this method to reduce its Cognitive Complexity from 49 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              1078,
+              18,
+              1078,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              1157,
+              18,
+              1157,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "mapstructure.go",
+              1267,
+              18,
+              1267,
+              37,
+              "Refactor this method to reduce its Cognitive Complexity from 83 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "hashicorp/go-multierror",
+      "repository": "hashicorp/go-multierror",
+      "github_id": 28054085,
+      "commit": "1fda6a371bee4201492c5a384a44d2726751d81a",
+      "tree": "e1a6c45b39b72057871487a149bc08b99b63c860",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "append.go": "eee1c33064624280ff40c29b684f30985b58209e914ca273b08283f9b864f2e3",
+        "flatten.go": "1d8ece65ca11ca7a01e71040385d8c11b713d14c86fe8f1de7be0d05c4f6cba8",
+        "format.go": "610c5ff78f69ca498e26da709b7c4d224b88d2e053918dbbc917c6117435a7c3",
+        "group.go": "f22eb3d10c1fa3277c51d2a10291b52e33c3e684c8e8d8e2bfc932964d673f84",
+        "multierror.go": "6263fc7c7e5f95c8de87aa78d2ce0c408e23063500634de419d80f78e1b4f26b",
+        "prefix.go": "9ee75e6528d6af3e68d2f688540d91c0f9e0c66601149759afcb5fdcf87627b3",
+        "sort.go": "6df241fdcd9d902ec00e34bf9ffd695883bc5bdb2697849bd4eedab15ebbb452"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-28054085-1fda6a371b",
+          "analysis": "e356d480-07ee-40e7-8b83-536e69575aba",
+          "task": "b04efff9-abf5-4e84-9281-bafc7cd9a0fa",
+          "indexed_go": [
+            "append.go",
+            "flatten.go",
+            "format.go",
+            "group.go",
+            "multierror.go",
+            "prefix.go",
+            "sort.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-28054085-1fda6a371b",
+          "analysis": "7e1f04fd-eade-42d5-b820-4d0d9c1a5e22",
+          "task": "3aded1da-1be4-4c57-8b57-0d14d6423191",
+          "indexed_go": [
+            "append.go",
+            "flatten.go",
+            "format.go",
+            "group.go",
+            "multierror.go",
+            "prefix.go",
+            "sort.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "hashicorp/go-retryablehttp",
+      "repository": "hashicorp/go-retryablehttp",
+      "github_id": 47565506,
+      "commit": "7e8e6f42169e7dc20bf5af008698a6a06997b6e4",
+      "tree": "1ba4f569f10d0972e0c12f893cc4908ce5905389",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "cert_error_go119.go": "88b2ee774849d3838148003e7a957b52190f8e76256fa68d44152f8e5a22a412",
+        "cert_error_go120.go": "2030f80565842271b71fd433c58d2003d3d3b8f31b8daf14dd7e0a2785ec62db",
+        "client.go": "83a4d053293eeccf8288e172acda0e7ed40ec403663ac7e190462b63cf7c56b5",
+        "roundtripper.go": "48b9012a3c463cd7934ba9adebe9a36019e17902725c3788682cf05b976135b3"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-47565506-7e8e6f4216",
+          "analysis": "e1c0f6bc-f798-4944-b2f5-98fc02f1e507",
+          "task": "475162b1-dae0-4b8e-9947-9d1edeae9e1e",
+          "indexed_go": [
+            "cert_error_go119.go",
+            "cert_error_go120.go",
+            "client.go",
+            "roundtripper.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-47565506-7e8e6f4216",
+          "analysis": "f5d48cfc-68e6-4595-a3ef-e6f45cac3348",
+          "task": "a8f5f4e9-e79d-4824-a8b9-e8723e837849",
+          "indexed_go": [
+            "cert_error_go119.go",
+            "cert_error_go120.go",
+            "client.go",
+            "roundtripper.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 1,
+          "active_issues": [
+            [
+              "go:S3776",
+              "client.go",
+              666,
+              17,
+              666,
+              19,
+              "Refactor this method to reduce its Cognitive Complexity from 55 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "hashicorp/go-cleanhttp",
+      "repository": "hashicorp/go-cleanhttp",
+      "github_id": 44763892,
+      "commit": "b0e8488e2fe29dce6a369099f264aa046c27b659",
+      "tree": "d1ad3366169769ece995086bc9fd5d4954db7f96",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "cleanhttp.go": "ab6e933dd2428161ad0213e67486f498088ffdd459d2b3d77b8ebbc31d72d92f",
+        "doc.go": "c64605a09ed7e817b10259a7a38c8c710ddd0c67da6c0629011774b91412b8c5",
+        "handlers.go": "b53d8275a17d1dd7b659fe5802e6d24eab020424f673377cc150ebea711bd7a2"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-44763892-b0e8488e2f",
+          "analysis": "594da173-04ea-489a-b7fe-e5e48560b2da",
+          "task": "711c97cc-df75-43b2-8cab-337f12015d68",
+          "indexed_go": [
+            "cleanhttp.go",
+            "doc.go",
+            "handlers.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-44763892-b0e8488e2f",
+          "analysis": "7fe240a1-89ab-4bdb-a387-4c9f6102c136",
+          "task": "6b5e5413-d270-439b-b035-51c42f078679",
+          "indexed_go": [
+            "cleanhttp.go",
+            "doc.go",
+            "handlers.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "hashicorp/golang-lru",
+      "repository": "hashicorp/golang-lru",
+      "github_id": 22700054,
+      "commit": "2bb29091a6c341aba625d23fea354c4fbaef5d6f",
+      "tree": "0930b059b31d3842c297f5e9944f45c9575417a0",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "2q.go": "e96f5a18839b9c6c644485fa859518825dd7d20bfe00a605f9f20d2196862c94",
+        "doc.go": "8454abadb7cd415583d12e9d4962aefafb3dc631ab896f9e6ed8539652f6f05c",
+        "lru.go": "529954c22649f0ecac5de6799af5316a91efde4c60e618582815ab3934238879"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-22700054-2bb29091a6",
+          "analysis": "53210468-4244-45a9-a9bf-c4e15b88bcec",
+          "task": "4af035cd-a3a4-48b9-b79e-e97717c26267",
+          "indexed_go": [
+            "2q.go",
+            "doc.go",
+            "lru.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-22700054-2bb29091a6",
+          "analysis": "16f7be68-e78c-4fe7-8d5d-137ddc16fae9",
+          "task": "632548be-f14d-456a-8709-b9ce73217b0e",
+          "indexed_go": [
+            "2q.go",
+            "doc.go",
+            "lru.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "cenkalti/backoff",
+      "repository": "cenkalti/backoff",
+      "github_id": 17192780,
+      "commit": "ce2ae81589e4316be0722e20928b2f9a6d28335a",
+      "tree": "5a3392397d68e6ecc0d15169e9752429aca91614",
+      "default_branch": "v7",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "backoff.go": "16efab95531fc982cec784064225bc1e32fc9db1a4a1f66ebf034fb39ef0af5b",
+        "error.go": "0e342c992a392450e15bc61c3cea7ef0b8491e48ba15d020a44b2203688f8f92",
+        "exponential.go": "ec857c1701f07b5d5c03fd7249e8e0931c2f5104eacb128eb96843c73a0cd644",
+        "retry.go": "8d99b1338b7a3176c4c56e417ca65e7e88b20acf512205bfa7b0975c018fd93d",
+        "ticker.go": "02f8c98049f13b59610069033ae35aea6c43b9e1f0252f244828a0106e388aed",
+        "timer.go": "d121c20c6dade0ee22e12b2a818389396e88b9efb05c844706cd933a8fec95d3"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-17192780-ce2ae81589",
+          "analysis": "56f02e64-1626-49e1-a98b-692d91e2b5a4",
+          "task": "8af7bb10-e175-40c3-943e-f5fdf721bd79",
+          "indexed_go": [
+            "backoff.go",
+            "error.go",
+            "exponential.go",
+            "retry.go",
+            "ticker.go",
+            "timer.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-17192780-ce2ae81589",
+          "analysis": "a8e45abc-cea1-4425-b096-62bba6deac18",
+          "task": "4d498764-9999-490b-9795-4ec7c057423a",
+          "indexed_go": [
+            "backoff.go",
+            "error.go",
+            "exponential.go",
+            "retry.go",
+            "ticker.go",
+            "timer.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 4,
+          "active_issues": [
+            [
+              "go:S1186",
+              "backoff.go",
+              46,
+              30,
+              46,
+              32,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "backoff.go",
+              54,
+              30,
+              54,
+              32,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "backoff.go",
+              65,
+              54,
+              65,
+              56,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S3776",
+              "retry.go",
+              114,
+              5,
+              114,
+              10,
+              "Refactor this method to reduce its Cognitive Complexity from 28 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "avast/retry-go",
+      "repository": "avast/retry-go",
+      "github_id": 98185104,
+      "commit": "360fd4569c6de50e6da6cfd8832057de428cec15",
+      "tree": "60340d57a413d4121e7c6e6e90c919885d243fd3",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "capacity_pool.go": "b4b94bc8dae807ea65b2a8cbe0fbae60f6cb9d3e5132aad3c463fd5e5cd5af8d",
+        "options.go": "1216875de7843079525304649783451fb9590008ff19ca6b7c6222ae133e93d4",
+        "retry.go": "3c6b214a43d46026e4642008efde21bcc4f3cb00618cc4f58a8e2be16aeeeefb",
+        "throttle.go": "2cc0f560f3af9b413697e92258968f034432d04962753d1b796eb8251054c82f"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-98185104-360fd4569c",
+          "analysis": "33fd4f37-8ce0-401f-a6cb-e50f85a7cd8b",
+          "task": "36e22f11-bbdd-492d-acc3-1734edbb5490",
+          "indexed_go": [
+            "capacity_pool.go",
+            "options.go",
+            "retry.go",
+            "throttle.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-98185104-360fd4569c",
+          "analysis": "c2401680-47f2-410d-bfbc-6fcb2cc45136",
+          "task": "7ec512a4-1fab-4c37-9f0f-c454a3ba830f",
+          "indexed_go": [
+            "capacity_pool.go",
+            "options.go",
+            "retry.go",
+            "throttle.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 3,
+          "active_issues": [
+            [
+              "go:S1186",
+              "options.go",
+              92,
+              44,
+              92,
+              46,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "options.go",
+              130,
+              33,
+              130,
+              35,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S3776",
+              "retry.go",
+              184,
+              5,
+              184,
+              15,
+              "Refactor this method to reduce its Cognitive Complexity from 46 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "patrickmn/go-cache",
+      "repository": "patrickmn/go-cache",
+      "github_id": 3087541,
+      "commit": "46f407853014144407b6c2ec7ccc76bf67958d93",
+      "tree": "fbb8c8cc62a5ecaab68e1c4c60252472c208c187",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "cache.go": "b24241e9a03db1e6d1951b7184243f9110cf8349a02ddb266fcbd14900bd0445",
+        "sharded.go": "97b557a75ae0174e1a577e06d66ae7b60b770438152be53cd93c65a165ab7e94"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-3087541-46f4078530",
+          "analysis": "fcc04aec-3e5a-48e5-b773-5d50140129a2",
+          "task": "94a312d9-8f99-4284-93be-d6016062cefd",
+          "indexed_go": [
+            "cache.go",
+            "sharded.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-3087541-46f4078530",
+          "analysis": "e6e9a7f6-5089-416d-9912-59f2fc8077fb",
+          "task": "83e4a8e0-85fc-40df-a3e1-bb3fface78af",
+          "indexed_go": [
+            "cache.go",
+            "sharded.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "dgraph-io/ristretto",
+      "repository": "dgraph-io/ristretto",
+      "github_id": 170366344,
+      "commit": "a56a38ebeec716a0da3d20a46b417ca2ab7c81f4",
+      "tree": "f1c3c63caf2aefecd45433bbe2559481191dc342",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "cache.go": "68198e6c866508bbd3ec3a57dd04d405a43f456b01cde537d9898e4f43cd2ee5",
+        "policy.go": "e83c2a294bb2429a92a7ab59e8830802ed975f9820d07f462ba6b0b1303ba909",
+        "ring.go": "16db4201c3f6b9705cdb9f901c2ad4a34821822337e901a471182c8e4d38d7a6",
+        "sketch.go": "812ae039f722835ab0e523bcdeaf07193267b23515a596140e4178acd5818a8e",
+        "store.go": "f9bb630b17c4cd3e0b8400396c0372c1e50b2754d5ce635fd12cda8f315e15a9",
+        "ttl.go": "4f9f0ea8788e8aff7b45bc3d7e72702d62054021ff7a7fe332a5a3ce1867b10d"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-170366344-a56a38ebee",
+          "analysis": "e7c4872e-a0b8-4024-ade5-e95bbc5865d2",
+          "task": "bf3abbd7-e805-4c97-8629-ac7a4a323db0",
+          "indexed_go": [
+            "cache.go",
+            "policy.go",
+            "ring.go",
+            "sketch.go",
+            "store.go",
+            "ttl.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-170366344-a56a38ebee",
+          "analysis": "281ae23e-cc2c-4936-ba88-e0d5146c5efb",
+          "task": "6e220fb3-2430-43c2-a1c5-9330de9e21a8",
+          "indexed_go": [
+            "cache.go",
+            "policy.go",
+            "ring.go",
+            "sketch.go",
+            "store.go",
+            "ttl.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 1,
+          "active_issues": [
+            [
+              "go:S3776",
+              "cache.go",
+              511,
+              22,
+              511,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 32 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "allegro/bigcache",
+      "repository": "allegro/bigcache",
+      "github_id": 54539060,
+      "commit": "14bdca915e1d9b87312dd97573a203b4e07a401e",
+      "tree": "934c5d6a4d8b7a268db6b80dccb349553fdb341a",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "bigcache.go": "61b228f25a5a17a5c5c6506df3642de28fabf888a31afa24176ec00deb79ad67",
+        "bytes.go": "6916cf679ae9f23d393efdaba786319f22658f1bafde4b803bb2afa9803eb28c",
+        "bytes_appengine.go": "621b2166f634ff3f3b84b641aa7ecca5525398330a80f475cf4868307fdd1a90",
+        "clock.go": "f9907860f15b4b6a4f02799b07698a6c8c30b61de3b5717ca647817d49317498",
+        "config.go": "fe08d8a488b9c5eeff7ce41c534b0a1bed750299c7249b17216179d9fc6791d0",
+        "encoding.go": "30c3c86195f458a6c50183ed38defb05d4fc891fa2abc2ec59b5eef4cc8d0443",
+        "entry_not_found_error.go": "21b5814d35cd2d4d6dfe9978aa5f9020628fac0774d1fe5c2ad0acda49c0f801",
+        "fnv.go": "b65cda8dd5b148fccc230c7e6176505cba4d2070f58b060a24754b137f48f3c1",
+        "hash.go": "e0b9382e30e98089a30782a8098d38ed628a46e4fda9ddf5fc1cf12344e03008",
+        "iterator.go": "6770e3ddf57fd7ef15c8069f5a9c172c6c34497108e2fe53f9a764f30cddf0db",
+        "logger.go": "ab90b4bc9a2348109d3e3bb5f7486b77f0289b0e73ed348646ca4f725aa907d5",
+        "shard.go": "6370a7e345c1469141148ad9dc5f9a087354245480fa7bf4028a9b3f72cac8e1",
+        "stats.go": "1301831953f3392ef5c5c31d8f1161c49dd0484fbf791921d6d020e6c0b17e34",
+        "utils.go": "709a85c5e06f0600b59e5732985f13bb948c064b5f0ab65b7a66696c1068794a"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-54539060-14bdca915e",
+          "analysis": "1c8c2426-3212-4906-a4d7-27ee5343af21",
+          "task": "9a7a559c-708b-4943-b5ec-864382b14e36",
+          "indexed_go": [
+            "bigcache.go",
+            "bytes.go",
+            "bytes_appengine.go",
+            "clock.go",
+            "config.go",
+            "encoding.go",
+            "entry_not_found_error.go",
+            "fnv.go",
+            "hash.go",
+            "iterator.go",
+            "logger.go",
+            "shard.go",
+            "stats.go",
+            "utils.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-54539060-14bdca915e",
+          "analysis": "c10917fc-79f7-40e3-b646-127bef21f615",
+          "task": "24f74c0c-6ed1-4360-82b9-f559860371be",
+          "indexed_go": [
+            "bigcache.go",
+            "bytes.go",
+            "bytes_appengine.go",
+            "clock.go",
+            "config.go",
+            "encoding.go",
+            "entry_not_found_error.go",
+            "fnv.go",
+            "hash.go",
+            "iterator.go",
+            "logger.go",
+            "shard.go",
+            "stats.go",
+            "utils.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 3,
+          "active_issues": [
+            [
+              "go:S3776",
+              "bigcache.go",
+              61,
+              5,
+              61,
+              16,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S1186",
+              "bigcache.go",
+              273,
+              81,
+              274,
+              1,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1192",
+              "shard.go",
+              47,
+              19,
+              47,
+              77,
+              "Define a constant instead of duplicating this literal \"Collision detected. Both %q and %q have the same hash %x\" 3 times."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "fatih/color",
+      "repository": "fatih/color",
+      "github_id": 16907502,
+      "commit": "820c6ebc21b06a3a5328297d556a87f91556e577",
+      "tree": "e2142b1d66026e13e9f89317566be5c59ab82ee0",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "color.go": "fec6b11e7033ea9f486b0ae61b44637ee3dfef48be0b9a7675afea5a290ff957",
+        "color_windows.go": "b3db081adcfb638a441873f5da8d5e27af515a81807fbcc300fc5d5463b1ebb9",
+        "doc.go": "41bad19e3e9f753e0a35ff80e9b59455eeef15c3dd0478c157f5a0bd4c15f7eb"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-16907502-820c6ebc21",
+          "analysis": "02e1027f-0eb4-489b-bf2c-68557920fc80",
+          "task": "4af31c7b-80e9-45ea-9712-baa58a3fe5a8",
+          "indexed_go": [
+            "color.go",
+            "color_windows.go",
+            "doc.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-16907502-820c6ebc21",
+          "analysis": "344f8de5-4fd8-4562-87ad-c625a0aca658",
+          "task": "91d44f3a-a2b5-4f7f-813d-9a563c9f6b3d",
+          "indexed_go": [
+            "color.go",
+            "color_windows.go",
+            "doc.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "mattn/go-colorable",
+      "repository": "mattn/go-colorable",
+      "github_id": 22405117,
+      "commit": "136489111a3396d7bb2d919ce914e8ff585804a8",
+      "tree": "9ea17aa9ac02bcd7b3cfd403a1d1a2a214cc28c7",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "colorable_others.go": "4ebed05172b4f3c4c06b7ffe9a259c502658bc429357da35c3bb98927982b098",
+        "colorable_windows.go": "50c148a6eaed4ed767a7b5b11746ad90c2e54e2b75c5dac260598f2adc369a14",
+        "colorable_windows_palette.go": "36d4f863e910b1b2397eb8cc539008164bc94cc474892a9b993168d2fd0150c1",
+        "noncolorable.go": "0f6fdf938c5a2e83283c08a8b14fc6fb7bb3357358308310df7fd0b810e960c6"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-22405117-136489111a",
+          "analysis": "5fdffcb7-651b-46bd-9f8d-19ff279075ed",
+          "task": "bb4d148f-2153-4dab-8bd7-4262c88f9ce2",
+          "indexed_go": [
+            "colorable_others.go",
+            "colorable_windows.go",
+            "colorable_windows_palette.go",
+            "noncolorable.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-22405117-136489111a",
+          "analysis": "e60e8e1c-9add-4efd-bd96-497cb9ab52bf",
+          "task": "dcd54997-7dfb-4c2c-92ea-a023b980eb3c",
+          "indexed_go": [
+            "colorable_others.go",
+            "colorable_windows.go",
+            "colorable_windows_palette.go",
+            "noncolorable.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 4,
+          "active_issues": [
+            [
+              "go:S1186",
+              "colorable_others.go",
+              37,
+              15,
+              37,
+              17,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S3776",
+              "colorable_windows.go",
+              193,
+              17,
+              193,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 245 to the 15 allowed."
+            ],
+            [
+              "go:S1186",
+              "colorable_windows.go",
+              653,
+              15,
+              653,
+              17,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S3776",
+              "noncolorable.go",
+              19,
+              23,
+              19,
+              28,
+              "Refactor this method to reduce its Cognitive Complexity from 21 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "mattn/go-isatty",
+      "repository": "mattn/go-isatty",
+      "github_id": 18314451,
+      "commit": "c44dc0b9c702c76577fdb7898032969e0611efc2",
+      "tree": "91804d61b150dfc0da8f929aa859b9517c92eba7",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "doc.go": "06182cb1a7113cae6fdef9be492893298610bfc63cf565a23f86203c3074a861",
+        "isatty_bsd.go": "b3df65aaddc2e985cc4b41be48e7a714eea17414cb8d09a04abcd2d35bf3f9e8",
+        "isatty_others.go": "20fc84b7b5e0af521fbb634f880c45f6c4ac5dcd77a96321d01fb1241bd8fa74",
+        "isatty_plan9.go": "ebcf735e5c006a614e1c032b25723876e767df694acfd879fa19d276acfa9fc8",
+        "isatty_solaris.go": "657fa131ff29592a34f05cbdaee7e7a5dda967ecb8aa7f626590dd4df1674f93",
+        "isatty_tiocgwinsz.go": "396117a531c72a352a10417d4d7a0d2fcf196de6d16419dd05a8c6404d35ef90",
+        "isatty_windows.go": "4972631f34808e189dc62b2ae911d7f661c10723d3904559b0b61adef6ce27ea"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-18314451-c44dc0b9c7",
+          "analysis": "07ad14d5-5866-4246-8444-7add79a28fe2",
+          "task": "793babc8-387c-4343-b96c-4cd105f5b98a",
+          "indexed_go": [
+            "doc.go",
+            "isatty_bsd.go",
+            "isatty_others.go",
+            "isatty_plan9.go",
+            "isatty_solaris.go",
+            "isatty_tiocgwinsz.go",
+            "isatty_windows.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-18314451-c44dc0b9c7",
+          "analysis": "3937f43a-2d9b-496e-abea-44718e373839",
+          "task": "45549f9d-f7a0-4d2d-85bf-58f4bacc5b08",
+          "indexed_go": [
+            "doc.go",
+            "isatty_bsd.go",
+            "isatty_others.go",
+            "isatty_plan9.go",
+            "isatty_solaris.go",
+            "isatty_tiocgwinsz.go",
+            "isatty_windows.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "muesli/termenv",
+      "repository": "muesli/termenv",
+      "github_id": 226467495,
+      "commit": "368a3572b8146cc038b3f240da6792003d7e42c5",
+      "tree": "5e4058c32cc62a50432ed5cd63a0570ec28ecbdf",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "ansicolors.go": "937d7a49717db70fdb31fa62a011e1ec3f5f150359e9c6e01702571428be9363",
+        "color.go": "b57c71c72c8194d622838cdc1fdd5c6ced855e76b6d3dfff919f7c24017fb32f",
+        "constants_linux.go": "c625aa0ed5d499f1880f5e409885d3cb87516d240e1334af819a5446fde058b9",
+        "constants_solaris.go": "c625aa0ed5d499f1880f5e409885d3cb87516d240e1334af819a5446fde058b9",
+        "constants_unix.go": "a5f928ff0102d8c9203b0af91e8c291a49810adeabb49cf19a8db91a0febd0e2",
+        "constants_zos.go": "c625aa0ed5d499f1880f5e409885d3cb87516d240e1334af819a5446fde058b9",
+        "copy.go": "3db3f4e7a5a8ccb93d30ca6ae56b009f676868ff787faa87f3c7282c2efb17f5",
+        "hyperlink.go": "4be98b4f011077f4d7870fcd3dce77e820ce9e704159ec3e461cf0d720f20f54",
+        "notification.go": "9256cc0f56629c67f12caf97cdf7b1de8491cbe7a687674a23e84369f1fc89b1",
+        "output.go": "3de695bf2f1965079f644a94e999c23f4af7ffa5dac802162db141d7b348b5bc",
+        "profile.go": "1ce3441e747789a4bddef91703f7c11a4f9e7318a7ab537a1fc6a0daec109dcc",
+        "screen.go": "cf591e94aff12c06c354b9cb8c44276b3badd928617c2bea4b2def0aea8b74ed",
+        "style.go": "fdd631eb6566e36ba991755c613f0b29f281d2014ac324ea90cbbf5183104b99",
+        "templatehelper.go": "d8dc777ea19207d0367a9000fc280339dc760aa2031adc04e66b571253a961ce",
+        "termenv.go": "36b11c70a9979738f80fd54606fcf5afdaaab548966c192d185a32fab83d2db5",
+        "termenv_other.go": "588465e5e4d62a40d7ff6f9911149bb95f17d07a5079fd6935647508493e4146",
+        "termenv_posix.go": "19c409862a739f4e883020b37d21b50e8d093a0542101a47aa5a0db80330fb9b",
+        "termenv_solaris.go": "5818ac2ef8a3cc4dcd31f34d76415ea2d8d530b8587c7dbfdacd286ff3a81f72",
+        "termenv_unix.go": "839457e5779118df7a919a7c5067e91f98e81f9f08b7fd482e31aabbb8f3a3a9",
+        "termenv_windows.go": "8bfac8c947b97a9d5d0c1cabf5e2b717bf4bf982c6e94aa0ec6fb5e7d1925bd4"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-226467495-368a3572b8",
+          "analysis": "dc05522a-2f82-4c29-8e42-ef8aa79fc2eb",
+          "task": "68f692d3-7acb-4603-8446-185054c48617",
+          "indexed_go": [
+            "ansicolors.go",
+            "color.go",
+            "constants_linux.go",
+            "constants_solaris.go",
+            "constants_unix.go",
+            "constants_zos.go",
+            "copy.go",
+            "hyperlink.go",
+            "notification.go",
+            "output.go",
+            "profile.go",
+            "screen.go",
+            "style.go",
+            "templatehelper.go",
+            "termenv.go",
+            "termenv_other.go",
+            "termenv_posix.go",
+            "termenv_solaris.go",
+            "termenv_unix.go",
+            "termenv_windows.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-226467495-368a3572b8",
+          "analysis": "2849921d-2058-45ae-884a-68f8fb74ff30",
+          "task": "7c305c1c-a9f1-4718-8acb-0d5c8fec2ef4",
+          "indexed_go": [
+            "ansicolors.go",
+            "color.go",
+            "constants_linux.go",
+            "constants_solaris.go",
+            "constants_unix.go",
+            "constants_zos.go",
+            "copy.go",
+            "hyperlink.go",
+            "notification.go",
+            "output.go",
+            "profile.go",
+            "screen.go",
+            "style.go",
+            "templatehelper.go",
+            "termenv.go",
+            "termenv_other.go",
+            "termenv_posix.go",
+            "termenv_solaris.go",
+            "termenv_unix.go",
+            "termenv_windows.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "rivo/uniseg",
+      "repository": "rivo/uniseg",
+      "github_id": 175458368,
+      "commit": "3a370411ca0621a6400fa85b155933f1140609d4",
+      "tree": "129bf556129e78a732b8c70a14df8a22c931c28f",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "doc.go": "39ae4ad7e67cb872e9087b6437754d21ea97d020d3ef95ee90e94debf3e86465",
+        "eastasianwidth.go": "d731d4a292bb70462ab524128c307d2cb15106a8c80579c6b908a1793414d8b6",
+        "emojipresentation.go": "80cf87144314a1d4a348f71c530794a4976dcb4bef5a75a6f3ebd013b2cab8dc",
+        "gen_breaktest.go": "e245484b3fe23b0a7ea214f1ca79954f26b790a3c3876a78ff0950367121cfd4",
+        "gen_properties.go": "7c82530b59f3944873247db4778c51210dac7a83631f39eac2a475f820c50e15",
+        "grapheme.go": "fc7613169c9cb55578b1ceadfadd0e8c6d171c58703ce5885220d3a1c261d929",
+        "graphemeproperties.go": "4d704019aa335738a674d61397be95f7e587064c4799fab7ff921b596d30ab22",
+        "graphemerules.go": "b0f385a15e65e76eacafee022982e78cf89c9b480c413389bcb116de3137acf7",
+        "indicconjunct.go": "75878709b7b0938d43f6b66db1d66a5865f20a90a0de4bda39908e3dd074ae1c",
+        "line.go": "c71b13b940922b440da48b4f1f48c6df1446aabaa4b96003385983bdb8a2d528",
+        "lineproperties.go": "ed20fb22fe880802aa842412fc0e46d21c79f080a14d09da0fc1bcca61c858db",
+        "linerules.go": "a9c5344abdcebcf63b3c6176f4c486e926e6ded51719ff87cb117c6f3b94440e",
+        "properties.go": "53831e2828c8736d6b9845133878831f06cf006f7345abef0803da618c4ee15b",
+        "sentence.go": "9883efae40e69051fcf1f1a8c2927f32fbe67e42aba344707a8aaf308fa1b0d7",
+        "sentenceproperties.go": "6c3a4288534274c505a43d841b031ed804affb37df6c87c6c68f48383ac86864",
+        "sentencerules.go": "dfae0d959140fc0f4788ec521279dc9b5a6941507e43b3f438dfdc014a1645b3",
+        "step.go": "b87bdde82193c1f0a11aea7d38f22efe8c929a446101de8512f1c6046deddbb2",
+        "width.go": "510feea59798a6a7ffa77957213d42061094e3f0ffbc787a5f7c145298e4c023",
+        "word.go": "3b0856f8e6bc473e8129c2611dea482201acdef4e62c6f9ea2073c59fa77808e",
+        "wordproperties.go": "3b515136e535177cdf32b4b8ce4b15444e3f69fb4d527551ce0d93f8eda95396",
+        "wordrules.go": "7378da1f814d4b100eecde420542796f1f36db29ce19b41135a164584a6912e0"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-175458368-3a370411ca",
+          "analysis": "d1176ebf-6c3c-42d5-b304-3b96f24c6462",
+          "task": "ad902ad8-b8d7-4a30-b70e-a4258098019a",
+          "indexed_go": [
+            "doc.go",
+            "eastasianwidth.go",
+            "emojipresentation.go",
+            "gen_breaktest.go",
+            "gen_properties.go",
+            "grapheme.go",
+            "graphemeproperties.go",
+            "graphemerules.go",
+            "indicconjunct.go",
+            "line.go",
+            "lineproperties.go",
+            "linerules.go",
+            "properties.go",
+            "sentence.go",
+            "sentenceproperties.go",
+            "sentencerules.go",
+            "step.go",
+            "width.go",
+            "word.go",
+            "wordproperties.go",
+            "wordrules.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-175458368-3a370411ca",
+          "analysis": "f5e23cb0-6a83-4fc5-8106-519e8b2cd6d7",
+          "task": "f53fa043-851a-429a-8a05-48b689d83635",
+          "indexed_go": [
+            "doc.go",
+            "eastasianwidth.go",
+            "emojipresentation.go",
+            "gen_breaktest.go",
+            "gen_properties.go",
+            "grapheme.go",
+            "graphemeproperties.go",
+            "graphemerules.go",
+            "indicconjunct.go",
+            "line.go",
+            "lineproperties.go",
+            "linerules.go",
+            "properties.go",
+            "sentence.go",
+            "sentenceproperties.go",
+            "sentencerules.go",
+            "step.go",
+            "width.go",
+            "word.go",
+            "wordproperties.go",
+            "wordrules.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 10,
+          "active_issues": [
+            [
+              "go:S3776",
+              "gen_breaktest.go",
+              152,
+              5,
+              152,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 29 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "gen_properties.go",
+              117,
+              5,
+              117,
+              10,
+              "Refactor this method to reduce its Cognitive Complexity from 52 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "gen_properties.go",
+              370,
+              5,
+              370,
+              10,
+              "Refactor this method to reduce its Cognitive Complexity from 42 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "grapheme.go",
+              229,
+              5,
+              229,
+              25,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "grapheme.go",
+              290,
+              5,
+              290,
+              33,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "linerules.go",
+              458,
+              5,
+              458,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 238 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "sentencerules.go",
+              204,
+              5,
+              204,
+              33,
+              "Refactor this method to reduce its Cognitive Complexity from 32 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "step.go",
+              92,
+              5,
+              92,
+              9,
+              "Refactor this method to reduce its Cognitive Complexity from 25 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "step.go",
+              172,
+              5,
+              172,
+              15,
+              "Refactor this method to reduce its Cognitive Complexity from 22 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "wordrules.go",
+              170,
+              5,
+              170,
+              29,
+              "Refactor this method to reduce its Cognitive Complexity from 64 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "charmbracelet/lipgloss",
+      "repository": "charmbracelet/lipgloss",
+      "github_id": 343533419,
+      "commit": "7d3aa334582ba8279f41223c7c36ba2a88d91327",
+      "tree": "784867378b7015d85c19aa4c8f9a2ac28a5c13d6",
+      "default_branch": "main",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "align.go": "5902eed1bf442a4a84aeea28d0dcae2a006461cdd6220938543213e2e6cd53ff",
+        "ansi_unix.go": "d128155527f0feb759939729e67aea1cfa6b9035757513b0d3224e6c49b4c16a",
+        "ansi_windows.go": "4bdda1730411e9c584b37e48b7b7da28845214d2ca686298f4be1683f08f5587",
+        "blending.go": "9fea665f7c047102abc1d28c139f3212404501365f0c2063746c6d6b4dd8681c",
+        "borders.go": "ac564cbc9f0af1d55d55c7d2804406d9a640a03edfd31f7c6bf269e478aaaaae",
+        "canvas.go": "89899703f1bd47e94a7bc281dbef17c1e6a1566fcb90f0277cb387c43e499212",
+        "color.go": "87bb6edaea66bc1e224926c88554497cf26464e6bda1463dab501966c355a2c5",
+        "get.go": "64ec146d659c445b10e335174b10a1c4d43a62eab703efe043a7fabcb697c217",
+        "join.go": "40af6713c0aa66696a0c074e8b5d5f0263efeec78c7067afbe2ebe4b6d1999c0",
+        "layer.go": "5fd5bfdeae2ccd329e3e12220cf0e823bc05b442f1a7c247aeee2d258a0a74b8",
+        "lipgloss.go": "51d5467d603346906b50f952e246aa8a87f4f24ce0dec015ebd200e7a891df8a",
+        "position.go": "48d0bfc22ac689fc2cbf1a05f35072f2a7a23ddffa4136e08845b91214fba075",
+        "query.go": "5eba935349153c2ea4ccb6156aa0e14692d405ddb453afde34a9163766c22667",
+        "ranges.go": "5086cc576328b84618af748b25f2d7898bc691b10d3a0ee2e297dc4a9a80bb2f",
+        "runes.go": "6402bf410686d5a578c8d0ece933ce942c23f478dcc8d6090663dc5b3ded2e6f",
+        "set.go": "4babe42c3fba1a0be16018eccc494c4b3a28e2f3d1d49a9d010ec0e1cf2618bb",
+        "size.go": "3532f6064a72c7d5bea66ffd089d25704743450941150308bc92a796dfe329c5",
+        "style.go": "73a59e778aa8fde5e979d2d57bd0b068d5d9f7e6eeab6e1a60c99c385f228490",
+        "terminal.go": "d5ba201fd516233a36413873970564921856b25bbdc70f9b4e621b844498edb0",
+        "unset.go": "ef01e4ce43112bf3038a1366b459d72a1e61d1a0d268754aea21f046e1740e70",
+        "whitespace.go": "05a97b0d289207d14706a8e388d3303ce862d847b05039e667718216d46869e6",
+        "wrap.go": "9869592a0e8299ade75db6bb4b8d700df2d675fe2b7c7ba9e26bd3b120caeb3a",
+        "writer.go": "5424e67a1cd6be62b2cd881bb72f830ca9968cf115a401107340a53821c87505"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-343533419-7d3aa33458",
+          "analysis": "c3e2ee3b-8f52-40e6-81d5-d97c54fb2124",
+          "task": "4498ff8c-8131-433d-9888-848ef760acbc",
+          "indexed_go": [
+            "align.go",
+            "ansi_unix.go",
+            "ansi_windows.go",
+            "blending.go",
+            "borders.go",
+            "canvas.go",
+            "color.go",
+            "get.go",
+            "join.go",
+            "layer.go",
+            "lipgloss.go",
+            "position.go",
+            "query.go",
+            "ranges.go",
+            "runes.go",
+            "set.go",
+            "size.go",
+            "style.go",
+            "terminal.go",
+            "unset.go",
+            "whitespace.go",
+            "wrap.go",
+            "writer.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-343533419-7d3aa33458",
+          "analysis": "1db95373-faf5-4867-ac11-6e65070e44f1",
+          "task": "bf08e8ec-14f2-4a92-b57e-1a404e647abd",
+          "indexed_go": [
+            "align.go",
+            "ansi_unix.go",
+            "ansi_windows.go",
+            "blending.go",
+            "borders.go",
+            "canvas.go",
+            "color.go",
+            "get.go",
+            "join.go",
+            "layer.go",
+            "lipgloss.go",
+            "position.go",
+            "query.go",
+            "ranges.go",
+            "runes.go",
+            "set.go",
+            "size.go",
+            "style.go",
+            "terminal.go",
+            "unset.go",
+            "whitespace.go",
+            "wrap.go",
+            "writer.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 5,
+          "active_issues": [
+            [
+              "go:S3776",
+              "align.go",
+              12,
+              5,
+              12,
+              24,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ],
+            [
+              "go:S1186",
+              "ansi_unix.go",
+              8,
+              39,
+              8,
+              41,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S3776",
+              "borders.go",
+              327,
+              15,
+              327,
+              26,
+              "Refactor this method to reduce its Cognitive Complexity from 57 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "join.go",
+              116,
+              5,
+              116,
+              17,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "style.go",
+              268,
+              15,
+              268,
+              21,
+              "Refactor this method to reduce its Cognitive Complexity from 89 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "go-logr/logr",
+      "repository": "go-logr/logr",
+      "github_id": 79188507,
+      "commit": "f353bd50b12f9084630bf65baa947b540167ecf8",
+      "tree": "d46e9728ca253048fb21e9823c6e8f43fc98ced2",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "context.go": "f6cfef95b6e3a080551a40e2c24a9fb4577cbbf0362d42a9ccca1ef33cb19a1f",
+        "context_noslog.go": "91d1498d8a84605f8f8e47099cf9c88b0ee83f56144490e0da7983fa600d9f5a",
+        "context_slog.go": "82d65edb4fc6d9c364d663431e706c4fb45922c67b5cb8e6c653edd82234b9ee",
+        "discard.go": "720e772ee384154b4b3b4aef0d764332eeb731f8dac7a8e4175adc9a7bf63268",
+        "logr.go": "cce9b9499b3111c29e6cc9a816618b4af3a70fa6d44667134215477191f976bc",
+        "sloghandler.go": "4c700ef7443140b8338df5a7463b40954bbeba1b8d1106d3c36abd126050f8f0",
+        "slogr.go": "b7094c50e8ebe87e6a4241d7efcd6de097520e4bab9a135e06305645c4b758db",
+        "slogsink.go": "a10143d1b668499a9a38f553849e3bc2e77aef51a9a136991e8d14581ecbef96"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-79188507-f353bd50b1",
+          "analysis": "0b0db86d-9595-47b6-9ca9-b3c24c9b3391",
+          "task": "5b0e52fe-5441-442b-a183-1ab89bf413b3",
+          "indexed_go": [
+            "context.go",
+            "context_noslog.go",
+            "context_slog.go",
+            "discard.go",
+            "logr.go",
+            "sloghandler.go",
+            "slogr.go",
+            "slogsink.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-79188507-f353bd50b1",
+          "analysis": "6741202d-bf3f-4db5-99fa-70b1466205be",
+          "task": "0a7895ad-5e38-4550-9342-87d9e6ac05e8",
+          "indexed_go": [
+            "context.go",
+            "context_noslog.go",
+            "context_slog.go",
+            "discard.go",
+            "logr.go",
+            "sloghandler.go",
+            "slogr.go",
+            "slogsink.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 2,
+          "active_issues": [
+            [
+              "go:S1186",
+              "logr.go",
+              390,
+              16,
+              390,
+              18,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "logr.go",
+              399,
+              18,
+              399,
+              20,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "sirupsen/logrus",
+      "repository": "sirupsen/logrus",
+      "github_id": 13628513,
+      "commit": "954b418844d9dd2b6321f3fa09f8aad97e3015de",
+      "tree": "65188364a462464b977d8e2fb8937b6b01331894",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "alt_exit.go": "f879dcdae06e1123e3e6758b657f462fb4866a557415c91b4d4a3ba9a99b5569",
+        "buffer_pool.go": "98af9ea4c331b9a710f21e70cd49ce6c0e73cc5be5363f4c146e787d857cd2d3",
+        "doc.go": "ad5256e3a1b54986d7bd26aa892160dfd1ab009a88cf0933c768bd16a74a46f0",
+        "entry.go": "fa2d5f7d85f537b57603a542465b9457f73bee82baa0a1fabb928f800cccb098",
+        "exported.go": "ba495113d0907da78007a0ed58090762fa8241322214fe3452fbf1a15a500944",
+        "formatter.go": "1264e4d3e131d34aa6989c0b9d8f6bb61bc5fddf2c967d5cc1c8ff88eaca32b5",
+        "hooks.go": "e682775f731271bdbded02c6af5d2f8815b2164bb5ba129c7baad572b43e715a",
+        "json_formatter.go": "ce83594ea6397cd022f9cbe159bc5c67634283294e2f3fca97e2743087ab4f4a",
+        "level.go": "71d2b84bd4264a0b78b2324d93fccd7c1d5de8629fe49961a2a872f833b1639c",
+        "logger.go": "50b7144972d57b3cdef34cdcf405acd7ce9316d632ee77e9afcb806b5641a16f",
+        "logrus.go": "dc44ad07ea0c628a7e0b27571af6a076b1f12f7691554875eb6ad854ad07b0ec",
+        "terminal_check_appengine.go": "c160ced85f9c3f454499b1f3430d25bf81306438f0709e094f57a40ad892ac8b",
+        "terminal_check_bsd.go": "04cdb393dddd796d42d3d632a6fffa1695c3be249404f0f75528e5e780367625",
+        "terminal_check_no_terminal.go": "269eb04e6340e791950dded8f7c6dcfbd16f4acffeef12bd59a505ed430c8df5",
+        "terminal_check_notappengine.go": "acba63314c25c91d6d889afa6b08391bbf3a4da2f7375b4701aca16adba999c6",
+        "terminal_check_solaris.go": "7fe3208e934821cf2215d1c3ee1782d54887eeae916dbdc895c19de418a1a4d8",
+        "terminal_check_unix.go": "aba1a222a3f551b077947fc8738619b116f1b5c2c121e57e54b8e58ecc846253",
+        "terminal_check_windows.go": "90d96db1f8a37a87efd9eedf8ebeb5c2e651d1e8f0984209c90491420690315a",
+        "text_formatter.go": "568c53eefec128ef0df0785f199bfa441061e92c7e11dd5d777e369a6e81b00b",
+        "writer.go": "9b353b4b424e36d3c6559b0dd4274ad758a32f9104acde4f108eaa3bf5b5fc85"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-13628513-954b418844",
+          "analysis": "909969bc-7c4f-4007-ab90-4638554222b8",
+          "task": "36f9a56d-2e64-4ff9-9546-98bc2356f92d",
+          "indexed_go": [
+            "alt_exit.go",
+            "buffer_pool.go",
+            "doc.go",
+            "entry.go",
+            "exported.go",
+            "formatter.go",
+            "hooks.go",
+            "json_formatter.go",
+            "level.go",
+            "logger.go",
+            "logrus.go",
+            "terminal_check_appengine.go",
+            "terminal_check_bsd.go",
+            "terminal_check_no_terminal.go",
+            "terminal_check_notappengine.go",
+            "terminal_check_solaris.go",
+            "terminal_check_unix.go",
+            "terminal_check_windows.go",
+            "text_formatter.go",
+            "writer.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-13628513-954b418844",
+          "analysis": "6d6c5ae3-b46a-4dac-a0c9-36ed2b4e0093",
+          "task": "654202d5-fe6e-4b22-b162-ae3f7bff4132",
+          "indexed_go": [
+            "alt_exit.go",
+            "buffer_pool.go",
+            "doc.go",
+            "entry.go",
+            "exported.go",
+            "formatter.go",
+            "hooks.go",
+            "json_formatter.go",
+            "level.go",
+            "logger.go",
+            "logrus.go",
+            "terminal_check_appengine.go",
+            "terminal_check_bsd.go",
+            "terminal_check_no_terminal.go",
+            "terminal_check_notappengine.go",
+            "terminal_check_solaris.go",
+            "terminal_check_unix.go",
+            "terminal_check_windows.go",
+            "text_formatter.go",
+            "writer.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 4,
+          "active_issues": [
+            [
+              "go:S1192",
+              "formatter.go",
+              58,
+              7,
+              58,
+              16,
+              "Define a constant instead of duplicating this literal \"fields.\" 6 times."
+            ],
+            [
+              "go:S3776",
+              "json_formatter.go",
+              70,
+              24,
+              70,
+              30,
+              "Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "text_formatter.go",
+              174,
+              24,
+              174,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 25 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "text_formatter.go",
+              249,
+              24,
+              249,
+              36,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "rs/zerolog",
+      "repository": "rs/zerolog",
+      "github_id": 91054480,
+      "commit": "284f7c889533b78603191349f4a5c48628d7afd2",
+      "tree": "7d5c4de4165fcfb95a4d49547d4723a3b8fca078",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "array.go": "70ea1ce0f31486ebd30d9f79605a0f2d9e3d841b33d86aeff2652dfae7614218",
+        "console.go": "66b97a2b98a57462931cc62d213be96ab1f8e0290b67dafde7000e4a814982f7",
+        "context.go": "2ecd45c064fc6712af8c25f480062fb24fca2f1e6376ed1e24928d6ade8bab09",
+        "ctx.go": "13d62e33ab6ed36877f82671e7547b7cd799f2c1b9725096e602bc3ac0b7f6f3",
+        "encoder.go": "6870012bc8c6b984ad5e18a7ec5ef7b67bcdddbac26b1d4e013b0d2a42dc7040",
+        "encoder_cbor.go": "c462958d9c963754eb30aa17e1f2269f52d5b712d8d290b5df2f32e1ad81e7a7",
+        "encoder_json.go": "27e051dc64fb94b1b7b08d8d1f1c5009c1c40102359e4429b36d8a11883f3f9b",
+        "event.go": "5a0c8656d6aa369535121593c3958c333164dc3ef5f65fe82794ce2ca9fc146d",
+        "fields.go": "61557b71deb700808d10e27af8207954dd5100cc504399f2249b177d284b3793",
+        "globals.go": "64b06cb2d8d1cb3a761ef98a975d656aa586ec98360bd54825885f0b8bb98067",
+        "globals_118.go": "bbc921b84a6c0c7a2856da22e863a194a1741142cba265e5d97df232f054e5a5",
+        "go112.go": "7fa262c53288601c68116c8b635d3f468efe3b0cc71acfc3aed985a4c633ef92",
+        "hook.go": "ece444f6323dc2ea9fe0ad62319adabd22285140688d2eed8dfc92b7355d6148",
+        "log.go": "a5b8e41f59bcc5f61c5e5b2608a971f3a0f3b14d99a1968c9f6bcebd30924f07",
+        "not_go112.go": "9968c64abe440e732e7db5ddde602970c9b389742f2c33bbd01fec3322bceadc",
+        "sampler.go": "4f8999490815dee3baea615bce8a849d3a454cc86edd4b174c5ac665f6d34894",
+        "slog.go": "eed897deb1b22b43f81183b5eec9d8bff164defd2190dcbbc3685932c793a9bc",
+        "syslog.go": "fb9792e7c7c3c65db854b18aded400dd67f0e57db6eac151e4c4b04a465e2bf0",
+        "writer.go": "437630a3c7adb307d58bb5991b2965512cbb2cc5d4da88b760f1ad5444ffeff2"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-91054480-284f7c8895",
+          "analysis": "c3332c68-85a3-499c-aa43-01a53bc4bb05",
+          "task": "0f3bb4ce-bd07-493e-846d-caa696dba570",
+          "indexed_go": [
+            "array.go",
+            "console.go",
+            "context.go",
+            "ctx.go",
+            "encoder.go",
+            "encoder_cbor.go",
+            "encoder_json.go",
+            "event.go",
+            "fields.go",
+            "globals.go",
+            "globals_118.go",
+            "go112.go",
+            "hook.go",
+            "log.go",
+            "not_go112.go",
+            "sampler.go",
+            "slog.go",
+            "syslog.go",
+            "writer.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-91054480-284f7c8895",
+          "analysis": "4ebc055c-1d15-418c-a824-7b63f8afaa16",
+          "task": "5a4c762e-9407-4707-8604-4b59e7ae1519",
+          "indexed_go": [
+            "array.go",
+            "console.go",
+            "context.go",
+            "ctx.go",
+            "encoder.go",
+            "encoder_cbor.go",
+            "encoder_json.go",
+            "event.go",
+            "fields.go",
+            "globals.go",
+            "globals_118.go",
+            "go112.go",
+            "hook.go",
+            "log.go",
+            "not_go112.go",
+            "sampler.go",
+            "slog.go",
+            "syslog.go",
+            "writer.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 5,
+          "active_issues": [
+            [
+              "go:S3776",
+              "console.go",
+              186,
+              23,
+              186,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 69 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "console.go",
+              309,
+              23,
+              309,
+              32,
+              "Refactor this method to reduce its Cognitive Complexity from 28 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "console.go",
+              431,
+              5,
+              431,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "fields.go",
+              53,
+              5,
+              53,
+              20,
+              "Refactor this method to reduce its Cognitive Complexity from 114 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "hook.go",
+              24,
+              19,
+              24,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 17 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "uber-go/zap",
+      "repository": "uber-go/zap",
+      "github_id": 52034309,
+      "commit": "4892335e05f14bce8a98a69a577fcf3844a42623",
+      "tree": "316ea77f5a8fbffbcebef6f5569f557897eaac5a",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "array.go": "aa8854b2f351cecb32c7554716edd26c661e03399699155488a10413f7d695a9",
+        "config.go": "508d26d17b997b755322d4c63a222091b3b1cacc7b54f7c09f5d4ed87f8d9d7d",
+        "doc.go": "073a6a76d6e37a39c57d6555d62b47619467f66d535d9b45e22c9cc72591331e",
+        "encoder.go": "cf7d025a88746638c0d24ced9ee46a81a33e5212453b6c38a7fa8bb506460e5c",
+        "error.go": "af40703b75e046dd41faa1cd35402969b1340692aa39a83dbc2fcc7d96bcfcf8",
+        "field.go": "1d8d90c4c8e5218d241a3fd6c46143bf4aea86182771aa58c13ebf6375b3e87f",
+        "flag.go": "8f6b80b13ef1cc3eb11f6c89357dd6fabc0b495e9905e1f11038294a0ffb6ce8",
+        "global.go": "a66692147f80878ed144c3f5c5153f6da34ac353d269a388cafa982c40324c61",
+        "http_handler.go": "0e62f187cd43183b9c815a12eb4f8dee9128adf586d9bb81ab799b4d092e5154",
+        "level.go": "aba36aaf918967107d0bd14a6e7490f12b80796712dffdb44fa027a21c1d39a9",
+        "logger.go": "bd06a0f4ad535adfe58766ff10251aac2589c1073d9a7779012dd3f00217c30e",
+        "options.go": "f6719e97a66c71170c390bd999bfa0962d689ea2e3b0ce67742abe0ad6329190",
+        "sink.go": "f12034e4e7b489528fef3f79e8e74289a63851787c34f8e06f1962a5476d5e5c",
+        "sugar.go": "de0dce48d7803a5438107a98dbeb692974f25ad0797f3d7b952b3a7f7eb5b447",
+        "time.go": "ade23ba8e4325d00b59fcfebfb7505d165b887d3ee9276ab8a84cc62ecb89355",
+        "writer.go": "32420f01b085f2175cdf092ac29ac10e194ef60846220b85ec514553f9120235"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-52034309-4892335e05",
+          "analysis": "0716eeee-855d-4ae8-970c-809c8334b85c",
+          "task": "383646a4-3c02-439a-936f-40ee9f22ed71",
+          "indexed_go": [
+            "array.go",
+            "config.go",
+            "doc.go",
+            "encoder.go",
+            "error.go",
+            "field.go",
+            "flag.go",
+            "global.go",
+            "http_handler.go",
+            "level.go",
+            "logger.go",
+            "options.go",
+            "sink.go",
+            "sugar.go",
+            "time.go",
+            "writer.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-52034309-4892335e05",
+          "analysis": "7f4bbcbe-95c5-45c6-bffd-08aed98389db",
+          "task": "72f93f94-1544-4d38-998a-8c2ac73b5ba8",
+          "indexed_go": [
+            "array.go",
+            "config.go",
+            "doc.go",
+            "encoder.go",
+            "error.go",
+            "field.go",
+            "flag.go",
+            "global.go",
+            "http_handler.go",
+            "level.go",
+            "logger.go",
+            "options.go",
+            "sink.go",
+            "sugar.go",
+            "time.go",
+            "writer.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 3,
+          "active_issues": [
+            [
+              "go:S1192",
+              "http_handler.go",
+              74,
+              17,
+              74,
+              31,
+              "Define a constant instead of duplicating this literal \"Content-Type\" 3 times."
+            ],
+            [
+              "go:S3776",
+              "logger.go",
+              322,
+              19,
+              322,
+              24,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "sugar.go",
+              395,
+              24,
+              395,
+              37,
+              "Refactor this method to reduce its Cognitive Complexity from 19 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "go-co-op/gocron",
+      "repository": "go-co-op/gocron",
+      "github_id": 248790367,
+      "commit": "2e48857aebee26fc827801c79f4defc4cb0e704a",
+      "tree": "941fdec0336d577686306775d68237c968d82aad",
+      "default_branch": "v2",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "distributed.go": "da062f93352ba50692931a70d85b0c5820a317779dd0263c6ecf103e303bdf2b",
+        "errors.go": "deefc34b3e99620a124060c39b2d932c1ab6cd788608d36945db4cc4d4c65d43",
+        "executor.go": "3b695c00e249c8580c3a3a4c32a79403229fbe2512eda44ab74b7eb7e2e1ac56",
+        "job.go": "51d1876bd4c06f455863a1163180407aeffef6e7c3b9a8cd554e58b309793ab5",
+        "logger.go": "920bce2259c32444ffa640e1e2e7761071cadb6254c2d571fd020bcc2c5002d5",
+        "monitor.go": "514378877d1b6b00c12416c1b6f765ce4b337e932a898066aeca2042c14871b4",
+        "scheduler.go": "cdef4c506dc0c31a27acdbce2713bc93038eeb06828b8235b85fe43b9c01ce54",
+        "scheduler_monitor.go": "c1f32fe620a0a9c160b75ca4c616dfa6b4f775cc55360369ba2b170827543a00",
+        "util.go": "b3ae4c2731889dd86611d1f33ac4151cf4323d923cf6a19e15de4910a1cea643"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-248790367-2e48857aeb",
+          "analysis": "5aa9ee3e-ca4a-4e32-91e5-17f5bc56c5df",
+          "task": "78197fae-f5fe-424e-90e8-85f93902af24",
+          "indexed_go": [
+            "distributed.go",
+            "errors.go",
+            "executor.go",
+            "job.go",
+            "logger.go",
+            "monitor.go",
+            "scheduler.go",
+            "scheduler_monitor.go",
+            "util.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-248790367-2e48857aeb",
+          "analysis": "a954f64f-c66c-4442-95ea-3b15f664a3ac",
+          "task": "8ecfdcd2-a941-467e-acda-b5258d4cb258",
+          "indexed_go": [
+            "distributed.go",
+            "errors.go",
+            "executor.go",
+            "job.go",
+            "logger.go",
+            "monitor.go",
+            "scheduler.go",
+            "scheduler_monitor.go",
+            "util.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 14,
+          "active_issues": [
+            [
+              "go:S3776",
+              "executor.go",
+              106,
+              19,
+              106,
+              24,
+              "Refactor this method to reduce its Cognitive Complexity from 80 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "executor.go",
+              318,
+              19,
+              318,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 25 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "executor.go",
+              428,
+              19,
+              428,
+              25,
+              "Refactor this method to reduce its Cognitive Complexity from 27 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "job.go",
+              1328,
+              18,
+              1328,
+              22,
+              "Refactor this method to reduce its Cognitive Complexity from 25 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "job.go",
+              1534,
+              19,
+              1534,
+              36,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "job.go",
+              1625,
+              20,
+              1625,
+              38,
+              "Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "job.go",
+              1831,
+              13,
+              1831,
+              21,
+              "Refactor this method to reduce its Cognitive Complexity from 18 to the 15 allowed."
+            ],
+            [
+              "go:S1186",
+              "logger.go",
+              28,
+              46,
+              28,
+              48,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "logger.go",
+              29,
+              46,
+              29,
+              48,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "logger.go",
+              30,
+              46,
+              30,
+              48,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S1186",
+              "logger.go",
+              31,
+              46,
+              31,
+              48,
+              "Add a nested comment explaining why this function is empty or complete the implementation."
+            ],
+            [
+              "go:S3776",
+              "scheduler.go",
+              501,
+              20,
+              501,
+              52,
+              "Refactor this method to reduce its Cognitive Complexity from 23 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "scheduler.go",
+              769,
+              20,
+              769,
+              35,
+              "Refactor this method to reduce its Cognitive Complexity from 20 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "scheduler.go",
+              1003,
+              20,
+              1003,
+              34,
+              "Refactor this method to reduce its Cognitive Complexity from 23 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    },
+    {
+      "requested": "robfig/cron",
+      "repository": "robfig/cron",
+      "github_id": 4925652,
+      "commit": "bc59245fe10efaed9d51b56900192527ed733435",
+      "tree": "85dbabf776b485e167eeb2f2957ebf2cd776cee8",
+      "default_branch": "master",
+      "scope": "all root non-test Go source files",
+      "files": {
+        "chain.go": "a66c78136aec5232865a62666abd6c055fb61da39d8d3672ac4a8f759437a394",
+        "constantdelay.go": "0a014f614180b2c3e45afc36cff2307ed07141259b45a37fbdc9574d7f329d3b",
+        "cron.go": "2940f1eb5e3e60a538e2ab06e4f395f1180f9f501881c4fac6960617dd068e8e",
+        "doc.go": "51e3a51e1f6f71412c7c301080077edd6c53c740f8e4c84ffa386044047f0bec",
+        "logger.go": "f278944d353c194f71ca7ebad2248e76d8e13e51103d65a40e42ae6159bf472b",
+        "option.go": "b4baa7cf817b7da1748be4426d9612aec0604e4417928be97253c8dbbe16984c",
+        "parser.go": "1da6876acb8410f3e4e098f3e503aee2a4b95f2418707463cb12bf6492c32723",
+        "spec.go": "d238b062c0ab311d30d62b6ab54d505f0e613cd54826e225e14f708849f3bf98"
+      },
+      "references": {
+        "core": {
+          "profile": "Sonar way core",
+          "project": "hq-go-packages-2611-core-4925652-bc59245fe1",
+          "analysis": "6c503ca1-f73c-48e3-b69a-432d3e3115b7",
+          "task": "ebd00e61-905e-4cac-b264-4a58ee62e2c1",
+          "indexed_go": [
+            "chain.go",
+            "constantdelay.go",
+            "cron.go",
+            "doc.go",
+            "logger.go",
+            "option.go",
+            "parser.go",
+            "spec.go"
+          ],
+          "reference_status": "OK",
+          "reference_violations": 0,
+          "active_issues": [],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        },
+        "extended": {
+          "profile": "Sonar way extended",
+          "project": "hq-go-packages-2611-extended-4925652-bc59245fe1",
+          "analysis": "7b2b908b-9f17-45da-baa6-a5e9246ce38b",
+          "task": "1c2e3936-0ac3-4e51-9f23-69319a75c400",
+          "indexed_go": [
+            "chain.go",
+            "constantdelay.go",
+            "cron.go",
+            "doc.go",
+            "logger.go",
+            "option.go",
+            "parser.go",
+            "spec.go"
+          ],
+          "reference_status": "ERROR",
+          "reference_violations": 3,
+          "active_issues": [
+            [
+              "go:S3776",
+              "cron.go",
+              239,
+              15,
+              239,
+              18,
+              "Refactor this method to reduce its Cognitive Complexity from 16 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "parser.go",
+              160,
+              5,
+              160,
+              20,
+              "Refactor this method to reduce its Cognitive Complexity from 17 to the 15 allowed."
+            ],
+            [
+              "go:S3776",
+              "spec.go",
+              58,
+              23,
+              58,
+              27,
+              "Refactor this method to reduce its Cognitive Complexity from 34 to the 15 allowed."
+            ]
+          ],
+          "external_counts": {},
+          "other_rule_counts": {},
+          "hotspot_count": 0
+        }
+      }
+    }
+  ]
+}
