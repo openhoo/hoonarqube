@@ -1,0 +1,666 @@
+{
+  "server": "26.11.0.134175",
+  "profile": "Sonar way extended",
+  "threshold": 3,
+  "known_missing_primaries": {
+    "hashicorp/raft": [
+      [
+        "raft.go",
+        162,
+        87,
+        162,
+        98
+      ],
+      [
+        "raft.go",
+        637,
+        72,
+        637,
+        84
+      ],
+      [
+        "raft.go",
+        1065,
+        40,
+        1065,
+        51
+      ],
+      [
+        "testing.go",
+        862,
+        11,
+        862,
+        39
+      ]
+    ]
+  },
+  "cases": [
+    {
+      "repository": "allegro/bigcache",
+      "ref": "refs/tags/v3.1.0",
+      "commit": "982ec3b09cacb9936b88dcfdaed329870065cf23",
+      "tree": "423696f94704858fac511d07e621d51212bec4b6",
+      "files": {
+        "bigcache.go": "7db849350f6369496f46a590bd8444576a2ff3a066f02fe906037dd6f0032755",
+        "bytes.go": "86a9ca9f7ea853b911b606137dcec65787ab5c9bb4da966ba4717dffbfbc0d18",
+        "bytes_appengine.go": "92828456acdbab2694f287862df4841db5b31b05fcec23062b9cb827338827fa",
+        "clock.go": "f9907860f15b4b6a4f02799b07698a6c8c30b61de3b5717ca647817d49317498",
+        "config.go": "fe08d8a488b9c5eeff7ce41c534b0a1bed750299c7249b17216179d9fc6791d0",
+        "encoding.go": "b62071c07d25db2090ab428773a4bd23273b1a9abf6cc7f3a0eab693d6085fb3",
+        "entry_not_found_error.go": "e6fa4ea655f302b24ea79ac524df9a632a53736a7b3bb9483498816140060144",
+        "fnv.go": "b65cda8dd5b148fccc230c7e6176505cba4d2070f58b060a24754b137f48f3c1",
+        "hash.go": "e0b9382e30e98089a30782a8098d38ed628a46e4fda9ddf5fc1cf12344e03008",
+        "iterator.go": "6770e3ddf57fd7ef15c8069f5a9c172c6c34497108e2fe53f9a764f30cddf0db",
+        "logger.go": "ab90b4bc9a2348109d3e3bb5f7486b77f0289b0e73ed348646ca4f725aa907d5",
+        "shard.go": "1e765bc41f7aa9813914f890d7dc9b9f1dbdda62f7432f0c9fe10189941c2912",
+        "stats.go": "f367500e1cb51b62cf8ad6d0a7b6f5aecf7338d30b85ea5b87ddd94e5315acbc",
+        "utils.go": "671ba1dc33ed1db42289bb6ee3671727e95f845ffcd6afe7cea0b8d7f87b9beb"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "d2d4bc58-ba0c-4651-87c0-f86f31a6d855",
+      "project": "hq-go-1192-4aa4635777f74b2",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "shard.go",
+            48,
+            19,
+            48,
+            77
+          ],
+          "message": "Define a constant instead of duplicating this literal \"Collision detected. Both %q and %q have the same hash %x\" 3 times.",
+          "flows": [
+            [
+              [
+                "shard.go",
+                73,
+                19,
+                73,
+                77,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "shard.go",
+                110,
+                19,
+                110,
+                77,
+                "Duplication"
+              ]
+            ]
+          ]
+        }
+      ],
+      "requested": "allegro/bigcache"
+    },
+    {
+      "repository": "hashicorp/memberlist",
+      "ref": "HEAD",
+      "commit": "5cd2c4b0fb09caea5de03aae1adb9c36374ef3e0",
+      "tree": "3891543bce01bb55acd514bda55cbf98fe2234f2",
+      "files": {
+        "alive_delegate.go": "4a1cae45e8ce497616bd8abecbc91d2691a717413413276bd552e5d4c7c5212c",
+        "awareness.go": "26742a97062713ff286fcc62303c17be16592ec020f6a02d0a864bfbf07ec42f",
+        "broadcast.go": "97362253c979cd02451821a41c62adfbdbc0b0676748e0ad0c7ff1b31309bc24",
+        "config.go": "cdfa4d77b41bb9bf4fff56baa07e3225af3e6eb48bf7bd83befbe20b4ffaf1e3",
+        "conflict_delegate.go": "ad51fb4bffc0af9e6b0a6c1256721d0ab41723237b2b166549a31c66f274bb80",
+        "delegate.go": "a47ddcc8a9951ad58763c93c8f0aca61522158bd4da13d14a30fab58e6c47bcc",
+        "event_delegate.go": "31170d1f1647063c2f61cb528347bf24487f8eacab955ecd919e29f5c55523a2",
+        "keyring.go": "7aa76ec7bda20888971c3a96c84e40d24da638d64ebb30eb3c05e2dfa2e0f7ec",
+        "label.go": "f8d5d52098db21a239a9b27458eee50cfa55bb6c467e9f5c8b84f474967fc10b",
+        "logging.go": "9218e17277d5e4a0300f676e51d3fe2c145e798ac69da991dfed2838155d232d",
+        "memberlist.go": "109d3f07fe57a115a3e45674cc3c7929e518dcb7d72c64510b9486001ee11700",
+        "merge_delegate.go": "1050f0430d1492dce7eeb254e9b3f66eae2e8c7c0c6655188975f435ca8ffc1a",
+        "mock_transport.go": "d2841f180aeedd9d00621a10ab6683d13a9b25eb5e03fe9e21693f171c99478b",
+        "net.go": "e359cb0f653fea0dba411dd3c14b11602fdb8bcbac823e8c7fa04088b48a1c87",
+        "net_transport.go": "d8e4fa67db836ffb94a3462c429ce0e7b58e14480703c6ea4e3c57638cf972be",
+        "peeked_conn.go": "ea737d554f9eb4879c2caa6d4e52cb688d458d17f462a30c2891626671e038bd",
+        "ping_delegate.go": "07f8ff9a3e9b1eb21fd401b68429b4e2f9ff55483b8b0e6bf8e48e49e3e54dbe",
+        "queue.go": "64f1dddd495d1ce626ccbd0b4f19b8fa2193c132daf5ebc7bd4fd68b59137a70",
+        "security.go": "5ffb5a6d1473b9dce2867590ddcdbe923da613ce48e6834cb4727b6bbd60c1c7",
+        "state.go": "8f300a2339105bedb56ddeee2458080789242ade032f9d4787709fc39e4d0a8c",
+        "suspicion.go": "4d82313444237a401f58a6def3704a3d62c9bf7c2905f2046e5d834d401bf283",
+        "transport.go": "25ef1f5641050473f90ffacb558d9a3b129d6a184e326a59fb8c48122937ca40",
+        "util.go": "4692bdd414320d6053d8505a7abf1b07465ace2b859e68cf664e1c9f682f07bc"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "819bd256-9c54-40d2-86d4-673e69ca05a6",
+      "project": "hq-go-1192-31dfbb652c68e01",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "net.go",
+            246,
+            18,
+            246,
+            55
+          ],
+          "message": "Define a constant instead of duplicating this literal \"Err: Could not set the deadline: %s\" 3 times.",
+          "flows": [
+            [
+              [
+                "net.go",
+                987,
+                18,
+                987,
+                55,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "net.go",
+                1017,
+                18,
+                1017,
+                55,
+                "Duplication"
+              ]
+            ]
+          ]
+        }
+      ],
+      "requested": "hashicorp/memberlist"
+    },
+    {
+      "repository": "hashicorp/raft",
+      "ref": "HEAD",
+      "commit": "a5b469295ddc9924541477eafe34bf59a8571063",
+      "tree": "4aebd3cfb8fa4816346582b679f0a1273e429862",
+      "files": {
+        "api.go": "98ea2895695e050fccc1c9693b5c670ddf75d11fdbe26677db310fca7e4e86cf",
+        "commands.go": "e79714e646bbb43a79aca5c112168dff1b37a58396f509a4734baf242e570853",
+        "commitment.go": "c1a6bedd86d67ae0e1bdaafd0ea2310ae25a1ce0b956e2e4747cd7f5606c38f3",
+        "config.go": "baa36f7538d88c5228d282604b42e4d749e34ff557096b52b30850198b829806",
+        "configuration.go": "50c457749059d0f3d697f2ae88e04769be6e7d184c695bbec907932712852026",
+        "discard_snapshot.go": "8566bdec66991d4277485f1f8b5da748f647f93a74c1464f887aa8325e9c49f1",
+        "file_snapshot.go": "946a73441ded6f37a4fc96c49e9d3d9966bed30cc820c6a5d5826a892f577ccf",
+        "fsm.go": "8fa38ca606fe80dd5b4c01f2e70685ab9cc267b6c4f067e5a5c3a2f15ffe300c",
+        "future.go": "24635504735146af7f77f5b25857ae6e280985916ba3f389cd5a9f49702800c4",
+        "inmem_snapshot.go": "ae74f15a5faff252af035f3020a6c7dd8b9a4f7424445a1cff758c16cb9a29c7",
+        "inmem_store.go": "310fa3c0010caf76b4483bddd68db974ffd543330d4d462967d7918dcb818435",
+        "inmem_transport.go": "120f1c023ef1c91514156c54a730c769ee8103212e3819d610ac1174c4dd8a82",
+        "log.go": "7a890bd749cd6863faef212b586320b8c6d9574bb7158f56c4e022408abff0b4",
+        "log_cache.go": "2475550e7e9518c15e407136d1d47fb7419f2b9db5f6f35238064a396a4142a4",
+        "net_transport.go": "9cca019a52ee0a5dd4fd06f25202c721055ebe5354c58d96d1661c14c7307078",
+        "observer.go": "cbb1d87b0183c09159c42625a4cc3d5ed16610cfc9455cc4e72989f984e805bd",
+        "peersjson.go": "10e060586f8a8c388af5ab2d5a2bed61cd4c40faf1e79e196e7f9135a797e49b",
+        "progress.go": "57191e0b9954f6a6fe94b5377889b472cfe9e877a20440a23f4f72dd7bbf2e0d",
+        "raft.go": "a7b9f4f414719149d9a94c54de7bd2a2f566b1f194a447999d41d57853b7ae38",
+        "replication.go": "e495650a06bf06d1f4c134691d90a576e4ee83073e19465101cb23fd583bb948",
+        "saturation.go": "8b3db043c171d500b2b66df015f9dc359b42d325fa903cd2d8135f65bc7b33bd",
+        "snapshot.go": "a0ab0d591cd60c98d245addaaf3f4435fa1e74a30c8d59334396ca28dacba458",
+        "stable.go": "fc84c3c84d3ebf0cb808ee99633358da584291cc9e39dd7fe4aa0fac115c7898",
+        "state.go": "2173301ba05966eaba415eaac0be1631e48d8d1e64858868701685a4aea11b53",
+        "tcp_transport.go": "63ec4989c6a579558c62cb7b461b545323619423bd0acc1e438ec6cef94cb0e9",
+        "testing.go": "c8fd9c51f1a52148949874e4b7b02eed538993b2917350160fc9f4593a1c07a6",
+        "testing_batch.go": "8d4aa1bcb7300737ca251b0dea165b019d2d8035cd5abb937698849428fcadfc",
+        "transport.go": "3880ec16eb7121c92726b87f01514cd9e130d56603a4bf18656ce679c257af66",
+        "util.go": "e965e72427730642adc707949ca46e1ca368b3e29e47b4b2e92262db64593443"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "f20883ab-b9e7-4455-90fd-006c60d3a914",
+      "project": "hq-go-1192-263dc6e6356eeb5",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "raft.go",
+            162,
+            87,
+            162,
+            98
+          ],
+          "message": "Define a constant instead of duplicating this literal \"leader-id\" 3 times.",
+          "flows": [
+            [
+              [
+                "raft.go",
+                1677,
+                3,
+                1677,
+                14,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "raft.go",
+                1790,
+                3,
+                1790,
+                14,
+                "Duplication"
+              ]
+            ]
+          ]
+        },
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "raft.go",
+            637,
+            72,
+            637,
+            84
+          ],
+          "message": "Define a constant instead of duplicating this literal \"last-index\" 4 times.",
+          "flows": [
+            [
+              [
+                "raft.go",
+                1505,
+                5,
+                1505,
+                17,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "raft.go",
+                1743,
+                3,
+                1743,
+                15,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "raft.go",
+                1825,
+                3,
+                1825,
+                15,
+                "Duplication"
+              ]
+            ]
+          ]
+        },
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "raft.go",
+            1065,
+            40,
+            1065,
+            51
+          ],
+          "message": "Define a constant instead of duplicating this literal \"server-id\" 3 times.",
+          "flows": [
+            [
+              [
+                "raft.go",
+                1067,
+                41,
+                1067,
+                52,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "raft.go",
+                1213,
+                2,
+                1213,
+                13,
+                "Duplication"
+              ]
+            ]
+          ]
+        },
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "testing.go",
+            862,
+            11,
+            862,
+            39
+          ],
+          "message": "Define a constant instead of duplicating this literal \"failed to make cluster: %v\" 3 times.",
+          "flows": [
+            [
+              [
+                "testing.go",
+                874,
+                11,
+                874,
+                39,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "testing.go",
+                883,
+                11,
+                883,
+                39,
+                "Duplication"
+              ]
+            ]
+          ]
+        }
+      ],
+      "requested": "hashicorp/raft"
+    },
+    {
+      "repository": "go-kit/log",
+      "ref": "HEAD",
+      "commit": "c7bf81493e581feca11e11a7672b14be3591ca43",
+      "tree": "cbeea2465b50327da1128e6236da7fd648ac3d3f",
+      "files": {
+        "doc.go": "38290c20b98d6245977c102b28765976882b421ed08539f30f307e3fb5909eca",
+        "json_logger.go": "9a522a5924c8acc27256332947ecba09724c8638cb120e7572caf53dbff041c1",
+        "log.go": "3fa48af41f87aee95a1a2c62b630ef90038589fa9dc9ec564276fe44e1a790ec",
+        "logfmt_logger.go": "e2f9195fc6770f70099fdcca3f40598e559e6ca38e4d6b9eb6e19dcdbb6fbbbc",
+        "nop_logger.go": "044d4d7f1b174561a661d18e5d0e3ed224cda0598d3b58cb974e64115deb0b7b",
+        "stdlib.go": "803535d9d8e82480ae37c7e9be4457a24c45c7b2d2a4100c1854e5aa481ed830",
+        "sync.go": "3336170d4a5b9221bc2e14d4fec00523f082fd296c3687cf9659da2711e5c9a8",
+        "value.go": "7fda07effad269c778569e2cdb6c42e90b651ba94d1424df9c37ae700fd4fb99"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "6bb1a233-7697-48af-9ec0-eb3b1da23c87",
+      "project": "hq-go-1192-9624a1692a4fb7d",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [],
+      "requested": "go-kit/log"
+    },
+    {
+      "repository": "go-logr/logr",
+      "ref": "HEAD",
+      "commit": "f353bd50b12f9084630bf65baa947b540167ecf8",
+      "tree": "d46e9728ca253048fb21e9823c6e8f43fc98ced2",
+      "files": {
+        "context.go": "f6cfef95b6e3a080551a40e2c24a9fb4577cbbf0362d42a9ccca1ef33cb19a1f",
+        "context_noslog.go": "91d1498d8a84605f8f8e47099cf9c88b0ee83f56144490e0da7983fa600d9f5a",
+        "context_slog.go": "82d65edb4fc6d9c364d663431e706c4fb45922c67b5cb8e6c653edd82234b9ee",
+        "discard.go": "720e772ee384154b4b3b4aef0d764332eeb731f8dac7a8e4175adc9a7bf63268",
+        "logr.go": "cce9b9499b3111c29e6cc9a816618b4af3a70fa6d44667134215477191f976bc",
+        "sloghandler.go": "4c700ef7443140b8338df5a7463b40954bbeba1b8d1106d3c36abd126050f8f0",
+        "slogr.go": "b7094c50e8ebe87e6a4241d7efcd6de097520e4bab9a135e06305645c4b758db",
+        "slogsink.go": "a10143d1b668499a9a38f553849e3bc2e77aef51a9a136991e8d14581ecbef96"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "b612cd10-7094-48ac-a76e-8cf7e32ea449",
+      "project": "hq-go-1192-01fbb306a22f00d",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [],
+      "requested": "go-logr/logr"
+    },
+    {
+      "repository": "sirupsen/logrus",
+      "ref": "HEAD",
+      "commit": "954b418844d9dd2b6321f3fa09f8aad97e3015de",
+      "tree": "65188364a462464b977d8e2fb8937b6b01331894",
+      "files": {
+        "alt_exit.go": "f879dcdae06e1123e3e6758b657f462fb4866a557415c91b4d4a3ba9a99b5569",
+        "buffer_pool.go": "98af9ea4c331b9a710f21e70cd49ce6c0e73cc5be5363f4c146e787d857cd2d3",
+        "doc.go": "ad5256e3a1b54986d7bd26aa892160dfd1ab009a88cf0933c768bd16a74a46f0",
+        "entry.go": "fa2d5f7d85f537b57603a542465b9457f73bee82baa0a1fabb928f800cccb098",
+        "exported.go": "ba495113d0907da78007a0ed58090762fa8241322214fe3452fbf1a15a500944",
+        "formatter.go": "1264e4d3e131d34aa6989c0b9d8f6bb61bc5fddf2c967d5cc1c8ff88eaca32b5",
+        "hooks.go": "e682775f731271bdbded02c6af5d2f8815b2164bb5ba129c7baad572b43e715a",
+        "json_formatter.go": "ce83594ea6397cd022f9cbe159bc5c67634283294e2f3fca97e2743087ab4f4a",
+        "level.go": "71d2b84bd4264a0b78b2324d93fccd7c1d5de8629fe49961a2a872f833b1639c",
+        "logger.go": "50b7144972d57b3cdef34cdcf405acd7ce9316d632ee77e9afcb806b5641a16f",
+        "logrus.go": "dc44ad07ea0c628a7e0b27571af6a076b1f12f7691554875eb6ad854ad07b0ec",
+        "terminal_check_appengine.go": "c160ced85f9c3f454499b1f3430d25bf81306438f0709e094f57a40ad892ac8b",
+        "terminal_check_bsd.go": "04cdb393dddd796d42d3d632a6fffa1695c3be249404f0f75528e5e780367625",
+        "terminal_check_no_terminal.go": "269eb04e6340e791950dded8f7c6dcfbd16f4acffeef12bd59a505ed430c8df5",
+        "terminal_check_notappengine.go": "acba63314c25c91d6d889afa6b08391bbf3a4da2f7375b4701aca16adba999c6",
+        "terminal_check_solaris.go": "7fe3208e934821cf2215d1c3ee1782d54887eeae916dbdc895c19de418a1a4d8",
+        "terminal_check_unix.go": "aba1a222a3f551b077947fc8738619b116f1b5c2c121e57e54b8e58ecc846253",
+        "terminal_check_windows.go": "90d96db1f8a37a87efd9eedf8ebeb5c2e651d1e8f0984209c90491420690315a",
+        "text_formatter.go": "568c53eefec128ef0df0785f199bfa441061e92c7e11dd5d777e369a6e81b00b",
+        "writer.go": "9b353b4b424e36d3c6559b0dd4274ad758a32f9104acde4f108eaa3bf5b5fc85"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "a784dc3b-7ae6-417d-9459-d5bffe50e29b",
+      "project": "hq-go-1192-b2a99ad08b7957a",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "formatter.go",
+            58,
+            7,
+            58,
+            16
+          ],
+          "message": "Define a constant instead of duplicating this literal \"fields.\" 6 times.",
+          "flows": [
+            [
+              [
+                "formatter.go",
+                64,
+                7,
+                64,
+                16,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "formatter.go",
+                70,
+                7,
+                70,
+                16,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "formatter.go",
+                76,
+                7,
+                76,
+                16,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "formatter.go",
+                84,
+                8,
+                84,
+                17,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "formatter.go",
+                89,
+                8,
+                89,
+                17,
+                "Duplication"
+              ]
+            ]
+          ]
+        }
+      ],
+      "requested": "sirupsen/logrus"
+    },
+    {
+      "repository": "robfig/cron",
+      "ref": "HEAD",
+      "commit": "bc59245fe10efaed9d51b56900192527ed733435",
+      "tree": "85dbabf776b485e167eeb2f2957ebf2cd776cee8",
+      "files": {
+        "chain.go": "a66c78136aec5232865a62666abd6c055fb61da39d8d3672ac4a8f759437a394",
+        "constantdelay.go": "0a014f614180b2c3e45afc36cff2307ed07141259b45a37fbdc9574d7f329d3b",
+        "cron.go": "2940f1eb5e3e60a538e2ab06e4f395f1180f9f501881c4fac6960617dd068e8e",
+        "doc.go": "51e3a51e1f6f71412c7c301080077edd6c53c740f8e4c84ffa386044047f0bec",
+        "logger.go": "f278944d353c194f71ca7ebad2248e76d8e13e51103d65a40e42ae6159bf472b",
+        "option.go": "b4baa7cf817b7da1748be4426d9612aec0604e4417928be97253c8dbbe16984c",
+        "parser.go": "1da6876acb8410f3e4e098f3e503aee2a4b95f2418707463cb12bf6492c32723",
+        "spec.go": "d238b062c0ab311d30d62b6ab54d505f0e613cd54826e225e14f708849f3bf98"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "55f6e17f-d3f7-423f-bc44-bb92b63509cf",
+      "project": "hq-go-1192-0910d3239dad5f0",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [],
+      "requested": "robfig/cron"
+    },
+    {
+      "repository": "uber-go/zap",
+      "ref": "HEAD",
+      "commit": "4892335e05f14bce8a98a69a577fcf3844a42623",
+      "tree": "316ea77f5a8fbffbcebef6f5569f557897eaac5a",
+      "files": {
+        "array.go": "aa8854b2f351cecb32c7554716edd26c661e03399699155488a10413f7d695a9",
+        "config.go": "508d26d17b997b755322d4c63a222091b3b1cacc7b54f7c09f5d4ed87f8d9d7d",
+        "doc.go": "073a6a76d6e37a39c57d6555d62b47619467f66d535d9b45e22c9cc72591331e",
+        "encoder.go": "cf7d025a88746638c0d24ced9ee46a81a33e5212453b6c38a7fa8bb506460e5c",
+        "error.go": "af40703b75e046dd41faa1cd35402969b1340692aa39a83dbc2fcc7d96bcfcf8",
+        "field.go": "1d8d90c4c8e5218d241a3fd6c46143bf4aea86182771aa58c13ebf6375b3e87f",
+        "flag.go": "8f6b80b13ef1cc3eb11f6c89357dd6fabc0b495e9905e1f11038294a0ffb6ce8",
+        "global.go": "a66692147f80878ed144c3f5c5153f6da34ac353d269a388cafa982c40324c61",
+        "http_handler.go": "0e62f187cd43183b9c815a12eb4f8dee9128adf586d9bb81ab799b4d092e5154",
+        "level.go": "aba36aaf918967107d0bd14a6e7490f12b80796712dffdb44fa027a21c1d39a9",
+        "logger.go": "bd06a0f4ad535adfe58766ff10251aac2589c1073d9a7779012dd3f00217c30e",
+        "options.go": "f6719e97a66c71170c390bd999bfa0962d689ea2e3b0ce67742abe0ad6329190",
+        "sink.go": "f12034e4e7b489528fef3f79e8e74289a63851787c34f8e06f1962a5476d5e5c",
+        "sugar.go": "de0dce48d7803a5438107a98dbeb692974f25ad0797f3d7b952b3a7f7eb5b447",
+        "time.go": "ade23ba8e4325d00b59fcfebfb7505d165b887d3ee9276ab8a84cc62ecb89355",
+        "writer.go": "32420f01b085f2175cdf092ac29ac10e194ef60846220b85ec514553f9120235"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "56a708a8-2ff9-44f8-8143-7ee10dcb702a",
+      "project": "hq-go-1192-26f737b55c6e2d6",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [
+        {
+          "rule": "go:S1192",
+          "primary": [
+            "http_handler.go",
+            74,
+            17,
+            74,
+            31
+          ],
+          "message": "Define a constant instead of duplicating this literal \"Content-Type\" 3 times.",
+          "flows": [
+            [
+              [
+                "http_handler.go",
+                81,
+                16,
+                81,
+                30,
+                "Duplication"
+              ]
+            ],
+            [
+              [
+                "http_handler.go",
+                97,
+                53,
+                97,
+                67,
+                "Duplication"
+              ]
+            ]
+          ]
+        }
+      ],
+      "requested": "uber-go/zap"
+    },
+    {
+      "repository": "rivo/uniseg",
+      "ref": "HEAD",
+      "commit": "3a370411ca0621a6400fa85b155933f1140609d4",
+      "tree": "129bf556129e78a732b8c70a14df8a22c931c28f",
+      "files": {
+        "doc.go": "39ae4ad7e67cb872e9087b6437754d21ea97d020d3ef95ee90e94debf3e86465",
+        "eastasianwidth.go": "d731d4a292bb70462ab524128c307d2cb15106a8c80579c6b908a1793414d8b6",
+        "emojipresentation.go": "80cf87144314a1d4a348f71c530794a4976dcb4bef5a75a6f3ebd013b2cab8dc",
+        "gen_breaktest.go": "e245484b3fe23b0a7ea214f1ca79954f26b790a3c3876a78ff0950367121cfd4",
+        "gen_properties.go": "7c82530b59f3944873247db4778c51210dac7a83631f39eac2a475f820c50e15",
+        "grapheme.go": "fc7613169c9cb55578b1ceadfadd0e8c6d171c58703ce5885220d3a1c261d929",
+        "graphemeproperties.go": "4d704019aa335738a674d61397be95f7e587064c4799fab7ff921b596d30ab22",
+        "graphemerules.go": "b0f385a15e65e76eacafee022982e78cf89c9b480c413389bcb116de3137acf7",
+        "indicconjunct.go": "75878709b7b0938d43f6b66db1d66a5865f20a90a0de4bda39908e3dd074ae1c",
+        "line.go": "c71b13b940922b440da48b4f1f48c6df1446aabaa4b96003385983bdb8a2d528",
+        "lineproperties.go": "ed20fb22fe880802aa842412fc0e46d21c79f080a14d09da0fc1bcca61c858db",
+        "linerules.go": "a9c5344abdcebcf63b3c6176f4c486e926e6ded51719ff87cb117c6f3b94440e",
+        "properties.go": "53831e2828c8736d6b9845133878831f06cf006f7345abef0803da618c4ee15b",
+        "sentence.go": "9883efae40e69051fcf1f1a8c2927f32fbe67e42aba344707a8aaf308fa1b0d7",
+        "sentenceproperties.go": "6c3a4288534274c505a43d841b031ed804affb37df6c87c6c68f48383ac86864",
+        "sentencerules.go": "dfae0d959140fc0f4788ec521279dc9b5a6941507e43b3f438dfdc014a1645b3",
+        "step.go": "b87bdde82193c1f0a11aea7d38f22efe8c929a446101de8512f1c6046deddbb2",
+        "width.go": "510feea59798a6a7ffa77957213d42061094e3f0ffbc787a5f7c145298e4c023",
+        "word.go": "3b0856f8e6bc473e8129c2611dea482201acdef4e62c6f9ea2073c59fa77808e",
+        "wordproperties.go": "3b515136e535177cdf32b4b8ce4b15444e3f69fb4d527551ce0d93f8eda95396",
+        "wordrules.go": "7378da1f814d4b100eecde420542796f1f36db29ce19b41135a164584a6912e0"
+      },
+      "profile": "Sonar way extended",
+      "server": "26.11.0.134175",
+      "analysis": "3de83147-e52a-48ba-b388-b452e8d3b085",
+      "project": "hq-go-1192-3c7294008be7f76",
+      "rules": {
+        "go:S1192": {
+          "threshold": "3"
+        }
+      },
+      "issues": [],
+      "requested": "rivo/uniseg"
+    }
+  ]
+}
