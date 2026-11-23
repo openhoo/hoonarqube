@@ -1,5 +1,5 @@
 use crate::engine::file_context::FileContext;
-use crate::engine::scope::{BindingKind, LoadRecord, ScopeKind, suite_range};
+use crate::engine::scope::{BindingKind, LoadRecord, ScopeKind, SymbolScope, suite_range};
 use crate::support::{constant_truth, is_builtin_name, issue_at};
 use hoonarqube_ir::Issue;
 use ruff_python_ast::{Stmt, StmtIf};
@@ -59,34 +59,54 @@ pub(crate) fn check_use_before_definition(
         let Some((scope, loads)) = bodies.remove(&suite_range(&function.body)) else {
             continue;
         };
-        let mut bound = HashSet::new();
-        let mut bindings = Vec::new();
-        for (name, sites) in &table.scopes[scope].bindings {
-            for site in sites {
-                if site.kind == BindingKind::Parameter {
-                    bound.insert(name.as_str());
-                } else {
-                    bindings.push((site.range, name.as_str()));
-                }
+        issues.extend(check_local_reads(
+            &function.body,
+            &table.scopes[scope],
+            &loads,
+            index,
+            source,
+        ));
+    }
+    issues
+}
+
+fn check_local_reads(
+    body: &[Stmt],
+    scope: &SymbolScope,
+    loads: &[&LoadRecord],
+    index: &LineIndex,
+    source: &str,
+) -> Vec<Issue> {
+    let mut bound = HashSet::new();
+    let mut bindings = Vec::new();
+    for (name, sites) in &scope.bindings {
+        for site in sites {
+            if site.kind == BindingKind::Parameter {
+                bound.insert(name.as_str());
+            } else {
+                bindings.push((site.range, name.as_str()));
             }
         }
-        bindings.sort_unstable_by_key(|(range, _)| range.start());
-        let mut reads: Vec<_> = loads
-            .iter()
-            .filter(|load| !bound.contains(load.name.as_str()))
-            .map(|load| (load.range, load.name.as_str()))
-            .collect();
-        if bindings.is_empty() || reads.is_empty() {
-            continue;
-        }
-        reads.sort_unstable_by_key(|(range, _)| range.start());
-        let mut flow = LocalFlow {
-            bindings,
-            reads,
-            missing: Vec::new(),
-        };
-        flow.suite(&function.body, bound);
-        issues.extend(flow.missing.into_iter().map(|(range, name)| {
+    }
+    bindings.sort_unstable_by_key(|(range, _)| range.start());
+    let mut reads: Vec<_> = loads
+        .iter()
+        .filter(|load| !bound.contains(load.name.as_str()))
+        .map(|load| (load.range, load.name.as_str()))
+        .collect();
+    if bindings.is_empty() || reads.is_empty() {
+        return Vec::new();
+    }
+    reads.sort_unstable_by_key(|(range, _)| range.start());
+    let mut flow = LocalFlow {
+        bindings,
+        reads,
+        missing: Vec::new(),
+    };
+    flow.suite(body, bound);
+    flow.missing
+        .into_iter()
+        .map(|(range, name)| {
             issue_at(
                 "python:S3827",
                 &format!("{name} is used before it is defined. Move the definition before."),
@@ -94,9 +114,8 @@ pub(crate) fn check_use_before_definition(
                 index,
                 source,
             )
-        }));
-    }
-    issues
+        })
+        .collect()
 }
 
 type Names<'a> = HashSet<&'a str>;
