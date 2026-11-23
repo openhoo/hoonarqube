@@ -20,6 +20,7 @@ use hoonarqube_ir::{Range, TextEdit, apply_fixes};
 mod analyze;
 mod assessment_cli;
 mod cache;
+mod notebook;
 mod parity_cli;
 mod project_features;
 mod reports;
@@ -49,6 +50,11 @@ enum Command {
     Rules {
         #[command(subcommand)]
         cmd: RulesCommand,
+    },
+    /// Inspect one saved Python notebook for ipython:S7502, without evaluating a project gate.
+    Notebook {
+        /// Original nbformat 4 .ipynb file, in saved cell order.
+        path: std::path::PathBuf,
     },
     /// Analyze supported sources under the given files or directories.
     Analyze {
@@ -234,6 +240,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let catalog = embedded();
     match &cli.command {
+        Command::Notebook { path } => notebook::run(path, cli.json),
         Command::Snapshot => print_snapshot(catalog, cli.json),
         Command::Rules { cmd } => run_rules(catalog, cmd, cli.json),
         Command::Analyze {

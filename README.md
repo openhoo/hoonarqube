@@ -534,6 +534,10 @@ or discovered in a directory. Notebook measurements are not implemented. A
 mixed Python/notebook scope retains the Python findings, lists the notebook
 as unsupported, and returns exit **2** for an unavailable gate. If your policy
 covers Python files only, select those inputs or pass `--exclude '**/*.ipynb'`.
+Inspect a saved Python notebook for the independently qualified `ipython:S7502`
+diagnostic with `hoonarqube notebook --json example.ipynb`. Its JSON reports
+the cell index and physical UTF-16 range, or why inspection was unavailable.
+This command does not participate in a project gate.
 See the [measured notebook behavior](docs/engineering/notebook-scope-26.11.md).
 
 Facts collection limits individual inputs to 16 MiB.
