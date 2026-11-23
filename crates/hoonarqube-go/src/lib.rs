@@ -3958,7 +3958,7 @@ fn check_duplicate_strings(
     for nodes in values.values().filter(|nodes| nodes.len() >= threshold) {
         let node = nodes[0];
         let literal = text(node, source);
-        issues.push(node_issue(
+        let mut finding = node_issue(
             "go:S1192",
             format!(
                 "Define a constant instead of duplicating this literal {literal} {} times.",
@@ -3966,7 +3966,14 @@ fn check_duplicate_strings(
             ),
             node,
             source,
-        ));
+        );
+        for duplicate in &nodes[1..] {
+            finding = finding.with_flow(vec![FlowLocation::in_primary_file(
+                "Duplication",
+                node_range(*duplicate, source),
+            )]);
+        }
+        issues.push(finding);
     }
 }
 
@@ -4018,9 +4025,17 @@ fn is_logging_or_error_argument(node: Node<'_>, source: &str, imports: &GoImport
     let Some((receiver, method)) = function.rsplit_once('.') else {
         return false;
     };
+    // Community exempts Printf on these imports, but reports calls to
+    // identically named methods, including methods of a *log.Logger value.
+    if method == "Printf" {
+        return ["fmt", "log", "github.com/sirupsen/logrus"]
+            .into_iter()
+            .any(|p| imports.alias(p) == Some(receiver))
+            && !identifier_is_locally_bound(call, receiver, source);
+    }
     let is_fmt_function = imports.alias("fmt").is_some_and(|alias| receiver == alias)
         && !identifier_is_locally_bound(call, receiver, source)
-        && matches!(method, "Errorf" | "Printf" | "Fprintf" | "Sprintf");
+        && matches!(method, "Errorf" | "Fprintf" | "Sprintf");
     is_fmt_function
         || matches!((receiver, method), ("errors" | "xerrors", "New"))
         || matches!(
@@ -4039,7 +4054,6 @@ fn is_logging_or_error_argument(node: Node<'_>, source: &str, imports: &GoImport
                 | "Panicf"
                 | "Panicln"
                 | "Print"
-                | "Printf"
                 | "Println"
                 | "Warn"
                 | "Warnf"
@@ -6015,6 +6029,78 @@ mod tests {
             3,
             "only boundary-delimited TODO tags should report: {found:?}"
         );
+    }
+
+    #[test]
+    fn s1192_printf_methods_keep_the_duplicate_locations() {
+        let source = concat!(
+            "package p\nimport ( std \"log\"; f \"fmt\"; l \"github.com/sirupsen/logrus\" )\n",
+            "type S struct { logger *std.Logger }\n",
+            "func (s S) write() {\n",
+            " s.logger.Printf(\"same message!\")\n",
+            " s.logger.Printf(\"same message!\")\n",
+            " s.logger.Printf(\"same message!\")\n",
+            " std.Printf(\"same message!\"); f.Printf(\"same message!\"); l.Printf(\"same message!\")\n",
+            "}\n",
+        );
+        let report = analyze(
+            PathBuf::from("printf.go"),
+            source,
+            &AnalyzerOptions::default(),
+        );
+        let issues: Vec<_> = report
+            .issues
+            .iter()
+            .filter(|i| i.rule_key == "go:S1192")
+            .collect();
+        assert_eq!(issues.len(), 1);
+        let issue = issues[0];
+        assert_eq!(
+            issue.message,
+            "Define a constant instead of duplicating this literal \"same message!\" 3 times."
+        );
+        assert_eq!(
+            issue.range.start,
+            Pos {
+                line: 5,
+                column: 17
+            }
+        );
+        assert_eq!(
+            issue.range.end,
+            Pos {
+                line: 5,
+                column: 32
+            }
+        );
+        assert_eq!(issue.flows.len(), 2);
+        for (flow, line) in issue.flows.iter().zip([6, 7]) {
+            let [loc] = flow.locations.as_slice() else {
+                panic!("one separate flow per duplicate")
+            };
+            assert_eq!(loc.message, "Duplication");
+            assert_eq!(loc.range.start, Pos { line, column: 17 });
+            assert_eq!(loc.range.end, Pos { line, column: 32 });
+        }
+    }
+
+    #[test]
+    fn s1192_shadowed_log_import_and_unrelated_imports_are_not_logging_exemptions() {
+        for declarations in [
+            "import std \"log\"\nvar _ = std.Printf\ntype printer interface { Printf(string, ...any) }\nfunc f(std printer)",
+            "import std \"example.com/customlog\"\nfunc f()",
+        ] {
+            let source = format!(
+                "package p\n{declarations} {{ std.Printf(\"same message!\"); std.Printf(\"same message!\"); std.Printf(\"same message!\") }}\n"
+            );
+            assert_eq!(
+                keys(&source)
+                    .into_iter()
+                    .filter(|k| k == "go:S1192")
+                    .count(),
+                1
+            );
+        }
     }
 
     #[test]

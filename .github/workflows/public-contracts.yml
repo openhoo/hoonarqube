@@ -31,6 +31,8 @@ jobs:
         run: python3 tools/oracle/community_go_profile_gates.py target/release
       - name: Compare Core and Extended CI verdicts on 32 pinned public Go packages
         run: python3 tools/oracle/community_go_packages.py target/release
+      - name: Check duplicate Go logging literals and supporting locations
+        run: python3 tools/oracle/go_duplicate_logging.py target/release/hoonarqube
       - name: Build and test a pinned Blinker wheel and compare assigned coverage gates
         run: python3 tools/oracle/blinker_build/replay.py target/release
       - name: Check pinned source blobs and selected Sonar primary locations
