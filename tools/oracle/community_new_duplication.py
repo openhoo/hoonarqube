@@ -255,7 +255,18 @@ def replay_case(cli, root, case, work):
     )
     inventory(result, path, candidate)
     value = native_result(result, code, case, changed)
-    check(value == case["native"], "native result differs from qualified comparison")
+    if value["status"] == "unavailable":
+        # The pinned ambiguous Yjs case must still fail closed.
+        check(value == case["native"], "unexpected unavailable gate")
+    else:
+        ref = case["reference"]
+        check(
+            value["new"] == ref["new"]
+            and value["duplicated"] == ref["duplicated"]
+            and value["ignored"] == ref["ignored"]
+            and value["exit"] == int(ref["status"] == "ERROR"),
+            "native measurements or decision differ from Community",
+        )
     return {
         "project": case["project"],
         "git_new_lines": len(changed),
