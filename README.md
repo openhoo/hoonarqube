@@ -262,6 +262,22 @@ availability does not turn them into SonarQube-equivalent metrics, rules, or IDE
 behavior. Parity claims are limited to the contracts recorded in
 [PARITY.md](PARITY.md).
 
+### JavaScript Community 26.11 Core selection
+
+Run `hoonarqube analyze --format json --profile community-26.11-javascript-core <paths>`
+to filter JavaScript findings using the pinned
+[Sonar way core snapshot](catalog/reference/javascript-core-community-26.11.json).
+The snapshot records 200 reference activations. Of those, 159 are eligible
+catalog keys, 36 are missing from the catalog, and five have effective
+parameters the scanner does not map. The eligible count does not establish
+detector coverage. The report lists the excluded keys in
+`partial_rule_selection`.
+
+Mixed scans retain the `sonar-parity` selection for TypeScript and other
+languages listed in `partial_rule_selection.fallback_languages`. Use a baseline
+created with the same profile. The scanner exits **2**, and CLI and service
+gate conditions remain unavailable while this selection is partial.
+
 ### Python Community 26.11 Core selection
 
 Run `hoonarqube analyze --format json --profile community-26.11-python-core <paths>`

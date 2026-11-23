@@ -408,10 +408,13 @@ pub(crate) fn analyze_project_paths(
     )
     .map_err(ProjectError::Analysis)?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
-    if options.profile == hoonarqube_catalog::RuleProfile::Community2611PythonCore {
+    if options.profile == hoonarqube_catalog::RuleProfile::Community2611JavaScriptCore {
+        attach_javascript_core_selection(&mut report, catalog);
+    } else if options.profile == hoonarqube_catalog::RuleProfile::Community2611PythonCore {
         use hoonarqube_catalog::python_core::PythonCoreSelection;
         let selection = PythonCoreSelection::embedded();
         report.partial_rule_selection = Some(hoonarqube_ir::PartialRuleSelection {
+            fallback_languages: Vec::new(),
             profile: options.profile.to_string(),
             reference_version: selection.version.clone(),
             membership_sha256: PythonCoreSelection::digest().to_owned(),
@@ -450,6 +453,39 @@ pub(crate) fn analyze_project_paths(
         project_options,
     );
     Ok(report)
+}
+
+fn attach_javascript_core_selection(report: &mut hoonarqube_ir::AnalysisReport, catalog: &Catalog) {
+    use hoonarqube_catalog::javascript_core::{JavaScriptCoreSelection, PROFILE_NAME};
+    let selection = JavaScriptCoreSelection::embedded();
+    let fallback_languages = report
+        .files
+        .iter()
+        .map(|file| &file.language)
+        .filter(|language| language.as_str() != "javascript")
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .cloned()
+        .collect();
+    report.partial_rule_selection = Some(hoonarqube_ir::PartialRuleSelection {
+        profile: PROFILE_NAME.to_owned(),
+        reference_version: selection.version.clone(),
+        membership_sha256: JavaScriptCoreSelection::digest().to_owned(),
+        reference_active_rules: selection.active_keys.len(),
+        selected_catalog_keys: selection
+            .active_keys
+            .iter()
+            .filter(|key| selection.selects(key, catalog))
+            .count(),
+        missing_catalog_keys: selection
+            .active_keys
+            .iter()
+            .filter(|key| catalog.rule(key).is_none())
+            .cloned()
+            .collect(),
+        unmapped_parameter_keys: selection.parameters.keys().cloned().collect(),
+        fallback_languages,
+    });
 }
 
 fn append_unsupported_inventory(

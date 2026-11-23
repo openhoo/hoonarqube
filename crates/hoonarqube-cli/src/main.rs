@@ -1162,7 +1162,10 @@ fn fix_plans(
 /// under `--diff`, write-and-verify under `--apply`. Exits nonzero on any
 /// warning or unverified finding.
 fn run_fix(paths: &[std::path::PathBuf], config: &FixOptions, json: bool) -> ExitCode {
-    if config.profile == RuleProfile::Community2611PythonCore {
+    if matches!(
+        config.profile,
+        RuleProfile::Community2611JavaScriptCore | RuleProfile::Community2611PythonCore
+    ) {
         eprintln!("{} is a partial selection for analyze only", config.profile);
         return ExitCode::from(2);
     }
@@ -1969,6 +1972,12 @@ fn run_analyze(
             selection.missing_catalog_keys.len(),
             selection.unmapped_parameter_keys.len(),
         );
+        if !selection.fallback_languages.is_empty() {
+            eprintln!(
+                "{} findings keep sonar-parity selection",
+                selection.fallback_languages.join(", ")
+            );
+        }
     }
     let assessment_status = assessment_cli::assessment_exit_status(&report);
     let output_ok = render_analyze_output(catalog, format, &report);
