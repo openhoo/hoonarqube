@@ -12,12 +12,12 @@
     "catalog/rules/csharp.json": "c2ec1a557115ac5a516939c092901d51f64466fdcf9445401b32f6f3b5560fda",
     "catalog/rules/go.json": "87a2a1861bcbc3b6efcbbdf744091f26c84ec4f0a1a02bf0324433773255183f",
     "catalog/rules/java.json": "b817c4c8b9bb09febb1e131dbd1868624406b55f00534003445ab1f2119d4374",
-    "catalog/rules/javascript.json": "18ea3917803513dad772868b73de9a025111b4f7e25a53cf558dc3b2ce36c3de",
+    "catalog/rules/javascript.json": "1ba64cc88ef3ec6e2f6d5320f68f08d24a2d868fe14c37dc275c57273391a749",
     "catalog/rules/python.json": "4c9e2dff52ad673ac38877fdd9c41d6536b5263d93875fee02ddbefe30262388",
     "catalog/rules/ruby.json": "1bfa964c2a157715237046db506f8d9b3890e6ec77c88cb14b82457bf0d983b4",
     "catalog/rules/rust.json": "417a197e618c006f1cf3df4389b7b67316f37b696ae780b6fe1814ac52fdd817",
     "catalog/rules/typescript.json": "033e63e63a1493b7be40a5540e0641330c7d789d1480eccdbd671341d0edd224",
-    "catalog/snapshot.toml": "2cb4fd260a709b6bc326ea209f766eb58ebdf451aee7598d8a1e282800c3983b",
+    "catalog/snapshot.toml": "e8388ba2884a8ce83042312cdbf2fa5a8f9f38a1740f6ba5cafaed0923e42359",
     "effective/effective-cs-page-1.json": "c95076bc86bf8e721a88bc07c163455ced339a3b10b201f2790af9e278813b44",
     "effective/effective-go-page-1.json": "7a157617a43b7a72ccb74c55b9fe797bf3e33dfa592b906ce3ccf07c2ed0d215",
     "effective/effective-java-page-1.json": "cb2f5bb2883b05cea536b191dd5e093d665bc68d3335cf2621f5409a9cdeaa95",
@@ -30,7 +30,7 @@
     "metadata/profiles.json": "5e099fdca196ee4840dde3904e0849abe81cef6568db6307f547cbb6708bc940",
     "reference-environment.json": "2e466e565b6a915ee2b9865f8e7d3150e7af8d87ddc6390b4db3e72854002047"
   },
-  "native_catalog_sha256": "c3846c8d920ba0e3f4a8b3bcba8c54af9cd9c8bf928e6354924ec492cbfcf0f1",
+  "native_catalog_sha256": "d360416a0aa44fc4b66bed175ed0e97fe714d92c5c7c9c08cf8e30dddd59c3e7",
   "profile": "Sonar way",
   "profiles": {
     "csharp": {
@@ -85,7 +85,7 @@
     "javascript": {
       "active": 420,
       "active_hotspots": 0,
-      "active_reference_keys_outside_native_catalog": 84,
+      "active_reference_keys_outside_native_catalog": 83,
       "language": "js",
       "native_hotspot_reclassifications": {
         "javascript:S1313": "CODE_SMELL",
@@ -251,6 +251,6 @@
     }
   },
   "server_image": "sonarqube@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1",
-  "table_sha256": "812598f27fd8068afabb4e1554b1dbce36c1b5166c23f976ca13c6a3ec7b8825",
+  "table_sha256": "4522d43348fb42a356dcbba4900276734885af1a5958c64e2e8d5e63f9e5bbb7",
   "version": "26.9.0.129388"
 }

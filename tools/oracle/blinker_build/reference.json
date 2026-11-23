@@ -1,0 +1,564 @@
+{
+  "full": {
+    "revision": "c3364059663df1ddce32799d6b1922af89a345f6",
+    "task": {
+      "componentKey": "hq-blinker-build-gate-20261122-full",
+      "analysisId": "842a09b6-45df-493e-bb2a-851be6b38d54",
+      "id": "b1e22fc3-8d03-458d-bc91-f6045d477836",
+      "status": "SUCCESS"
+    },
+    "policy": {
+      "qualityGate": {
+        "name": "HQ Blinker wheel coverage 20261122",
+        "default": false
+      }
+    },
+    "gate": {
+      "projectStatus": {
+        "status": "OK",
+        "conditions": [
+          {
+            "status": "OK",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "93.1"
+          },
+          {
+            "status": "OK",
+            "metricKey": "line_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "94.0"
+          }
+        ],
+        "ignoredConditions": false,
+        "caycStatus": "non-compliant"
+      }
+    },
+    "measures": {
+      "component": {
+        "key": "hq-blinker-build-gate-20261122-full",
+        "name": "hq-blinker-build-gate-20261122-full",
+        "qualifier": "TRK",
+        "measures": [
+          {
+            "metric": "coverage",
+            "value": "93.1",
+            "bestValue": false
+          },
+          {
+            "metric": "lines_to_cover",
+            "value": "217"
+          },
+          {
+            "metric": "uncovered_conditions",
+            "value": "7",
+            "bestValue": false
+          },
+          {
+            "metric": "uncovered_lines",
+            "value": "13",
+            "bestValue": false
+          },
+          {
+            "metric": "conditions_to_cover",
+            "value": "72"
+          },
+          {
+            "metric": "line_coverage",
+            "value": "94.0",
+            "bestValue": false
+          }
+        ]
+      }
+    },
+    "files": {
+      "paging": {
+        "pageIndex": 1,
+        "pageSize": 100,
+        "total": 3
+      },
+      "baseComponent": {
+        "key": "hq-blinker-build-gate-20261122-full",
+        "name": "hq-blinker-build-gate-20261122-full",
+        "qualifier": "TRK",
+        "measures": []
+      },
+      "components": [
+        {
+          "key": "hq-blinker-build-gate-20261122-full:src/blinker/__init__.py",
+          "name": "__init__.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/__init__.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "coverage",
+              "value": "100.0",
+              "bestValue": true
+            },
+            {
+              "metric": "line_coverage",
+              "value": "100.0",
+              "bestValue": true
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "8"
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "0",
+              "bestValue": true
+            }
+          ]
+        },
+        {
+          "key": "hq-blinker-build-gate-20261122-full:src/blinker/_utilities.py",
+          "name": "_utilities.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/_utilities.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "conditions_to_cover",
+              "value": "8"
+            },
+            {
+              "metric": "coverage",
+              "value": "100.0",
+              "bestValue": true
+            },
+            {
+              "metric": "line_coverage",
+              "value": "100.0",
+              "bestValue": true
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "31"
+            },
+            {
+              "metric": "uncovered_conditions",
+              "value": "0",
+              "bestValue": true
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "0",
+              "bestValue": true
+            }
+          ]
+        },
+        {
+          "key": "hq-blinker-build-gate-20261122-full:src/blinker/base.py",
+          "name": "base.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/base.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "conditions_to_cover",
+              "value": "64"
+            },
+            {
+              "metric": "coverage",
+              "value": "91.7",
+              "bestValue": false
+            },
+            {
+              "metric": "line_coverage",
+              "value": "92.7",
+              "bestValue": false
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "178"
+            },
+            {
+              "metric": "uncovered_conditions",
+              "value": "7",
+              "bestValue": false
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "13",
+              "bestValue": false
+            }
+          ]
+        }
+      ]
+    },
+    "version": "26.9.0.129388",
+    "profile": "Sonar way",
+    "lcov_sha256": "153045ec15d178ad71506a3828e42d7f732f33aa9662cab42cd7cca5b24d6696",
+    "cobertura_sha256": "429c81e112ab3543daaafd2fa1734d3237f06db0477d36d9c5eb5cca61956b73",
+    "cobertura_timestamp_normalized_sha256": "44e0fe637bd9b2bb9685d4336debc0abc96f47f02493e9236c8f36f238ab6245"
+  },
+  "focused": {
+    "revision": "c3364059663df1ddce32799d6b1922af89a345f6",
+    "task": {
+      "componentKey": "hq-blinker-build-gate-20261122-focused",
+      "analysisId": "a189c583-3938-4653-921f-2a1d17dc673b",
+      "id": "59bdb18f-4ecb-457a-8647-ea5e3494bcba",
+      "status": "SUCCESS"
+    },
+    "policy": {
+      "qualityGate": {
+        "name": "HQ Blinker wheel coverage 20261122",
+        "default": false
+      }
+    },
+    "gate": {
+      "projectStatus": {
+        "status": "ERROR",
+        "conditions": [
+          {
+            "status": "ERROR",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "58.5"
+          },
+          {
+            "status": "ERROR",
+            "metricKey": "line_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "65.0"
+          }
+        ],
+        "ignoredConditions": false,
+        "caycStatus": "non-compliant"
+      }
+    },
+    "measures": {
+      "component": {
+        "key": "hq-blinker-build-gate-20261122-focused",
+        "name": "hq-blinker-build-gate-20261122-focused",
+        "qualifier": "TRK",
+        "measures": [
+          {
+            "metric": "coverage",
+            "value": "58.5",
+            "bestValue": false
+          },
+          {
+            "metric": "lines_to_cover",
+            "value": "217"
+          },
+          {
+            "metric": "uncovered_conditions",
+            "value": "44",
+            "bestValue": false
+          },
+          {
+            "metric": "uncovered_lines",
+            "value": "76",
+            "bestValue": false
+          },
+          {
+            "metric": "conditions_to_cover",
+            "value": "72"
+          },
+          {
+            "metric": "line_coverage",
+            "value": "65.0",
+            "bestValue": false
+          }
+        ]
+      }
+    },
+    "files": {
+      "paging": {
+        "pageIndex": 1,
+        "pageSize": 100,
+        "total": 3
+      },
+      "baseComponent": {
+        "key": "hq-blinker-build-gate-20261122-focused",
+        "name": "hq-blinker-build-gate-20261122-focused",
+        "qualifier": "TRK",
+        "measures": []
+      },
+      "components": [
+        {
+          "key": "hq-blinker-build-gate-20261122-focused:src/blinker/__init__.py",
+          "name": "__init__.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/__init__.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "coverage",
+              "value": "100.0",
+              "bestValue": true
+            },
+            {
+              "metric": "line_coverage",
+              "value": "100.0",
+              "bestValue": true
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "8"
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "0",
+              "bestValue": true
+            }
+          ]
+        },
+        {
+          "key": "hq-blinker-build-gate-20261122-focused:src/blinker/_utilities.py",
+          "name": "_utilities.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/_utilities.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "conditions_to_cover",
+              "value": "8"
+            },
+            {
+              "metric": "coverage",
+              "value": "79.5",
+              "bestValue": false
+            },
+            {
+              "metric": "line_coverage",
+              "value": "83.9",
+              "bestValue": false
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "31"
+            },
+            {
+              "metric": "uncovered_conditions",
+              "value": "3",
+              "bestValue": false
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "5",
+              "bestValue": false
+            }
+          ]
+        },
+        {
+          "key": "hq-blinker-build-gate-20261122-focused:src/blinker/base.py",
+          "name": "base.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/base.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "conditions_to_cover",
+              "value": "64"
+            },
+            {
+              "metric": "coverage",
+              "value": "53.7",
+              "bestValue": false
+            },
+            {
+              "metric": "line_coverage",
+              "value": "60.1",
+              "bestValue": false
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "178"
+            },
+            {
+              "metric": "uncovered_conditions",
+              "value": "41",
+              "bestValue": false
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "71",
+              "bestValue": false
+            }
+          ]
+        }
+      ]
+    },
+    "version": "26.9.0.129388",
+    "profile": "Sonar way",
+    "lcov_sha256": "edbb15603d36806121ae9aa95bc0c47c418e7f1a35c80ee5146a2d55ae391c08",
+    "cobertura_sha256": "14c4be1cb7bbefc5859b9c3c96115cf62eca800acf8a9b6a0d8a07e912e74f89",
+    "cobertura_timestamp_normalized_sha256": "65ec2b8b4ac9c2441a77eae3fc2d75d12d48c16423cb503cf6488898b34cbffa"
+  },
+  "missing": {
+    "revision": "c3364059663df1ddce32799d6b1922af89a345f6",
+    "task": {
+      "componentKey": "hq-blinker-build-gate-20261122-missing",
+      "analysisId": "3721fffb-88c5-45bf-b4c3-ec2676585dd2",
+      "id": "d5eb406e-32a7-4f5b-af3f-300f83838061",
+      "status": "SUCCESS"
+    },
+    "policy": {
+      "qualityGate": {
+        "name": "HQ Blinker wheel coverage 20261122",
+        "default": false
+      }
+    },
+    "gate": {
+      "projectStatus": {
+        "status": "ERROR",
+        "conditions": [
+          {
+            "status": "ERROR",
+            "metricKey": "coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "0.0"
+          },
+          {
+            "status": "ERROR",
+            "metricKey": "line_coverage",
+            "comparator": "LT",
+            "errorThreshold": "80",
+            "actualValue": "0.0"
+          }
+        ],
+        "ignoredConditions": false,
+        "caycStatus": "non-compliant"
+      }
+    },
+    "measures": {
+      "component": {
+        "key": "hq-blinker-build-gate-20261122-missing",
+        "name": "hq-blinker-build-gate-20261122-missing",
+        "qualifier": "TRK",
+        "measures": [
+          {
+            "metric": "coverage",
+            "value": "0.0",
+            "bestValue": false
+          },
+          {
+            "metric": "lines_to_cover",
+            "value": "204"
+          },
+          {
+            "metric": "uncovered_lines",
+            "value": "204",
+            "bestValue": false
+          },
+          {
+            "metric": "line_coverage",
+            "value": "0.0",
+            "bestValue": false
+          }
+        ]
+      }
+    },
+    "files": {
+      "paging": {
+        "pageIndex": 1,
+        "pageSize": 100,
+        "total": 3
+      },
+      "baseComponent": {
+        "key": "hq-blinker-build-gate-20261122-missing",
+        "name": "hq-blinker-build-gate-20261122-missing",
+        "qualifier": "TRK",
+        "measures": []
+      },
+      "components": [
+        {
+          "key": "hq-blinker-build-gate-20261122-missing:src/blinker/__init__.py",
+          "name": "__init__.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/__init__.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "coverage",
+              "value": "0.0",
+              "bestValue": false
+            },
+            {
+              "metric": "line_coverage",
+              "value": "0.0",
+              "bestValue": false
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "8"
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "8",
+              "bestValue": false
+            }
+          ]
+        },
+        {
+          "key": "hq-blinker-build-gate-20261122-missing:src/blinker/_utilities.py",
+          "name": "_utilities.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/_utilities.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "coverage",
+              "value": "0.0",
+              "bestValue": false
+            },
+            {
+              "metric": "line_coverage",
+              "value": "0.0",
+              "bestValue": false
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "30"
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "30",
+              "bestValue": false
+            }
+          ]
+        },
+        {
+          "key": "hq-blinker-build-gate-20261122-missing:src/blinker/base.py",
+          "name": "base.py",
+          "qualifier": "FIL",
+          "path": "src/blinker/base.py",
+          "language": "py",
+          "measures": [
+            {
+              "metric": "coverage",
+              "value": "0.0",
+              "bestValue": false
+            },
+            {
+              "metric": "line_coverage",
+              "value": "0.0",
+              "bestValue": false
+            },
+            {
+              "metric": "lines_to_cover",
+              "value": "166"
+            },
+            {
+              "metric": "uncovered_lines",
+              "value": "166",
+              "bestValue": false
+            }
+          ]
+        }
+      ]
+    },
+    "version": "26.9.0.129388",
+    "profile": "Sonar way",
+    "lcov_sha256": null
+  }
+}
