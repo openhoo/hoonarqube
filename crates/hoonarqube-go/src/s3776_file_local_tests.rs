@@ -259,3 +259,62 @@ fn s3776_stat_and_parse_bool_recognize_only_the_standard_error_result() {
         assert_score(source, 1);
     }
 }
+
+#[test]
+fn s3776_range_error_element_uses_its_collection_type_and_loop_scope() {
+    for (parameters, expected) in [("es []error", 1), ("es ...error", 1), ("es []any", 3)] {
+        assert_score(
+            &format!(
+                "package p\nfunc check({parameters}) {{ for _, e := range es {{ if e != nil {{ println(e) }} }} }}\n"
+            ),
+            expected,
+        );
+    }
+    assert_score(
+        "package p\nfunc check(es []error, e *int) { for _, e := range es { if e != nil { println(e) } }; if e != nil { println(e) } }\n",
+        2,
+    );
+    assert_score(
+        "package p\nfunc check(es []any, e error) { for _, e := range es { if e != nil { println(e) } }; if e != nil { println(e) } }\n",
+        3,
+    );
+    assert_score(
+        "package p\nfunc check(es ...error) { if es != nil { println(es) } }\n",
+        1,
+    );
+}
+
+#[test]
+fn s3776_type_switch_default_keeps_the_input_type_only_in_that_case() {
+    let concrete = "type problem struct{}\nfunc (*problem) Error() string { return \"problem\" }\n";
+    for (kind, score) in [("error", 3), ("any", 5)] {
+        assert_score(
+            &format!(
+                "package p\n{concrete}func check(e {kind}) {{ switch e := e.(type) {{ case *problem: if e != nil {{ println(e) }}; default: if e != nil {{ println(e) }} }} }}\n"
+            ),
+            score,
+        );
+    }
+    assert_score(
+        &format!(
+            "package p\n{concrete}func check(e error) {{ switch v := e.(type) {{ case *problem: if v != nil {{ println(v) }}; default: var v2 *problem; if v2 != nil {{ println(v, v2) }} }} }}\n"
+        ),
+        5,
+    );
+}
+
+#[test]
+fn s3776_range_does_not_treat_a_type_parameter_named_error_as_the_builtin() {
+    for signature in [
+        "func check[error ~*int](es []error)",
+        "func check[error ~*int](es ...error)",
+        "type box[T ~*int] struct{}; func (box[error]) check(es []error)",
+    ] {
+        assert_score(
+            &format!(
+                "package p\n{signature} {{ for _, e := range es {{ if e != nil {{ println(e) }} }} }}\n"
+            ),
+            3,
+        );
+    }
+}
