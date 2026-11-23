@@ -146,7 +146,7 @@ fn javascript_core_is_language_scoped_and_keeps_assessments_partial() {
 }
 
 #[test]
-fn javascript_core_filters_compiler_backed_javascript_and_preserves_typescript() {
+fn script_core_filters_compiler_backed_findings_for_the_selected_language() {
     let Some(package) = std::env::var_os("HOONARQUBE_TYPESCRIPT_PACKAGE") else {
         eprintln!("requires the pinned TypeScript package (installed in CI)");
         return;
@@ -166,4 +166,68 @@ fn javascript_core_filters_compiler_backed_javascript_and_preserves_typescript()
     let legacy = fixture.scan(LEGACY, &opts, 0);
     let core = fixture.scan(CORE, &opts, 2);
     assert_javascript_only_selection(&legacy, &core);
+    let ts = fixture.scan("community-26.11-typescript-core", &opts, 2);
+    assert_eq!(ts["files"][0], legacy["files"][0]);
+    assert!(issues(&ts, "typescript:S1451").is_empty());
+    assert_eq!(
+        issues(&ts, "typescript:S7773"),
+        issues(&legacy, "typescript:S7773")
+    );
+    assert_eq!(issues(&ts, "typescript:S7773").len(), 1);
+}
+
+#[test]
+fn typescript_core_selects_only_typescript_and_cannot_certify_gates() {
+    let fixture = Fixture::new("typescript-selection");
+    let profile = "community-26.11-typescript-core";
+    let legacy = fixture.scan(LEGACY, &[], 0);
+    let javascript = fixture.scan(CORE, &["--write-baseline", "js.json"], 2);
+    let core = fixture.scan(profile, &["--write-baseline", "ts.json"], 2);
+    let selection = &core["partial_rule_selection"];
+    assert_eq!(selection["profile"], profile);
+    assert_eq!(selection["fallback_languages"], json!(["javascript"]));
+    assert_ne!(
+        selection["membership_sha256"],
+        javascript["partial_rule_selection"]["membership_sha256"]
+    );
+    assert_eq!(selection["reference_active_rules"], 199);
+    assert_eq!(selection["selected_catalog_keys"], 148);
+    assert_eq!(
+        selection["missing_catalog_keys"].as_array().unwrap().len(),
+        46
+    );
+    assert_eq!(
+        selection["unmapped_parameter_keys"],
+        json!([
+            "typescript:S2068",
+            "typescript:S2999",
+            "typescript:S4275",
+            "typescript:S5693",
+            "typescript:S6418"
+        ])
+    );
+    assert_eq!(core["files"][0], legacy["files"][0]);
+    assert_eq!(issues(&legacy, "typescript:S1451").len(), 1);
+    assert!(issues(&core, "typescript:S1451").is_empty());
+    assert_eq!(issues(&core, "typescript:S7773").len(), 1);
+    assert_eq!(
+        issues(&core, "typescript:S7773"),
+        issues(&legacy, "typescript:S7773")
+    );
+    assert_eq!(core["project"]["metrics"], legacy["project"]["metrics"]);
+    assert!(core.get("parity").is_none());
+    let assessed = fixture.scan(
+        profile,
+        &["--baseline", "ts.json", "--quality-gate", "gate.json"],
+        2,
+    );
+    assert_eq!(assessed["files"], core["files"]);
+    assert_eq!(assessed["assessment"]["new_code"]["status"], "complete");
+    assert_eq!(assessed["assessment"]["gate"]["status"], "unavailable");
+    assert!(assessed["assessment"]["gate"]["conditions"][0]["actual"].is_null());
+    let wrong = fixture.scan(profile, &["--baseline", "js.json"], 2);
+    assert_eq!(wrong["assessment"]["new_code"]["status"], "incomplete");
+    let fix = fixture.run(&["fix", "side.ts", "--profile", profile]);
+    assert_eq!(fix.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&fix.stderr).contains("partial selection for analyze only"));
 }
