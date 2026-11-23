@@ -148,13 +148,17 @@ def test_wheel(src, dependencies, epoch, architecture):
     ):
         cmd += ["-v", str(local) + ":" + remote + ":ro"]
     proc = subprocess.run(
-        [*cmd, image, "python", "/proof.py"], capture_output=True, timeout=290
+        [*cmd, image, "python", "/proof.py"],
+        check=False,
+        capture_output=True,
+        timeout=290,
     )
     require(
         proc.returncode == 0,
         "isolated build/tests failed: " + proc.stderr.decode(errors="replace")[-2000:],
     )
     res = json.loads(proc.stdout)
+    require(res["architecture"] == architecture, "container platform differs")
     require(
         res["wheel_sha256"] == MANIFEST["wheel_sha256"], "built wheel digest differs"
     )

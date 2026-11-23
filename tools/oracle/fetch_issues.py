@@ -47,7 +47,7 @@ def fetch(component):
     while True:
         q = urllib.parse.urlencode(
             {
-                "componentKeys": component,
+                "components": component,
                 "resolved": "false",
                 "additionalFields": "_all",
                 "ps": 500,
@@ -92,11 +92,11 @@ def _security_request(
 ) -> tuple[urllib.request.Request, str]:
     item_key = "hotspots" if hotspot else "issues"
     if hotspot:
-        params = {"projectKey": component, "ps": 500, "p": page}
+        params = {"project": component, "ps": 500, "p": page}
         path = "/api/hotspots/search"
     else:
         params = {
-            "componentKeys": component,
+            "components": component,
             "resolved": "false",
             "additionalFields": "_all",
             "ps": 500,

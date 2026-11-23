@@ -940,18 +940,17 @@ fn augment_assessment_fingerprints(
     } else {
         reference
     };
-    let mut coverage_fingerprints = Vec::with_capacity(
-        project_options.features.coverage_lcov.len()
-            + project_options.features.coverage_opencover.len(),
-    );
-    for path in project_options
+    let coverage_fingerprints: Vec<_> = project_options
         .features
-        .coverage_lcov
-        .iter()
-        .chain(&project_options.features.coverage_opencover)
-    {
-        coverage_fingerprints.push(artifact_fingerprint("assessment-coverage-v1", Some(path)));
-    }
+        .coverage_artifacts()
+        .into_iter()
+        .flat_map(|(format, paths)| {
+            paths.iter().map(move |path| {
+                let artifact = artifact_fingerprint("assessment-coverage-v1", Some(path));
+                digest_feature_values(format.as_str(), &[artifact.as_bytes()])
+            })
+        })
+        .collect();
     coverage_parts.extend(coverage_fingerprints.iter().map(String::as_bytes));
     let coverage_set = digest_feature_values("assessment-coverage-set-v1", &coverage_parts);
     CacheFingerprints {
