@@ -4,7 +4,8 @@ Run with --binary /path/to/hoonarqube. Add --mirrors DIR for offline use
 (DIR/owner--repo/objects is a bare mirror), --project owner/repo for one case,
 --output FILE for full residual line maps, or --enforce-gate for a CLI supporting
 an overall one_decimal duplication gate. Without that flag compare the scanner's
-density to the frozen Community threshold, independently of the CLI exit policy.
+density to the frozen threshold for complete reports. Go/Docker partial reports
+always require a real gate on the unchanged tree before supplementing line locations.
 No checkout, repository build, hooks, submodule initialization or source execution.
 """
 
@@ -19,6 +20,7 @@ import re
 import subprocess
 import tempfile
 
+import community_go_scoped_density as docker_scope
 from public_contract import require
 
 MANIFEST = Path(__file__).with_suffix(".json")
@@ -264,10 +266,10 @@ def file_path(text):
     return safe_tree_path(text.removeprefix("./"))
 
 
-def observed(project, limits):
+def observed(project, limits, roots=(".",)):
     require(
         project["complete"] is True
-        and project["roots"] == ["."]
+        and project["roots"] == list(roots)
         and not project["warnings"],
         "incomplete native analysis or incorrect roots",
     )
@@ -317,8 +319,11 @@ def observed(project, limits):
 
 
 def compare(case, project, limits):
+    return compare_measure(case, limits, *observed(project, limits))
+
+
+def compare_measure(case, limits, measured, actual, density):
     ref, allowance = case["community"], case["allowed_residual"]
-    measured, actual, density = observed(project, limits)
     indexed = set(ref["indexed_files"])
     require(
         indexed <= limits.keys() and len(indexed) == len(ref["indexed_files"]),
@@ -394,83 +399,142 @@ def verify_gate(report, code, result):
     )
 
 
+def scan(binary, roots, source, scratch, policy=None):
+    args = [binary, "analyze", *roots, "--profile", "sonar-parity", "--format", "json"]
+    if policy:
+        args.extend(["--quality-gate", policy])
+    proc = subprocess.run(
+        args,
+        cwd=source,
+        capture_output=True,
+        timeout=240,
+        env={
+            "PATH": str(scratch / "empty"),
+            "HOME": str(scratch / "empty"),
+            "TMPDIR": str(scratch),
+            "LC_ALL": "C",
+        },
+    )
+    require(proc.returncode in (0, 1, 2), f"unexpected scan exit: {proc.returncode}")
+    report = json.loads(proc.stdout, parse_float=Decimal)
+    parity = report["parity"]
+    require(
+        parity["reference"]["profile"] == "sonar-parity"
+        and parity["scope"]["roots"] == list(roots) == report["project"]["roots"]
+        and not any(
+            parity["scope"][key]
+            for key in (
+                "exclude",
+                "test_include",
+                "vendor_include",
+                "generated_include",
+                "duplication_exclude",
+            )
+        ),
+        "incorrect native profile, roots or exclusions",
+    )
+    return report, proc.returncode
+
+
+def scoped_replay(case, report, code, source, limits, run):
+    evidence = docker_scope.primary(case, report, source, limits)
+    density = one_decimal(Decimal(100) * evidence.numerator / evidence.denominator)
+    require(
+        density == decimal(case["community"]["density"])
+        and status(density) == case["community"]["status"],
+        "whole-tree density or decision differs from Community",
+    )
+    verify_gate(
+        report,
+        code,
+        {"candidate_density_decision": status(density), "candidate_density": density},
+    )
+
+    # The gate has already been decided. Only Go locations are missing.
+    roots = evidence.go_roots
+    supplement, exit_code = run(roots)
+    require(exit_code == 0, "supplemental Go analysis failed")
+    measured, marked, _ = observed(supplement["project"], limits, roots)
+    docker_scope.verify_line_map(supplement, evidence, limits, measured, marked)
+    result = compare_measure(
+        case, limits, measured | evidence.docker.keys(), marked, density
+    )
+    result.update(
+        line_map_source="explicit_indexed_go_files",
+        line_map_roots=roots,
+        gate_source="whole_tree",
+        dockerfile_lines=evidence.docker,
+        duplicated_lines=evidence.numerator,
+        overall_lines=evidence.denominator,
+        comparison="cli_gate",
+        cli_exit=code,
+        cli_gate_status=report["assessment"]["gate"]["status"],
+    )
+    return result
+
+
 def replay(case, binary, mirror=None, enforce=False):
     with tempfile.TemporaryDirectory(prefix="go-tree-") as tmp:
         scratch = Path(tmp)
         source, limits = stage(case, scratch, mirror)
-        empty = scratch / "empty"
-        empty.mkdir()
-        args = [binary, "analyze", ".", "--profile", "sonar-parity", "--format", "json"]
-        if enforce:
-            policy = scratch / "gate.json"
-            policy.write_text(json.dumps(POLICY))
-            args.extend(["--quality-gate", policy])
-        proc = subprocess.run(
-            args,
-            cwd=source,
-            capture_output=True,
-            timeout=240,
-            env={
-                "PATH": str(empty),
-                "HOME": str(empty),
-                "TMPDIR": str(scratch),
-                "LC_ALL": "C",
-            },
-        )
-        require(
-            proc.returncode in ((0, 1, 2) if enforce else (0,)),
-            f"unexpected scan exit: {proc.returncode}",
-        )
-        report = json.loads(proc.stdout, parse_float=Decimal)
-        parity = report["parity"]
-        require(
-            parity["reference"]["profile"] == "sonar-parity"
-            and parity["scope"]["roots"] == ["."]
-            and not any(
-                parity["scope"][key]
-                for key in (
-                    "exclude",
-                    "test_include",
-                    "vendor_include",
-                    "generated_include",
-                    "duplication_exclude",
-                )
-            ),
-            "incorrect native profile or exclusions",
-        )
+        (scratch / "empty").mkdir()
+        policy = scratch / "gate.json"
+        policy.write_text(json.dumps(POLICY))
+
+        def run(roots, gate=False):
+            return scan(binary, roots, source, scratch, policy if gate else None)
+
+        report, code = run(["."], enforce)
         project = report["project"]
         if project["complete"] is not True or not isinstance(
             project.get("duplication"), dict
         ):
-            gate = report.get("assessment", {}).get("gate") or {}
-            return {
-                "repository": case["repository"],
-                "commit": case["commit"],
-                "tree": case["tree"],
-                "analysis": case["community"]["analysis"],
-                "community_density": case["community"]["density"],
-                "community_status": case["community"]["status"],
-                "candidate_density": None,
-                "candidate_density_decision": None,
-                "cli_exit": proc.returncode,
-                "cli_gate_status": gate.get("status") if enforce else None,
-                "comparison": "cli_gate" if enforce else "density_threshold_only",
-                "tracked": len(limits),
-                "diagnostics": project["warnings"],
-                "regressions": ["complete-project duplication measure unavailable"],
-            }
+            if not enforce:
+                require(code == 2, "unexpected incomplete analysis exit")
+                original = report
+                report, code = run(["."], True)
+                require(
+                    report["project"] == project
+                    and report["files"] == original["files"],
+                    "the assigned gate changed the original analysis",
+                )
+            gate = (report.get("assessment") or {}).get("gate") or {}
+            try:
+                return scoped_replay(case, report, code, source, limits, run)
+            except (ValueError, KeyError, TypeError, ArithmeticError) as error:
+                return {
+                    "repository": case["repository"],
+                    "commit": case["commit"],
+                    "tree": case["tree"],
+                    "analysis": case["community"]["analysis"],
+                    "community_density": case["community"]["density"],
+                    "community_status": case["community"]["status"],
+                    "candidate_density": None,
+                    "candidate_density_decision": None,
+                    "cli_exit": code,
+                    "cli_gate_status": gate.get("status"),
+                    "comparison": "cli_gate",
+                    "gate_source": "whole_tree",
+                    "line_map_source": None,
+                    "tracked": len(limits),
+                    "diagnostics": project["warnings"],
+                    "regressions": [str(error)],
+                }
+        require(enforce or code == 0, "unexpected complete analysis exit")
         result = compare(case, project, limits)
+        result["line_map_source"] = "whole_tree"
         result["comparison"] = "cli_gate" if enforce else "density_threshold_only"
         if enforce:
-            result["cli_exit"] = proc.returncode
+            result["gate_source"] = "whole_tree"
+            result["cli_exit"] = code
             result["cli_gate_status"] = (
-                report.get("assessment", {}).get("gate") or {}
+                (report.get("assessment") or {}).get("gate") or {}
             ).get("status")
             try:
-                verify_gate(report, proc.returncode, result)
+                verify_gate(report, code, result)
             except (ValueError, KeyError, TypeError) as error:
                 result["regressions"].append(
-                    f"CLI gate {result['cli_gate_status']!r} (exit {proc.returncode}): {error}"
+                    f"CLI gate {result['cli_gate_status']!r} (exit {code}): {error}"
                 )
         return result
 

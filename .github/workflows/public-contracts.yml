@@ -36,6 +36,7 @@ jobs:
       - name: Check complete Git trees and duplication on 32 pinned public Go repositories
         run: |
           python3 -m unittest discover -s tools/oracle -p test_community_go_whole_trees.py -v
+          python3 -m unittest discover -s tools/oracle -p test_community_go_scoped_density.py -v
           python3 tools/oracle/community_go_whole_trees.py --binary target/release/hoonarqube
       - name: Compare single-iteration loops on nine public Python packages and scoped controls
         run: python3 tools/oracle/python_single_iteration/replay.py target/release/hoonarqube
