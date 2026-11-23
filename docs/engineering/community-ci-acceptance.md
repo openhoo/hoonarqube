@@ -17,6 +17,8 @@ The small-change exception is another input to verify. The [Community Build 26.1
 
 A team using custom **overall** conditions has a shorter path. [Commander.js](../../tools/oracle/public-line-coverage-gates-20261120.md) exercises a passing run, a failing run, rounding at 59.2%, and missing input. [Picomatch and Yjs](../public-quality-gates-20261120.md) exercise a pass and a failure with two duplication conditions each. A missing Commander coverage input blocks both systems, with different diagnostics: Community reports failed coverage; Hoonarqube reports unavailable and exits 2.
 
+The [Blinker wheel contract](../../tools/oracle/blinker_build/README.md) builds the actual package and runs its 25 upstream tests. Both products pass the full suite's 80% overall gate, fail with only four focused tests, and block CI when the coverage file is missing. The native service evaluates the assigned policy and preserves its decisions after restart.
+
 ## Pilot record and release decision
 
 1. **Freeze inputs.** Record the repository, base and candidate SHAs, exact scanner and reference builds, source/test exclusions, effective rule keys and parameters, coverage file digest, and the assigned gate with all thresholds and overrides. Preserve the two input reports used for new-code comparison. The native baseline is an explicit prior report; verify the actual reference definition of new code for the project.
