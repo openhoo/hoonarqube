@@ -580,6 +580,7 @@ mod tests {
             schema_version: 1,
             files,
             project: ProjectReport {
+                docker_duplication: None,
                 metrics: ProjectMetrics {
                     files: 0,
                     lines: 0,

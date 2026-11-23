@@ -630,22 +630,14 @@ records SonarQube Community server **26.8.0.126808** observations. Counts are
 | HTML | `web` | 104 | 61 | `planned_not_implemented` |
 | Docker | `docker` | 28 | 25 | `planned_not_implemented` |
 
-All three languages are absent from the frozen local rule catalog, native
-language dispatch, and current eight-language measurement dispatch. The
-reference counts are server/profile observations only; all listed rule work is
-planned, not implemented locally.
-
-When a directory is analyzed, recognized CSS, HTML, and Docker paths are kept
-as `Excluded`/`Unsupported` inventory entries with reason `language is
-unsupported` and no metrics. Recognition is case-insensitive for CSS
-(`.css`, `.less`, `.scss`, `.sass`), HTML (`.html`, `.xhtml`, `.cshtml`,
-`.vbhtml`, `.aspx`, `.ascx`, `.rhtml`, `.erb`, `.shtm`, `.shtml`, `.cmp`,
-`.twig`, `.htm`), and Docker (`Dockerfile` or any `.dockerfile` basename).
-The ordinary supported-source metrics and cross-file CPD remain unchanged,
-`project.complete` stays true, and the exit code stays 0. Passing one of those
-files explicitly (without an explicit exclusion or another inventory
-classification) keeps it as `Source`/`Unsupported`, makes the project
-incomplete, and exits 2.
+These frozen rule counts describe the reference profile. They do not establish
+native rule or metric coverage. Native HTML dispatch takes precedence for its
+registered extensions. Directory scans also retain files that the
+[public Community scope comparison](docs/engineering/community-directory-scope.md)
+identifies as source. Without a native analyzer those files are unmeasured and
+can make an assigned overall gate unavailable. Legacy template names and Docker
+variants outside the verified mapping remain informational inventory entries.
+Explicit scope exclusions take precedence.
 
 ## GitHub Code Quality action
 
