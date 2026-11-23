@@ -10,6 +10,8 @@
 //! and inheritance.  Dynamic or unresolved configuration remains a distinct
 //! resolver state and is not guessed as safe.
 
+pub mod notebook;
+
 use hoonarqube_ir::Issue;
 use ruff_python_ast::ModModule;
 use ruff_python_parser::Parsed;

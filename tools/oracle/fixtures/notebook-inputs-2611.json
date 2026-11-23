@@ -246,6 +246,8 @@
           "code_cells": 8,
           "issues": [
             {
+              "cell_index": 10,
+              "message": "Save this task in a variable to prevent premature garbage collection.",
               "raw_highlight": "asyncio.ensure_future",
               "rule": "ipython:S7502",
               "textRange": {

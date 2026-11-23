@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from community_new_duplication import git
+from notebook_layouts import replay as replay_layouts
 from public_coverage_gate_replay import check
 from public_empty_inventory_gate import select
 
@@ -160,6 +161,68 @@ def compare_projection(root, plain, binary, path, expected):
     return len(native)
 
 
+# These saved files cannot be fully parsed by this bounded notebook rule. A
+# refusal does not count as agreement with a silent Community file.
+UNAVAILABLE = {
+    "docs/source/examples/Using Interact.ipynb": "unsupported cell magic",
+    "docs/source/examples/Notebook/JavaScript Notebook Extensions.ipynb": "unsupported cell magic",
+    "docs/source/examples/Notebook/Importing Notebooks.ipynb": "unsupported IPython syntax",
+}
+
+
+def compare_notebook(root, binary, path, expected):
+    proc = subprocess.run(
+        [binary, "notebook", "--json", path],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    report = json.loads(proc.stdout)
+    check(
+        report["schema_version"] == 1
+        and report["path"] == path
+        and report["rule"] == "ipython:S7502",
+        f"{path}: unexpected inspection identity",
+    )
+    if path in UNAVAILABLE:
+        check(
+            proc.returncode == 2
+            and report["status"] == "unavailable"
+            and report["inspection"] is None
+            and UNAVAILABLE[path] in report["reason"]
+            and not expected["issues"],
+            f"{path}: unsupported input was treated as inspected",
+        )
+        return 0, 1
+    inspected = report["inspection"]
+    check(
+        proc.returncode == 0
+        and report["status"] == "inspected"
+        and report["reason"] is None
+        and inspected["code_cells"] == expected["code_cells"]
+        and inspected["cells"] == len(json.loads((root / path).read_bytes())["cells"])
+        and len(inspected["findings"]) == len(expected["issues"]),
+        f"{path}: wrong notebook result",
+    )
+    for own, ref in zip(inspected["findings"], expected["issues"], strict=True):
+        loc = ref["textRange"]
+        check(
+            own
+            == {
+                "rule_key": ref["rule"],
+                "message": ref["message"],
+                "cell_index": ref["cell_index"],
+                "range": {
+                    "start": {"line": loc["startLine"], "column": loc["startOffset"]},
+                    "end": {"line": loc["endLine"], "column": loc["endOffset"]},
+                },
+            },
+            f"{path}: native notebook issue differs from its captured primary range",
+        )
+    return len(inspected["findings"]), 0
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("binary", type=Path)
@@ -174,9 +237,10 @@ def main():
         and {case["repository"] for case in captures["projects"]} == REPOS,
         "unexpected reference capture",
     )
-    total = positives = missing = 0
+    total = positives = missing = native = refused = 0
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
+        replay_layouts(binary, work)
         plain = work / "projection"
         plain.mkdir()
         policy = work / "gate.json"
@@ -207,6 +271,9 @@ def main():
             git(root, "fetch", "-q", "--no-tags", "--depth=1", source, case["commit"])
             check_scope(root, binary, case, policy)
             for path, expected in case["files"].items():
+                hits, unavailable = compare_notebook(root, binary, path, expected)
+                native += hits
+                refused += unavailable
                 positives += compare_projection(root, plain, binary, path, expected)
                 total += 1
                 missing += "ncloc" not in expected["metrics"]
@@ -218,6 +285,10 @@ def main():
                 f"{repo} {case['commit']}: explicit and mixed gates unavailable; exclusion passes"
             )
     check((total, positives, missing) == (21, 1, 1), "different qualification cohort")
+    check((native, refused) == (1, 3), "different native notebook scope")
+    print(
+        "Notebook rule: one exact primary range, 17 inspected silent files, three unavailable."
+    )
     print(
         "21 pinned notebooks; one projected S7502 and 20 silent controls; one missing ncloc."
     )

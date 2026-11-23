@@ -48,6 +48,47 @@ projections produced incomplete Python reports. Concatenating cells is useful
 as a diagnostic control; it does not provide an analyzer for original notebook
 spans, IPython syntax, or notebook quality gates.
 
+## Inspect a saved notebook
+
+```sh
+hoonarqube notebook --json "Widget Asynchronous.ipynb"
+```
+
+The command checks a single rule, `ipython:S7502`, for standalone calls to
+`asyncio.create_task` or `asyncio.ensure_future`. It uses the native Python
+binding resolver, so a saved alias can refer to an import in an earlier code
+cell. The saved array order determines the scope. Execution counters, cell
+outputs and markdown are not Python source. The scanner never starts a kernel.
+
+A successful inspection returns exit 0, including when it reports a finding.
+Its JSON gives the zero-based cell index and a half-open primary range in the
+**original JSON** (one-based line, zero-based UTF-16 columns). For the pinned
+ipywidgets example above it reports cell 10, line 120, columns 5–26 and the
+same rule key and message as Community. Seventeen other originals were inspected
+with no finding for this rule. Three returned exit 2: the saved inputs contain
+a timing cell magic, a JavaScript cell magic, or unsupported IPython syntax.
+They are not counted as matching negative results. These decisions do not
+provide `ncloc`, duplication, profile coverage, or gate results.
+
+The parser reads nbformat 4, validates Python kernel/language declarations for
+notebooks with code, and parses each saved code cell independently in IPython
+mode. Line magics such as `%gui` can be parsed; cell magics (`%%`), conflicting
+languages, unsupported syntax and a callee split across JSON strings return
+`status: unavailable`, `inspection: null`, exit 2. Source strings and arrays of
+strings are both supported. JSON escape sequences and non-BMP Unicode scalars
+are mapped from the actual source tokens. Size limits are 4 MiB of original
+JSON, 1 MiB of projected code, 4,096 cells and 65,536 source fragments.
+
+A separate [six-input layout capture](../../tools/oracle/fixtures/notebook-layouts-2611.json)
+checks where Community and the original-file coordinates agree. A compact JSON
+line with a literal emoji, a formatted source array, a single source string
+and a retained-task control matched. With an escaped surrogate pair preceding
+the call, Community reported columns 17–21, while the original-file token
+`task` occupied 27–31. When the callee itself was written `\u0074ask`,
+Community again reported 17–21; the physical token occupied 27–36. Hoonarqube
+reports the range that selects the original JSON spelling. These artificial
+controls supplement the public notebook evidence and are replayed separately.
+
 ## Replay
 
 From the repository root:

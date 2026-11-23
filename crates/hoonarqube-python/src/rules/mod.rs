@@ -2148,7 +2148,7 @@ mod unreachable_test_methods;
 
 mod unread_private_attributes;
 
-mod unreferenced_asyncio_tasks;
+pub(crate) mod unreferenced_asyncio_tasks;
 
 mod unseeded_randomness;
 
