@@ -35,6 +35,8 @@ jobs:
         run: >-
           python3 tools/oracle/ruby_empty_methods.py --binary target/release/hoonarqube
           --case rack --case puma-puma --case dry-rb-dry-monads --case ruby-logger
+      - name: Check Ruby duplicate literals and supporting locations on 49 public projects
+        run: python3 tools/oracle/ruby_duplicate_literals.py --binary target/release/hoonarqube
       - name: Check primary locations on 24 more pinned public repositories
         run: python3 tools/oracle/public_locations.py target/release/hoonarqube
       - name: Check current Community core, extended and comprehensive profiles

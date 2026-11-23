@@ -426,6 +426,12 @@ static inline bool scan_open_delimiter(Scanner *scanner, TSLexer *lexer, Literal
         case '%':
             advance(lexer);
 
+            // Bare %= belongs to the assignment operator. After an explicit
+            // literal type (e.g. %r=...=), '=' is an ordinary delimiter.
+            if (lexer->lookahead == '=') {
+                return false;
+            }
+
             switch (lexer->lookahead) {
                 case 's':
                     if (!valid_symbols[SIMPLE_SYMBOL]) {
@@ -565,11 +571,7 @@ static inline bool scan_open_delimiter(Scanner *scanner, TSLexer *lexer, Literal
                 case ']':
                 case '}':
                 case '>':
-                // TODO: Implement %= as external rule and re-enable = as a valid
-                // unbalanced delimiter. That will be necessary due to ambiguity
-                // between &= assignment operator and %=...= as string
-                // content delimiter.
-                // case '=':
+                case '=':
                 case '+':
                 case '-':
                 case '~':
