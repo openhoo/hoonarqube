@@ -72,7 +72,7 @@ def fetch_all_issues(url, token, project):
             url,
             token,
             "/api/issues/search",
-            {"componentKeys": project, "ps": 500, "p": page},
+            {"components": project, "ps": 500, "p": page},
         )
         page_issues, total, page_size, done = validate_search_page(
             payload,

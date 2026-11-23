@@ -206,12 +206,13 @@ mod tests {
         assert_eq!(finding.range.start.column, 4);
         assert_eq!(finding.range.end.line, 3);
         assert_eq!(finding.range.end.column, 16);
-        assert_eq!(finding.flows.len(), 1, "one secondary-location group");
-        let locations = &finding.flows[0].locations;
-        assert_eq!(locations.len(), 8, "every later occurrence is a flow");
-        assert_eq!(locations[0].message, "Duplication");
-        assert_eq!(locations[0].range.start.line, 3);
-        assert_eq!(locations[0].range.start.column, 18);
+        assert_eq!(finding.flows.len(), 8, "one independent flow per duplicate");
+        for flow in &finding.flows {
+            assert_eq!(flow.locations.len(), 1);
+            assert_eq!(flow.locations[0].message, "Duplication");
+        }
+        assert_eq!(finding.flows[0].locations[0].range.start.line, 3);
+        assert_eq!(finding.flows[0].locations[0].range.start.column, 18);
     }
 
     #[test]
