@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Deserializer, Serialize, de};
 /// Versioned optional baseline, coverage, and gate assessment.
 pub mod assessment;
+pub mod docker_duplication;
 /// Machine-verifiable `sonar-parity` contract types.
 pub mod parity;
 
@@ -790,6 +791,9 @@ pub struct ProjectFileMeasurement {
 /// scope but are not measured files.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectReport {
+    /// Separately attested overall density for supported Go and Dockerfile inputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docker_duplication: Option<docker_duplication::DockerDuplicationEvidence>,
     pub metrics: ProjectMetrics,
     pub files: Vec<ProjectFileMeasurement>,
     pub duplications: Vec<DuplicateGroup>,

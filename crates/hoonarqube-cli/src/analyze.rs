@@ -7,6 +7,7 @@
 //! Non-fatal collection/read/parser problems are retained as warnings and
 //! make the project report incomplete instead of being silently skipped.
 mod community_inputs;
+mod docker_duplication;
 use community_inputs::UnsupportedInput;
 mod csharp_index;
 use csharp_index::with_csharp_project_index;
@@ -401,6 +402,7 @@ pub(crate) fn analyze_project_paths(
         &project_options.duplication,
     )?;
     append_unsupported_inventory(&mut report, unsupported_inventory);
+    docker_duplication::attach(&mut report, collected.dockerfiles, project_options);
     crate::parity_cli::attach_parity_contract(
         &mut report,
         catalog,
@@ -459,6 +461,7 @@ fn append_unsupported_inventory(
 }
 
 struct CollectedProjectInputs {
+    dockerfiles: Vec<hoonarqube_ir::docker_duplication::DockerfileLines>,
     project_files: Vec<ProjectFile>,
     source_inventory: Vec<AnalyzedSource>,
     go_receipts: std::collections::BTreeMap<PathBuf, GoSourceReceipt>,
@@ -500,6 +503,7 @@ fn collect_project_inputs(
     unsupported_inventory
         .retain(|(path, _)| !explicit_paths.contains(&normalized_input_path(path)));
     let mut collected = CollectedProjectInputs {
+        dockerfiles: Vec::new(),
         project_files: Vec::with_capacity(files.len() + collection_failures.len()),
         source_inventory: Vec::new(),
         go_receipts: std::collections::BTreeMap::new(),
@@ -589,6 +593,13 @@ fn collect_project_input(
             error: None,
             duplication_excluded,
         });
+        return;
+    }
+    if classification == FileClassification::Source
+        && !duplication_excluded
+        && let Some(row) = docker_duplication::measure(&path)
+    {
+        collected.dockerfiles.push(row);
         return;
     }
     if hoonarqube_core::language_for_path(&path).is_none() {
@@ -2838,6 +2849,7 @@ mod tests {
         write_oversized_source(&oversized, 17 * 1024 * 1024);
 
         let mut collected = CollectedProjectInputs {
+            dockerfiles: Vec::new(),
             project_files: Vec::new(),
             source_inventory: Vec::new(),
             go_receipts: std::collections::BTreeMap::new(),

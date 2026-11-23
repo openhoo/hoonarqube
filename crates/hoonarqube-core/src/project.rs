@@ -275,6 +275,7 @@ pub fn build_project_report(
         schema_version: 1,
         files: reports,
         project: ProjectReport {
+            docker_duplication: None,
             metrics: project_metrics,
             files: measurements,
             duplications,
