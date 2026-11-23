@@ -97,9 +97,15 @@ or authenticate coverage producers.
 ### Enforce the upload verdict in CI
 
 HTTP 200 acknowledges storage. A failing or unavailable gate is still stored.
-The script below checks the service receipt for the exact project, branch and
-commit in the CI job. It exits **0** for an assigned pass, **1** for a failed
-gate, and **2** for unavailable, unassigned, malformed, or mismatched results.
+The script below checks the service receipt for the exact project, branch,
+commit, and policy version expected by the CI job. Set `POLICY_VERSION` to the
+positive revision number your job requires. An idempotent upload can return an
+older bound version after a policy update, so passing the expected version
+prevents CI from accepting that older decision. If you omit `--policy-version`,
+the checker accepts any assigned version with a valid decision.
+
+The checker exits **0** for an assigned pass, **1** for a failed gate, and **2**
+for unavailable, unassigned, malformed, or mismatched results.
 
 ```sh
 # Use a trusted service URL and the scanner credential from the CI secret store.
@@ -110,7 +116,7 @@ curl --fail --silent --show-error \
   --data-binary @ingest.json "$SERVICE_URL/api/v1/projects/$PROJECT/analyses" \
   -o ingest-receipt.json
 python3 scripts/check_project_gate.py --project "$PROJECT" --branch "$BRANCH" \
-  --commit "$COMMIT" < ingest-receipt.json
+  --commit "$COMMIT" --policy-version "$POLICY_VERSION" < ingest-receipt.json
 ```
 
 The [Redux replay](../../tools/oracle/project_gate_policy_replay.py) exercises
